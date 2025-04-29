@@ -41,7 +41,7 @@ char g_sInfoMessages[MAX_INFO_LINES][MAX_MESSAGE_LENGTH] = {
     "\x07FF80C0This server improves the stats of some weapons; use !reverts to read about your class.",
     "\x07FFFF00Use !commands to read about other commands available.",
     "\x07DDA0DDSprays and other features like soundsprays are enabled.",
-    "\x07EEE8AThe mapcycle becomes larger after 9PM EST.",
+    "\x07EEE8A\nThe mapcycle becomes larger after 9PM EST.",
     "\x0787CEFAMelee random crits are enabled and random bullet spread is disabled;",
     "\x03Google 'Kogasatopia' to locate our website easily and check when people are playing.",
     "\x0780D0A0When do people play here? Usually after 9PM EST."
