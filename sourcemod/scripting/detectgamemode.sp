@@ -113,7 +113,6 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
         if (GetConVarInt(g_cvEnabled) == 1) {
                 float time = GetConVarFloat(g_cvRespawnTime);
-				PrintToChat(client, "cobson");
                 CreateTimer(time, Timer_RespawnClient, client);
                 return;
         }
