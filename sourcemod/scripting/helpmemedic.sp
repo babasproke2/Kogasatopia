@@ -5,7 +5,7 @@
 #include <sdktools>
 #include <tf2>
 #include <tf2_stocks>
-#include "detectgamemode/stocks.sp"
+#include "detectgamemode/gamemode_stocks.sp"
 
 #define PLUGIN_VERSION "1.0"
 #define ASK_COOLDOWN 12.0
