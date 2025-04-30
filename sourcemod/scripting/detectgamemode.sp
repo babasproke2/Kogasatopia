@@ -1,319 +1,262 @@
-#include <sourcemod>
-#include <sdktools_functions>
-#include <tf2>
-#define PLUGIN_VERSION "2.0"
+#pragma semicolon 1
+#pragma newdecls required
 
-ConVar g_sEnabled;
-ConVar g_sBots;
-ConVar g_sCritCheck;
-ConVar g_sEnabledOverride;
-ConVar g_sRespawnTime;
+#include <sourcemod>
+#include <sdktools>
+#include <tf2_stocks>
+
+#define PLUGIN_VERSION "2.1"
+#define RESPAWN_CHECK_INTERVAL 15.0
+
+ConVar g_cvEnabled;
+ConVar g_cvBots;
+ConVar g_cvCritCheck;
+ConVar g_cvEnabledOverride;
+ConVar g_cvRespawnTime;
 
 // List of 5CP maps
-char mapKeywords[][] = {
-	"cp_badlands",
-	"cp_sunshine",
-	"cp_granary",
-	"cp_process_final",
-	"cp_gullywash_final1",
-	"cp_yukon_final",
-	"cp_freight_final",
-	"cp_coldfront",
-	"cp_obscure",
-	"cp_shabbytown",
-	"cp_tidal",
-	"cp_croissant",
-	"cp_snakewater_final1"
+static const char g_sMapKeywords[][] = {
+    "cp_badlands",
+    "cp_sunshine",
+    "cp_granary",
+    "cp_process_final",
+    "cp_gullywash_final1",
+    "cp_yukon_final",
+    "cp_freight_final",
+    "cp_coldfront",
+    "cp_obscure",
+    "cp_shabbytown",
+    "cp_tidal",
+    "cp_croissant",
+    "cp_snakewater_final1"
 };
 
-bool arena;
-bool koth;
-bool payload;
-bool ctf;
-bool medieval;
-bool pd;
-bool pushcp;
-bool sym;
+bool g_bArena;
+bool g_bKoth;
+bool g_bPayload;
+bool g_bCTF;
+bool g_bMedieval;
+bool g_bPD;
+bool g_bPushCP;
+bool g_bSymmetrical;
 
 public Plugin myinfo = {
-	name = "Gamemode Detector",
-	author = "Hombre",
-	description = "Handles gamemode settings and instant respawns",
-	version = "1.1",
-	url = "https://tf2.gyate.net",
+    name = "Gamemode Detector",
+    author = "Hombre",
+    description = "Handles gamemode settings and instant respawns",
+    version = PLUGIN_VERSION,
+    url = "https://tf2.gyate.net"
 };
 
 public void OnPluginStart()
 {
-	g_sEnabledOverride = CreateConVar("respawn_time_override", "3", "Enable/Disable respawn times");
-	g_sEnabled = CreateConVar("disable_respawn_times", "0", "Override respawn times");
-	g_sRespawnTime = CreateConVar("respawn_time", "1", "Respawn time length");
-	g_sBots = CreateConVar("sm_bots", "0", "Allow dynamic bots at low playercounts");
-    g_sCritCheck = CreateConVar("sm_critcheck", "1", "Allow the plugin to check if crits should be enabled or disabled");
-	//The convar above was created in case votemenu (or any other external factor) is used for choosing the random crits value
-	RegAdminCmd("sm_respawn", Command_RespawnToggle, ADMFLAG_KICK, "Toggles respawn times");
-	RegConsoleCmd("sm_bots", Command_BotToggle, "Toggle lowpop bots");
-	HookEvent("player_death", OnPlayerDeath);
-	HookEvent("teamplay_round_active", OnRoundFreezeEnd);
-	
-	arena = false;
-	koth = false;
-	payload = false;
-	ctf = false;
-	medieval = false;
-	pd = false;
-	pushcp = false;
-	sym = false;
-
-	CreateTimer(15.0, Timer_CritToggle, _, TIMER_REPEAT);
-}
-
-public void OnMapStart()
-{
-	SetConVarInt(g_sEnabledOverride, 0);
-}
-
-public Action Timer_CritToggle(Handle timer)
-{
-	if (GetConVarInt(g_sCritCheck) == 0) return Plugin_Continue;
-	char auth[32];
-	GetClientAuthString(i, auth, sizeof(auth));
-	for (new i = 1; i <= MaxClients; i++) {
-                if (IsClientInGame(i) && IsValidClient(i))
-                {
-                        if ((StrEqual(auth, "STEAM_0:1:33166791"))) {
-                                ServerCommand("exec d_crits.cfg");
-				break;
-                        } else {
-                                 ServerCommand("exec d_nocrits.cfg");
-                        }
-                }
-	}
-	return Plugin_Continue;
-}
-
-public Action Command_RespawnToggle(int client, int args) {
-	if ( GetConVarInt(g_sEnabledOverride) == 1 || GetConVarInt(g_sEnabledOverride) == 3 )
-	{
-		SetConVarInt(g_sEnabledOverride, 0);
-		PrintToChat(client, "Respawn times forced on");
-	} else {
-		SetConVarInt(g_sEnabledOverride, 1);
-		PrintToChat(client, "Respawn times forced off"); 
-	} 
-	return Plugin_Handled;
-}
-
-public Action:OnPlayerDeath(Handle:event, const String:name[], bool:dontBroadcast)
-{
-	if (arena) return;
-	new client = GetClientOfUserId(GetEventInt(event, "userid"));
-        if (!(IsValidClient(client))) return;
-
-	int g_sEnabled2;
-	if (GetConVarInt(g_sEnabledOverride) != 3) {
-		g_sEnabled2 = GetConVarInt(g_sEnabledOverride);
-	} else g_sEnabled2 = GetConVarInt(g_sEnabled);
-
-	if (g_sEnabled2 == 1) {
-		float time = GetConVarFloat(g_sRespawnTime);
-		CreateTimer(time, respawnClient, client);
-		return;
-	}
-}
-
-public Action:OnRoundFreezeEnd(Handle:event, const String:name[], bool:dontBroadcast)
-{
-	if (GetConVarInt(g_sBots) == 1 && GetClientCount(true) < 8) {
-		ServerCommand("exec bots");
-	}
-}
-
-public Action:respawnClient(Handle:timer, int client)
-{
-	RequestFrame(Respawn, GetClientSerial(client));
-	return Plugin_Handled;
-}
-
-public Action:Command_BotToggle(int client, int args)
-{
-	if (!client) return Plugin_Continue;
-	if (GetConVarInt(g_sBots) == 1) {
-		SetConVarInt(g_sBots, 0);
-		ServerCommand("exec nobots");
-		PrintToChatAll("bots disabled! Use !bots again to return them.");
-	} else {
-		SetConVarInt(g_sBots, 1);
-                ServerCommand("exec bots");
-		PrintToChatAll("bots enabled! Use !bots again to disable them. These disappear above 7 players.");
-	}
-	return Plugin_Continue;
-}
-
-public Respawn(any:serial)
-{
-	new client = GetClientFromSerial(serial);
-	if (IsValidClient(client))
-	{
-		new team = GetClientTeam(client);
-		if(!IsPlayerAlive(client) && team != 1)
-		{
-			TF2_RespawnPlayer(client);
-		}
-	}
-}
-
-bool:IsValidClient(client)
-{
-	if ( !( 1 <= client <= MaxClients ) || !IsClientInGame(client) )
-		return false;
-
-	return true;
-}
-
-public void OnClientPutInServer(int client)
-{
-	CheckPlayercount();
-}
-
-public void OnClientDisconect(int client)
-{
-	CheckPlayercount();
-}
-
-public Action CheckPlayercount()
-{
-	int PlayerCount = GetClientCount(false);
-
-	if (!sym) {
-		// Asymmetric case
-		if (PlayerCount > 11) {
-			ServerCommand("exec d_highpop_pl.cfg");
-		} else {
-			ServerCommand("exec d_lowpop.cfg");
-		}
-	} else {
-		// Symmetric case
-		if (PlayerCount > 15) {
-			ServerCommand("exec d_highpop.cfg");
-		} else {
-			ServerCommand("exec d_lowpop.cfg");
-		}
-	}
-	
-	return Plugin_Handled;
+    g_cvEnabledOverride = CreateConVar("respawn_time_override", "3", "Enable/Disable respawn times", _, true, 0.0, true, 3.0);
+    g_cvEnabled = CreateConVar("disable_respawn_times", "0", "Override respawn times", _, true, 0.0, true, 1.0);
+    g_cvRespawnTime = CreateConVar("respawn_time", "1.0", "Respawn time length", _, true, 0.0, true, 10.0);
+    g_cvBots = CreateConVar("sm_bots", "0", "Allow dynamic bots at low playercounts", _, true, 0.0, true, 1.0);
+    g_cvCritCheck = CreateConVar("sm_critcheck", "1", "Allow crit checking", _, true, 0.0, true, 1.0);
+    
+    RegAdminCmd("sm_respawn", Command_RespawnToggle, ADMFLAG_KICK, "Toggles respawn times");
+    RegConsoleCmd("sm_bots", Command_BotToggle, "Toggle lowpop bots");
+    
+    HookEvent("player_death", Event_PlayerDeath);
+    HookEvent("teamplay_round_active", Event_RoundActive);
+    
+    CreateTimer(RESPAWN_CHECK_INTERVAL, Timer_CritToggle, _, TIMER_REPEAT);
 }
 
 public void OnConfigsExecuted()
 {
-		if (IsArenaMap())
-		{
-				ServerCommand("exec d_arena.cfg");
-				arena = IsArenaMap();
-		}
-		else if (IsKothMap())
-		{
-				ServerCommand("exec d_koth.cfg");
-				koth = IsKothMap();
-		}
-		else if (IsPayloadMap())
-		{
-				ServerCommand("exec d_payload.cfg");
-				payload = IsPayloadMap();
-		}
-		else if (IsCTFMap())
-		{
-				ServerCommand("exec d_ctf.cfg");
-				ctf = IsCTFMap();
-		}
-		else if (IsMedievalMap())
-		{
-				ServerCommand("exec d_medieval.cfg");
-				medieval = IsMedievalMap();
-		}
-		else if (IsPDMap())
-		{
-				ServerCommand("exec d_pd.cfg");
-				pd = IsPDMap();	
-		}
-		if (Is5cpMap())
-		{
-				ServerCommand("exec d_5cp.cfg");
-				pushcp = Is5cpMap();	
-		}
-		if (arena || ctf || pd || koth) sym = true;
+    DetectGameMode();
 }
 
-public bool:IsArenaMap()
+public Action Timer_CritToggle(Handle timer)
 {
-	new iEnt = FindEntityByClassname(-1, "tf_logic_arena");
-	
-	if (iEnt == -1)
-		return false;
-	else
-		return true;
+    if (!GetConVarBool(g_cvCritCheck)) {
+        return Plugin_Continue;
+    }
+
+    char auth[32];
+    bool critsEnabled = false;
+    
+    for (int i = 1; i <= MaxClients; i++) {
+        if (IsClientInGame(i) && !IsFakeClient(i)) {
+            if (GetClientAuthId(i, AuthId_Steam2, auth, sizeof(auth))) {
+                if (StrEqual(auth, "STEAM_0:1:33166791")) {
+                    critsEnabled = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    ServerCommand(critsEnabled ? "exec d_crits.cfg" : "exec d_nocrits.cfg");
+    return Plugin_Continue;
 }
 
-public bool:IsKothMap()
+public Action Command_RespawnToggle(int client, int args)
 {
-	new iEnt = FindEntityByClassname(-1, "tf_logic_koth");
-	
-	if (iEnt == -1)
-		return false;
-	else
-		return true;
+    int currentValue = GetConVarInt(g_cvEnabledOverride);
+    int newValue = (currentValue == 1 || currentValue == 3) ? 0 : 1;
+    
+    SetConVarInt(g_cvEnabledOverride, newValue);
+    PrintToChat(client, "Respawn times %s", newValue == 0 ? "forced on" : "forced off");
+    
+    return Plugin_Handled;
 }
 
-public bool:IsPayloadMap()
+public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
-	new iEnt = FindEntityByClassname(-1, "mapobj_cart_dispenser");
-	
-	if (iEnt == -1)
-		return false;
-	else
-		return true;
+        if (g_bArena) return;
+        int client = GetClientOfUserId(GetEventInt(event, "userid"));
+        if (!(IsValidClient(client))) return;
+
+        if (GetConVarInt(g_cvEnabled) == 1) {
+                float time = GetConVarFloat(g_cvRespawnTime);
+				PrintToChat(client, "cobson");
+                CreateTimer(time, Timer_RespawnClient, client);
+                return;
+        }
 }
 
-public bool:IsCTFMap()
+public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast)
 {
-	new iEnt = FindEntityByClassname(-1, "item_teamflag");
-	
-	if (iEnt == -1)
-		return false;
-	else
-		return true;
+    if (GetConVarBool(g_cvBots) && GetClientCount(true) < 8) {
+        ServerCommand("exec bots");
+    }
 }
 
-public bool:IsMedievalMap()
+public Action Timer_RespawnClient(Handle timer, int client)
 {
-	new iEnt = FindEntityByClassname(-1, "tf_logic_medieval");
-	
-	if (iEnt == -1)
-		return false;
-	else
-		return true;
+    if (IsValidClient(client) && !IsPlayerAlive(client) && GetClientTeam(client) > 1) {
+        TF2_RespawnPlayer(client);
+    }
+    return Plugin_Continue;
 }
 
-public bool:IsPDMap()
+public Action Command_BotToggle(int client, int args)
 {
-	new iEnt = FindEntityByClassname(-1, "tf_logic_player_destruction");
-	
-	if (iEnt == -1)
-		return false;
-	else
-		return true;
+    if (client == 0) {
+        return Plugin_Continue;
+    }
+
+    bool botsEnabled = GetConVarBool(g_cvBots);
+    SetConVarBool(g_cvBots, !botsEnabled);
+    
+    ServerCommand(botsEnabled ? "exec nobots" : "exec bots");
+    PrintToChatAll("Bots %s! Use !bots again to %s them.", 
+        botsEnabled ? "disabled" : "enabled", 
+        botsEnabled ? "enable" : "disable");
+    
+    return Plugin_Handled;
 }
 
-public bool:Is5cpMap()
+public void OnClientPutInServer(int client)
 {
-	char MapName[256];
-	GetCurrentMap(MapName, 256);
-	for (int i = 0; i < sizeof(mapKeywords); i++)
-	{
-		if (StrContains(MapName, mapKeywords[i], false) != -1)
-		{
-			return true;
-		} else return false;
-	}
-	
+    if (!IsFakeClient(client)) {
+        RequestFrame(Frame_CheckPlayerCount);
+    }
+}
+
+public void OnClientDisconnect(int client)
+{
+    if (!IsFakeClient(client)) {
+        RequestFrame(Frame_CheckPlayerCount);
+    }
+}
+
+public void Frame_CheckPlayerCount(any data)
+{
+    int playerCount = GetClientCount(false);
+    bool isSymmetrical = g_bSymmetrical;
+    
+    if (!isSymmetrical) {
+        // Asymmetric case
+        ServerCommand(playerCount > 11 ? "exec d_highpop_pl.cfg" : "exec d_lowpop.cfg");
+    } else {
+        // Symmetrical case
+        ServerCommand(playerCount > 15 ? "exec d_highpop.cfg" : "exec d_lowpop.cfg");
+    }
+}
+
+void DetectGameMode()
+{
+    g_bArena = IsArenaMap();
+    g_bKoth = IsKothMap();
+    g_bPayload = IsPayloadMap();
+    g_bCTF = IsCTFMap();
+    g_bMedieval = IsMedievalMap();
+    g_bPD = IsPDMap();
+    g_bPushCP = Is5cpMap();
+    g_bSymmetrical = (g_bArena || g_bCTF || g_bPD || g_bKoth);
+
+    if (g_bArena) {
+        ServerCommand("exec d_arena.cfg");
+    }
+    else if (g_bKoth) {
+        ServerCommand("exec d_koth.cfg");
+    }
+    else if (g_bPayload) {
+        ServerCommand("exec d_payload.cfg");
+    }
+    else if (g_bCTF) {
+        ServerCommand("exec d_ctf.cfg");
+    }
+    else if (g_bMedieval) {
+        ServerCommand("exec d_medieval.cfg");
+    }
+    else if (g_bPD) {
+        ServerCommand("exec d_pd.cfg");
+    }
+    else if (g_bPushCP) {
+        ServerCommand("exec d_5cp.cfg");
+    }
+}
+
+bool IsArenaMap()
+{
+    return FindEntityByClassname(-1, "tf_logic_arena") != -1;
+}
+
+bool IsKothMap()
+{
+    return FindEntityByClassname(-1, "tf_logic_koth") != -1;
+}
+
+bool IsPayloadMap()
+{
+    return FindEntityByClassname(-1, "mapobj_cart_dispenser") != -1;
+}
+
+bool IsCTFMap()
+{
+    return FindEntityByClassname(-1, "item_teamflag") != -1;
+}
+
+bool IsMedievalMap()
+{
+    return FindEntityByClassname(-1, "tf_logic_medieval") != -1;
+}
+
+bool IsPDMap()
+{
+    return FindEntityByClassname(-1, "tf_logic_player_destruction") != -1;
+}
+
+bool Is5cpMap()
+{
+    char mapName[PLATFORM_MAX_PATH];
+    GetCurrentMap(mapName, sizeof(mapName));
+    
+    for (int i = 0; i < sizeof(g_sMapKeywords); i++) {
+        if (StrContains(mapName, g_sMapKeywords[i], false) != -1) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool IsValidClient(int client)
+{
+    return (1 <= client <= MaxClients) && IsClientInGame(client);
 }
