@@ -64,37 +64,37 @@ void DetectGameMode()
     }
 }
 
-bool IsArenaMap()
+stock bool isArenaMap()
 {
     return FindEntityByClassname(-1, "tf_logic_arena") != -1;
 }
 
-bool IsKothMap()
+stock bool isKothMap()
 {
     return FindEntityByClassname(-1, "tf_logic_koth") != -1;
 }
 
-bool IsPayloadMap()
+stock bool isPayloadMap()
 {
     return FindEntityByClassname(-1, "mapobj_cart_dispenser") != -1;
 }
 
-bool IsCTFMap()
+stock bool isCTFMap()
 {
     return FindEntityByClassname(-1, "item_teamflag") != -1;
 }
 
-bool IsMedievalMap()
+stock bool isMedievalMap()
 {
     return FindEntityByClassname(-1, "tf_logic_medieval") != -1;
 }
 
-bool IsPDMap()
+stock bool isPDMap()
 {
     return FindEntityByClassname(-1, "tf_logic_player_destruction") != -1;
 }
 
-bool Is5cpMap()
+stock bool is5cpMap()
 {
     char mapName[PLATFORM_MAX_PATH];
     GetCurrentMap(mapName, sizeof(mapName));
@@ -107,7 +107,7 @@ bool Is5cpMap()
     return false;
 }
 
-bool IsValidClient(int client)
+stock bool isValidClient(int client)
 {
     return (1 <= client <= MaxClients) && IsClientInGame(client);
 }
