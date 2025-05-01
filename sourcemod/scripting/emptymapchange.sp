@@ -24,10 +24,12 @@ public void OnPluginStart()
 {
     // Create the map list array
     g_MapList = new ArrayList(PLATFORM_MAX_PATH);
-    
-    // Load the config file
-	g_cvConfigFile = CreateConVar("sm_config_file", "empty_server_maps.cfg", "Specifies the config file to load for map settings", FCVAR_PROTECTED);
-	g_cvConfigFile.GetString(CONFIG_FILE, sizeof(CONFIG_FILE));
+    g_cvConfigFile = CreateConVar("sm_config_file", "empty_server_maps.cfg", "Specifies the config file to load for map settings", FCVAR_PROTECTED);
+}
+
+public void OnConfigsExecuted()
+{
+    g_cvConfigFile.GetString(CONFIG_FILE, sizeof(CONFIG_FILE));
     LoadMapList();
 }
 
