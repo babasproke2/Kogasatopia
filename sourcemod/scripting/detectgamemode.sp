@@ -4,6 +4,7 @@
 #include <sourcemod>
 #include <sdktools>
 #include <tf2_stocks>
+#include "detectgamemode/gamemode_stocks.sp"
 
 #define PLUGIN_VERSION "2.1"
 #define RESPAWN_CHECK_INTERVAL 15.0
@@ -79,7 +80,8 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
         int client = GetClientOfUserId(GetEventInt(event, "userid"));
         if (!(IsValidClient(client))) return;
 
-        if (GetConVarInt(g_cvEnabled) == 1) {
+        int override = GetConVarInt(g_cvEnabledOverride);
+        if (GetConVarInt(g_cvEnabled) == 1 || override == 1) {
                 float time = GetConVarFloat(g_cvRespawnTime);
                 CreateTimer(time, Timer_RespawnClient, client);
                 return;
