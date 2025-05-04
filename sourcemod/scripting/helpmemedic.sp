@@ -37,6 +37,12 @@ public void OnPluginStart() {
     RegConsoleCmd("sm_medic", Command_Medic, "Switches player to Medic instantly.");
 }
 
+public void OnMapEnd() {
+    if (g_hTimer != INVALID_HANDLE) {
+        KillTimer(g_hTimer);
+    }
+}
+
 public Action Command_MedicCheck(int client, int args) {
     CheckTeamsForMedics();
     return Plugin_Handled;
