@@ -43,6 +43,12 @@ public void OnMapEnd() {
     }
 }
 
+public void OnMapStart() {
+    if (g_hTimer != INVALID_HANDLE) {
+        KillTimer(g_hTimer);
+    }
+}
+
 public Action Command_MedicCheck(int client, int args) {
     CheckTeamsForMedics();
     return Plugin_Handled;
