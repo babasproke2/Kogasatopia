@@ -1,0 +1,355 @@
+// For more detailed and up-to-date documentation, visit the following page:
+// https://github.com/nosoop/SM-TFCustomWeaponsX/wiki/Getting-Started-(for-Server-Operators)#creating-a-new-item-from-scratch
+
+// two or more forward slashes indicates a comment - you cannot use /* multiline comments */ here
+"Items"
+{
+        "accuratebfb"
+        {
+                "inherits"    "Baby Face's Blaster"
+                "name"                  "Original Baby Face"
+                "used_by_classes"
+                {
+                    "scout" "primary"
+                }
+                "attributes_game"
+                {
+                        "damage penalty"                             "0.70"
+                        "weapon spread bonus"                           "0.6"
+			"clip size penalty"				"1.0"
+                        "lose hype on take damage"			"0.0"
+                        "move speed penalty"			"0.75"
+                }
+        }
+        "pyroshotgun1"
+        {
+                "used_by_classes"
+                {
+                    "pyro" "primary"
+                }
+		"defindex"	"9"
+		"item_class"	"tf_weapon_shotgun_primary"
+                "name"                  "The Shotgun"
+        }
+        "lightningpistol"
+        {
+                "name"                  "Lightning Pistol"
+		"inherits"		"The C.A.P.P.E.R"
+                "used_by_classes"
+                {
+                    "scout" "secondary"
+                    "engineer" "secondary"
+                }
+                "attributes_game"
+                {
+			"hidden secondary max ammo penalty"		"3.0"
+                        "damage penalty"                             "0.65"
+			"weapon spread bonus"				"0.25"
+			"clip size bonus"				"3.5"
+			"fire rate bonus"				"0.65"
+                        "Reload time increased"                            "1.15"
+			"ragdolls become ash"				"1.00"
+                }
+		"attributes_custom"
+		{
+                    "replace sound"     "new_capper"
+		}
+        }
+        "soldierpistol"
+        {
+                "name"                  "Soldier's Pistol"
+                "inherits"               "TTG Max Pistol"
+                "used_by_classes"
+                {
+                    "soldier" "secondary"
+                }
+                "attributes_game"
+                {
+			"reload time increased"	"3.0"
+                }
+        }
+        "soldiernewshotgun"
+        {
+                "name"                  "F.U.T.A."
+                "inherits"               "TF_WEAPON_SHOTGUN_SOLDIER"
+                "used_by_classes"
+                {
+                    "soldier" "secondary"
+                }
+                "attributes_game"
+                {
+                        "clip size penalty"                             "0.33"
+			"rocket jump damage reduction"			"0.70"
+                        "weapon spread bonus"                           "0.80"
+			"single wep deploy time decreased"				"0.85"
+                }
+        }
+        "oldpanic"
+        {
+                "name"                  "Old Panic Attack"
+                "inherits"              "Panic Attack Shotgun"
+                "used_by_classes"
+                {
+                    "soldier" "secondary" // secondary weapon for soldier
+                    "pyro" "secondary"
+                    "heavy" "secondary"
+                    "engineer" "primary"
+                }
+                "attributes_game"
+                {
+                        "damage penalty"                             "1.00"
+                        "bullets per shot bonus"                            "1.00"
+                        //"single wep deploy time decreased"                           "1.00"
+                        "mult_spread_scales_consecutive"                            "0.0"
+                        "mult_spread_scales_consecutive"                           "0.0"
+                        "Reload time decreased"                            "0.50"
+                        "fire rate bonus HIDDEN"                            "0.70"
+                        "clip size penalty HIDDEN"                            "0.66"
+                        "fire rate bonus with reduced health"                            "0.50"
+                        "panic_attack"                            "1.00"
+                        "panic_attack_negative"                            "2.5"
+                        "auto fires full clip penalty"                            "1.00"
+                }
+        }
+        "straightdemo"
+        {
+                "name"                  "Grenade Launcher (fixed spin)"
+                "inherits"              "TF_WEAPON_GRENADELAUNCHER"
+                "used_by_classes"
+                {
+                    "demoman" "primary"
+                }
+                "attributes_game"
+                {
+                        "grenade no spin"                             "1.00"
+                }
+        }
+        "demomangunboats"
+        {
+                "name"                  "Demoman Gunboats"
+                "inherits"              "The Gunboats"
+                "used_by_classes"
+                {
+                    "demoman" "primary"
+                }
+                "attributes_game"
+                {
+                        "rocket jump damage reduction"                             "0.35"
+			"health regen"					"0.0"
+                }
+        }
+        "oldscottishresistance"
+        {
+                "name"                  "Old Scottish Resistance"
+                "inherits"              "The Scottish Resistance"
+                "used_by_classes"
+                {
+                    "demoman" "secondary"
+                }
+                "attributes_game"
+                {
+                        "fire rate bonus"                             "1.00"
+                        "sticky arm time penalty"                                  "0.40"
+                }
+        }
+        "familybsns"
+        {
+                "name"                  "The Family Business"
+                "inherits"              "The Family Business"
+                "used_by_classes"
+                {
+                    "pyro" "secondary" // secondary weapon for pyro
+		    "engineer" "primary" // primary weapon for engineer
+                }
+        }
+        "pyro1"
+        {
+                "name"                  "TF2C Twin Barrel"
+		"defindex"		"39"
+                "item_class"              "tf_weapon_shotgun"
+                "used_by_classes"
+                {
+                    "pyro" "secondary" // secondary weapon for pyro
+                }
+		"attributes_game"
+		{
+		    "clip size penalty HIDDEN"		"0.33"
+                    "bullets per shot bonus"                            "1.50"
+		    "reload time increased hidden"	"1.20"
+		    "damage bonus HIDDEN"	"0.80" // Penalty
+		    "fire rate penalty HIDDEN"		"1.10"
+		    "spread penalty"	"1.10"
+		    "fixed_shot_pattern"	"1.00"
+		    "crit vs burning players"	"0.00"
+		    "single wep deploy time increased"	"1.15"
+		}
+                "attributes_custom"
+                {
+                    "clientmodel override"                                  "models/weapons/c_models/c_double_barrel.mdl"
+		    "twin barrel attributes"	"1.00"
+                    "replace sound"	"new_shotgun"
+		    //"clientmodel override"					"models/custommodels/weapons/c_models/c_flaregun_pyro/c_flaregun_pyro.mdl"
+                }
+        }
+        "pyro3"
+        {
+                "name"                  "TF2C Harvester"
+		"inherits"		"TF_WEAPON_FIREAXE"
+                "used_by_classes"
+                {
+                    "pyro" "melee"
+                }
+		"attributes_game"
+		{
+			"crit mod disabled"	"0.0"
+		}
+                "attributes_custom"
+                {
+                    "clientmodel override"                                  "models/weapons/c_models/c_golfclub/c_golfclub.mdl"
+		    "harvester attributes"	"1.0"
+                }
+        }
+	"engi1" // we just need a unique identifier here - this is not necessarily a UUID
+	{
+		"name"			"Pretty Boy's Pocket Pistol"		
+		"inherits"		"Pretty Boy's Pocket Pistol"
+		
+		"used_by_classes"
+		{
+		    "engineer" "secondary" // secondary weapon for engineer
+		}		
+	}
+	"engi2"
+	{
+		"name"			"The Winger"
+		"inherits"		"The Winger"
+                "used_by_classes"
+                {
+                    "engineer" "secondary" // secondary weapon for engineer
+                }
+	}
+        "engi3"
+        {
+                "name"                  "Boost/Jump Pads"
+                "inherits"              "TF_WEAPON_PDA_ENGINEER_BUILD"
+                "used_by_classes"
+                {
+                    "engineer" "pda"
+                }
+                "attributes_custom"
+                {
+                        "engipads attributes"      "1.0"
+                }
+        }
+        "medic1"
+        {
+                "name"                  "TF2C Shock Therapy"
+                "inherits"              "Prinny Machete"
+                //"defindex"              "1071"
+                //"item_class"          "saxxy"
+                "used_by_classes"
+                {
+                    "medic" "melee"
+                }
+                "attributes_game"
+                {
+                        "crit mod disabled"     "0.0"
+                        "heal rate penalty"     "0.85"
+                }
+                "attributes_custom"
+                {
+                        "shock therapy attributes"      "1.0"
+                }
+        }
+        "medic2"
+        {
+                "name"                  "The Mantreads"
+                "inherits"              "The Mantreads"
+                "used_by_classes"
+                {
+                    "medic" "melee"
+                }
+        }
+        "spy1"
+        {
+                "name"                  "TF2C L'escampette"
+                "inherits"              "The Dead Ringer"
+                "used_by_classes"
+                {
+                    "spy" "pda2" // watch
+                } 
+		"attributes_game"
+		{
+			"set cloak is feign death"	"0.00"
+			"cloak consume rate decreased"	"1.00"
+			"cloak regen rate increased"	"1.00"
+			"cloak consume rate increased"	"1.50"
+			"NoCloakWhenCloaked"	"1.00"
+			"mod_cloak_no_regen_from_items"	"0.00"
+		}
+                "attributes_custom"
+                {
+                    "escampette attributes"	"1.00"
+                }
+        }
+        "spy2"
+        {
+                "name"                  "The Surfboard"
+                "inherits"              "The Ap-Sap"
+                "used_by_classes"
+                {
+                    "spy" "building" // sapper
+                }
+                "attributes_game"
+                {
+                        "SET BONUS: dmg from sentry reduced"  "0.40"
+			"sapper damage penalty"			"0.40"
+                        "rocket jump damage reduction"                  "0.00"
+                }
+        }
+        "spy3"
+        {
+                "name"                  "Wall Climbing Kit"
+                "inherits"              "The Gunboats"
+                "used_by_classes"
+                {
+                    "spy" "secondary" // revolver
+                }
+                "attributes_game"
+                {
+                        "dmg taken from fire increased"             "1.25"
+                        "dmg taken from blast increased"             "1.15"
+			"max health additive bonus"		"15.0"
+                }
+        }
+        "spy4"
+        {
+                "name"                  "The Enforcer (Alt)"
+                "inherits"              "The Enforcer"
+                "used_by_classes"
+                {
+                    "spy" "secondary" // Revolver lol
+                }
+                "attributes_game"
+                {
+                        "mult cloak rate"  "0.5" // 50% slower cloak speed
+                        "damage bonus" "1.10" // 10% more damage
+                        "damage bonus while disguised"   "0.75" // Damage while disguised is reduced 25%
+			"fire rate penalty"	"1.00" // No fire rate penalty
+                }
+		"attributes_custom"
+		{
+                    "viewmodel override"                                  "models/weapons/v_357.mdl"
+                    "replace sound"     "357"
+		}
+        }
+	"demomanbanana"
+	{
+		"name"		"Demoman Banana"
+		"inherits"	"The Second Banana"
+		"used_by_classes"
+		{
+			"demoman"	"secondary"
+		}
+	}
+}
