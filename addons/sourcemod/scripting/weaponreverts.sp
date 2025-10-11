@@ -588,7 +588,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			}
 			case 310: // The Warrior's Spirit
 			{
-				TF2Attrib_SetByName(entity, "mult_dmgtaken_active", 1.00); // Remove vuln
+				TF2Attrib_SetByName(entity, "dmg taken increased", 1.00); // Remove vuln
 				TF2Attrib_SetByName(entity, "heal on hit for slowfire", 20.00); // 20 health on hit
 				TF2Attrib_SetByName(entity, "provide on active", 0.0); // Provide on active 0
                 TF2Attrib_SetByName(entity, "max health additive penalty", -20.00); // 20 less max health
