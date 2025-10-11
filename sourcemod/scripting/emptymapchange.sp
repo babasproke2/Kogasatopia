@@ -10,7 +10,7 @@ public Plugin myinfo =
 {
     name = "Empty Server Map Changer",
     author = "Hombre",
-    description = "Changes map if server is empty after 30 minutes",
+    description = "Changes map if server is empty after X minutes",
     version = PLUGIN_VERSION,
     url = "https://tf2.gyate.net"
 };
@@ -18,13 +18,19 @@ public Plugin myinfo =
 Handle g_hTimer = null;
 ArrayList g_MapList = null;
 ConVar g_cvConfigFile;
+ConVar g_cvCheckTimer;
+ConVar g_cvIgnoreBaseMap;
+ConVar g_cvBaseMaps;
 char CONFIG_FILE[128] = "";
 
 public void OnPluginStart()
 {
     // Create the map list array
-    g_MapList = new ArrayList(PLATFORM_MAX_PATH);
-    g_cvConfigFile = CreateConVar("sm_config_file", "empty_server_maps.cfg", "Specifies the config file to load for map settings", FCVAR_PROTECTED);
+    g_MapList = new ArrayList(PLATFORM_MAX_PATH);    
+    g_cvConfigFile = CreateConVar("sm_emptymaps_file", "empty_server_maps.cfg", "Specifies the config file to load for map settings", FCVAR_PROTECTED);
+    g_cvCheckTimer = CreateConVar("sm_emptymaps_time", "30.0", "Empty map check interval", FCVAR_PROTECTED);
+    g_cvIgnoreBaseMap = CreateConVar("sm_ignore_base_map", "0", "If 1, do not change map when current map matches sm_base_maps", FCVAR_PROTECTED);
+    g_cvBaseMaps = CreateConVar("sm_base_maps", "mge_eientei_v4a", "Comma-separated list of base maps to ignore when sm_ignore_base_map is enabled", FCVAR_PROTECTED);
 }
 
 public void OnConfigsExecuted()
@@ -120,8 +126,10 @@ void CreateDefaultConfig(const char[] path)
 public void OnMapStart()
 {
     // Create a 30 minute repeating timer
-    g_hTimer = CreateTimer(1800.0, Timer_CheckPlayers, _, TIMER_REPEAT);
-    PrintToServer("Empty server check timer started. Will check in 30 minutes...");
+    float minutes = GetConVarFloat(g_cvCheckTimer);
+    float seconds = (60.0 * minutes);
+    g_hTimer = CreateTimer(seconds, Timer_CheckPlayers, _, TIMER_REPEAT);
+    PrintToServer("Empty server check timer started. Will check in %.1f minutes...", minutes);
 }
 
 public Action Timer_CheckPlayers(Handle timer)
@@ -136,7 +144,7 @@ public Action Timer_CheckPlayers(Handle timer)
 	}
 	else
 	{
-        PrintToServer("Empty server check in 30 minutes...");
+        PrintToServer("Empty server check in %.1f minutes...", GetConVarFloat(g_cvCheckTimer));
 	}
     
     return Plugin_Continue;
@@ -154,8 +162,67 @@ void ChangeToRandomMap()
     char nextMap[PLATFORM_MAX_PATH];
     g_MapList.GetString(randomIndex, nextMap, sizeof(nextMap));
     
-    PrintToServer("Server empty after 30 minutes, changing to map: %s", nextMap);
-    ForceChangeLevel(nextMap, "Server was empty for 30 minutes");
+    // If configured, skip changing maps when the current map matches a declared base map
+    if (GetConVarBool(g_cvIgnoreBaseMap))
+    {
+        if (IsCurrentMapIgnored())
+        {
+            char cur[PLATFORM_MAX_PATH];
+            GetCurrentMap(cur, sizeof(cur));
+            PrintToServer("Empty server: current map '%s' is in ignore list; skipping map change", cur);
+            return;
+        }
+    }
+
+    PrintToServer("Server empty after specified time limit, changing to map: %s", nextMap);
+    ForceChangeLevel(nextMap, "Server was empty for specified time");
+}
+
+// Returns true if the current map exactly matches any map listed in sm_base_maps (comma-separated)
+bool IsCurrentMapIgnored()
+{
+    char curMap[PLATFORM_MAX_PATH];
+    GetCurrentMap(curMap, sizeof(curMap));
+
+    char list[1024];
+    g_cvBaseMaps.GetString(list, sizeof(list));
+
+    // Normalize: compare case-insensitively
+    TrimString(list);
+    if (list[0] == '\0') return false;
+
+    int len = strlen(list);
+    int pos = 0;
+    while (pos < len)
+    {
+        // skip whitespace
+        while (pos < len && (list[pos] == ' ' || list[pos] == '\t')) pos++;
+        if (pos >= len) break;
+
+        int end = pos;
+        while (end < len && list[end] != ',') end++;
+
+        char token[256];
+        int toklen = end - pos;
+        if (toklen > 0)
+        {
+            toklen = (toklen >= sizeof(token)) ? sizeof(token)-1 : toklen;
+            for (int k = 0; k < toklen; k++)
+            {
+                token[k] = list[pos + k];
+            }
+            token[toklen] = '\0';
+            TrimString(token);
+            if (StrEqual(token, curMap, false))
+            {
+                return true;
+            }
+        }
+
+        pos = end + 1; // move past comma
+    }
+
+    return false;
 }
 
 public void OnMapEnd()
@@ -171,3 +238,4 @@ public void OnPluginEnd()
 {
     delete g_MapList;
 }
+
