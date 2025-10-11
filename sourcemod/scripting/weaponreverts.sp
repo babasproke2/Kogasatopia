@@ -23,7 +23,7 @@ public Plugin myinfo =
 {
 	name = "WeaponReverts",
 	author = "Hombre and Utsuho",
-	description = "Weapon changes plugin for Kogasatopia, very specific, this includes custom attribute code such as recoil jumping",
+	description = "Weapon changes plugin for Kogasatopia/The Youkai Pound, very specific, this includes custom attribute code such as recoil jumping",
 	version = "4.0",
 	url = "https://kogasa.tf"
 };
