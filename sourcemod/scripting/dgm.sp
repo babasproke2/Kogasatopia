@@ -6,6 +6,7 @@
 #include <tf2_stocks>
 #include <tf2>
 #include <controlpoints>
+// See github.com/powerlord/sourcemod-snippets/blob/master/scripting/include/controlpoints.inc
 
 #define PLUGIN_VERSION "3.0"
 
