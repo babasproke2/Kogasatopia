@@ -1,4 +1,5 @@
 #!/bin/bash -e
+#This slight edit of compile.sh copies to the plugins directory for me, very convenient
 cd "$(dirname "$0")"
 
 test -e compiled || mkdir compiled
