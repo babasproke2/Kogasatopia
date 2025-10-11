@@ -7,7 +7,8 @@
 #include <tf2items>
 #include <tf2attributes>
 #include <addplayerhealth>
-#include <clientprefs>
+#include <sourcescramble>
+// Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
 int LastDamage[MAXPLAYERS+1];
 int Scythe[MAXPLAYERS+1];
@@ -16,14 +17,15 @@ int HealCount[MAXPLAYERS+1];
 float LastUber[MAXPLAYERS+1];
 
 new Handle:g_sEnabled = INVALID_HANDLE;
+MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 
 public Plugin myinfo =
 {
 	name = "WeaponReverts",
-	author = "bre and kuu",
-	description = "Personalized weapon stat changes/custom attributes plugin",
-	version = "1.7",
-	url = "https://tf2.gyate.net"
+	author = "Hombre and Utsuho",
+	description = "Weapon changes plugin for Kogasatopia, very specific, this includes custom attribute code such as recoil jumping",
+	version = "4.0",
+	url = "https://kogasa.tf"
 };
 
 public void OnPluginStart() {
@@ -32,8 +34,18 @@ public void OnPluginStart() {
 		CreateTimer(1.0, Timer_HealTimer, _, TIMER_REPEAT);
 		HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
 		HookEvent("post_inventory_application", Event_Resupply, EventHookMode_Post);
+		HookEvent("player_spawn", OnPlayerSpawn);
 		PrecacheSound("weapons/fx/rics/arrow_impact_crossbow_heal.wav");
 		PrecacheSound("weapons/neon_sign_hit_world_02.wav");
+
+		// Cozy Camper revert
+		GameData conf;
+		conf = new GameData("memorypatch_reverts");
+		if (conf == null) SetFailState("Failed to load memorypatch_reverts.txt conf!");
+		// Create the patch
+		patch_RevertCozyCamper_FlinchNerf = MemoryPatch.CreateFromConf(conf, "CTFPlayer::ApplyPunchImpulseX_FakeFullyChargedCondition");
+		if (!ValidateAndNullCheck(patch_RevertCozyCamper_FlinchNerf)) SetFailState("Failed to create patch_RevertCozyCamper_FlinchNerf");
+                patch_RevertCozyCamper_FlinchNerf.Enable();
 	}
 }
 
@@ -70,13 +82,7 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
         int userId = event.GetInt("userid");
         int client = GetClientOfUserId(userId);
 	if (ShockCharge[client] != 30) ShockCharge[client] = 29;
-        int watch = GetPlayerWeaponSlot(client, 4);
-	int medigun = GetPlayerWeaponSlot(client, 1);
-	if (GetEntProp(GetPlayerWeaponSlot(client, 2), Prop_Send, "m_iItemDefinitionIndex") == 173) {
-		if (LastUber[client] > 0.2) LastUber[client] = 0.2;
-		SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", LastUber[client]);
-		return Plugin_Changed;
-	}
+	int watch = GetPlayerWeaponSlot(client, 4);
         if ( (watch > -1) && TF2CustAttr_GetInt(watch, "escampette attributes") != 1.0) {
                 TF2_RemoveCondition(client, TFCond_SpeedBuffAlly);
 		return Plugin_Changed;
@@ -84,16 +90,52 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 	return Plugin_Continue;
 }
 
+public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
+{
+    int userId = event.GetInt("userid");
+    int client = GetClientOfUserId(userId);
+    if (client <= 0 || !IsClientInGame(client))
+        return Plugin_Continue;
+
+    int medigun = GetPlayerWeaponSlot(client, 1);
+    int melee = GetPlayerWeaponSlot(client, 2);
+
+    // Validate weapon entities before using them
+    if (medigun == -1 || melee == -1)
+        return Plugin_Continue;
+
+    // Check if melee weapon index is 173
+    if (GetEntProp(melee, Prop_Send, "m_iItemDefinitionIndex") == 173)
+    {
+        float charge = GetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel");
+
+        if (charge < 0.2)
+        {
+            if (LastUber[client] > 0.2)
+                LastUber[client] = 0.2;
+
+            SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", LastUber[client]);
+            LastUber[client] = 0.0;
+            return Plugin_Changed;
+        }
+    }
+
+    return Plugin_Continue;
+}
+
+
 public Action TF2_CalcIsAttackCritical(client, weapon, String:weaponname[], &bool:result) {
     if (!IsClientInGame(client) || !IsValidEntity(weapon))
         return Plugin_Continue;
 
-    int active = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-    if (!IsValidEntity(active) || TF2CustAttr_GetInt(active, "twin barrel attributes") == 0)
-        return Plugin_Continue;
-
     if (GetEntityFlags(client) & FL_ONGROUND)
         return Plugin_Continue;
+
+    if (TF2CustAttr_GetInt(weapon, "twin barrel attributes") == 0)
+        return Plugin_Continue;
+
+	if (GetClip(weapon) != 2)
+		return Plugin_Continue;
 
     float velocity[3], angles[3];
     GetEntPropVector(client, Prop_Data, "m_vecVelocity", velocity);
@@ -107,10 +149,22 @@ public Action TF2_CalcIsAttackCritical(client, weapon, String:weaponname[], &boo
     velocity[1] -= push * Sine(yaw);
     velocity[2] -= 280.0 * Sine(pitch);
 
+	int rand = GetRandomInt(1, 4);
+
+	int health = GetClientHealth(client);
+	float rounded = float(RoundFloat(float(health) * 0.10));
+	SDKHooks_TakeDamage(client, client, client, rounded, DMG_PREVENT_PHYSICS_FORCE);
+
+	char soundPath[64];
+	Format(soundPath, sizeof(soundPath), "vo/pyro_painsharp0%d.mp3", rand);
+
+	ClientCommand(client, "playgamesound %s", soundPath);
+
     TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
     return Plugin_Changed;
 }
 
+// Timer for TF2C afterburn heal attribute and shock charge refill
 public Action Timer_HealTimer(Handle timer) {
         for(int iClient = 0; iClient <= MaxClients; iClient++) {
                 if (HealCount[iClient] != 0) {
@@ -131,27 +185,42 @@ public Action Timer_HealTimer(Handle timer) {
         return Plugin_Continue;
 }
 
-// Syringe gun passive reload
+// Holster reload code, hard coded for clip size 40 and 2, can be rewritten as an attribute in the future
 public Action OnWeaponSwitch(client, weapon)
 {	
 	if (!GetConVarInt(g_sEnabled)) return Plugin_Continue;
 	// only do anything if the player is a medic or pyro
 	TFClassType playerClass = TF2_GetPlayerClass(client);
-	if(playerClass == TFClassType:TFClass_Medic) {
-		int weaponindex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
-		if (weaponindex != 305 && weaponindex != 1079) {
-			SetAmmo_Weapon(weapon, GetAmmo_Weapon(weapon) - (40 - GetClip(client, weapon)));
-			SetClip_Weapon(weapon, 40);
-			return Plugin_Changed;
-		}
+        if (playerClass == TFClassType:TFClass_Medic)
+        {
+			char classname[64];
+			GetEntityClassname(weapon, classname, sizeof(classname));
+			if (StrEqual(classname, "tf_weapon_syringegun_medic", false))
+            {
+                int clip = GetClip(weapon);
+                int reserve = GetAmmo_Weapon(weapon);
+                int missing = 40 - clip;
+
+                int toReload = (missing < reserve) ? missing : reserve;
+
+                if (toReload > 0)
+                {
+                    SetClip_Weapon(weapon, clip + toReload);
+                    SetAmmo_Weapon(weapon, reserve - toReload);
+                    return Plugin_Changed;
+                }
+	    }
 	} else if (playerClass == TFClassType:TFClass_Pyro) {
-		new weaponindex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
-		if (weaponindex == 39) {
-			char szClassname[36];
-			GetEntityClassname(weapon, szClassname, sizeof szClassname);
-			if (strcmp("tf_weapon_shotgun_pyro", szClassname) == 0) {
-				SetAmmo_Weapon(weapon, GetAmmo_Weapon(weapon) - (1 - GetClip(client, weapon)));
-				SetClip_Weapon(weapon, 1);
+		if ((weapon != -1) && (TF2CustAttr_GetInt(weapon, "twin barrel attributes") != 0))  {
+			int clip = GetClip(weapon);
+			int reserve = GetAmmo_Weapon(weapon);
+			int missing = 2 - clip;
+
+			int toReload = (missing < reserve) ? missing : reserve;
+			if (toReload > 0)
+			{
+				SetClip_Weapon(weapon, clip + toReload);
+				SetAmmo_Weapon(weapon, reserve - toReload);
 				return Plugin_Changed;
 			}
 		}
@@ -159,9 +228,10 @@ public Action OnWeaponSwitch(client, weapon)
 	return Plugin_Continue;
 }
 
-// Reminder: client is the victim, attacker is the player, inflictor is the projectile/bullet/whatever
-public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damagetype, &weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom) {
-	if (attacker == 0) return Plugin_Continue;
+public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damagetype, &weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom)
+{
+	if (attacker < 1 || weapon < 1) return Plugin_Continue;
+
 	new wepindex = (IsValidEntity(weapon) && weapon > MaxClients ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
 	int watch = GetPlayerWeaponSlot(client, 4);
 	if (wepindex == 307) { //Ullapool Caber weapon index
@@ -214,6 +284,8 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 			}
 		}
 	} else if ((weapon != -1) && (TF2CustAttr_GetInt(weapon, "twin barrel attributes") != 0)) {
+		// This code is to launch targets, velocity needs to be >250 for any effect to occur
+		// Hopefully a better way to lift a target with damage can be located in the future, this feels fine for now
 		float vecAngles[3];
 		float vecVelocity[3];
 
@@ -230,43 +302,20 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
                 if (damage >= 40.0) vecVelocity[2] = 251.0;
 
 		TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, vecVelocity);
+		return Plugin_Changed;
 	} else if ((weapon != -1) && (TF2CustAttr_GetInt(weapon, "shock therapy attributes") != 0)) {
 		damage = float(ShockCharge[attacker] * 100 / 30);
 		ShockCharge[attacker] = 0;
 		EmitAmbientSound("weapons/neon_sign_hit_world_02.wav", damagePosition);
-		ClientCommand(attacker, "weapons/neon_sign_hit_world_02.wav");
+		ClientCommand(attacker, "playgamesound weapons/neon_sign_hit_world_02.wav");
 		return Plugin_Changed;
 	}
 	return Plugin_Continue;
 }
 
-// Reminder: client is the victim, attacker is the player, inflictor is the projectile/bullet/whatever
-public Action:OnTakeDamageAlive(client, &attacker, &inflictor, &Float:damage, &damagetype, &weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom) {
-	new wepindex = (IsValidEntity(weapon) && weapon > MaxClients ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
-	if (wepindex == 442 || wepindex == 588) { // Pomson, bison
-		// Get distance between client and attacker
-		new Float:posVic[3]; // victim position vector
-		GetEntPropVector(client, Prop_Send, "m_vecOrigin", posVic);
-		new Float:posAtt[3]; // attacker position vector
-		GetEntPropVector(attacker, Prop_Send, "m_vecOrigin", posAtt);
-    
-		// Create additional damage rampup due to distance
-		float rampup = ((GetVectorDistance(posVic, posAtt)-300.0) * 0.01); // Within 300 hammer units have no buff
-		if ((GetVectorDistance(posVic, posAtt) < 80)) rampup += 3;// if less than 80 hammer units add 3 damage
-		if(rampup < 0.00) rampup = 0.00; // rampup can never be negative
-		if(rampup > 10.00) rampup = 10.00; // max damage is capped effectively at 25/30
-		
-		if(wepindex == 442) damage = 15.0 + rampup; // bison
-		else damage = 20.0 + rampup; //pomson
-		
-		// Manually add crit damage
-		if(damagetype & DMG_CRIT) damage *= 3.0;
-		return Plugin_Changed;
-	} return Plugin_Continue;
-}
-
 public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damagetype, &ammotype, hitbox, hitgroup)
 {
+	// We use this function to check if you've hit an ally with the TF2C Shock Therapy
 	if (!IsValidEdict(attacker) || !IsValidClient(attacker) || !IsPlayerAlive(attacker) || attacker <= 0)
 	{
 		return Plugin_Continue;
@@ -294,6 +343,7 @@ public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damag
 } 
 
 stock int CheckScythe(int client) {
+	// Does the client have the harvester?
 	int tally = 0;
 	int scythe = GetPlayerWeaponSlot(client, 2);
 	
@@ -307,18 +357,17 @@ stock int CheckScythe(int client) {
 }
 
 stock int CheckShock(int client) {
-        int tally = 0;
-        int shock = GetPlayerWeaponSlot(client, 2);
-
-        if (TF2CustAttr_GetInt(shock, "shock therapy attributes") != 0) tally++;
-        if (shock == GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon")) tally++;
+	// Does the client have the Shock Therapy?
+    int tally = 0;
+    int shock = GetPlayerWeaponSlot(client, 2);
+    if (TF2CustAttr_GetInt(shock, "shock therapy attributes") != 0) tally++;
+    if (shock == GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon")) tally++;
 	if (ShockCharge[client] != 30) tally = 1;
-
         return tally;
 }
 
 stock bool CheckRocketJumping(int client) {
-	//This is fairly primitive
+	//This is fairly primitive, hopefully I can find a netprop to determine a client's real blast jumping status later
 	if (!(GetEntityFlags(client) & FL_ONGROUND)) {
 		float flVel[3];
 		GetEntPropVector(client, Prop_Data, "m_vecVelocity", flVel);
@@ -346,7 +395,7 @@ stock SetAmmo_Weapon(weapon, newAmmo)
 	SetEntData(owner, iAmmoTable+iOffset, newAmmo, 4, true);
 }
 
-stock GetClip(client, weapon)
+stock GetClip(weapon)
 {
 	new clip = -1;
 	if (IsValidEntity(weapon))
@@ -392,42 +441,58 @@ stock int OverhealStruct(int client)
 // Gas passer buff
 public TF2_OnConditionAdded(int client, TFCond condition)
 {
-	if (condition == TFCond_Gas) //If gas is applied
-	{
-		TF2_AddCondition(client, TFCond_Jarated, 6.0); //Apply Jarate for 6 seconds
-	} else if (condition == TFCond_Cloaked) {
-		new weapon = GetPlayerWeaponSlot(client, 4);
-		if ( (weapon > -1) && TF2CustAttr_GetInt(weapon, "escampette attributes") != 0) {
-			TF2_AddCondition(client, TFCond_SpeedBuffAlly, 120.0);
-		} 
-	}
+        if (condition == TFCond_Gas) //If gas is applied
+        {
+                TF2_AddCondition(client, TFCond_Jarated, 6.0); //Apply Jarate for 6 seconds
+        } else if (condition == TFCond_Cloaked) {
+                new weapon = GetPlayerWeaponSlot(client, 4);
+                if ( (weapon > -1) && TF2CustAttr_GetInt(weapon, "escampette attributes") != 0) {
+                        TF2_AddCondition(client, TFCond_SpeedBuffAlly, 120.0);
+                }
+        } else if (condition == TFCond_SpeedBuffAlly) {
+                new weapon = GetPlayerWeaponSlot(client, 4);
+                if ( (weapon > -1) && TF2CustAttr_GetInt(weapon, "revertdr") != 0) {
+                }
+        }
 }
 
 public TF2_OnConditionRemoved(int client, TFCond condition)
 {
-	if (condition == TFCond_Cloaked)
-	{
-		new weapon = GetPlayerWeaponSlot(client, 4);
-		if ( (weapon > -1) && TF2CustAttr_GetInt(weapon, "escampette attributes") != 0) {
-			TF2_RemoveCondition(client, TFCond_SpeedBuffAlly);
-		}
-	}
+        if (condition == TFCond_Cloaked)
+        {
+                new weapon = GetPlayerWeaponSlot(client, 4);
+                if ( (weapon > -1) && TF2CustAttr_GetInt(weapon, "escampette attributes") != 0) {
+                        TF2_RemoveCondition(client, TFCond_SpeedBuffAlly);
+                }
+        }
 }
 
 public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, quality, entity)
 {
-        if (index == 56 || index == 1092 || index == 1005) // The Huntsman, Fortified Compound and Festive Huntsman
-        {
-                TF2Attrib_SetByName(entity, "max health additive bonus", 15.00); // Self explanatory
-        }
-
 	if (GetConVarInt(g_sEnabled)) {
-		// Attach the `m_bValidatedAttachedEntity` property to every weapon/cosmetic for custom weapon visibility.
-		if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity")) {
+		// Attach the `m_bValidatedAttachedEntity` property to every weapon/cosmetic.
+		// ^ This allows custom weapons/weapons with changed models to be seen.
+		if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
+		{
 			SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
-			TF2Attrib_SetByName(entity, "boots falling stomp", 1.00); // Add this property
 		}
-		//TF2Attrib_SetByName(entity, "crit mod disabled HIDDEN", 0.25);
+
+		// I disable random melee crits for Sniper here, tf_weapon_criticals 0 is default for me
+		if (TF2_GetPlayerClass(client) == TFClassType:TFClass_Sniper)
+		{
+			TF2Attrib_SetByName(entity, "crit mod disabled hidden", 0.0);
+		}
+
+		// I add the falling stomp to all players; this is an exception for someone who hates the SFX
+		char auth[32];
+		if (GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth)))
+		{
+			if (!(StrEqual(auth, "STEAM_0:1:101494818")))
+			{
+				TF2Attrib_SetByName(entity, "boots falling stomp", 1.00); // Add this property
+			}
+		}
+
 		switch (index)
 		{
 			case 163: //The Crit-a-Cola 
@@ -446,16 +511,15 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "health from packs increased", 1.40); // Add the backscratcher
 			}
-	                case 355: //Fan-o-War
-	                {
-	                        TF2Attrib_SetByName(entity, "switch from wep deploy time decreased", 0.80);
-	                        TF2Attrib_SetByName(entity, "single wep deploy time decreased", 0.80);
-	                }
+	    	case 355: //Fan-o-War
+	        {
+	            TF2Attrib_SetByName(entity, "switch from wep deploy time decreased", 0.80);
+	            TF2Attrib_SetByName(entity, "single wep deploy time decreased", 0.80);
+	        }
 			case 772: //Baby Face's Blaster index
 			{
 				TF2Attrib_SetByName(entity, "lose hype on take damage", 0.0); // Removed
-				TF2Attrib_SetByName(entity, "move speed penalty", 0.81); // Increased to 15%
-				TF2Attrib_SetByName(entity, "damage penalty", 0.90); //Decrease damage by 10%
+				TF2Attrib_SetByName(entity, "move speed penalty", 0.80); // Increased to 15%
 			}
 			case 1103: //The Back Scatter
 			{
@@ -470,15 +534,15 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "max pipebombs decreased", 0.0); // Remove pipebomb restriction
 			}
-			case 308: //The loch n' Load
+			case 130: //The Scottish Resistance
 			{
-				TF2Attrib_SetByName(entity, "damage bonus", 1.10); // Increase damage to 110
+				TF2Attrib_SetByName(entity, "sticky arm time penalty", 0.4); // Reduce this from 0.8 to 0.4
 			}
 			case 414: //Liberty Launcher index
 			{
 				TF2Attrib_SetByName(entity, "fire rate bonus", 0.90); // Increase RoF
 			}
-			case 1101: //The Base Jumper
+			case 1101: //The K.E.Y.E. Jumper
 			{
 				//TF2Attrib_SetByName(entity, "boots falling stomp", 1.00); // Add this property
 				TF2Attrib_SetByName(entity, "rocket jump damage reduction", 0.75); // Half of the gunboats protection
@@ -491,10 +555,10 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "Blast radius decreased", 1.00); // Set explosion radius debuff to 0
 			}
-	                case 128: //The Equalizer
-	                {
-	                        TF2Attrib_SetByName(entity, "dmg from ranged reduced", 0.80); // Less damage from ranged while held
-	                }
+	    	case 128: //The Equalizer
+	        {
+	            TF2Attrib_SetByName(entity, "dmg from ranged reduced", 0.80); // Less damage from ranged while held
+	        }
 			case 588: //The Pomson 6000
 			{
 				TF2Attrib_SetByName(entity, "fire rate bonus", 0.80); // Increase firing rate
@@ -522,6 +586,14 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2Attrib_SetByName(entity, "damage penalty", 0.70); //Decrease damage by 30%
 				TF2Attrib_SetByName(entity, "self mark for death", 1.00); //Mark for death
 			}
+			case 310: // The Warrior's Spirit
+			{
+				TF2Attrib_SetByName(entity, "mult_dmgtaken_active", 1.00); // Remove vuln
+				TF2Attrib_SetByName(entity, "heal on hit for slowfire", 20.00); // 20 health on hit
+				TF2Attrib_SetByName(entity, "provide on active", 0.0); // Provide on active 0
+                TF2Attrib_SetByName(entity, "max health additive penalty", -20.00); // 20 less max health
+				TF2Attrib_SetByName(entity, "heal on kill", 0.0);
+			}
 			case 426: //The Eviction Notice
 			{
 				TF2Attrib_SetByName(entity, "mod_maxhealth_drain_rate", 0.0); // Disable max health drain
@@ -541,10 +613,15 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2Attrib_SetByName(entity, "dmg taken from fire reduced", 0.90); // Disable this attribute
 				TF2Attrib_SetByName(entity, "dmg taken from blast reduced", 0.90); // Disable this attribute
 			}
+            case 609: //Scottish Handshake
+            {
+                TF2Attrib_SetByName(entity, "fire rate penalty", 1.20);
+                TF2Attrib_SetByName(entity, "crit mod disabled", 0.00);
+				TF2Attrib_SetByName(entity, "mod crit while airborne", 1.00);
+            }
 			case 442: //The Righteous Bison
 			{
-				TF2Attrib_SetByName(entity, "fire rate bonus", 0.40); // Increase firing rate
-				TF2Attrib_SetByName(entity, "dmg falloff decreased", 0.50); // Remove damage falloff
+				TF2Attrib_SetByName(entity, "fire rate bonus", 0.6); // Increase firing rate
 			}
 			case 38, 457, 1000: //Axtinguisher, Plummeter, Festive Axtinguisher indexes
 			{
@@ -567,7 +644,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			}
 			case 215: //The Degreaser
 			{
-				TF2Attrib_SetByName(entity, "deploy time decreased", 0.60); // Modify all swap speeds
+				TF2Attrib_SetByName(entity, "deploy time decreased", 0.65); // Modify all swap speeds
 				TF2Attrib_SetByName(entity, "switch from wep deploy time decreased", 1.00); // Remove the holster bonus
 				TF2Attrib_SetByName(entity, "single wep deploy time decreased", 1.00); // Remove the deploy bonus
 			}
@@ -585,20 +662,18 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			}
 			case 1098: // The Classic
 			{
-				TF2Attrib_SetByName(entity, "sniper charge per sec", 1.15) // Increased by 15%
+				TF2Attrib_SetByName(entity, "sniper charge per sec", 1.20) // Increased by 20%
 			}
 			case 460: // The Enforcer
 			{
-				TF2Attrib_SetByName(entity, "damage bonus", 1.10); // Return the original damage bonus
-				TF2Attrib_SetByName(entity, "mult cloak rate", 0.5); // Return the 0.5s cloak time penalty
-				TF2Attrib_SetByName(entity, "damage bonus while disguised", 0.00); // Remove this bonus
-				TF2Attrib_SetByName(entity, "fire rate penalty", 1.00); // Remove the firing rate penalty
-				TF2Attrib_SetByName(entity, "mult cloak meter consume rate", 1.33); // move the YER's penalty here
+				TF2Attrib_SetByName(entity, "weapon spread bonus", 0.60); // 40% more accurate
+				TF2Attrib_SetByName(entity, "damage bonus while disguised", 1.00); // Remove this bonus
+				TF2Attrib_SetByName(entity, "damage bonus", 1.20);
 			}
 			case 225, 574: // Your Eternal Reward
 			{
 				TF2Attrib_SetByName(entity, "mult cloak meter consume rate", 1.00); // Self explanatory
-				TF2Attrib_SetByName(entity, "fire rate bonus", 0.85); // Increase RoF
+				TF2Attrib_SetByName(entity, "fire rate bonus", 0.90); // Increase RoF
 			}
 			case 461: // The Big Earner
 			{
@@ -614,6 +689,14 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2Attrib_SetByName(entity, "engy dispenser radius increased", 2.00); // Increase dispenser radius
 				TF2Attrib_SetByName(entity, "damage bonus", 1.10);
 			}
+            case 56, 1092, 1005: // Bow & Arrows
+            {
+				TF2Attrib_SetByName(entity, "max health additive bonus", 15.00); // Self explanatory
+            }
 		}
 	}
+}
+
+bool ValidateAndNullCheck(MemoryPatch patch) {
+        return patch.Validate() && patch != null;
 }
