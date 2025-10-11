@@ -12,26 +12,36 @@
 
 int LastDamage[MAXPLAYERS+1];
 int Scythe[MAXPLAYERS+1];
-int ShockCharge[MAXPLAYERS+1] = 30;
+int ShockCharge[MAXPLAYERS+1];
 int HealCount[MAXPLAYERS+1];
 float LastUber[MAXPLAYERS+1];
 
-new Handle:g_sEnabled = INVALID_HANDLE;
+ConVar g_sEnabled;
+ConVar g_cvDebug;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 
 public Plugin myinfo =
 {
 	name = "WeaponReverts",
 	author = "Hombre and Utsuho",
-	description = "Weapon changes plugin for Kogasatopia/The Youkai Pound, very specific, this includes custom attribute code such as recoil jumping",
+	description = "Weapon changes plugin for Kogasatopia, very specific, this includes custom attribute code such as recoil jumping",
 	version = "4.0",
 	url = "https://kogasa.tf"
 };
 
 public void OnPluginStart() {
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
+	g_cvDebug = CreateConVar("weaponreverts_debug", "0", "Log debug messages from weaponreverts.smx to the console");
 	if (GetConVarInt(g_sEnabled)) {
-		CreateTimer(1.0, Timer_HealTimer, _, TIMER_REPEAT);
+		CreateTimer(1.0, Timer_HealTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+
+		for (int i = 1; i <= MaxClients; i++) {
+			if (IsClientInGame(i)) {
+				ShockCharge[i] = 30;
+				HealCount[i] = 0;
+				LastUber[i] = 0.0;
+			}
+		}
 		HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
 		HookEvent("post_inventory_application", Event_Resupply, EventHookMode_Post);
 		HookEvent("player_spawn", OnPlayerSpawn);
@@ -54,7 +64,9 @@ if (IsClientInGame(client) && (GetConVarInt(g_sEnabled))) {
 	SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 	SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
 	SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
+
 	ShockCharge[client] = 30;
+	HealCount[client] = 0;
 	LastUber[client] = 0.0;
   }
 }
@@ -166,23 +178,45 @@ public Action TF2_CalcIsAttackCritical(client, weapon, String:weaponname[], &boo
 
 // Timer for TF2C afterburn heal attribute and shock charge refill
 public Action Timer_HealTimer(Handle timer) {
-        for(int iClient = 0; iClient <= MaxClients; iClient++) {
-                if (HealCount[iClient] != 0) {
-                        if (GetClientHealth(iClient) < TF2_GetPlayerMaxHealth(iClient)) {
-                                if (IsClientInGame(iClient) && IsPlayerAlive(iClient) && (CheckScythe(iClient) == 2)) {
-                                        AddPlayerHealth(iClient, LastDamage[iClient], 1.0, false, true);
-                                        ClientCommand(iClient, "playgamesound weapons/dispenser_generate_metal.wav");
-                                }
-                        }
-                        HealCount[iClient]--;
-                } else if (ShockCharge[iClient] < 30 && IsClientInGame(iClient)) {
-                        ShockCharge[iClient]++;
-                        if (ShockCharge[iClient] % 2 == 0 || ShockCharge[iClient] == 1) {
-                                PrintHintText(iClient, "Shock Charge: %i%%%", (ShockCharge[iClient] * 100 / 30));
-                        }
-                }
-        }
-        return Plugin_Continue;
+	for (int iClient = 1; iClient <= MaxClients; iClient++) {
+		if (!IsClientInGame(iClient)) continue;
+
+		// Heal logic
+		if (HealCount[iClient] != 0) {
+			if (GetClientHealth(iClient) < TF2_GetPlayerMaxHealth(iClient) && IsPlayerAlive(iClient) && CheckScythe(iClient) == 2) {
+				PrintToServer("Adding health to client %d", iClient);
+				AddPlayerHealth(iClient, LastDamage[iClient], 1.0, false, true);
+				ClientCommand(iClient, "playgamesound weapons/dispenser_generate_metal.wav");
+			}
+			HealCount[iClient]--;
+		}
+		// Shock charge logic
+		else if (ShockCharge[iClient] < 30) {
+			PrintToServer("Client %d with less than 30 shock charges found", iClient);
+			ShockCharge[iClient]++;
+			if (ShockCharge[iClient] % 2 == 0 || ShockCharge[iClient] == 1) {
+				PrintHintText(iClient, "Shock Charge: %i%%%", (ShockCharge[iClient] * 100 / 30));
+				PrintToServer("Debug for client %d", iClient);
+			}
+		}
+	}
+	return Plugin_Continue;
+}
+
+// Damage distance multiplier attribute
+float GetDistanceMultiplier(float posVic[3], float posAtt[3]) {
+    float distance = GetVectorDistance(posVic, posAtt);
+
+    // Distance-based rampup
+    // Example: base at 300 units, scales linearly, capped at +100% (2.0) or adjust as needed
+    float rampup = (distance - 300.0) * 0.001; // scaling factor
+    rampup = clamp(rampup, 0.0, 1.0);          // cap at +100%
+
+    float calculated = 1.0 + rampup;           // final multiplier
+    if (GetConVarInt(g_cvDebug))
+        PrintToServer("[Weaponreverts.smx] Calculated damage distance multiplier: %f (distance: %.1f)", calculated, distance);
+
+    return calculated;
 }
 
 // Holster reload code, hard coded for clip size 40 and 2, can be rewritten as an attribute in the future
@@ -233,6 +267,16 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	if (attacker < 1 || weapon < 1) return Plugin_Continue;
 
 	new wepindex = (IsValidEntity(weapon) && weapon > MaxClients ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
+	if (wepindex == 442 || wepindex == 588)  // Pomson, bison
+	{
+		// Distance between client and attacker
+		new Float:posVic[3]; // victim position vector
+		GetEntPropVector(client, Prop_Send, "m_vecOrigin", posVic);
+		new Float:posAtt[3]; // attacker position vector
+		GetEntPropVector(attacker, Prop_Send, "m_vecOrigin", posAtt);
+		damage *= (0.6 * GetDistanceMultiplier(posVic, posAtt));
+		return Plugin_Changed;
+	}
 	int watch = GetPlayerWeaponSlot(client, 4);
 	if (wepindex == 307) { //Ullapool Caber weapon index
 		if (client == attacker) {
@@ -470,6 +514,7 @@ public TF2_OnConditionRemoved(int client, TFCond condition)
 public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, quality, entity)
 {
 	if (GetConVarInt(g_sEnabled)) {
+		ShockCharge[client] = 30;
 		// Attach the `m_bValidatedAttachedEntity` property to every weapon/cosmetic.
 		// ^ This allows custom weapons/weapons with changed models to be seen.
 		if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
@@ -588,7 +633,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			}
 			case 310: // The Warrior's Spirit
 			{
-				TF2Attrib_SetByName(entity, "dmg taken increased", 1.00); // Remove vuln
+				TF2Attrib_SetByName(entity, "mult_dmgtaken_active", 1.00); // Remove vuln
 				TF2Attrib_SetByName(entity, "heal on hit for slowfire", 20.00); // 20 health on hit
 				TF2Attrib_SetByName(entity, "provide on active", 0.0); // Provide on active 0
                 TF2Attrib_SetByName(entity, "max health additive penalty", -20.00); // 20 less max health
@@ -621,7 +666,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
             }
 			case 442: //The Righteous Bison
 			{
-				TF2Attrib_SetByName(entity, "fire rate bonus", 0.6); // Increase firing rate
+				TF2Attrib_SetByName(entity, "fire rate bonus", 0.55); // Increase firing rate by 40%
 			}
 			case 38, 457, 1000: //Axtinguisher, Plummeter, Festive Axtinguisher indexes
 			{
@@ -699,4 +744,9 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 
 bool ValidateAndNullCheck(MemoryPatch patch) {
         return patch.Validate() && patch != null;
+}
+
+public float clamp(float a, float b, float c)
+{
+    return (a > c ? c : (a < b ? b : a));
 }

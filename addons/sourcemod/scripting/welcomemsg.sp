@@ -32,7 +32,7 @@ char scoutc[][] = {
 char soldier[][] = {
 	"\x01Air Strike:\x04 +15% reload speed\n",
 	"\x01Liberty Launcher:\x03 +10% firing speed\n",
-	"\x01Righteous Bison:\x04 Fires 60% faster, hits targets mutliple times\n",
+	"\x01Righteous Bison:\x04 Fires 55% faster, bonus damage up to +100% based on distance,\x07FF0000 -40% damage\n",
 	"\x01Base Jumper:\x03 Re-deploy, float upwards while on fire\n",
 	"\x01Equalizer:\x04 -20% damage from ranged sources while active\n",
 }
