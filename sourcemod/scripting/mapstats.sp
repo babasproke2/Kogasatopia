@@ -1,16 +1,19 @@
 public Plugin myinfo = {
         name = "Map Popularity Stats",
-        author = "Hombre",
+        author = "hombre",
         description = "Collects map frequency data",
-        version = "1.1",
+        version = "1.2",
         url = "https://gyate.net",
 };
 
 new String:g_sFilePath[PLATFORM_MAX_PATH];
 String:MapName[256];
 
+ConVar g_sEnabled;
+
 public OnPluginStart()
 {
+	g_sEnabled = CreateConVar("sm_mapstats_on", "1", "Enable or disable map popularity logging", FCVAR_NONE, true, 0.0, true, 1.0);
         BuildPath(Path_SM, g_sFilePath, sizeof(g_sFilePath), "logs/");
 
         if (!DirExists(g_sFilePath))
@@ -25,14 +28,15 @@ public OnPluginStart()
 public OnMapStart()
 {
 	GetCurrentMap(MapName, 256);
-	CreateTimer(180.0, LogTime, TIMER_REPEAT);
+	CreateTimer(60.0, LogTime, TIMER_REPEAT);
 }
 
 public Action LogTime(Handle Timer)
 {
+	if (!g_sEnabled.BoolValue) return Plugin_Continue; 
 	int PlayerCount = GetClientCount(true);
 	if (PlayerCount >= 4) {
-		LogMap(PlayerCount);
+            LogMap(PlayerCount);
 	}
 	return Plugin_Handled;
 }
