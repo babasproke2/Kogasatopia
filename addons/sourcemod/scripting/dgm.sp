@@ -6,12 +6,11 @@
 #include <tf2_stocks>
 #include <tf2>
 #include <controlpoints>
-// See github.com/powerlord/sourcemod-snippets/blob/master/scripting/include/controlpoints.inc
 
 #define PLUGIN_VERSION "3.0"
 
 ConVar g_cvEnabled;
-ConVar g_cvHalveSetupTime;
+ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
 ConVar g_cvEnabledOverride;
 ConVar g_cvRedTime;
@@ -21,16 +20,17 @@ ConVar g_cvTimeOverride;
 ConVar g_cvRespawnTime;
 bool g_bSymmetrical;
 
-int g_PointCaptures = 0;
-
 ConVar g_cHostname;
 ConVar g_hVisibleMaxPlayers;
 ConVar g_cvDebug;
 
+int g_PointCaptures;
+bool g_InternalOverride;
+
 public Plugin myinfo = {
     name = "Gamemode Detector",
     author = "Hombre",
-    description = "Handles gamemode settings and instant respawns for server operators. Control point features are WIP for the future.",
+    description = "Handles gamemode settings and instant respawns",
     version = PLUGIN_VERSION,
     url = "https://tf2.gyate.net"
 };
@@ -45,7 +45,7 @@ public void OnPluginStart()
     g_cvEnabled = CreateConVar("disable_respawn_times", "0", "Override respawn times", _, true, 0.0, true, 1.0);
     g_cvAsymCapRespawn = CreateConVar("respawn_red_on_cap", "0", "Override respawn times", _, true, 0.0, true, 1.0);
     g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 16.0);
-    g_cvHalveSetupTime = CreateConVar("sm_halvesetuptime", "0", "Locate and reduce setup time by 50% - only enable this per-map or in gamemode configs", _, true, 0.0, true, 1.0);
+    g_cvSetSetupTime = CreateConVar("sm_setuptime", "50", "Set setup time to X - 0 to disable management - only enable this per-map or in gamemode configs", _, true, 0.0, true,60.0);
 
     g_cvDebug = CreateConVar("sm_dgm_debug", "0", "Debug DetectGameMode to console", _, true, 0.0, true, 1.0);
     
@@ -61,10 +61,14 @@ public void OnPluginStart()
 }
 
 // Fires when a control point is captured
-// This was created to be a QoL feature for asymmetrical gamemodes
 public void Event_PointCaptured(Event event, const char[] name, bool dontBroadcast)
 {
     //This stuff is mostly WIP for dynamic changes on maps in the future
+    g_PointCaptures++;
+    if (g_PointCaptures >= 3)
+    {
+        g_InternalOverride = true;
+    }
     // Asymmetrical: respawn all dead RED players
     if (g_cvAsymCapRespawn && !g_bSymmetrical)
     {    
@@ -73,49 +77,12 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
             if (IsClientInGame(i) && GetClientTeam(i) == 2 && !IsPlayerAlive(i))
                 TF2_RespawnPlayer(i);
     }
-
-    // The rest of this is WIP for the future
-
-    char cappers[256];
-    event.GetString("cappers", cappers, sizeof(cappers));
-
-    int firstCapper = cappers[0] - '0'; // players are encoded as ASCII digits
-    int team = -1;
-    int redSum = 0;
-    int bluSum = 0;
-    if (IsClientInGame(firstCapper))
-    {
-        team = GetClientTeam(firstCapper);
-    }
-
-    char teamName[8];
-    switch (team)
-    {
-        case 2: 
-        {
-            strcopy(teamName, sizeof(teamName), "RED");
-            redSum++;
-        }
-        case 3: 
-        {
-            strcopy(teamName, sizeof(teamName), "BLU");
-            bluSum--;
-        }
-        default: 
-        {
-            strcopy(teamName, sizeof(teamName), "UNKNOWN");
-        }
-    }
-    int finalSum = bluSum + redSum;
-    g_PointCaptures++;
-    if (g_cvDebug)
-        PrintToServer("DGM Debug: Total captures: %d", g_PointCaptures);
-        PrintToServer("DGM Debug: %s team captured a point. RED: %d, BLU: %d, sum: %d", teamName, redSum, bluSum, finalSum);
     return;
 }
 
 public Action Command_Stats(int client, int args)
 {
+    // This command is for me to neurotically monitor things
     // Reject server console or invalid clients
     if (client <= 0 || !IsClientInGame(client))
     {
@@ -143,7 +110,7 @@ public Action Command_Stats(int client, int args)
     g_hVisibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
     int visMax = GetConVarInt(g_hVisibleMaxPlayers);
 
-    // Respawn-related ConVars
+    /* Respawn-related ConVars */
     float respawnTime = GetConVarFloat(g_cvRespawnTime);
     float timeOverride = GetConVarFloat(g_cvTimeOverride);
     float redTime = GetConVarFloat(g_cvRedTime);
@@ -173,6 +140,7 @@ public Action Command_RespawnToggle(int client, int args)
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
+    if (g_InternalOverride) return;
     int client = GetClientOfUserId(GetEventInt(event, "userid"));
     int override = GetConVarInt(g_cvEnabledOverride);
     float overridetime = GetConVarFloat(g_cvTimeOverride);
@@ -198,9 +166,10 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
 {
     if (g_cvTimeOverride != null)    g_cvTimeOverride.RestoreDefault();
     g_PointCaptures = 0;
-    if (GetConVarInt(g_cvHalveSetupTime))
+    g_InternalOverride = false;
+    if (GetConVarInt(g_cvSetSetupTime) != 0)
     {
-        HalfSetupTime();
+        SetSetupTime();
     }
     SetConVarInt(g_cvTimeOverride, 0);
 	if (GetConVarInt(g_cvAutoAddTime)) {
@@ -218,6 +187,7 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
 public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 {
     SetConVarInt(g_cvTimeOverride, 30);
+    g_InternalOverride = false;
     if (g_cvEnabledOverride != null) g_cvEnabledOverride.RestoreDefault();
     if (g_cvRedTime != null)         g_cvRedTime.RestoreDefault();
     if (g_cvBluTime != null)         g_cvBluTime.RestoreDefault();
@@ -250,15 +220,15 @@ public Action Command_ResetSetup(int client, int args)
     return Plugin_Handled;
 }
 
-public void HalfSetupTime()
+public void SetSetupTime()
 {
     int timerEnt = FindEntityByClassname(-1, "team_round_timer");
     if (timerEnt != -1)
     {
-        int time = 30;
+        int time = GetConVarInt(g_cvSetSetupTime);
         SetVariantInt(time);
         AcceptEntityInput(timerEnt, "SetTime");
-        PrintToServer("[SM] Setup time set to %i seconds.", time);
+        if (GetConVarInt(g_cvDebug)) PrintToServer("[SM] Setup time set to %i seconds.", time);
     }
 }
 
