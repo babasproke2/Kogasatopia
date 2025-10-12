@@ -8,7 +8,7 @@
 #include <tf2items>
 #include <tf2attributes>
 
-#define PLUGIN_VERSION "1.0"
+#define PLUGIN_VERSION "1.1"
 ConVar g_cvDisableStuns;
 ConVar g_cvDisableSpells;
 ConVar g_cvMiniCrump;
@@ -36,8 +36,8 @@ public void OnPluginStart()
     g_cvNerfBosses = CreateConVar("sm_nerfbosses", "1", "Multiply damage to Monoculus/Horsemann by 10", _, true, 0.0, true, 1.0);
     g_cvBossNerfScale = CreateConVar("sm_bossnerfscale", "4", "Multiply damage to Monoculus/Horsemann/Merasmus by this value", _, true, 0.0, true, 10.0);
     g_cvHalloween = CreateConVar("sm_halloween", "0", "Reference for other plugins to check halloween status", _, true, 0.0, true, 1.0);
-    CheckHalloweenStatus(); // This is checked thrice for certainty 
-    // Only hook
+    AutoExecConfig(true, "nerfhalloweengimmicks");
+    CheckHalloweenStatus(); // This appears 3 times total for certainty
     HookEvent("teamplay_round_active", Event_RoundActive, EventHookMode_Post);
 }
 

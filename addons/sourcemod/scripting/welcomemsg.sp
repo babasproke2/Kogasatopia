@@ -26,7 +26,7 @@ char scout[][] = {
 char scoutc[][] = {
         "\x07EEE8A ----- !cw weapons -----\n",
         "\x01 [Primary] Original Baby Face: \x03+40% accuracy, 6 clip size,\x07FF0000 -30% damage, -25% base movement speed\n",
-        "\x01 [Secondary] Lightning Pistol: \x03+35% firing rate, +150% clip size, 70% more accurate,\x07FF0000 -35% damage, -15% reload speed\n",
+        "\x01 [Secondary] Lightning Pistol: \x03+35% firing rate, +200% clip size, 70% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n",
 }
 
 char soldier[][] = {
