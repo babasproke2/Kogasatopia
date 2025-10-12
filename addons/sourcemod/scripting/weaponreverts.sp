@@ -19,6 +19,7 @@ float LastUber[MAXPLAYERS+1];
 ConVar g_sEnabled;
 ConVar g_cvDebug;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
+Handle g_hHealTimer = INVALID_HANDLE;
 
 public Plugin myinfo =
 {
@@ -29,17 +30,27 @@ public Plugin myinfo =
 	url = "https://kogasa.tf"
 };
 
+stock void ResetClientArrays(int client)
+{
+    if (client <= 0 || client > MaxClients) return;
+    LastDamage[client] = 0;
+    Scythe[client] = 0;
+    ShockCharge[client] = 30;
+    HealCount[client] = 0;
+    LastUber[client] = 0.0;
+}
+
 public void OnPluginStart() {
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
 	g_cvDebug = CreateConVar("weaponreverts_debug", "0", "Log debug messages from weaponreverts.smx to the console");
 	if (GetConVarInt(g_sEnabled)) {
-		CreateTimer(1.0, Timer_HealTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+
+        if (g_hHealTimer == INVALID_HANDLE)
+            g_hHealTimer = CreateTimer(1.0, Timer_HealTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 
 		for (int i = 1; i <= MaxClients; i++) {
 			if (IsClientInGame(i)) {
-				ShockCharge[i] = 30;
-				HealCount[i] = 0;
-				LastUber[i] = 0.0;
+				ResetClientArrays(i);
 			}
 		}
 
@@ -60,16 +71,27 @@ public void OnPluginStart() {
 	}
 }
 
+public void OnPluginEnd() {
+    if (g_hHealTimer != INVALID_HANDLE) {
+        CloseHandle(g_hHealTimer);
+        g_hHealTimer = INVALID_HANDLE;
+    }
+}
+
 public OnClientPutInServer(client) {
 if (IsClientInGame(client) && (GetConVarInt(g_sEnabled))) {
 	SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 	SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
 	SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
 
-	ShockCharge[client] = 30;
-	HealCount[client] = 0;
-	LastUber[client] = 0.0;
+	ResetClientArrays(client);
   }
+}
+
+// Potentially important for memory safety
+public void OnClientDisconnect(int client)
+{
+	ResetClientArrays(client);
 }
 
 public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
@@ -287,7 +309,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 				damagetype|=DMG_CRIT;
 				return Plugin_Changed;
 			} else {
-				damage = 90.00
+				damage = 90.00;
 				return Plugin_Changed;
 			}
 		}
@@ -364,7 +386,7 @@ public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damag
 		if (CheckShock(attacker) == 2)
 		{	
 			int buff = OverhealStruct(victim);
-			int health = GetClientHealth(victim)
+			int health = GetClientHealth(victim);
 			if (health < buff) {
 				int medigun = GetPlayerWeaponSlot(attacker, 1);
 				float pos[3];
