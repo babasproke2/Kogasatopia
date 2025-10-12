@@ -1,7 +1,7 @@
 #include <sourcemod>
 #include <tf2_stocks>
 
-stock bool:hasBeenWelcomed[MAXPLAYERS+1] = false;
+stock bool:hasBeenWelcomed[MAXPLAYERS+1];
 TFClassType LastClass[MAXPLAYERS+1];
 
 char info[][] = {
@@ -26,7 +26,7 @@ char scout[][] = {
 char scoutc[][] = {
         "\x07EEE8A ----- !cw weapons -----\n",
         "\x01 [Primary] Original Baby Face: \x03+40% accuracy, 6 clip size,\x07FF0000 -30% damage, -25% base movement speed\n",
-        "\x01 [Secondary] Lightning Pistol: \x03+35% firing rate, +200% clip size, 70% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n",
+        "\x01 [Secondary] Lightning Pistol: \x03+35% firing rate, +200% clip size, 70% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n"
 }
 
 char soldier[][] = {
@@ -68,7 +68,7 @@ char demoman[][] = {
 	"\x01Base Jumper:\x03 Re-deploy, float upwards while on fire\n",
 	"\x01Sticky Jumper:\x04 Max stickies 3 -> 8\n",
 	"\x01Scottish Resistance:\x03 Arm time 0.8 -> 0.4\n",
-	"\x01Shields:\x04 Provide 65% blast jump damage resistance\n",
+	"\x01Shields:\x04 Provide 65% blast jump damage resistance,\x07FF2400 all resistances are changed to 10%\n",
 	"\x01Caber:\x03 Explosion deals 125 damage, deals 175 damage while blast jumping\n",
 	"\x01Scottish Handshake:\x04 Market gardener stats\n",
 }
@@ -94,15 +94,17 @@ char heavyc[][] = {
 }
 
 char engineer[][] = {
-	"\x01Pomson:\x04 Penetrates targets, +20% firing rate\n",
-	"\x01Southern Hospitality:\x03 +10% damage, +100% dispenser range\n"
+	"\x01Pomson:\x04 Penetrates targets, +20% firing rate, bonus damage up to +100% based on distance\n",
+	"\x01The Wrangler:\x07FF2400 -35% max metal\n",
+	"\x01The Short Circuit:\x07FF2400 No ammo from dispensers/carts while held\n",
+	"\x01Southern Hospitality:\x03 +10% damage, 15 metal regenerated every 5 seconds on wearer\n"
 }
 
 char engineerc[][] = {
         "\x07EEE8A ----- !cw weapons -----\n",
         "\x01 [Primary] Old Panic Attack: \x03Hold fire to load up to 4 shells, fires faster as HP decreases\n",
         "\x01 [Primary] The Family Business\n",
-        "\x01 [Secondary] Lightning Pistol: \x03+35% firing rate, +150% clip size, 70% more accurate,\x07FF2400 -35% damage, -15% reload speed\n",
+        "\x01 [Secondary] Lightning Pistol: \x03+35% firing rate, +200% clip size, 70% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n",
         "\x01 [Secondary] The Winger\n",
         "\x01 [Secondary] Pretty Boy's Pocket Pistol\n",
         "\x01 [PDA1] Boost/Jump pads (Or use !pads for convenience)\n"
@@ -110,7 +112,8 @@ char engineerc[][] = {
 
 char medic[][] = {
 	"\x01Syringe guns:\x04 +1.25% uber on hit, reload on holster\n",
-	"\x01The Vita-Saw:\x03 Retain up to 20% uber after death regardless of organs, wall climbing\n"
+	"\x01The Vita-Saw:\x03 Retain up to 20% uber after death regardless of organs, wall climbing\n",
+	"\x01The Vaccinator:\x07FF2400 +20% damage taken while held\n"
 }
 
 char medicc[][] = {
@@ -177,6 +180,13 @@ public OnPluginStart()
     RegConsoleCmd("sm_rules", Command_Rules, "Lists the rules to the client");
     RegConsoleCmd("sm_steam", Command_Steam, "Prints the steam group URL to the client");
     RegConsoleCmd("sm_chat", Command_chat, "Steam chat link");
+}
+
+public OnClientPutInServer(client) {
+if (IsClientInGame(client)) {
+        hasBeenWelcomed[client] = false;
+        // Modern syntax for setting a global array
+  }
 }
 
 public Event_PlayerSpawn(Handle:event, const String:name[], bool:dontBroadcast)

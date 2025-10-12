@@ -10,6 +10,7 @@
 #define PLUGIN_VERSION "3.0"
 
 ConVar g_cvEnabled;
+ConVar g_cvHighPopThreshhold;
 ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
 ConVar g_cvEnabledOverride;
@@ -38,14 +39,15 @@ public Plugin myinfo = {
 public void OnPluginStart()
 {
     g_cvEnabledOverride = CreateConVar("force_enable_respawns", "3", "Enable/Disable respawn times", _, true, 0.0, true, 3.0);
+    g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 16.0);
+    g_cvHighPopThreshhold = CreateConVar("sm_dgm_threshhold", "12.0", "Threshhold for the server to be considered high population", _, true, 0.0, true, 100.0);
     g_cvTimeOverride = CreateConVar("respawn_otime", "0", "Override respawn time with this", _, true, 0.0, true, 16.0);
     g_cvRedTime = CreateConVar("respawn_redtime", "3.0", "Red respawn time length", _, true, 0.0, true, 16.0);
     g_cvBluTime = CreateConVar("respawn_blutime", "3.0", "Blu respawn time length", _, true, 0.0, true, 16.0);
     g_cvAutoAddTime = CreateConVar("sm_autoaddtime", "1", "Automatically extend koth times?", _, true, 0.0, true, 1.0);
     g_cvEnabled = CreateConVar("disable_respawn_times", "0", "Override respawn times", _, true, 0.0, true, 1.0);
     g_cvAsymCapRespawn = CreateConVar("respawn_red_on_cap", "0", "Override respawn times", _, true, 0.0, true, 1.0);
-    g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 16.0);
-    g_cvSetSetupTime = CreateConVar("sm_setuptime", "50", "Set setup time to X - 0 to disable management - only enable this per-map or in gamemode configs", _, true, 0.0, true,60.0);
+    g_cvSetSetupTime = CreateConVar("sm_setuptime", "48", "Set setup time to X - 0 to disable management - only enable this per-map or in gamemode configs to avoid conflicts with certain gamemodes", _, true, 0.0, true,60.0);
 
     g_cvDebug = CreateConVar("sm_dgm_debug", "0", "Debug DetectGameMode to console", _, true, 0.0, true, 1.0);
     
@@ -164,6 +166,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
 public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast)
 {
+    RequestFrame(Frame_CheckPlayerCount); // Moved this here for less checks / less mid-round changes of settings
     if (g_cvTimeOverride != null)    g_cvTimeOverride.RestoreDefault();
     g_PointCaptures = 0;
     g_InternalOverride = false;
@@ -253,28 +256,15 @@ public Action DisableTruce()
     return Plugin_Handled;
 }
 
-public void OnClientPutInServer(int client)
-{
-    if (!IsFakeClient(client)) {
-        RequestFrame(Frame_CheckPlayerCount);
-    }
-}
-
-public void OnClientDisconnect(int client)
-{
-    if (!IsFakeClient(client)) {
-        RequestFrame(Frame_CheckPlayerCount);
-    }
-}
-
 public void Frame_CheckPlayerCount(any data)
 {
     int playerCount = GetClientCount(false);
-    if (!g_bSymmetrical) {
-        ServerCommand(playerCount < 11 ? "exec d_highpop_pl.cfg" : "exec d_lowpop.cfg");
+    int threshhold = GetConVarInt(g_cvHighPopThreshhold);
+    if (!g_bSymmetrical) { // If the gamemode isn't symmetrical, use a different config file, d_highpop_a.cfg
+        ServerCommand(playerCount < threshhold ? "exec d_highpop_a.cfg" : "exec d_lowpop.cfg");
         if (g_cvDebug) PrintToServer("DGM Debug: Playercount %i, gamemode is not symmetrical.", playerCount);
     } else {
-        ServerCommand(playerCount < 7 ? "exec d_highpop.cfg" : "exec d_lowpop.cfg");
+        ServerCommand(playerCount < threshhold ? "exec d_highpop.cfg" : "exec d_lowpop.cfg");
         if (g_cvDebug) PrintToServer("DGM Debug: Playercount %i, gamemode is not symmetrical.", playerCount);
     }
 }
@@ -365,7 +355,10 @@ static void CreateDefaultConfigs()
         "d_tc.cfg",
         "d_medieval.cfg",
         "d_pd.cfg",
-        "d_default.cfg"
+        "d_default.cfg",
+        "d_highpop.cfg",
+        "d_highpop_a.cfg",
+        "d_lowpop.cfg"
     };
     
     char configPath[PLATFORM_MAX_PATH];

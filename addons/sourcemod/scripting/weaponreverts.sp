@@ -291,7 +291,13 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 		GetEntPropVector(client, Prop_Send, "m_vecOrigin", posVic);
 		new Float:posAtt[3]; // attacker position vector
 		GetEntPropVector(attacker, Prop_Send, "m_vecOrigin", posAtt);
-		damage *= (0.6 * GetDistanceMultiplier(posVic, posAtt));
+		if (wepindex == 442)
+		{
+			damage *= (0.6 * GetDistanceMultiplier(posVic, posAtt));
+			// 40% damage nerf is applied here because I can't find an attribute for energy weapon damage changes
+			return Plugin_Changed;
+		}
+		damage *= GetDistanceMultiplier(posVic, posAtt);
 		return Plugin_Changed;
 	}
 	int watch = GetPlayerWeaponSlot(client, 4);
@@ -665,8 +671,9 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "damage penalty", 1.00); // Remove the damage penalty
 			}
-			// These are the secret nerfs for the vaccinator, shields & wrangler sorry chuds
+			// These are the secret nerfs for the vaccinator, shields the wrangler and short circuit
 			// Sometimes I delete these but I feel they'll soon be official
+			// The usual policy is to only buff things but because the Zesty server bans weapons I feel like I can do this + people would like it
 			case 998: //The Vaccinator
 			{
 				TF2Attrib_SetByName(entity, "mult_dmgtaken_active", 1.20);
@@ -679,8 +686,13 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			}
 			case 140, 1086: // Wranglers
 			{
-				TF2Attrib_SetByName(entity, "maxammo metal reduced", 0.70); // Reduce max metal 200 -> 130
+				TF2Attrib_SetByName(entity, "maxammo metal reduced", 0.65); // Reduce max metal 200 -> 130
 			}
+			case 528: // Short Circuit
+			{
+				TF2Attrib_SetByName(entity, "no metal from dispensers while active", 1.00); // No hugging the cart
+			}
+			// Nerf section ends here
             case 609: //Scottish Handshake
             {
                 TF2Attrib_SetByName(entity, "fire rate penalty", 1.20);
@@ -754,7 +766,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			}
 			case 155: // Southern Hospitality
 			{
-				TF2Attrib_SetByName(entity, "engy dispenser radius increased", 2.00); // Increase dispenser radius
+				TF2Attrib_SetByName(entity, "metal regen", 15.00); // This activates every 5 seconds, so let's use 15
 				TF2Attrib_SetByName(entity, "damage bonus", 1.10);
 			}
             case 56, 1092, 1005: // Bow & Arrows
