@@ -2,7 +2,7 @@ public Plugin myinfo = {
         name = "Map Popularity Stats",
         author = "hombre",
         description = "Collects map frequency data",
-        version = "1.2",
+        version = "1.0",
         url = "https://gyate.net",
 };
 
@@ -41,6 +41,8 @@ public Action LogTime(Handle Timer)
 	return Plugin_Handled;
 }
 
+// This plugin is used for creating the map popularity stats you can see on the website's playercount widget
+// Eventually the website's code will be shared on this repo
 public void LogMap(int PlayerCount)
 {
 	BuildPath(Path_SM, g_sFilePath, sizeof(g_sFilePath), "/logs/mapstats.txt");
