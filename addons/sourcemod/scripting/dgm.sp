@@ -158,7 +158,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
             else if (team == 3) time = bluTime;
         }
         if (time > 0.0)
-            CreateTimer(time, Timer_RespawnClient, client);
+            CreateTimer(time, Timer_RespawnClient, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
     }
 }
 
@@ -193,11 +193,11 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
     if (g_cvBluTime != null)         g_cvBluTime.RestoreDefault();
 }
 
-public Action Timer_RespawnClient(Handle timer, int client)
+public Action Timer_RespawnClient(Handle timer, any userid)
 {
-    if (IsValidClient(client) && !IsPlayerAlive(client) && GetClientTeam(client) > 1) {
+    int client = GetClientOfUserId(userid);
+    if (client && IsClientInGame(client) && !IsPlayerAlive(client))
         TF2_RespawnPlayer(client);
-    }
     return Plugin_Stop;
 }
 
