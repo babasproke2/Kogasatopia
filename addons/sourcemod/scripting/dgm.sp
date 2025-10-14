@@ -7,13 +7,12 @@
 #include <tf2>
 #include <controlpoints>
 
-#define PLUGIN_VERSION "3.0"
+#define PLUGIN_VERSION "4.0"
 
 ConVar g_cvEnabled;
-ConVar g_cvHighPopThreshhold;
 ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
-ConVar g_cvEnabledOverride;
+ConVar g_cvThreshold;
 ConVar g_cvRedTime;
 ConVar g_cvBluTime;
 ConVar g_cvAutoAddTime;
@@ -23,10 +22,14 @@ bool g_bSymmetrical;
 
 ConVar g_cHostname;
 ConVar g_hVisibleMaxPlayers;
-ConVar g_cvDebug;
 
 int g_PointCaptures;
 bool g_InternalOverride;
+
+ConVar g_cvGameMode;
+
+// Add a ConVar to hook the value of mp_disable_respawn_times
+Handle g_cvMpDisableRespawnTimes = INVALID_HANDLE;
 
 public Plugin myinfo = {
     name = "Gamemode Detector",
@@ -38,48 +41,83 @@ public Plugin myinfo = {
 
 public void OnPluginStart()
 {
-    g_cvEnabledOverride = CreateConVar("force_enable_respawns", "3", "Enable/Disable respawn times", _, true, 0.0, true, 3.0);
-    g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 16.0);
-    g_cvHighPopThreshhold = CreateConVar("sm_dgm_threshhold", "12.0", "Threshhold for the server to be considered high population", _, true, 0.0, true, 100.0);
-    g_cvTimeOverride = CreateConVar("respawn_otime", "0", "Override respawn time with this", _, true, 0.0, true, 16.0);
+    // Disable respawn times with this plugin?
+    g_cvEnabled = CreateConVar("disable_respawn_times", "0", "Override respawn times", _, true, 0.0, true, 1.0);
+    // The respawn time
+    g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 30.0);
+    // See description
+    g_cvThreshold = CreateConVar("sm_highpop_threshhold", "12.0", "Threshhold for executing the highpop config", _, true, 0.0, true, 100.0);
+    // For micromanagement, if this convar isn't 0, it'll use the given time
+    g_cvTimeOverride = CreateConVar("respawn_otime", "0", "Override respawn time with this", _, true, 0.0, true, 30.0);
+    // Respawn times for individual teams (beta)
     g_cvRedTime = CreateConVar("respawn_redtime", "3.0", "Red respawn time length", _, true, 0.0, true, 16.0);
     g_cvBluTime = CreateConVar("respawn_blutime", "3.0", "Blu respawn time length", _, true, 0.0, true, 16.0);
+    // Auto add time to king of the hill timers?
     g_cvAutoAddTime = CreateConVar("sm_autoaddtime", "1", "Automatically extend koth times?", _, true, 0.0, true, 1.0);
-    g_cvEnabled = CreateConVar("disable_respawn_times", "0", "Override respawn times", _, true, 0.0, true, 1.0);
+    // Always respawn red team on control point capture in asymmetrical gamemodes?
     g_cvAsymCapRespawn = CreateConVar("respawn_red_on_cap", "0", "Override respawn times", _, true, 0.0, true, 1.0);
-    g_cvSetSetupTime = CreateConVar("sm_setuptime", "48", "Set setup time to X - 0 to disable management - only enable this per-map or in gamemode configs to avoid conflicts with certain gamemodes", _, true, 0.0, true,60.0);
-
-    g_cvDebug = CreateConVar("sm_dgm_debug", "0", "Debug DetectGameMode to console", _, true, 0.0, true, 1.0);
+    // Change the setup time to this in asymmetrical gamemodes
+    g_cvSetSetupTime = CreateConVar("sm_setuptime", "40", "Set setup time to X - 0 to disable management - only enable this per-map or in gamemode configs", _, true, 0.0, true,60.0);
+    // Stores the executed gamemode
+    g_cvGameMode = CreateConVar("sm_gamemode", "unknown", "Stores the executed gamemode", FCVAR_NONE);
+    // Hook the value of mp_disable_respawn_times
+    g_cvMpDisableRespawnTimes = FindConVar("mp_disable_respawn_times");
+    HookConVarChange(g_cvRespawnTime, ConVarChange_MpDisableRespawnTimes);
     
+    HookEvent("player_death", Event_PlayerDeath);
+    HookEvent("teamplay_round_start", Event_RoundActive);
+    HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_Pre);
+    HookEvent("teamplay_point_captured", Event_PointCaptured, EventHookMode_PostNoCopy);   
+
     RegAdminCmd("sm_respawn", Command_RespawnToggle, ADMFLAG_KICK, "Toggles respawn times");
     RegAdminCmd("sm_noset", Command_ResetSetup, ADMFLAG_KICK, "Set round setup time to 10 seconds");
 
     g_cHostname = FindConVar("hostname");
     RegConsoleCmd("sm_stats", Command_Stats, "Show player count, map and hostname");
-    HookEvent("player_death", Event_PlayerDeath);
-    HookEvent("teamplay_round_start", Event_RoundActive);
-    HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_Pre);
-    HookEvent("teamplay_point_captured", Event_PointCaptured, EventHookMode_PostNoCopy);   
+    RegConsoleCmd("sm_gamemode", Command_GameMode, "Displays the current gamemode");
+}
+
+// I prefer the visual effect when TF2's mp_disable_respawn_times cvar is true but dislike that it can be exploited
+// Also takes about 5~ seconds for the respawn to occur
+public void ConVarChange_MpDisableRespawnTimes(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    if (StringToInt(newValue) > 5)
+    {
+        SetConVarInt(g_cvMpDisableRespawnTimes, 0);
+    } else 
+    {
+        SetConVarInt(g_cvMpDisableRespawnTimes, 1);
+    }
+}
+
+// We can be sure entities are loaded by this point
+public void OnConfigsExecuted()
+{
+    DetectGameMode();
+    RequestFrame(Frame_CheckPlayerCount);
 }
 
 // Fires when a control point is captured
 public void Event_PointCaptured(Event event, const char[] name, bool dontBroadcast)
 {
     //This stuff is mostly WIP for dynamic changes on maps in the future
-    g_PointCaptures++;
-    if (g_PointCaptures >= 3)
-    {
-        g_InternalOverride = true;
-    }
-    // Asymmetrical: respawn all dead RED players
-    if (g_cvAsymCapRespawn && !g_bSymmetrical)
-    {    
-        if (g_cvDebug) PrintToServer("Debug: respawning red players...");
-        for (int i = 1; i <= MaxClients; i++)
-            if (IsClientInGame(i) && GetClientTeam(i) == 2 && !IsPlayerAlive(i))
-                TF2_RespawnPlayer(i);
-    }
-    return;
+	// For now, all of these  features are from asymmetrical gamemode types
+	if (g_bSymmetrical)
+	{
+		g_PointCaptures++;
+		if (g_PointCaptures >= 3)
+		{
+			g_InternalOverride = true; // Stop managing respawn times if approaching last
+		} else g_InternalOverride = false;
+		// Asymmetrical: respawn all dead RED players
+		if (g_cvAsymCapRespawn && !g_bSymmetrical)
+		{    
+			for (int i = 1; i <= MaxClients; i++)
+				if (IsClientInGame(i) && GetClientTeam(i) == 2 && !IsPlayerAlive(i))
+					TF2_RespawnPlayer(i);
+		}
+		return;
+	}
 }
 
 public Action Command_Stats(int client, int args)
@@ -112,15 +150,13 @@ public Action Command_Stats(int client, int args)
     g_hVisibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
     int visMax = GetConVarInt(g_hVisibleMaxPlayers);
 
-    /* Respawn-related ConVars */
+    // Respawn-related ConVars
     float respawnTime = GetConVarFloat(g_cvRespawnTime);
     float timeOverride = GetConVarFloat(g_cvTimeOverride);
     float redTime = GetConVarFloat(g_cvRedTime);
     float bluTime = GetConVarFloat(g_cvBluTime);
     int enabledRespawnOverride = GetConVarInt(g_cvEnabled);
     int asymCapRespawn = GetConVarInt(g_cvAsymCapRespawn);
-
-    // Send the message to the caller
     PrintToChat(client,
         "\x01[Stats] Players: \x04%d\x01 | Map: \x04%s\x01 | Server: \x04%s\x01 | Max Players: \x04%i",
         playerCount, map, hostname, visMax);
@@ -133,48 +169,60 @@ public Action Command_Stats(int client, int args)
 
 public Action Command_RespawnToggle(int client, int args)
 {
-    int currentValue = GetConVarInt(g_cvEnabledOverride);
-    int newValue = (currentValue == 1 || currentValue == 3) ? 0 : 1;
-    SetConVarInt(g_cvEnabledOverride, newValue);
+    int currentValue = GetConVarInt(g_cvTimeOverride);
+    int newValue = (currentValue == 0) ? 30 : 0; // toggle between 0 and 30
+
+    SetConVarInt(g_cvTimeOverride, newValue);
     PrintToChat(client, "Respawn times %s", newValue == 0 ? "forced on" : "forced off");
+
     return Plugin_Handled;
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
-    if (g_InternalOverride) return;
-    int client = GetClientOfUserId(GetEventInt(event, "userid"));
-    int override = GetConVarInt(g_cvEnabledOverride);
-    float overridetime = GetConVarFloat(g_cvTimeOverride);
+        if (!GetConVarInt(g_cvEnabled)) return;
+        int client = GetClientOfUserId(GetEventInt(event, "userid"));
+        if (!(IsValidClient(client))) return;
 
-    if (!IsValidClient(client)) return;
-    if (GetConVarInt(g_cvEnabled) == 1 || override == 1)
-    {
-        float time = overridetime != 0.0 ? overridetime : GetConVarFloat(g_cvRespawnTime);
-        float bluTime = GetConVarFloat(g_cvBluTime);
-        float redTime = GetConVarFloat(g_cvRedTime);
-        int team = GetClientTeam(client);
-        if (overridetime == 0.0 && bluTime != redTime)
+        float override = GetConVarFloat(g_cvTimeOverride);
+        if (override > 0)
         {
-            if (team == 2) time = redTime;
-            else if (team == 3) time = bluTime;
+            CreateTimer(override, Timer_RespawnClient, client);
+            return;
         }
-        if (time > 0.0)
-            CreateTimer(time, Timer_RespawnClient, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+
+        float time = GetConVarFloat(g_cvRespawnTime);
+        int team = GetClientTeam(client);
+        float redTime = GetConVarFloat(g_cvRedTime);
+        float bluTime = GetConVarFloat(g_cvBluTime);
+        if (redTime != bluTime)
+        {
+        if (team == 2) time = redTime;
+        else if (team == 3) time = bluTime;
+        }
+        CreateTimer(time, Timer_RespawnClient, client);
+        return;
+}
+
+public Action Timer_RespawnClient(Handle timer, int client)
+{
+    if (g_InternalOverride) return Plugin_Stop; // If gameplay isn't active
+    if (IsValidClient(client) && !IsPlayerAlive(client) && GetClientTeam(client) > 1) {
+        TF2_RespawnPlayer(client);
     }
+    return Plugin_Stop;
 }
 
 public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast)
 {
-    RequestFrame(Frame_CheckPlayerCount); // Moved this here for less checks / less mid-round changes of settings
     if (g_cvTimeOverride != null)    g_cvTimeOverride.RestoreDefault();
+    RequestFrame(Frame_CheckPlayerCount);
     g_PointCaptures = 0;
     g_InternalOverride = false;
     if (GetConVarInt(g_cvSetSetupTime) != 0)
     {
         SetSetupTime();
     }
-    SetConVarInt(g_cvTimeOverride, 0);
 	if (GetConVarInt(g_cvAutoAddTime)) {
 		int entityTimer = FindEntityByClassname(-1, "tf_logic_koth");
 		if (entityTimer > -1)
@@ -190,21 +238,11 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
 public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 {
     SetConVarInt(g_cvTimeOverride, 30);
-    g_InternalOverride = false;
-    if (g_cvEnabledOverride != null) g_cvEnabledOverride.RestoreDefault();
-    if (g_cvRedTime != null)         g_cvRedTime.RestoreDefault();
-    if (g_cvBluTime != null)         g_cvBluTime.RestoreDefault();
+    g_PointCaptures = 0;
+    g_InternalOverride = true; // We're gonna stop clients from getting insta-respawned with this
 }
 
-public Action Timer_RespawnClient(Handle timer, any userid)
-{
-    int client = GetClientOfUserId(userid);
-    if (client && IsClientInGame(client) && !IsPlayerAlive(client))
-        TF2_RespawnPlayer(client);
-    return Plugin_Stop;
-}
-
-public Action Command_ResetSetup(int client, int args)
+public Action Command_ResetSetup(int client , int args)
 {
     int timerEnt = FindEntityByClassname(-1, "team_round_timer");
     if (timerEnt == -1)
@@ -215,6 +253,17 @@ public Action Command_ResetSetup(int client, int args)
     }
 
     int time = 10;
+    if (args > 0)
+    {
+        if (!GetCmdArgIntEx( 1, args))
+        {
+            ReplyToCommand(client, "Given time must be a number!" );
+            return Plugin_Continue;
+        }
+    }
+	char temp[ 4 ];
+	GetCmdArg( 1, temp, 4 );
+	time = StringToInt(temp);
     SetVariantInt(time);
     AcceptEntityInput(timerEnt, "SetTime");
 
@@ -231,41 +280,18 @@ public void SetSetupTime()
         int time = GetConVarInt(g_cvSetSetupTime);
         SetVariantInt(time);
         AcceptEntityInput(timerEnt, "SetTime");
-        if (GetConVarInt(g_cvDebug)) PrintToServer("[SM] Setup time set to %i seconds.", time);
+        PrintToServer("[SM] Setup time set to %i seconds.", time);
     }
-}
-
-public Action DisableTruce()
-{
-    // Find the tf_gamerules entity
-    int gamerules = FindEntityByClassname(-1, "tf_gamerules");
-    if (gamerules == -1)
-    {
-        PrintToServer("[SM] No tf_gamerules entity found.");
-        return Plugin_Handled;
-    }
-
-    // Prepare the variant for input
-    int whale = 0; // false
-    SetVariantInt(whale);
-
-    // Call the entity input with the variant
-    AcceptEntityInput(gamerules, "SetMapForcedTruceDuringBossFight", -1, -1, whale);
-
-    PrintToServer("[SM] Set SetMapForcedTruceDuringBossFight in tf_gamerules to 0 (false)");
-    return Plugin_Handled;
 }
 
 public void Frame_CheckPlayerCount(any data)
 {
-    int playerCount = GetClientCount(false);
-    int threshhold = GetConVarInt(g_cvHighPopThreshhold);
-    if (!g_bSymmetrical) { // If the gamemode isn't symmetrical, use a different config file, d_highpop_a.cfg
-        ServerCommand(playerCount < threshhold ? "exec d_highpop_a.cfg" : "exec d_lowpop.cfg");
-        if (g_cvDebug) PrintToServer("DGM Debug: Playercount %i, gamemode is not symmetrical.", playerCount);
+    int playerCount = GetClientCount(true);
+    int threshhold = GetConVarInt(g_cvThreshold);
+    if (!g_bSymmetrical) {
+        ServerCommand(playerCount > threshhold ? "exec d_highpop_a.cfg" : "exec d_lowpop.cfg");
     } else {
-        ServerCommand(playerCount < threshhold ? "exec d_highpop.cfg" : "exec d_lowpop.cfg");
-        if (g_cvDebug) PrintToServer("DGM Debug: Playercount %i, gamemode is not symmetrical.", playerCount);
+        ServerCommand(playerCount > threshhold ? "exec d_highpop.cfg" : "exec d_lowpop_a.cfg");
     }
 }
 
@@ -274,72 +300,81 @@ static bool IsValidClient(int client)
     return (client >= 1 && client <= MaxClients) && IsClientInGame(client);
 }
 
-public void OnConfigsExecuted()
-{
-	DetectGameMode();
-}
-
 static void DetectGameMode()
 {
     TF2_GameMode gameMode = TF2_DetectGameMode();
     CreateDefaultConfigs();
     bool sym = false;
-    if (IsMedievalMap()) {
-        ServerCommand("exec d_medieval.cfg");
-    }
-    else if (IsPDMap()) {
-        ServerCommand("exec d_pd.cfg");
-        sym = true;
-    }
-    else
+    char modeName[32] = "unknown";
+
+    switch (gameMode)
     {
-        switch (gameMode)
+        case TF2_GameMode_Arena:
         {
-            case TF2_GameMode_Arena:
-            {
-                ServerCommand("exec d_arena.cfg");
-                sym = true;
-            }
-            case TF2_GameMode_KOTH:
-            {
-                ServerCommand("exec d_koth.cfg");
-                sym = true;
-            }
-            case TF2_GameMode_PL:
-            {
-                ServerCommand("exec d_payload.cfg");
-            }
-            case TF2_GameMode_PLR:
-            {
-                ServerCommand("exec d_payloadrace.cfg");
-                sym = true;
-            }
-            case TF2_GameMode_CTF:
-            {
-                ServerCommand("exec d_ctf.cfg");
-                sym = true;
-            }
-            case TF2_GameMode_5CP:
-            {
-                ServerCommand("exec d_5cp.cfg");
-                sym = true;
-            }
-            case TF2_GameMode_ADCP:
-            {
-                ServerCommand("exec d_adcp.cfg");
-            }
-            case TF2_GameMode_TC:
-            {
-                ServerCommand("exec d_tc.cfg");
-            }
-            case TF2_GameMode_Unknown:
-            {
-                ServerCommand("exec d_default.cfg");
-                sym = true;
-            }
+            ServerCommand("exec d_arena.cfg");
+            sym = true;
+            strcopy(modeName, sizeof(modeName), "Arena");
+        }
+        case TF2_GameMode_Medieval:
+        {
+            ServerCommand("exec d_medieval.cfg");
+            sym = false;
+            strcopy(modeName, sizeof(modeName), "Medieval");
+        }
+        case TF2_GameMode_PD:
+        {
+            ServerCommand("exec d_pd.cfg");
+            sym = true;
+            strcopy(modeName, sizeof(modeName), "Player Destruction");
+        }
+        case TF2_GameMode_KOTH:
+        {
+            ServerCommand("exec d_koth.cfg");
+            sym = true;
+            strcopy(modeName, sizeof(modeName), "King of the Hill");
+        }
+        case TF2_GameMode_PL:
+        {
+            ServerCommand("exec d_payload.cfg");
+            strcopy(modeName, sizeof(modeName), "Payload");
+        }
+        case TF2_GameMode_PLR:
+        {
+            ServerCommand("exec d_payloadrace.cfg");
+            sym = true;
+            strcopy(modeName, sizeof(modeName), "Payload Race");
+        }
+        case TF2_GameMode_CTF:
+        {
+            ServerCommand("exec d_ctf.cfg");
+            sym = true;
+            strcopy(modeName, sizeof(modeName), "Capture the Flag");
+        }
+        case TF2_GameMode_5CP:
+        {
+            ServerCommand("exec d_ctf.cfg");
+            sym = true;
+            strcopy(modeName, sizeof(modeName), "Capture the Flag");
+        }
+        case TF2_GameMode_ADCP:
+        {
+            ServerCommand("exec d_adcp.cfg");
+            strcopy(modeName, sizeof(modeName), "Attack/Defend CP");
+        }
+        case TF2_GameMode_TC:
+        {
+            ServerCommand("exec d_tc.cfg");
+            strcopy(modeName, sizeof(modeName), "Territorial Control");
+        }
+        default:
+        {
+            ServerCommand("exec d_default.cfg");
+            sym = true;
+            strcopy(modeName, sizeof(modeName), "Default");
         }
     }
     g_bSymmetrical = sym;
+    g_cvGameMode.SetString(modeName);
 }
 
 static void CreateDefaultConfigs()
@@ -356,9 +391,10 @@ static void CreateDefaultConfigs()
         "d_medieval.cfg",
         "d_pd.cfg",
         "d_default.cfg",
-        "d_highpop.cfg",
-        "d_highpop_a.cfg",
-        "d_lowpop.cfg"
+        "d_highpop_a",
+        "d_highpop",
+        "d_lowpop_a.cfg",
+        "d_lowpop.cfg",
     };
     
     char configPath[PLATFORM_MAX_PATH];
@@ -382,12 +418,16 @@ static void CreateDefaultConfigs()
     }
 }
 
-static bool IsMedievalMap()
+public Action Command_GameMode(int client, int args)
 {
-    return FindEntityByClassname(-1, "tf_logic_medieval") != -1;
-}
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return Plugin_Handled;
+    }
 
-static bool IsPDMap()
-{
-    return FindEntityByClassname(-1, "tf_logic_player_destruction") != -1;
+    char modeName[32];
+    g_cvGameMode.GetString(modeName, sizeof(modeName));
+    PrintToChat(client, "[SM] Current gamemode: %s", modeName);
+
+    return Plugin_Handled;
 }
