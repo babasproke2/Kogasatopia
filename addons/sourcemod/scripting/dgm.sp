@@ -6,8 +6,9 @@
 #include <tf2_stocks>
 #include <tf2>
 #include <controlpoints>
+// I forked the controlpoints file from powerlord to add new gamemodes, you can get it at https://github.com/babasproke2/sourcemod-snippets
 
-#define PLUGIN_VERSION "4.0"
+#define PLUGIN_VERSION "4.3"
 
 ConVar g_cvEnabled;
 ConVar g_cvSetSetupTime;
@@ -24,7 +25,7 @@ ConVar g_cHostname;
 ConVar g_hVisibleMaxPlayers;
 
 int g_PointCaptures;
-bool g_InternalOverride;
+bool g_InternalOverride; // For disabling this plugin's respawn time management in any case
 
 ConVar g_cvGameMode;
 
@@ -53,7 +54,7 @@ public void OnPluginStart()
     g_cvRedTime = CreateConVar("respawn_redtime", "3.0", "Red respawn time length", _, true, 0.0, true, 16.0);
     g_cvBluTime = CreateConVar("respawn_blutime", "3.0", "Blu respawn time length", _, true, 0.0, true, 16.0);
     // Auto add time to king of the hill timers?
-    g_cvAutoAddTime = CreateConVar("sm_autoaddtime", "1", "Automatically extend koth times?", _, true, 0.0, true, 1.0);
+    g_cvAutoAddTime = CreateConVar("sm_autoaddtime", "300", "Automatically extend koth times? > 0 for the time in seconds");
     // Always respawn red team on control point capture in asymmetrical gamemodes?
     g_cvAsymCapRespawn = CreateConVar("respawn_red_on_cap", "0", "Override respawn times", _, true, 0.0, true, 1.0);
     // Change the setup time to this in asymmetrical gamemodes
@@ -64,7 +65,7 @@ public void OnPluginStart()
     g_cvMpDisableRespawnTimes = FindConVar("mp_disable_respawn_times");
     HookConVarChange(g_cvRespawnTime, ConVarChange_MpDisableRespawnTimes);
     
-    HookEvent("player_death", Event_PlayerDeath);
+    HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
     HookEvent("teamplay_round_start", Event_RoundActive);
     HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_Pre);
     HookEvent("teamplay_point_captured", Event_PointCaptured, EventHookMode_PostNoCopy);   
@@ -74,14 +75,14 @@ public void OnPluginStart()
 
     g_cHostname = FindConVar("hostname");
     RegConsoleCmd("sm_stats", Command_Stats, "Show player count, map and hostname");
-    RegConsoleCmd("sm_gamemode", Command_GameMode, "Displays the current gamemode");
+    RegConsoleCmd("sm_manual", Command_CvarHelp, "Displays information about plugin ConVars.");
 }
 
 // I prefer the visual effect when TF2's mp_disable_respawn_times cvar is true but dislike that it can be exploited
 // Also takes about 5~ seconds for the respawn to occur
 public void ConVarChange_MpDisableRespawnTimes(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-    if (StringToInt(newValue) > 5)
+    if (StringToInt(newValue) > 5 || g_InternalOverride)
     {
         SetConVarInt(g_cvMpDisableRespawnTimes, 0);
     } else 
@@ -94,7 +95,8 @@ public void ConVarChange_MpDisableRespawnTimes(ConVar convar, const char[] oldVa
 public void OnConfigsExecuted()
 {
     DetectGameMode();
-    RequestFrame(Frame_CheckPlayerCount);
+    RequestFrame(Frame_CheckPlayerCount); // Good to have this third check for the start of a map
+    g_InternalOverride = false; // Reset this on map change
 }
 
 // Fires when a control point is captured
@@ -102,13 +104,13 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
 {
     //This stuff is mostly WIP for dynamic changes on maps in the future
 	// For now, all of these  features are from asymmetrical gamemode types
-	if (g_bSymmetrical)
+	if (!g_bSymmetrical)
 	{
 		g_PointCaptures++;
 		if (g_PointCaptures >= 3)
 		{
 			g_InternalOverride = true; // Stop managing respawn times if approaching last
-		} else g_InternalOverride = false;
+		}
 		// Asymmetrical: respawn all dead RED players
 		if (g_cvAsymCapRespawn && !g_bSymmetrical)
 		{    
@@ -120,14 +122,21 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
 	}
 }
 
+// Re-added this code because waiting for the round to change instead of these was ineffective
+public void OnClientPutInServer(int client)
+{
+    RequestFrame(Frame_CheckPlayerCount);
+}
+
+public void OnClientDisconnect(int client)
+{
+    RequestFrame(Frame_CheckPlayerCount);
+}
+
+// This command lets me see everything this plugin is doing at a given moment among other things
 public Action Command_Stats(int client, int args)
 {
-    // This command is for me to neurotically monitor things
-    // Reject server console or invalid clients
-    if (client <= 0 || !IsClientInGame(client))
-    {
-        return Plugin_Handled;
-    }
+    bool fromConsole = (client <= 0 || !IsClientInGame(client));
 
     // Player count (humans + bots)
     int playerCount = GetClientCount(false);
@@ -147,7 +156,11 @@ public Action Command_Stats(int client, int args)
         strcopy(hostname, sizeof(hostname), "Unknown");
     }
 
-    g_hVisibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
+    // Get visible max players
+    if (g_hVisibleMaxPlayers == null)
+    {
+        g_hVisibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
+    }
     int visMax = GetConVarInt(g_hVisibleMaxPlayers);
 
     // Respawn-related ConVars
@@ -157,29 +170,86 @@ public Action Command_Stats(int client, int args)
     float bluTime = GetConVarFloat(g_cvBluTime);
     int enabledRespawnOverride = GetConVarInt(g_cvEnabled);
     int asymCapRespawn = GetConVarInt(g_cvAsymCapRespawn);
-    PrintToChat(client,
-        "\x01[Stats] Players: \x04%d\x01 | Map: \x04%s\x01 | Server: \x04%s\x01 | Max Players: \x04%i",
-        playerCount, map, hostname, visMax);
 
-    PrintToChat(client, "[Respawn] respawn_time: %.2f | respawn_otime: %.2f | red: %.2f | blu: %.2f | disable_respawn_times: %d | respawn_red_on_cap: %d",
-        respawnTime, timeOverride, redTime, bluTime, enabledRespawnOverride, asymCapRespawn);
+    // Output function (chooses chat or console)
+    if (fromConsole)
+    {
+        PrintToServer("[DGM] Players: %d", playerCount);
+        PrintToServer("Map: %s | Server: %s | Max Players: %d", map, hostname, visMax);
+        PrintToServer("  respawn_time: %.2f", respawnTime);
+        PrintToServer("  red: %.2f | blu: %.2f | otime:%.2f", redTime, bluTime, timeOverride);
+        PrintToServer("  disable_respawn_times: %d | respawn_red_on_cap: %d",
+                      enabledRespawnOverride, asymCapRespawn);
+    }
+    else
+    {
+        PrintToChat(client, "\x04[DGM]\x01 Players: \x04%d\x01 | Map: \x04%s\x01 | Server: \x04%s\x01 | Max: \x04%d",
+                    playerCount, map, hostname, visMax);
+
+        PrintToChat(client, "\x04[Respawn]\x01 respawn_time: \x04%.2f\x01 | respawn_otime: \x04%.2f",
+                    respawnTime, timeOverride);
+
+        PrintToChat(client, "\x04[Respawn]\x01 red: \x04%.2f\x01 | blu: \x04%.2f", redTime, bluTime);
+
+        PrintToChat(client, "\x04[Respawn]\x01 disable_respawn_times: \x04%d\x01 | respawn_red_on_cap: \x04%d",
+                    enabledRespawnOverride, asymCapRespawn);
+    }
+
+    return Plugin_Handled;
+}
+
+public Action Command_CvarHelp(int client, int args)
+{
+    char lines[][] = {
+        "disable_respawn_times: 0/1 - If 1, plugin-controlled respawn timers are enabled",
+        "respawn_time: float - Default respawn delay (seconds) when not overridden",
+        "sm_highpop_threshhold: int - Player count threshold to execute high-pop configs",
+        "respawn_otime: float - If >0, forces this respawn delay for all players",
+        "respawn_redtime: float - Respawn time (seconds) specifically for Red team (beta)",
+        "respawn_blutime: float - Respawn time (seconds) specifically for Blu team (beta)",
+        "sm_autoaddtime: int - Seconds to add to KOTH timers when enabled (0 disables)",
+        "respawn_red_on_cap: 0/1 - In asymmetrical modes, when 1, respawns Red instantly on cap",
+        "sm_setuptime: int - Forces round setup time to this value (0 = disabled)",
+        "sm_gamemode: string - Read-only; stores the detected gamemode name",
+        "mp_disable_respawn_times: 0/1 - Server cvar hooked by this plugin to toggle visual respawn behavior"
+    };
+
+    bool fromConsole = (client <= 0 || !IsClientInGame(client));
+
+    if (fromConsole)
+    {
+        PrintToServer("[DGM ConVar Help]");
+        for (int i = 0; i < sizeof(lines); i++)
+        {
+            PrintToServer("  %s", lines[i]);
+        }
+    }
+    else
+    {
+        PrintToChat(client, "\x04[DGM ConVar Help]\x01");
+        for (int i = 0; i < sizeof(lines); i++)
+        {
+            PrintToChat(client, "\x01%s", lines[i]);
+        }
+    }
 
     return Plugin_Handled;
 }
 
 public Action Command_RespawnToggle(int client, int args)
 {
-    int currentValue = GetConVarInt(g_cvTimeOverride);
-    int newValue = (currentValue == 0) ? 30 : 0; // toggle between 0 and 30
-
-    SetConVarInt(g_cvTimeOverride, newValue);
-    PrintToChat(client, "Respawn times %s", newValue == 0 ? "forced on" : "forced off");
-
+    g_InternalOverride = !g_InternalOverride; // toggles between true and false
+    PrintToChat(client, "Respawn times %s", g_InternalOverride ? "forced on" : "forced off");
     return Plugin_Handled;
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
+        if (g_InternalOverride)
+        {
+            SetConVarInt(g_cvMpDisableRespawnTimes, 0);
+            return;
+        }
         if (!GetConVarInt(g_cvEnabled)) return;
         int client = GetClientOfUserId(GetEventInt(event, "userid"));
         if (!(IsValidClient(client))) return;
@@ -206,7 +276,6 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
 public Action Timer_RespawnClient(Handle timer, int client)
 {
-    if (g_InternalOverride) return Plugin_Stop; // If gameplay isn't active
     if (IsValidClient(client) && !IsPlayerAlive(client) && GetClientTeam(client) > 1) {
         TF2_RespawnPlayer(client);
     }
@@ -216,20 +285,20 @@ public Action Timer_RespawnClient(Handle timer, int client)
 public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast)
 {
     if (g_cvTimeOverride != null)    g_cvTimeOverride.RestoreDefault();
-    RequestFrame(Frame_CheckPlayerCount);
+    g_InternalOverride = false; // This is set to true when a round is won, it changes back to false now
     g_PointCaptures = 0;
-    g_InternalOverride = false;
     if (GetConVarInt(g_cvSetSetupTime) != 0)
     {
         SetSetupTime();
     }
 	if (GetConVarInt(g_cvAutoAddTime)) {
+        int addTime = GetConVarInt(g_cvAutoAddTime);
 		int entityTimer = FindEntityByClassname(-1, "tf_logic_koth");
 		if (entityTimer > -1)
 		{
-			SetVariantInt(300);
+			SetVariantInt(addTime);
 			AcceptEntityInput(entityTimer, "SetBlueTimer");
-			SetVariantInt(300);
+			SetVariantInt(addTime);
 			AcceptEntityInput(entityTimer, "SetRedTimer");
 		}
 	}
@@ -326,6 +395,7 @@ static void DetectGameMode()
             ServerCommand("exec d_pd.cfg");
             sym = true;
             strcopy(modeName, sizeof(modeName), "Player Destruction");
+            // Issue: many of the modern Arena maps are using player destruction logic, I can try checking for both later
         }
         case TF2_GameMode_KOTH:
         {
@@ -416,18 +486,4 @@ static void CreateDefaultConfigs()
             }
         }
     }
-}
-
-public Action Command_GameMode(int client, int args)
-{
-    if (client <= 0 || !IsClientInGame(client))
-    {
-        return Plugin_Handled;
-    }
-
-    char modeName[32];
-    g_cvGameMode.GetString(modeName, sizeof(modeName));
-    PrintToChat(client, "[SM] Current gamemode: %s", modeName);
-
-    return Plugin_Handled;
 }
