@@ -21,6 +21,13 @@ ConVar g_cvDebug;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 Handle g_hHealTimer = INVALID_HANDLE;
 
+MemoryPatch patch_Wrangler_CustomShieldRepair;
+MemoryPatch patch_Wrangler_CustomShieldShellRefill;
+MemoryPatch patch_Wrangler_CustomShieldRocketRefill;
+MemoryPatch patch_Wrangler_CustomShieldDamageTaken;
+MemoryPatch patch_Wrangler_RescueRanger_CustomShieldRepair;
+float g_flWranglerCustomShieldValue = 0.5;
+
 public Plugin myinfo =
 {
 	name = "WeaponReverts",
@@ -60,14 +67,37 @@ public void OnPluginStart() {
 		PrecacheSound("weapons/fx/rics/arrow_impact_crossbow_heal.wav");
 		PrecacheSound("weapons/neon_sign_hit_world_02.wav");
 
-		// Cozy Camper revert
+		// Cozy Camper revert and Wrangler nerf
 		GameData conf;
-		conf = new GameData("memorypatch_reverts");
-		if (conf == null) SetFailState("Failed to load memorypatch_reverts.txt conf!");
-		// Create the patch
+		conf = new GameData("weaponreverts");
+		if (conf == null) SetFailState("Failed to load weaponreverts.txt conf!");
+		// Create the patches
 		patch_RevertCozyCamper_FlinchNerf = MemoryPatch.CreateFromConf(conf, "CTFPlayer::ApplyPunchImpulseX_FakeFullyChargedCondition");
+		patch_Wrangler_CustomShieldRepair = MemoryPatch.CreateFromConf(conf, "CObjectSentrygun::OnWrenchHit_CustomShieldRepair");
+		patch_Wrangler_CustomShieldShellRefill = MemoryPatch.CreateFromConf(conf, "CObjectSentrygun::OnWrenchHit_CustomShieldShellRefill");
+		patch_Wrangler_CustomShieldRocketRefill = MemoryPatch.CreateFromConf(conf, "CObjectSentrygun::OnWrenchHit_CustomShieldRocketRefill");
+		patch_Wrangler_CustomShieldDamageTaken = MemoryPatch.CreateFromConf(conf, "CObjectSentrygun::OnTakeDamage_CustomShieldDamageTaken");
+		patch_Wrangler_RescueRanger_CustomShieldRepair = MemoryPatch.CreateFromConf(conf, "CTFProjectile_Arrow::BuildingHealingArrow_CustomShieldRepair");
+
 		if (!ValidateAndNullCheck(patch_RevertCozyCamper_FlinchNerf)) SetFailState("Failed to create patch_RevertCozyCamper_FlinchNerf");
-                patch_RevertCozyCamper_FlinchNerf.Enable();
+		if (!ValidateAndNullCheck(patch_Wrangler_CustomShieldRepair)) SetFailState("Failed to create patch_Wrangler_CustomShieldRepair");
+		if (!ValidateAndNullCheck(patch_Wrangler_CustomShieldShellRefill)) SetFailState("Failed to create patch_Wrangler_CustomShieldShellRefill");
+		if (!ValidateAndNullCheck(patch_Wrangler_CustomShieldRocketRefill)) SetFailState("Failed to create patch_Wrangler_CustomShieldRocketRefill");
+		if (!ValidateAndNullCheck(patch_Wrangler_CustomShieldDamageTaken)) SetFailState("Failed to create patch_Wrangler_CustomShieldDamageTaken");
+		if (!ValidateAndNullCheck(patch_Wrangler_RescueRanger_CustomShieldRepair)) SetFailState("Failed to create patch_Wrangler_RescueRanger_CustomShieldRepair");
+
+		patch_RevertCozyCamper_FlinchNerf.Enable();
+		patch_Wrangler_CustomShieldRepair.Enable();
+		patch_Wrangler_CustomShieldShellRefill.Enable();
+		patch_Wrangler_CustomShieldRocketRefill.Enable();
+		patch_Wrangler_CustomShieldDamageTaken.Enable();
+		patch_Wrangler_RescueRanger_CustomShieldRepair.Enable();
+
+		StoreToAddress(patch_Wrangler_CustomShieldRepair.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
+		StoreToAddress(patch_Wrangler_CustomShieldShellRefill.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
+		StoreToAddress(patch_Wrangler_CustomShieldRocketRefill.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
+		StoreToAddress(patch_Wrangler_CustomShieldDamageTaken.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
+		StoreToAddress(patch_Wrangler_RescueRanger_CustomShieldRepair.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
 	}
 }
 
@@ -671,7 +701,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "damage penalty", 1.00); // Remove the damage penalty
 			}
-			// These are the secret nerfs for the vaccinator, shields the wrangler and short circuit
+			// These are the secret nerfs for the vaccinator, shields and short circuit
 			// Sometimes I delete these but I feel they'll soon be official
 			// The usual policy is to only buff things but because the Zesty server bans weapons I feel like I can do this + people would like it
 			case 998: //The Vaccinator
@@ -683,10 +713,6 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2Attrib_SetByName(entity, "rocket jump damage reduction", 0.35); // Reduce self inflicted damage by 65%, this is a listed buff
 				TF2Attrib_SetByName(entity, "dmg taken from fire reduced", 0.90); // Reduce this attribute
 				TF2Attrib_SetByName(entity, "dmg taken from blast reduced", 0.90); // Reduce this attribute
-			}
-			case 140, 1086: // Wranglers
-			{
-				TF2Attrib_SetByName(entity, "maxammo metal reduced", 0.65); // Reduce max metal 200 -> 130
 			}
 			case 528: // Short Circuit
 			{
