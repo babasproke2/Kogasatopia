@@ -26,7 +26,7 @@ char scout[][] = {
 char scoutc[][] = {
         "\x07EEE8A ----- !cw weapons -----\n",
         "\x01 [Primary] Original Baby Face: \x03+40% accuracy, 6 clip size,\x07FF0000 -30% damage, -25% base movement speed\n",
-        "\x01 [Secondary] Lightning Pistol: \x03+35% firing rate, +200% clip size, 70% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n"
+        "\x01 [Secondary] Lightning Pistol: \x03+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n"
 }
 
 char soldier[][] = {
@@ -95,7 +95,7 @@ char heavyc[][] = {
 
 char engineer[][] = {
 	"\x01Pomson:\x04 Penetrates targets, +20% firing rate, bonus damage up to +100% based on distance\n",
-	"\x01The Wrangler:\x07FF2400 Shield resistance reduced to 50%\n",
+	"\x01The Wrangler:\x07FF2400 Shield protection reduced to 25% from 66%\n",
 	"\x01The Short Circuit:\x07FF2400 No ammo from dispensers/carts while held\n",
 	"\x01Southern Hospitality:\x03 +10% damage, 15 metal regenerated every 5 seconds on wearer\n"
 }
@@ -104,10 +104,11 @@ char engineerc[][] = {
         "\x07EEE8A ----- !cw weapons -----\n",
         "\x01 [Primary] Old Panic Attack: \x03Hold fire to load up to 4 shells, fires faster as HP decreases\n",
         "\x01 [Primary] The Family Business\n",
-        "\x01 [Secondary] Lightning Pistol: \x03+35% firing rate, +200% clip size, 70% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n",
+        "\x01 [Secondary] Lightning Pistol: \x03+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n",
         "\x01 [Secondary] The Winger\n",
         "\x01 [Secondary] Pretty Boy's Pocket Pistol\n",
-        "\x01 [PDA1] Boost/Jump pads (Or use !pads for convenience)\n"
+        "\x01 [PDA1] Boost/Jump pads (Or use !pads for convenience)\n",
+        "\x01 [PDA2] Amplifier Dispenser Replacement (Or use !amp or !a)\n"
 }
 
 char medic[][] = {

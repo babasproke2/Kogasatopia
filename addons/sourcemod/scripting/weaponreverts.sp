@@ -26,14 +26,14 @@ MemoryPatch patch_Wrangler_CustomShieldShellRefill;
 MemoryPatch patch_Wrangler_CustomShieldRocketRefill;
 MemoryPatch patch_Wrangler_CustomShieldDamageTaken;
 MemoryPatch patch_Wrangler_RescueRanger_CustomShieldRepair;
-float g_flWranglerCustomShieldValue = 0.5;
+float g_flWranglerCustomShieldValue = 0.25;
 
 public Plugin myinfo =
 {
 	name = "WeaponReverts",
-	author = "Hombre and Utsuho",
+	author = "Hombre, Huutti, Utsuho",
 	description = "Weapon changes plugin for Kogasatopia, very specific, this includes custom attribute code such as recoil jumping",
-	version = "4.0",
+	version = "4.5",
 	url = "https://kogasa.tf"
 };
 

@@ -47,6 +47,11 @@ if (IsClientInGame(client) && (GetConVarInt(g_cvHalloween))) {
   }
 }
 
+public void OnConfigsExecuted()
+{
+    CheckHalloweenStatus(); // This was missing
+}
+
 // Entity creation checks
 
 public void OnEntityCreated(int entity, const char[] classname)
@@ -90,7 +95,7 @@ public void OnEntityCreated(int entity, const char[] classname)
 
 public Action OnTakeDamage(int entity, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
 {
-    if (attacker < 1 || inflictor < 1)
+    if (!IsValidEntity(inflictor) || !IsValidEntity(attacker))
         return Plugin_Continue;
 
     if (!GetConVarInt(g_cvHalloween))
@@ -110,7 +115,6 @@ public Action OnTakeDamage(int entity, int &attacker, int &inflictor, float &dam
                 if (attacker == entity) // If the player shot the pumpkin himself
                 {
                     int weapon3 = GetPlayerWeaponSlot(entity, 2); // We're gonna give the client a gunboats bonus on their melee weapon for this frame
-                    if (!IsValidEntity(weapon3)) return Plugin_Continue;
                     TF2Attrib_SetByName(weapon3, "rocket jump damage reduction HIDDEN", 0.40); // Gunboats bonus
                 }
                 return Plugin_Changed;

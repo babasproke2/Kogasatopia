@@ -358,9 +358,9 @@ public void Frame_CheckPlayerCount(any data)
     int playerCount = GetClientCount(true);
     int threshhold = GetConVarInt(g_cvThreshold);
     if (!g_bSymmetrical) {
-        ServerCommand(playerCount > threshhold ? "exec d_highpop_a.cfg" : "exec d_lowpop.cfg");
+        ServerCommand(playerCount > threshhold ? "exec d_highpop_a.cfg" : "exec d_lowpop_a.cfg");
     } else {
-        ServerCommand(playerCount > threshhold ? "exec d_highpop.cfg" : "exec d_lowpop_a.cfg");
+        ServerCommand(playerCount > threshhold ? "exec d_highpop.cfg" : "exec d_lowpop.cfg");
     }
 }
 
