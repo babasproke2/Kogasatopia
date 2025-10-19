@@ -26,7 +26,7 @@ MemoryPatch patch_Wrangler_CustomShieldShellRefill;
 MemoryPatch patch_Wrangler_CustomShieldRocketRefill;
 MemoryPatch patch_Wrangler_CustomShieldDamageTaken;
 MemoryPatch patch_Wrangler_RescueRanger_CustomShieldRepair;
-float g_flWranglerCustomShieldValue = 0.25;
+float g_flWranglerCustomShieldValue = 0.8; // Just found out this is a mult
 
 public Plugin myinfo =
 {
