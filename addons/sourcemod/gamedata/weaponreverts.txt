@@ -1,0 +1,98 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"CTFPlayer::ApplyPunchImpulseX"
+			{
+				"library" "server"
+				"linux"   "@_ZN9CTFPlayer18ApplyPunchImpulseXEf"
+			}
+			"CObjectSentrygun::OnWrenchHit"
+			{
+				"library" "server"
+ 				"linux"   "@_ZN16CObjectSentrygun11OnWrenchHitEP9CTFPlayerP9CTFWrench6Vector"
+			}
+			"CObjectSentrygun::OnTakeDamage"
+			{
+				"library" "server"
+				"linux"   "@_ZN16CObjectSentrygun12OnTakeDamageERK15CTakeDamageInfo"
+			}
+			"CTFProjectile_Arrow::BuildingHealingArrow"
+			{
+				"library" "server"
+				"linux"   "@_ZN19CTFProjectile_Arrow20BuildingHealingArrowEP11CBaseEntity"
+			}
+        }
+
+		"MemPatches"
+		{
+			// Cozy Camper no flinching regardless of charge level
+
+			"CTFPlayer::ApplyPunchImpulseX_FakeFullyChargedCondition"
+			{
+				"signature" "CTFPlayer::ApplyPunchImpulseX"
+				"linux"
+				{
+					"offset"    "149"
+					"verify"    "\x83\xEC\x0C\x57\xE8\x2A\x2A\x2A\x2A\x83\xC4\x10" // SUB ESP, 0xC; PUSH EDI; CALL rel32; ADD ESP, 0x10
+					"patch"     "\x90\x90\x90\x90\xB0\x01\x90\x90\x90\x90\x90\x90" // NOP x4; MOV AL, 1; NOP x6 — force success return
+				}
+			}
+
+			// Wrangler shield custom shield values
+
+			"CObjectSentrygun::OnWrenchHit_CustomShieldRepair"
+			{
+				"signature" "CObjectSentrygun::OnWrenchHit"
+				"linux"
+				{
+					"offset"    "592"
+					"verify"    "\xF3\x0F\x59\x05\x2A\x2A\x2A\x2A" // MULSS xmm0, [absolute addr]
+					"patch"     "\xF3\x0F\x59\x05\x00\x00\x00\x00" // MULSS xmm0, [0] (retrieve from plugin)
+				}
+			}		
+			"CObjectSentrygun::OnWrenchHit_CustomShieldShellRefill"
+			{
+				"signature" "CObjectSentrygun::OnWrenchHit"
+				"linux"
+				{
+					"offset"    "708"
+					"verify"    "\xF3\x0F\x59\x05\x2A\x2A\x2A\x2A" // MULSS xmm0, [absolute addr]
+					"patch"     "\xF3\x0F\x59\x05\x00\x00\x00\x00" // MULSS xmm0, [0] (retrieve from plugin)
+				}
+			}
+			"CObjectSentrygun::OnWrenchHit_CustomShieldRocketRefill"
+			{
+				"signature" "CObjectSentrygun::OnWrenchHit"
+				"linux"
+				{
+					"offset"    "896"
+					"verify"    "\xF3\x0F\x59\x05\x2A\x2A\x2A\x2A" // MULSS xmm0, [absolute addr]
+					"patch"     "\xF3\x0F\x59\x05\x00\x00\x00\x00" // MULSS xmm0, [0] (retrieve from plugin)
+				}
+			}
+			"CObjectSentrygun::OnTakeDamage_CustomShieldDamageTaken"
+			{
+				"signature" "CObjectSentrygun::OnTakeDamage"
+				"linux"
+				{
+					"offset"	"628"
+					"verify"	"\xF3\x0F\x10\x05\x2A\x2A\x2A\x2A" // MOVSS xmm0, [absolute addr]
+					"patch"		"\xF3\x0F\x10\x05\x00\x00\x00\x00" // MOVSS xmm0, [0] (retrieve from plugin)
+				}
+			}
+			"CTFProjectile_Arrow::BuildingHealingArrow_CustomShieldRepair"
+			{
+				"signature" "CTFProjectile_Arrow::BuildingHealingArrow"
+				"linux"
+				{
+					"offset"	"260"
+					"verify"    "\xF3\x0F\x59\x05\x2A\x2A\x2A\x2A" // MULSS xmm0, [absolute addr]
+					"patch"     "\xF3\x0F\x59\x05\x00\x00\x00\x00" // MULSS xmm0, [0] (retrieve from plugin)
+				}
+			}
+		}
+    }
+}

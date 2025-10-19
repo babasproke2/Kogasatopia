@@ -95,7 +95,7 @@ char heavyc[][] = {
 
 char engineer[][] = {
 	"\x01Pomson:\x04 Penetrates targets, +20% firing rate, bonus damage up to +100% based on distance\n",
-	"\x01The Wrangler:\x07FF2400 -35% max metal\n",
+	"\x01The Wrangler:\x07FF2400 Shield resistance reduced to 50%\n",
 	"\x01The Short Circuit:\x07FF2400 No ammo from dispensers/carts while held\n",
 	"\x01Southern Hospitality:\x03 +10% damage, 15 metal regenerated every 5 seconds on wearer\n"
 }
