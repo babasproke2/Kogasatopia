@@ -15,7 +15,10 @@ int Scythe[MAXPLAYERS+1];
 int ShockCharge[MAXPLAYERS+1];
 int HealCount[MAXPLAYERS+1];
 float LastUber[MAXPLAYERS+1];
-
+int g_EngiMetal[MAXPLAYERS+1];
+int g_iMetalOffset = -1;
+bool g_bWarnedMetalOffset = false;
+ 
 ConVar g_sEnabled;
 ConVar g_cvDebug;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
@@ -26,7 +29,24 @@ MemoryPatch patch_Wrangler_CustomShieldShellRefill;
 MemoryPatch patch_Wrangler_CustomShieldRocketRefill;
 MemoryPatch patch_Wrangler_CustomShieldDamageTaken;
 MemoryPatch patch_Wrangler_RescueRanger_CustomShieldRepair;
-float g_flWranglerCustomShieldValue = 0.8; // Just found out this is a mult
+float g_flWranglerCustomShieldValue = 0.75;
+
+native bool SaySounds_ShouldPlay(int client);
+
+stock void PlaySoundForClient(int client, const char[] sound)
+{
+	bool allow = true;
+	FeatureStatus status = GetFeatureStatus(FeatureType_Native, "SaySounds_ShouldPlay");
+	if (status == FeatureStatus_Available)
+	{
+		allow = SaySounds_ShouldPlay(client);
+	}
+
+	if (!allow)
+		return;
+
+	ClientCommand(client, "playgamesound %s", sound);
+}
 
 public Plugin myinfo =
 {
@@ -45,15 +65,24 @@ stock void ResetClientArrays(int client)
     ShockCharge[client] = 30;
     HealCount[client] = 0;
     LastUber[client] = 0.0;
+    g_EngiMetal[client] = 0;
 }
 
 public void OnPluginStart() {
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
 	g_cvDebug = CreateConVar("weaponreverts_debug", "0", "Log debug messages from weaponreverts.smx to the console");
+	MarkNativeAsOptional("SaySounds_ShouldPlay");
 	if (GetConVarInt(g_sEnabled)) {
 
         if (g_hHealTimer == INVALID_HANDLE)
             g_hHealTimer = CreateTimer(1.0, Timer_HealTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+
+		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
+		if (g_iMetalOffset == -1 && !g_bWarnedMetalOffset)
+		{
+			LogError("[weaponreverts] Failed to resolve metal ammo offset. Metal transfer attributes disabled.");
+			g_bWarnedMetalOffset = true;
+		}
 
 		for (int i = 1; i <= MaxClients; i++) {
 			if (IsClientInGame(i)) {
@@ -108,14 +137,16 @@ public void OnPluginEnd() {
     }
 }
 
-public OnClientPutInServer(client) {
-if (IsClientInGame(client) && (GetConVarInt(g_sEnabled))) {
-	SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
-	SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
-	SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
+public OnClientPutInServer(client)
+{
+	if (IsClientInGame(client) && GetConVarInt(g_sEnabled))
+	{
+		SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
+		SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
+		SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
 
-	ResetClientArrays(client);
-  }
+		ResetClientArrays(client);
+	}
 }
 
 // Potentially important for memory safety
@@ -223,7 +254,7 @@ public Action TF2_CalcIsAttackCritical(client, weapon, String:weaponname[], &boo
 	char soundPath[64];
 	Format(soundPath, sizeof(soundPath), "vo/pyro_painsharp0%d.mp3", rand);
 
-	ClientCommand(client, "playgamesound %s", soundPath);
+	PlaySoundForClient(client, soundPath);
 
     TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
     return Plugin_Changed;
@@ -236,7 +267,7 @@ public Action Timer_HealTimer(Handle timer) {
 		if (HealCount[iClient] != 0) {
 			if (GetClientHealth(iClient) < TF2_GetPlayerMaxHealth(iClient) && IsPlayerAlive(iClient) && CheckScythe(iClient) == 2) {
 				AddPlayerHealth(iClient, LastDamage[iClient], 1.0, false, true);
-				ClientCommand(iClient, "playgamesound weapons/dispenser_generate_metal.wav");
+				PlaySoundForClient(iClient, "weapons/dispenser_generate_metal.wav");
 			}
 			HealCount[iClient]--;
 		}
@@ -309,9 +340,157 @@ public Action OnWeaponSwitch(client, weapon)
 	return Plugin_Continue;
 }
 
+stock int TF_GetMetalAmount(int client)
+{
+	if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+	{
+		return 0;
+	}
+
+	if (g_iMetalOffset == -1)
+	{
+		if (!g_bWarnedMetalOffset)
+		{
+			LogError("[weaponreverts] Metal offset unresolved when reading metal.");
+			g_bWarnedMetalOffset = true;
+		}
+		return 0;
+	}
+
+	int metal = GetEntData(client, g_iMetalOffset + (3 * 4), 4);
+	g_EngiMetal[client] = metal;
+	return metal;
+}
+
+stock void TF_SetMetalAmount(int client, int metal)
+{
+	if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+	{
+		return;
+	}
+
+	if (metal < 0)
+	{
+		metal = 0;
+	}
+	else if (metal > 200)
+	{
+		metal = 200;
+	}
+
+	if (g_iMetalOffset == -1)
+	{
+		if (!g_bWarnedMetalOffset)
+		{
+			LogError("[weaponreverts] Metal offset unresolved when writing metal.");
+			g_bWarnedMetalOffset = true;
+		}
+		return;
+	}
+
+	g_EngiMetal[client] = metal;
+	SetEntData(client, g_iMetalOffset + (3 * 4), metal, 4, true);
+}
+
 public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damagetype, &weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom)
 {
+	if (client < 1 || client > MaxClients || !IsClientInGame(client)) return Plugin_Continue;
 	if (attacker < 1 || weapon < 1) return Plugin_Continue;
+
+	bool attackerIsPlayer = (attacker >= 1 && attacker <= MaxClients && IsClientInGame(attacker));
+	bool damageModified = false;
+	bool metalFeaturesEnabled = (g_iMetalOffset != -1);
+	TFClassType attackerClass = TFClassType:TFClass_Unknown;
+	TFClassType victimClass = TFClassType:TFClass_Unknown;
+	if (attackerIsPlayer)
+	{
+		attackerClass = TF2_GetPlayerClass(attacker);
+	}
+	victimClass = TF2_GetPlayerClass(client);
+
+	if (attackerIsPlayer && IsValidEntity(weapon) && weapon > MaxClients)
+	{
+		int falloffAttr = TF2CustAttr_GetInt(weapon, "steep damage falloff");
+		if (falloffAttr != 0)
+		{
+			float posVictim[3], posAttacker[3];
+			GetClientAbsOrigin(client, posVictim);
+			GetClientAbsOrigin(attacker, posAttacker);
+
+			float distance = GetVectorDistance(posVictim, posAttacker);
+			if (distance > 1200.0)
+			{
+				damage *= float(falloffAttr);
+				damageModified = true;
+			}
+		}
+
+		int duelAttr = TF2CustAttr_GetInt(weapon, "duel declared");
+		if (duelAttr != 0)
+		{
+			int victimWeapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
+			if (IsValidEntity(victimWeapon) && TF2CustAttr_GetInt(victimWeapon, "duel declared") != 0)
+			{
+				int clipCount = GetClip(weapon);
+				if (clipCount == 6)
+				{
+					damage = 100.0;
+					damagetype |= DMG_CRIT;
+					damageModified = true;
+
+					if (metalFeaturesEnabled && attackerClass == TFClassType:TFClass_Engineer
+							&& victimClass == TFClassType:TFClass_Engineer)
+					{
+						int victimMetal = TF_GetMetalAmount(client);
+						if (victimMetal > 0)
+						{
+							TF_SetMetalAmount(client, 0);
+
+							int attackerMetal = TF_GetMetalAmount(attacker);
+							int newAttackerMetal = attackerMetal + victimMetal;
+							if (newAttackerMetal > 200)
+							{
+								newAttackerMetal = 200;
+							}
+							TF_SetMetalAmount(attacker, newAttackerMetal);
+						}
+					}
+				}
+			}
+		}
+
+		if (TF2CustAttr_GetInt(weapon, "drain metal on hit engineer") != 0
+				&& metalFeaturesEnabled
+				&& attackerClass == TFClassType:TFClass_Engineer
+				&& victimClass == TFClassType:TFClass_Engineer)
+		{
+			int victimMetal = TF_GetMetalAmount(client);
+			if (victimMetal > 0)
+			{
+				int attackerMetal = TF_GetMetalAmount(attacker);
+				int transfer = 25;
+				if (victimMetal < transfer)
+				{
+					transfer = victimMetal;
+				}
+
+				if (attackerMetal >= 200)
+				{
+					transfer = 0;
+				}
+				else if (attackerMetal + transfer > 200)
+				{
+					transfer = 200 - attackerMetal;
+				}
+
+				if (transfer > 0)
+				{
+					TF_SetMetalAmount(client, victimMetal - transfer);
+					TF_SetMetalAmount(attacker, attackerMetal + transfer);
+				}
+			}
+		}
+	}
 
 	new wepindex = (IsValidEntity(weapon) && weapon > MaxClients ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
 	if (wepindex == 442 || wepindex == 588)  // Pomson, bison
@@ -369,10 +548,10 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 			if (Scythe[attacker] != 0) {
 				int heal = RoundToNearest(damage);
 				LastDamage[attacker] = heal;
-				if (!IsPlayerAlive(attacker)) {
-					TF2_RemoveCondition(client, TFCond_OnFire);
-					ClientCommand(attacker, "playgamesound player/flame_out.wav");
-					ClientCommand(client, "playgamesound player/flame_out.wav");
+					if (!IsPlayerAlive(attacker)) {
+						TF2_RemoveCondition(client, TFCond_OnFire);
+						PlaySoundForClient(attacker, "player/flame_out.wav");
+						PlaySoundForClient(client, "player/flame_out.wav");
 					return Plugin_Changed;
 				} else if (Scythe[attacker] == 2) {
 					AddPlayerHealth(attacker, heal, 1.0, false, true);
@@ -404,10 +583,10 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 		damage = float(ShockCharge[attacker] * 100 / 30);
 		ShockCharge[attacker] = 0;
 		EmitAmbientSound("weapons/neon_sign_hit_world_02.wav", damagePosition);
-		ClientCommand(attacker, "playgamesound weapons/neon_sign_hit_world_02.wav");
+		PlaySoundForClient(attacker, "weapons/neon_sign_hit_world_02.wav");
 		return Plugin_Changed;
 	}
-	return Plugin_Continue;
+	return damageModified ? Plugin_Changed : Plugin_Continue;
 }
 
 public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damagetype, &ammotype, hitbox, hitgroup)
@@ -430,7 +609,7 @@ public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damag
 				TF2_SetHealth(victim, buff);
 				ShockCharge[attacker] = 0;
 				EmitAmbientSound("weapons/fx/rics/arrow_impact_crossbow_heal.wav", pos);
-				ClientCommand(attacker, "playgamesound weapons/fx/rics/arrow_impact_crossbow_heal.wav");
+			PlaySoundForClient(attacker, "weapons/fx/rics/arrow_impact_crossbow_heal.wav");
 				float uber = (float((buff - health) / 5000) + (GetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel")));
 				SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", uber);
 			}
@@ -570,10 +749,10 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 		ShockCharge[client] = 30;
 		// Attach the `m_bValidatedAttachedEntity` property to every weapon/cosmetic.
 		// ^ This allows custom weapons/weapons with changed models to be seen.
-		if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
-		{
-			SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
-		}
+		//if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
+		//{
+			//SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
+		//}
 
 		// I disable random melee crits for Sniper here, tf_weapon_criticals 0 is default for me
 		if (TF2_GetPlayerClass(client) == TFClassType:TFClass_Sniper)
