@@ -18,6 +18,7 @@ float LastUber[MAXPLAYERS+1];
 int g_EngiMetal[MAXPLAYERS+1];
 int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
+bool HoldingJump[MAXPLAYERS+1];
  
 ConVar g_sEnabled;
 ConVar g_cvDebug;
@@ -66,6 +67,7 @@ stock void ResetClientArrays(int client)
     HealCount[client] = 0;
     LastUber[client] = 0.0;
     g_EngiMetal[client] = 0;
+	HoldingJump[client] = false;
 }
 
 public void OnPluginStart() {
@@ -144,6 +146,7 @@ public OnClientPutInServer(client)
 		SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 		SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
 		SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
+		SDKHook(client, SDKHook_OnTakeDamagePost, OnTakeDamagePost);
 
 		ResetClientArrays(client);
 	}
@@ -589,6 +592,24 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	return damageModified ? Plugin_Changed : Plugin_Continue;
 }
 
+
+void OnTakeDamagePost(client, attacker, inflictor, Float:damage, damagetype, weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom)
+{
+	if (attacker < 1 || weapon < 1) return;
+
+	int primary = GetPlayerWeaponSlot(attacker, TFWeaponSlot_Primary);
+
+	// Boost player move speed further for original babyface
+	if (primary != -1 && TF2CustAttr_GetInt(weapon, "original babyface attributes") == 1)
+	{
+		float boost = GetEntPropFloat(attacker, Prop_Send, "m_flHypeMeter");
+		float movespeed_boost = ValveRemapVal(boost, 0.0, 99.0, 1.0, 1.38);
+		TF2Attrib_SetByName(attacker, "SET BONUS: move speed set bonus", movespeed_boost);
+		if (GetConVarInt(g_cvDebug))
+			LogMessage("Original BFB: boost %f movespeed attrib %f on %N", boost, movespeed_boost, attacker);
+	}
+}
+
 public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damagetype, &ammotype, hitbox, hitgroup)
 {
 	// We use this function to check if you've hit an ally with the TF2C Shock Therapy
@@ -617,6 +638,44 @@ public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damag
 	}
 	return Plugin_Continue;
 } 
+
+public Action OnPlayerRunCmd(
+	int client, int& buttons, int& impulse, float vel[3], float angles[3],
+	int& weapon, int& subtype, int& cmdnum, int& tickcount, int& seed, int mouse[2]
+) {
+	int primary = GetPlayerWeaponSlot(client, TFWeaponSlot_Primary);
+
+	if (primary != -1 && TF2CustAttr_GetInt(primary, "original babyface attributes") == 1) {
+		// Original babyface boost reset on jump
+		if (buttons & IN_JUMP != 0)
+		{
+			if (!HoldingJump[client])
+			{
+				if (
+					GetEntPropFloat(client, Prop_Send, "m_flHypeMeter") > 0.0 && 
+					GetEntProp(client, Prop_Data, "m_nWaterLevel") <= 1 && // don't reset if swimming 
+					buttons & IN_DUCK == 0 && // don't reset if crouching
+					(GetEntityFlags(client) & FL_ONGROUND) != 0 // don't reset if airborne, the attribute will handle air jumps
+				) {
+					SetEntPropFloat(client, Prop_Send, "m_flHypeMeter", 0.0);
+					TF2Attrib_RemoveByName(client, "SET BONUS: move speed set bonus");
+					// apply the following so movespeed gets reset immediately
+					TF2Attrib_AddCustomPlayerAttribute(client, "move speed penalty", 0.99, 0.001);
+
+					if (GetConVarInt(g_cvDebug))
+						LogMessage("Original BFB: Boost reset on jump for %N", client);
+				}
+				HoldingJump[client] = true;
+			}
+		}
+		else
+		{
+			HoldingJump[client] = false;
+		}
+	}
+	
+	return Plugin_Continue;
+}
 
 stock int CheckScythe(int client) {
 	// Does the client have the harvester?
@@ -990,3 +1049,21 @@ public float clamp(float a, float b, float c)
 {
     return (a > c ? c : (a < b ? b : a));
 }
+
+float ValveRemapVal(float val, float a, float b, float c, float d) {
+	// https://github.com/ValveSoftware/source-sdk-2013/blob/master/sp/src/public/mathlib/mathlib.h#L648
+
+	float tmp;
+
+	if (a == b) {
+		return (val >= b ? d : c);
+	}
+
+	tmp = ((val - a) / (b - a));
+
+	if (tmp < 0.0) tmp = 0.0;
+	if (tmp > 1.0) tmp = 1.0;
+
+	return (c + ((d - c) * tmp));
+}
+

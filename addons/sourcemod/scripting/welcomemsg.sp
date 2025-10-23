@@ -24,7 +24,7 @@ static const char g_ScoutReverts[][] = {
 };
 
 static const char g_ScoutCustom[][] = {
-    "\x01 [Primary] Original Baby Face: {lightgreen}+40% accuracy, 6 clip size,\x07FF0000 -30% damage, -25% base movement speed\n",
+    "\x01 [Primary] Original Baby Face: {lightgreen}+40% accuracy, 6 clip size,\x07FF0000 -30% damage, -35% base movement speed, boost resets on any jump\n",
     "\x01 [Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n"
 };
 

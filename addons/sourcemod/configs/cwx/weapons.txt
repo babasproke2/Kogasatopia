@@ -14,11 +14,16 @@
                 }
                 "attributes_game"
                 {
-                        "damage penalty"                             "0.70"
-                        "weapon spread bonus"                           "0.6"
-			"clip size penalty"				"1.0"
-                        "lose hype on take damage"			"0.0"
-                        "move speed penalty"			"0.75"
+                        "damage penalty"                "0.70"
+                        "clip size penalty"             "1.0"
+                        "move speed penalty"            "0.65"
+                        "weapon spread bonus"           "0.6"
+                        "hype resets on jump"           "100.0"
+                        "lose hype on take damage"      "0.0"
+                }
+                "attributes_custom"
+                {
+                        "original babyface attributes"  "1.0"
                 }
         }
         "pyroshotgun1"
