@@ -4,6 +4,14 @@
 #include <sourcemod>
 #include <sdktools>
 
+#define CONFIG_FILE "configs/precachefiles.cfg"
+
+ArrayList g_ModelList;
+ArrayList g_ModelVariantList;
+ArrayList g_MaterialList;
+ArrayList g_SoundList;
+ArrayList g_GenericList;
+
 public Plugin myinfo =
 {
     name = "Precache Manager",
@@ -13,98 +21,217 @@ public Plugin myinfo =
     url = "https://kogasa.tf"
 };
 
-enum PrecacheType
+public void OnPluginStart()
 {
-    PrecacheType_Model,
-    PrecacheType_Material,
-    PrecacheType_Sound,
-    PrecacheType_Generic
-};
+    g_ModelList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    g_ModelVariantList = new ArrayList(ByteCountToCells(64));
+    g_MaterialList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    g_SoundList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    g_GenericList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 
-static const char g_sModels[][] =
-{
-    "models/workshop/weapons/c_models/c_adjudicator/c_adjudicator.mdl"
-};
+    LoadPrecacheConfig();
+}
 
-static const char g_sModelVariants[][] =
+public void OnConfigsExecuted()
 {
-    ".dx80.vtx",
-    ".dx90.vtx",
-    ".sw.vtx",
-    ".vvd",
-    ".phy"
-};
-
-static const char g_sMaterials[][] =
-{
-    "materials/models/workshop/weapons/c_items/c_front_lader_exponent.vtf",
-    "materials/models/workshop/weapons/c_items/c_front_lader_normal.vtf",
-    "materials/models/workshop/weapons/c_items/c_front_lader.vmt",
-    "materials/models/workshop/weapons/c_items/c_front_lader.vtf"
-};
-
-static const char g_sSounds[][] =
-{
-    "sound/bluearchive/koyuki_uwah.wav"
-};
-
-static const char g_sGenericFiles[][] =
-{
-    ""
-};
+    LoadPrecacheConfig();
+}
 
 public void OnMapStart()
 {
     AddConfiguredDownloads();
 }
 
+static void LoadPrecacheConfig()
+{
+    g_ModelList.Clear();
+    g_ModelVariantList.Clear();
+    g_MaterialList.Clear();
+    g_SoundList.Clear();
+    g_GenericList.Clear();
+
+    char path[PLATFORM_MAX_PATH];
+    BuildPath(Path_SM, path, sizeof(path), CONFIG_FILE);
+
+    if (!FileExists(path))
+    {
+        LogError("[PrecacheFiles] Config file not found: %s", path);
+        return;
+    }
+
+    KeyValues kv = new KeyValues("PrecacheFiles");
+
+    if (!kv.ImportFromFile(path))
+    {
+        LogError("[PrecacheFiles] Failed to parse config file: %s", path);
+        delete kv;
+        return;
+    }
+
+    if (kv.JumpToKey("models"))
+    {
+        if (kv.GotoFirstSubKey(false))
+        {
+            do
+            {
+                char value[PLATFORM_MAX_PATH];
+                kv.GetString(NULL_STRING, value, sizeof(value));
+                TrimString(value);
+                if (value[0])
+                {
+                    g_ModelList.PushString(value);
+                }
+            }
+            while (kv.GotoNextKey(false));
+            kv.GoBack();
+        }
+        kv.GoBack();
+    }
+
+    if (kv.JumpToKey("model_variants"))
+    {
+        if (kv.GotoFirstSubKey(false))
+        {
+            do
+            {
+                char value[64];
+                kv.GetString(NULL_STRING, value, sizeof(value));
+                TrimString(value);
+                if (value[0])
+                {
+                    g_ModelVariantList.PushString(value);
+                }
+            }
+            while (kv.GotoNextKey(false));
+            kv.GoBack();
+        }
+        kv.GoBack();
+    }
+
+    if (kv.JumpToKey("materials"))
+    {
+        if (kv.GotoFirstSubKey(false))
+        {
+            do
+            {
+                char value[PLATFORM_MAX_PATH];
+                kv.GetString(NULL_STRING, value, sizeof(value));
+                TrimString(value);
+                if (value[0])
+                {
+                    g_MaterialList.PushString(value);
+                }
+            }
+            while (kv.GotoNextKey(false));
+            kv.GoBack();
+        }
+        kv.GoBack();
+    }
+
+    if (kv.JumpToKey("sounds"))
+    {
+        if (kv.GotoFirstSubKey(false))
+        {
+            do
+            {
+                char value[PLATFORM_MAX_PATH];
+                kv.GetString(NULL_STRING, value, sizeof(value));
+                TrimString(value);
+                if (value[0])
+                {
+                    g_SoundList.PushString(value);
+                }
+            }
+            while (kv.GotoNextKey(false));
+            kv.GoBack();
+        }
+        kv.GoBack();
+    }
+
+    if (kv.JumpToKey("generic"))
+    {
+        if (kv.GotoFirstSubKey(false))
+        {
+            do
+            {
+                char value[PLATFORM_MAX_PATH];
+                kv.GetString(NULL_STRING, value, sizeof(value));
+                TrimString(value);
+                if (value[0])
+                {
+                    g_GenericList.PushString(value);
+                }
+            }
+            while (kv.GotoNextKey(false));
+            kv.GoBack();
+        }
+        kv.GoBack();
+    }
+
+    delete kv;
+}
+
 static void AddConfiguredDownloads()
 {
     char path[PLATFORM_MAX_PATH];
 
-    for (int i = 0; i < sizeof(g_sModels); i++)
+    for (int i = 0; i < g_ModelList.Length; i++)
     {
-        strcopy(path, sizeof(path), g_sModels[i]);
+        g_ModelList.GetString(i, path, sizeof(path));
+        if (!path[0])
+            continue;
+
         AddFileToDownloadsTable(path);
         PrecacheModel(path, true);
 
-        char basePath[PLATFORM_MAX_PATH];
-        strcopy(basePath, sizeof(basePath), g_sModels[i]);
-        int len = strlen(basePath);
-        if (len > 4)
+        if (g_ModelVariantList.Length > 0)
         {
-            char prefix[PLATFORM_MAX_PATH];
-            strcopy(prefix, sizeof(prefix), basePath);
-            prefix[len - 4] = '\0'; // remove .mdl
-
-            for (int j = 0; j < sizeof(g_sModelVariants); j++)
+            char basePath[PLATFORM_MAX_PATH];
+            strcopy(basePath, sizeof(basePath), path);
+            int len = strlen(basePath);
+            if (len > 4)
             {
-                Format(path, sizeof(path), "%s%s", prefix, g_sModelVariants[j]);
-                AddFileToDownloadsTable(path);
+                basePath[len - 4] = '\0';
+
+                char variantName[64];
+                for (int j = 0; j < g_ModelVariantList.Length; j++)
+                {
+                    g_ModelVariantList.GetString(j, variantName, sizeof(variantName));
+                    if (!variantName[0])
+                        continue;
+
+                    Format(path, sizeof(path), "%s%s", basePath, variantName);
+                    AddFileToDownloadsTable(path);
+                }
             }
         }
     }
 
-    for (int i = 0; i < sizeof(g_sMaterials); i++)
+    for (int i = 0; i < g_MaterialList.Length; i++)
     {
-        strcopy(path, sizeof(path), g_sMaterials[i]);
+        g_MaterialList.GetString(i, path, sizeof(path));
+        if (!path[0])
+            continue;
+
         AddFileToDownloadsTable(path);
     }
 
-    for (int i = 0; i < sizeof(g_sSounds); i++)
+    for (int i = 0; i < g_SoundList.Length; i++)
     {
-        strcopy(path, sizeof(path), g_sSounds[i]);
+        g_SoundList.GetString(i, path, sizeof(path));
+        if (!path[0])
+            continue;
+
         AddFileToDownloadsTable(path);
         PrecacheSound(path, true);
     }
 
-    for (int i = 0; i < sizeof(g_sGenericFiles); i++)
+    for (int i = 0; i < g_GenericList.Length; i++)
     {
-        strcopy(path, sizeof(path), g_sGenericFiles[i]);
-        if (path[0] == '\0')
-        {
+        g_GenericList.GetString(i, path, sizeof(path));
+        if (!path[0])
             continue;
-        }
+
         AddFileToDownloadsTable(path);
     }
 }

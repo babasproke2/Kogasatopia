@@ -5,11 +5,11 @@
 bool g_HasBeenWelcomed[MAXPLAYERS + 1];
 
 static const char g_Info[][] = {
-    "{green}Some weapons have better stats; use !r to read about your class.\n",
-    "{hotpink}We're also testing custom weapons; check !c to read and !cw to equip.\n",
-    "{unique}Use !commands to read about other commands available.\n",
-    "{lightskyblue}Melee random crits are enabled, respawn times are reduced and random bullet spread is disabled;\n",
-    "{chartreuse}Google 'kogtf2' or check our group at !steam to learn more and find out when people are playing.\n"
+    "{peachpuff}Some weapons have better stats; use {yellow}!r {peachpuff}to read about your class.\n",
+    "{peachpuff}We're also testing custom weapons; check {yellow}!c {peachpuff}to read and {yellow}!cw {peachpuff}to equip.\n",
+    "{peachpuff}Use {yellow}!commands {peachpuff}to browse the rest of the server commands.\n",
+    "{peachpuff}Melee random crits are enabled, respawn times are reduced, and random bullet spread is disabled.\n",
+    "{peachpuff}Google 'kogtf2' or visit our group with {yellow}!steam {peachpuff}to learn more and see when people are playing.\n"
 };
 
 static const char g_ScoutReverts[][] = {
@@ -24,7 +24,6 @@ static const char g_ScoutReverts[][] = {
 };
 
 static const char g_ScoutCustom[][] = {
-    "{unique} ----- !cw weapons -----\n",
     "\x01 [Primary] Original Baby Face: {lightgreen}+40% accuracy, 6 clip size,\x07FF0000 -30% damage, -25% base movement speed\n",
     "\x01 [Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n"
 };
@@ -38,10 +37,9 @@ static const char g_SoldierReverts[][] = {
 };
 
 static const char g_SoldierCustom[][] = {
-    "{unique} ----- !cw weapons -----\n",
-    "\x01 [Secondary] The F.U.T.A.: {lightgreen}+30% blast jump damage resistance, +15% tighter spread,\x07FF0000 -50% clip size\n",
-    "\x01 [Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
-    "\x01 [Secondary] Soldier's Pistol\n"
+    "\x01[Secondary] The F.U.T.A.: {lightgreen}+30% blast jump damage resistance, +15% tighter spread,\x07FF0000 -50% clip size\n",
+    "\x01[Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
+    "\x01[Secondary] Soldier's Pistol\n"
 };
 
 static const char g_PyroReverts[][] = {
@@ -55,12 +53,11 @@ static const char g_PyroReverts[][] = {
 };
 
 static const char g_PyroCustom[][] = {
-    "{unique} ----- !cw weapons -----\n",
-    "\x01 [Primary] Stock Shotgun\n",
-    "\x01 [Secondary] TF2C Twin Barrel: {lightgreen}Holster reload, +20% bullets per shot, first shot is a recoil jump,\x07FF2400 10% wider spread, 15% slower draw speed\n",
-    "\x01 [Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
-    "\x01 [Secondary] The Family Business\n",
-    "\x01 [Melee] TF2C Harvester: {lightgreen}Afterburn is returned as health while held,\x07FF2400 enemies are extinguished on your death\n"
+    "\x01[Primary] Stock Shotgun\n",
+    "\x01[Secondary] TF2C Twin Barrel: {lightgreen}Holster reload, +20% bullets per shot, first shot is a recoil jump,\x07FF2400 10% wider spread, 15% slower draw speed\n",
+    "\x01[Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
+    "\x01[Secondary] The Family Business\n",
+    "\x01[Melee] TF2C Harvester: {lightgreen}Afterburn is returned as health while held,\x07FF2400 enemies are extinguished on your death\n"
 };
 
 static const char g_DemoReverts[][] = {
@@ -74,10 +71,9 @@ static const char g_DemoReverts[][] = {
 };
 
 static const char g_DemoCustom[][] = {
-    "{unique} ----- !cw weapons -----\n",
-    "\x01 [Primary] Grenade Launcher (straight grenades)\n",
-    "\x01 [Primary] Demoman Gunboats\n",
-    "\x01 [Secondary] Demoman Banana: {lightgreen}Throw and eat to heal yourself!\n"
+    "\x01[Primary] Grenade Launcher (straight grenades)\n",
+    "\x01[Primary] Demoman Gunboats\n",
+    "\x01[Secondary] Demoman Banana: {lightgreen}Throw and eat to heal yourself!\n"
 };
 
 static const char g_HeavyReverts[][] = {
@@ -89,8 +85,7 @@ static const char g_HeavyReverts[][] = {
 };
 
 static const char g_HeavyCustom[][] = {
-    "{unique} ----- !cw weapons -----\n",
-    "\x01 [Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n"
+    "\x01[Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n"
 };
 
 static const char g_EngineerReverts[][] = {
@@ -101,15 +96,13 @@ static const char g_EngineerReverts[][] = {
 };
 
 static const char g_EngineerCustom[][] = {
-    "{unique} ----- !cw weapons -----\n",
-    "\x01 [Primary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
-    "\x01 [Primary] The Family Business\n",
-    "\x01 [Secondary] Conagher's Bull: drain 25 metal on hit, first shot deals 300 damage to enemies holding the same weapon, 80% tighter spread\n",
-    "\x01 [Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n",
-    "\x01 [Secondary] The Winger\n",
-    "\x01 [Secondary] Pretty Boy's Pocket Pistol\n",
-    "\x01 [PDA1] Boost/Jump pads (Or use !pads for convenience)\n",
-    "\x01 [PDA2] Amplifier Dispenser Replacement (Or use !amp or !a)\n"
+    "\x01[Primary] The Family Business\n",
+    "\x01[Primary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
+    "\x01[Secondary] Conagher's Bull: Drain 25 metal on hit, first shot deals 300 damage to enemies holding the same weapon, 80% tighter spread\n",
+    "\x01[Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n",
+    "\x01[Secondary] The Winger, Pretty Boy's Pocket Pistol\n",
+    "\x01[PDA1] Boost/Jump pads (Or use !pads for convenience)\n",
+    "\x01[PDA2] Amplifier Dispenser Replacement (Or use !amp or !a)\n"
 };
 
 static const char g_MedicReverts[][] = {
@@ -119,7 +112,6 @@ static const char g_MedicReverts[][] = {
 };
 
 static const char g_MedicCustom[][] = {
-    "{unique} ----- !cw weapons -----\n",
     "\x01[Melee] TF2C Shock Therapy: {lightgreen}Hit allies to fully overheal them, {unique} enemies take charge as damage,\x07FF2400 30s recharge time, -15% healing on medigun\n",
     "\x01[Melee] The Mantreads"
 };
@@ -133,7 +125,6 @@ static const char g_SniperReverts[][] = {
 };
 
 static const char g_SniperCustom[][] = {
-    "{unique} ----- !cw weapons -----\n",
     "\x01 No custom weapons detected for your class!"
 };
 
@@ -145,9 +136,8 @@ static const char g_SpyReverts[][] = {
 };
 
 static const char g_SpyCustom[][] = {
-    "{unique} ----- !cw weapons -----\n",
-    "\x01 [Secondary] Enforcer (Alt): {lightgreen}No fire rate penalty, +10% damage,\x07FF2400 -25% damage while disguised, +0.5s time to cloak\n",
-    "\x01 [Secondary] Wall Climbing Kit: {lightgreen}+15 hp, enables wall climb,\x07FF2400 +25% damage taken from fire, +20% damage taken from explosives\n",
+    "\x01[Secondary] Enforcer (Alt): {lightgreen}No fire rate penalty, +10% damage,\x07FF2400 -25% damage while disguised, +0.5s time to cloak\n",
+    "\x01[Secondary] Wall Climbing Kit: {lightgreen}+15 hp, enables wall climb,\x07FF2400 +25% damage taken from fire, +20% damage taken from explosives\n",
     "\x07FFFF00This class has additional weapons; check !c2 to read the second page."
 };
 
@@ -438,7 +428,7 @@ static void ShowPanelFromData(int client, const char[] title, const char[][] lin
     }
     
     panel.DrawText(" ");
-    panel.Send(client, PanelHandler, 5);
+    panel.Send(client, PanelHandler, 7);
     delete panel;
 }
 
@@ -450,7 +440,7 @@ static bool ShowClassPanel(int client, TFClassType class, bool revert)
         return false;
     
     char title[64];
-    Format(title, sizeof(title), "=== %s %s ===", className, revert ? "Weapon Changes" : "Custom Weapons");
+    Format(title, sizeof(title), "=== %s %s ===", className, revert ? "Weapon Changes" : "!cw Weapons");
     
     switch (class)
     {

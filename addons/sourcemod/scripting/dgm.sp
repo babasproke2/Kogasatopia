@@ -332,7 +332,7 @@ public Action Command_ResetSetup(int client , int args)
     }
 	char temp[ 4 ];
 	GetCmdArg( 1, temp, 4 );
-	time = StringToInt(temp);
+	time = StringToInt(temp) + 1;
     SetVariantInt(time);
     AcceptEntityInput(timerEnt, "SetTime");
 
