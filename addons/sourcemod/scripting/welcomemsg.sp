@@ -3,13 +3,14 @@
 #include <morecolors>
 
 bool g_HasBeenWelcomed[MAXPLAYERS + 1];
+ConVar g_hUncleCycleState;
 
 static const char g_Info[][] = {
-    "{peachpuff}Some weapons have better stats; use {yellow}!r {peachpuff}to read about your class.\n",
-    "{peachpuff}We're also testing custom weapons; check {yellow}!c {peachpuff}to read and {yellow}!cw {peachpuff}to equip.\n",
-    "{peachpuff}Use {yellow}!commands {peachpuff}to browse the rest of the server commands.\n",
-    "{peachpuff}Melee random crits are enabled, respawn times are reduced, and random bullet spread is disabled.\n",
-    "{peachpuff}Google 'kogtf2' or visit our group with {yellow}!steam {peachpuff}to learn more and see when people are playing.\n"
+    "{default}Some weapons have better stats; use {yellow}!r {default}to read about your class.\n",
+    "{default}We're also testing custom weapons; check {yellow}!c {default}to read and {yellow}!cw {default}to equip.\n",
+    "{default}Use {yellow}!commands {default}to browse the rest of the server commands.\n",
+    "{default}Melee random crits are enabled, respawn times are reduced, and random bullet spread is disabled.\n",
+    "{default}Google 'kogtf2' or visit our group with {yellow}!steam {default}to learn more and see when people are playing.\n"
 };
 
 static const char g_ScoutReverts[][] = {
@@ -24,20 +25,21 @@ static const char g_ScoutReverts[][] = {
 };
 
 static const char g_ScoutCustom[][] = {
-    "\x01 [Primary] Original Baby Face: {lightgreen}+40% accuracy, 6 clip size,\x07FF0000 -30% damage, -25% base movement speed\n",
-    "\x01 [Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n"
+    "\x01 [Primary] Original Baby Face: {lightgreen}+40% accuracy, 6 clip size,{red} -30% damage, -25% base movement speed\n",
+    "\x01 [Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
+    "\x01 [Secondary] Sproke (Redbull on Blu): {lightgreen}Ammo becomes magazine for 12 seconds {red}ammo is set to 0 when effect ends,{default}FaN/Popper receive +25% reload speed instead"
 };
 
 static const char g_SoldierReverts[][] = {
     "{default}Air Strike:{green} +15% reload speed\n",
     "{default}Liberty Launcher:{chartreuse} +10% firing speed\n",
-    "{default}Righteous Bison:{green} Fires 55% faster, bonus damage up to +100% based on distance,\x07FF0000 -40% damage\n",
+    "{default}Righteous Bison:{green} Fires 55% faster, bonus damage up to +100% based on distance,{red} -40% damage\n",
     "{default}Base Jumper:{chartreuse} Re-deploy, float upwards while on fire\n",
     "{default}Equalizer:{green} -20% damage from ranged sources while active\n",
 };
 
 static const char g_SoldierCustom[][] = {
-    "\x01[Secondary] The F.U.T.A.: {lightgreen}+30% blast jump damage resistance, +15% tighter spread,\x07FF0000 -50% clip size\n",
+    "\x01[Secondary] The F.U.T.A.: {lightgreen}+30% blast jump damage resistance, +15% tighter spread,{red} -50% clip size\n",
     "\x01[Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
     "\x01[Secondary] Soldier's Pistol\n"
 };
@@ -54,6 +56,7 @@ static const char g_PyroReverts[][] = {
 
 static const char g_PyroCustom[][] = {
     "\x01[Primary] Stock Shotgun\n",
+    "\x01[Secondary] Flame Shotgun: {lightgreen}Hitting a target accurately twice or killing them creates a fiery explosion,\x07FF2400 -15% clip size, -30% damage penalty\n",
     "\x01[Secondary] TF2C Twin Barrel: {lightgreen}Holster reload, +20% bullets per shot, first shot is a recoil jump,\x07FF2400 10% wider spread, 15% slower draw speed\n",
     "\x01[Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
     "\x01[Secondary] The Family Business\n",
@@ -99,7 +102,7 @@ static const char g_EngineerCustom[][] = {
     "\x01[Primary] The Family Business\n",
     "\x01[Primary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
     "\x01[Secondary] Conagher's Bull: Drain 25 metal on hit, first shot deals 300 damage to enemies holding the same weapon, 80% tighter spread\n",
-    "\x01[Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,\x07FF0000 -40% damage, -15% reload speed\n",
+    "\x01[Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
     "\x01[Secondary] The Winger, Pretty Boy's Pocket Pistol\n",
     "\x01[PDA1] Boost/Jump pads (Or use !pads for convenience)\n",
     "\x01[PDA2] Amplifier Dispenser Replacement (Or use !amp or !a)\n"
@@ -137,7 +140,7 @@ static const char g_SpyReverts[][] = {
 
 static const char g_SpyCustom[][] = {
     "\x01[Secondary] Enforcer (Alt): {lightgreen}No fire rate penalty, +10% damage,\x07FF2400 -25% damage while disguised, +0.5s time to cloak\n",
-    "\x01[Secondary] Wall Climbing Kit: {lightgreen}+15 hp, enables wall climb,\x07FF2400 +25% damage taken from fire, +20% damage taken from explosives\n",
+    "\x01[Secondary] Wall Climbing Kit: {lightgreen}enables wall climb,\x07FF2400 +15% damage from all sources\n",
     "\x07FFFF00This class has additional weapons; check !c2 to read the second page."
 };
 
@@ -159,6 +162,7 @@ public OnPluginStart()
 {
     HookEvent("player_spawn", Event_PlayerSpawn);
     LoadTranslations("welcomemsg.phrases.txt");
+    g_hUncleCycleState = FindConVar("uncle_cycle_active");
     
     RegConsoleCmd("sm_info", Command_ListInfo, "Displays an brief message to the client about the server.");
     RegConsoleCmd("sm_c", Command_InfoC, "Lists custom class weapon data to the client");
@@ -182,7 +186,14 @@ static const char g_WelcomeMsg[][] = {
     "{peachpuff}Welcome to {unique}The Youkai Pound{peachpuff} %N!",
     "{peachpuff}This server improves the stats of some weapons;",
     "{peachpuff}Read more with {lightskyblue}!info{peachpuff} or see our group at {unique}!steam",
-    "{unique}New feature: Manage voice volume of other players with {chartreuse}!voice"
+    "{unique}New feature: check out the new saysounds system with {chartreuse}!opt"
+};
+
+static const char g_UncleWelcomeMsg[][] = {
+    "{peachpuff}Welcome to {unique}Dane's Custom Weapons{peachpuff}, %N!",
+    "{peachpuff}You're on an Uncletopia Custom Weapons server curated by Uncle Dane.",
+    "{peachpuff}Uncle Dane added new buildings and weapons; use {lightskyblue}!info{peachpuff} to learn more.",
+    "{peachpuff}Be aware of fake Uncletopia servers pretending to offer these features."
 };
 
 public OnClientPutInServer(client)
@@ -207,13 +218,31 @@ public Action Timer_Welcome(Handle timer, any userid)
     g_HasBeenWelcomed[client] = true;
     
     char buffer[256];
-    Format(buffer, sizeof(buffer), g_WelcomeMsg[0], client);
-    CPrintToChat(client, "%s", buffer);
-    
-    for (int i = 1; i < sizeof(g_WelcomeMsg); i++)
-        CPrintToChat(client, "%s", g_WelcomeMsg[i]);
-    
+    if (IsUncleCycleActive())
+    {
+        Format(buffer, sizeof(buffer), g_UncleWelcomeMsg[0], client);
+        CPrintToChat(client, "%s", buffer);
+        
+        for (int i = 1; i < sizeof(g_UncleWelcomeMsg); i++)
+            CPrintToChat(client, "%s", g_UncleWelcomeMsg[i]);
+    }
+    else
+    {
+        Format(buffer, sizeof(buffer), g_WelcomeMsg[0], client);
+        CPrintToChat(client, "%s", buffer);
+        
+        for (int i = 1; i < sizeof(g_WelcomeMsg); i++)
+            CPrintToChat(client, "%s", g_WelcomeMsg[i]);
+    }
     return Plugin_Stop;
+}
+
+public bool IsUncleCycleActive()
+{
+    if (g_hUncleCycleState == null)
+        g_hUncleCycleState = FindConVar("uncle_cycle_active");
+    
+    return g_hUncleCycleState != null && g_hUncleCycleState.BoolValue;
 }
 
 // Array of command categories and their descriptions

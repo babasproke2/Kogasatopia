@@ -7,6 +7,8 @@
 
 #define CONFIG_FILE "configs/saysounds.cfg"
 #define MAX_COMMAND_NAME 64
+#define MAX_GROUP_NAME 32
+#define DEFAULT_GROUP "all"
 
 public Plugin myinfo =
 {
@@ -18,22 +20,26 @@ public Plugin myinfo =
 };
 
 StringMap gSoundMap;
+StringMap gSoundGroupMap;
 ArrayList gCommandNames;
+ArrayList gGroupNames;
 bool gConfigLoaded = false;
 float g_fClientVolume[MAXPLAYERS + 1];
 float g_fNextAllowedSound[MAXPLAYERS + 1];
 char g_szDeathSound[MAXPLAYERS + 1][MAX_COMMAND_NAME];
 char g_szKillSound[MAXPLAYERS + 1][MAX_COMMAND_NAME];
+char g_szClientGroup[MAXPLAYERS + 1][MAX_GROUP_NAME];
 Handle g_hVolumeCookie = INVALID_HANDLE;
 Handle g_hDeathCookie = INVALID_HANDLE;
 Handle g_hKillCookie = INVALID_HANDLE;
+Handle g_hGroupCookie = INVALID_HANDLE;
 ConVar g_hForce;
 
 const float DEFAULT_VOLUME = 0.0;
 const float MIN_VOLUME = 0.0;
 const float MAX_VOLUME = 1.0;
 const float DEFAULT_COOLDOWN = 5.0;
-const float ADMIN_COOLDOWN = 0.4;
+const float ADMIN_COOLDOWN = 1.0;
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 {
@@ -45,12 +51,15 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 public void OnPluginStart()
 {
     gSoundMap = new StringMap();
+    gSoundGroupMap = new StringMap();
     gCommandNames = new ArrayList(ByteCountToCells(MAX_COMMAND_NAME));
+    gGroupNames = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
 
     g_hForce = CreateConVar("saysounds_force", "0", "Force everyone to hear saysounds");
     g_hVolumeCookie = RegClientCookie("saysounds_volume", "Preferred say sound volume", CookieAccess_Public);
     g_hDeathCookie = RegClientCookie("saysounds_death", "Preferred saysound on death", CookieAccess_Public);
     g_hKillCookie = RegClientCookie("saysounds_kill", "Preferred saysound on kill", CookieAccess_Public);
+    g_hGroupCookie = RegClientCookie("saysounds_group", "Preferred saysound group", CookieAccess_Public);
 
     RegConsoleCmd("sm_opt", Command_ToggleSoundOpt);
     RegConsoleCmd("sm_sounds", Command_ListSounds);
@@ -71,13 +80,42 @@ public void OnPluginStart()
         g_fNextAllowedSound[i] = 0.0;
         g_szDeathSound[i][0] = '\0';
         g_szKillSound[i][0] = '\0';
+        strcopy(g_szClientGroup[i], sizeof(g_szClientGroup[]), DEFAULT_GROUP);
 
         if (IsClientInGame(i) && AreClientCookiesCached(i))
         {
             LoadVolumePreference(i);
             LoadDeathSoundPreference(i);
             LoadKillSoundPreference(i);
+            LoadGroupPreference(i);
         }
+    }
+}
+
+public void OnPluginEnd()
+{
+    if (gSoundMap != null)
+    {
+        delete gSoundMap;
+        gSoundMap = null;
+    }
+
+    if (gSoundGroupMap != null)
+    {
+        delete gSoundGroupMap;
+        gSoundGroupMap = null;
+    }
+
+    if (gCommandNames != null)
+    {
+        delete gCommandNames;
+        gCommandNames = null;
+    }
+
+    if (gGroupNames != null)
+    {
+        delete gGroupNames;
+        gGroupNames = null;
     }
 }
 
@@ -87,12 +125,14 @@ public void OnClientPutInServer(int client)
     g_fNextAllowedSound[client] = 0.0;
     g_szDeathSound[client][0] = '\0';
     g_szKillSound[client][0] = '\0';
+    strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), DEFAULT_GROUP);
 
     if (AreClientCookiesCached(client))
     {
         LoadVolumePreference(client);
         LoadDeathSoundPreference(client);
         LoadKillSoundPreference(client);
+        LoadGroupPreference(client);
     }
 }
 
@@ -101,6 +141,7 @@ public void OnClientCookiesCached(int client)
     LoadVolumePreference(client);
     LoadDeathSoundPreference(client);
     LoadKillSoundPreference(client);
+    LoadGroupPreference(client);
 }
 
 public void OnClientDisconnect(int client)
@@ -108,10 +149,12 @@ public void OnClientDisconnect(int client)
     SaveVolumePreference(client);
     SaveDeathSoundPreference(client);
     SaveKillSoundPreference(client);
+    SaveGroupPreference(client);
     g_fNextAllowedSound[client] = 0.0;
     g_fClientVolume[client] = DEFAULT_VOLUME;
     g_szDeathSound[client][0] = '\0';
     g_szKillSound[client][0] = '\0';
+    strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), DEFAULT_GROUP);
 }
 
 public void OnConfigsExecuted()
@@ -178,7 +221,8 @@ Action ChatCommandListener(int client, const char[] command, int argc)
     }
 
     char soundPath[PLATFORM_MAX_PATH];
-    if (!gSoundMap.GetString(commandName, soundPath, sizeof(soundPath)))
+    char groupName[MAX_GROUP_NAME];
+    if (!GetCommandSoundData(commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName)))
     {
         return Plugin_Continue;
     }
@@ -202,7 +246,7 @@ Action ChatCommandListener(int client, const char[] command, int argc)
         
     }
 
-    PlaySaySound(soundPath);
+    PlaySaySound(soundPath, groupName);
 
     return Plugin_Continue;
 }
@@ -210,8 +254,11 @@ Action ChatCommandListener(int client, const char[] command, int argc)
 void LoadSaySoundConfig()
 {
     gSoundMap.Clear();
+    gSoundGroupMap.Clear();
     gCommandNames.Clear();
+    gGroupNames.Clear();
     gConfigLoaded = false;
+    EnsureGroupRegistered(DEFAULT_GROUP);
 
     char filePath[PLATFORM_MAX_PATH];
     BuildPath(Path_SM, filePath, sizeof(filePath), CONFIG_FILE);
@@ -269,16 +316,21 @@ public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[
     ToLowercaseInPlace(commandName, sizeof(commandName));
 
     char soundPath[PLATFORM_MAX_PATH];
-    strcopy(soundPath, sizeof(soundPath), value);
-    TrimString(soundPath);
-
-    NormalizeSoundPath(soundPath, sizeof(soundPath));
+    char groupName[MAX_GROUP_NAME];
+    ParseSoundConfigEntry(value, soundPath, sizeof(soundPath), groupName, sizeof(groupName));
 
     if (!soundPath[0])
     {
         LogError("[SaySounds] Command '%s' has an empty sound path.", commandName);
         return SMCParse_Continue;
     }
+
+    if (!groupName[0])
+    {
+        strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
+    }
+
+    EnsureGroupRegistered(groupName);
 
     int existingIndex = FindCommandIndex(commandName);
     if (existingIndex == -1)
@@ -287,6 +339,7 @@ public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[
     }
 
     gSoundMap.SetString(commandName, soundPath);
+    gSoundGroupMap.SetString(commandName, groupName);
     return SMCParse_Continue;
 }
 
@@ -384,23 +437,216 @@ bool StartsWith(const char[] str, const char[] prefix)
     return true;
 }
 
+static void CopySubstring(const char[] source, int startIndex, char[] dest, int destLen)
+{
+    if (destLen <= 0)
+    {
+        return;
+    }
+
+    int length = strlen(source);
+    if (startIndex >= length)
+    {
+        dest[0] = '\0';
+        return;
+    }
+
+    int written = 0;
+    for (int i = startIndex; i < length && written < destLen - 1; i++)
+    {
+        dest[written++] = source[i];
+    }
+
+    dest[written] = '\0';
+}
+
+static void ParseSoundConfigEntry(const char[] value, char[] soundPath, int soundLen, char[] groupName, int groupLen)
+{
+    if (soundLen > 0)
+    {
+        soundPath[0] = '\0';
+    }
+    if (groupLen > 0)
+    {
+        groupName[0] = '\0';
+    }
+
+    char raw[PLATFORM_MAX_PATH];
+    strcopy(raw, sizeof(raw), value);
+    TrimString(raw);
+
+    if (!raw[0])
+    {
+        return;
+    }
+
+    int delim = FindCharInString(raw, '|');
+    if (delim != -1)
+    {
+        char groupPart[MAX_GROUP_NAME];
+        strcopy(groupPart, sizeof(groupPart), raw);
+        groupPart[delim] = '\0';
+        TrimString(groupPart);
+        ToLowercaseInPlace(groupPart, sizeof(groupPart));
+
+        char pathPart[PLATFORM_MAX_PATH];
+        CopySubstring(raw, delim + 1, pathPart, sizeof(pathPart));
+        TrimString(pathPart);
+
+        if (groupLen > 0)
+        {
+            strcopy(groupName, groupLen, groupPart);
+        }
+
+        strcopy(soundPath, soundLen, pathPart);
+    }
+    else
+    {
+        strcopy(soundPath, soundLen, raw);
+    }
+
+    NormalizeSoundPath(soundPath, soundLen);
+}
+
+static int FindGroupIndex(const char[] groupName)
+{
+    if (gGroupNames == null)
+    {
+        return -1;
+    }
+
+    char current[MAX_GROUP_NAME];
+    for (int i = 0; i < gGroupNames.Length; i++)
+    {
+        gGroupNames.GetString(i, current, sizeof(current));
+        if (StrEqual(current, groupName))
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static void EnsureGroupRegistered(const char[] groupName)
+{
+    if (gGroupNames == null)
+    {
+        return;
+    }
+
+    char normalized[MAX_GROUP_NAME];
+    strcopy(normalized, sizeof(normalized), groupName);
+    TrimString(normalized);
+    ToLowercaseInPlace(normalized, sizeof(normalized));
+
+    if (!normalized[0])
+    {
+        return;
+    }
+
+    if (FindGroupIndex(normalized) != -1)
+    {
+        return;
+    }
+
+    gGroupNames.PushString(normalized);
+}
+
+static bool IsKnownGroup(const char[] groupName)
+{
+    if (!groupName[0])
+    {
+        return false;
+    }
+
+    char normalized[MAX_GROUP_NAME];
+    strcopy(normalized, sizeof(normalized), groupName);
+    TrimString(normalized);
+    ToLowercaseInPlace(normalized, sizeof(normalized));
+
+    if (!normalized[0])
+    {
+        return false;
+    }
+
+    if (StrEqual(normalized, DEFAULT_GROUP))
+    {
+        return true;
+    }
+
+    return FindGroupIndex(normalized) != -1;
+}
+
 public Action Command_ToggleSoundOpt(int client, int args)
 {
     if (client <= 0 || !IsClientInGame(client))
         return Plugin_Handled;
 
-    // Wait for cookies to load before allowing changes
-    if (GetClientVolume(client) <= 0.0)
+    if (args >= 1)
     {
-        g_fClientVolume[client] = 0.5; // 50% by default
+        char arg[MAX_GROUP_NAME];
+        GetCmdArg(1, arg, sizeof(arg));
+        TrimString(arg);
+        ToLowercaseInPlace(arg, sizeof(arg));
+
+        if (StrEqual(arg, "off") || StrEqual(arg, "mute") || StrEqual(arg, "none"))
+        {
+            g_fClientVolume[client] = 0.0;
+            SaveVolumePreference(client);
+            PrintToChat(client, "[SaySounds] Say sounds muted.");
+            return Plugin_Handled;
+        }
+
+        if (StrEqual(arg, "on"))
+        {
+            strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), DEFAULT_GROUP);
+            SaveGroupPreference(client);
+            g_fClientVolume[client] = 0.5;
+            SaveVolumePreference(client);
+            PrintToChat(client, "[SaySounds] Say sounds enabled.");
+            return Plugin_Handled;
+        }
+
+        if (StrEqual(arg, DEFAULT_GROUP))
+        {
+            strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), DEFAULT_GROUP);
+            SaveGroupPreference(client);
+            g_fClientVolume[client] = 0.5;
+            SaveVolumePreference(client);
+            PrintToChat(client, "[SaySounds] Say sounds enabled.");
+            return Plugin_Handled;
+        }
+
+        if (!arg[0] || !IsKnownGroup(arg))
+        {
+            PrintToChat(client, "[SaySounds] Unknown sound group.");
+            return Plugin_Handled;
+        }
+
+        strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), arg);
+        SaveGroupPreference(client);
+        g_fClientVolume[client] = 0.5;
         SaveVolumePreference(client);
-        PrintToChat(client, "[SaySounds] Say sounds enabled and set to 50%%%; Type !opt to mute them and !vol to control.");
+        PrintToChat(client, "[SaySounds] You're now only able to hear sound group \x03%s", arg);
     }
     else
     {
-        g_fClientVolume[client] = 0.0;
-        SaveVolumePreference(client);
-        PrintToChat(client, "[SaySounds] Say sounds disabled. Type !opt to re-enable them.");
+        if (GetClientVolume(client) > 0.0)
+        {
+            g_fClientVolume[client] = 0.0;
+            SaveVolumePreference(client);
+            PrintToChat(client, "[SaySounds] Say sounds muted.");
+        }
+        else
+        {
+            // No arguments and muted: enable all groups at default volume
+            strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), DEFAULT_GROUP);
+            SaveGroupPreference(client);
+            g_fClientVolume[client] = 0.5;
+            SaveVolumePreference(client);
+            PrintToChat(client, "[SaySounds] Say sounds enabled.");
+        }
     }
 
     return Plugin_Handled;
@@ -414,10 +660,13 @@ public Action Command_ListSounds(int client, int args)
         {
             char command[MAX_COMMAND_NAME];
             char sound[PLATFORM_MAX_PATH];
+            char group[MAX_GROUP_NAME];
             gCommandNames.GetString(i, command, sizeof(command));
             if (!gSoundMap.GetString(command, sound, sizeof(sound)))
                 continue;
-            PrintToServer("[SaySounds] !%s -> %s", command, sound);
+            if (!gSoundGroupMap.GetString(command, group, sizeof(group)))
+                strcopy(group, sizeof(group), DEFAULT_GROUP);
+            PrintToServer("[SaySounds] !%s -> %s [%s]", command, sound, group);
         }
         return Plugin_Handled;
     }
@@ -431,10 +680,13 @@ public Action Command_ListSounds(int client, int args)
     {
         char command[MAX_COMMAND_NAME];
         char sound[PLATFORM_MAX_PATH];
+        char group[MAX_GROUP_NAME];
         gCommandNames.GetString(i, command, sizeof(command));
         if (!gSoundMap.GetString(command, sound, sizeof(sound)))
             continue;
-        PrintToChat(client, "!%s -> %s", command, sound);
+        if (!gSoundGroupMap.GetString(command, group, sizeof(group)))
+            strcopy(group, sizeof(group), DEFAULT_GROUP);
+        PrintToChat(client, "!%s -> %s [%s]", command, sound, group);
     }
 
     return Plugin_Handled;
@@ -587,13 +839,22 @@ public Action Command_PlaySpecificSound(int client, int args)
     }
 
     char path[PLATFORM_MAX_PATH];
-    if (!gSoundMap.GetString(arg, path, sizeof(path)))
+    char groupName[MAX_GROUP_NAME];
+    if (!GetCommandSoundData(arg, path, sizeof(path), groupName, sizeof(groupName)))
     {
         PrintToChat(client, "[SaySounds] Unknown sound '%s'. Use !sounds to list commands.", arg);
         return Plugin_Handled;
     }
 
-    PlaySaySound(path);
+    float now = GetGameTime();
+    if (g_fNextAllowedSound[client] > now)
+    {
+        float remaining = g_fNextAllowedSound[client] - now;
+        PrintToChat(client, "[SaySounds] Please wait %.1f seconds before triggering another sound.", remaining);
+        return Plugin_Handled;
+    }
+
+    PlaySaySound(path, groupName);
     g_fNextAllowedSound[client] = GetGameTime() + DEFAULT_COOLDOWN;
     return Plugin_Handled;
 }
@@ -685,7 +946,72 @@ void SaveVolumePreference(int client)
     SetClientCookie(client, g_hVolumeCookie, value);
 }
 
-static void PlaySaySound(const char[] soundPath)
+void LoadGroupPreference(int client)
+{
+    strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), DEFAULT_GROUP);
+
+    if (g_hGroupCookie == INVALID_HANDLE)
+    {
+        return;
+    }
+
+    char value[MAX_GROUP_NAME];
+    GetClientCookie(client, g_hGroupCookie, value, sizeof(value));
+    TrimString(value);
+    ToLowercaseInPlace(value, sizeof(value));
+
+    if (!value[0] || !IsKnownGroup(value))
+    {
+        return;
+    }
+
+    strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), value);
+}
+
+void SaveGroupPreference(int client)
+{
+    if (g_hGroupCookie == INVALID_HANDLE || !AreClientCookiesCached(client))
+        return;
+
+    SetClientCookie(client, g_hGroupCookie, g_szClientGroup[client]);
+}
+
+static bool GetCommandSoundData(const char[] commandName, char[] soundPath, int soundLen, char[] groupName, int groupLen)
+{
+    if (!gConfigLoaded)
+    {
+        return false;
+    }
+
+    if (!gSoundMap.GetString(commandName, soundPath, soundLen))
+    {
+        return false;
+    }
+
+    if (!gSoundGroupMap.GetString(commandName, groupName, groupLen))
+    {
+        strcopy(groupName, groupLen, DEFAULT_GROUP);
+    }
+
+    return true;
+}
+
+static bool ClientMatchesGroup(int client, const char[] groupName)
+{
+    if (!groupName[0] || StrEqual(groupName, DEFAULT_GROUP))
+    {
+        return true;
+    }
+
+    if (!g_szClientGroup[client][0] || StrEqual(g_szClientGroup[client], DEFAULT_GROUP))
+    {
+        return true;
+    }
+
+    return StrEqual(g_szClientGroup[client], groupName);
+}
+
+static void PlaySaySound(const char[] soundPath, const char[] groupName)
 {
     bool forceAll = (g_hForce != null && g_hForce.BoolValue);
 
@@ -696,13 +1022,28 @@ static void PlaySaySound(const char[] soundPath)
             continue;
         }
 
-        float volume = GetClientVolume(i);
-        if (!forceAll && volume <= 0.0)
+        float emitVolume;
+
+        if (forceAll)
         {
-            continue;
+            emitVolume = 1.0;
+        }
+        else
+        {
+            float volume = GetClientVolume(i);
+            if (volume <= 0.0)
+            {
+                continue;
+            }
+
+            if (!ClientMatchesGroup(i, groupName))
+            {
+                continue;
+            }
+
+            emitVolume = volume;
         }
 
-        float emitVolume = forceAll ? 1.0 : volume;
         EmitSoundToClient(i, soundPath, i, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, emitVolume, SNDPITCH_NORMAL);
     }
 }
@@ -774,38 +1115,40 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
 
     char victimPath[PLATFORM_MAX_PATH];
     char attackerPath[PLATFORM_MAX_PATH];
+    char victimGroup[MAX_GROUP_NAME];
+    char attackerGroup[MAX_GROUP_NAME];
     bool haveVictim = false;
     bool haveAttacker = false;
 
     if (victim > 0 && victim <= MaxClients && IsClientInGame(victim) && g_szDeathSound[victim][0])
     {
-        haveVictim = gSoundMap.GetString(g_szDeathSound[victim], victimPath, sizeof(victimPath));
+        haveVictim = GetCommandSoundData(g_szDeathSound[victim], victimPath, sizeof(victimPath), victimGroup, sizeof(victimGroup));
     }
 
     if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker) && attacker != victim && g_szKillSound[attacker][0])
     {
-        haveAttacker = gSoundMap.GetString(g_szKillSound[attacker], attackerPath, sizeof(attackerPath));
+        haveAttacker = GetCommandSoundData(g_szKillSound[attacker], attackerPath, sizeof(attackerPath), attackerGroup, sizeof(attackerGroup));
     }
 
     if (haveVictim && haveAttacker)
     {
         if (GetRandomInt(0, 1) == 0)
         {
-            PlaySaySound(victimPath);
+            PlaySaySound(victimPath, victimGroup);
         }
         else
         {
-            PlaySaySound(attackerPath);
+            PlaySaySound(attackerPath, attackerGroup);
         }
         return;
     }
 
     if (haveVictim)
     {
-        PlaySaySound(victimPath);
+        PlaySaySound(victimPath, victimGroup);
     }
     else if (haveAttacker)
     {
-        PlaySaySound(attackerPath);
+        PlaySaySound(attackerPath, attackerGroup);
     }
 }

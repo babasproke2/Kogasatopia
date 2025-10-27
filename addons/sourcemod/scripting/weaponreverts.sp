@@ -10,19 +10,80 @@
 #include <sourcescramble>
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
-int LastDamage[MAXPLAYERS+1];
-int Scythe[MAXPLAYERS+1];
-int ShockCharge[MAXPLAYERS+1];
-int HealCount[MAXPLAYERS+1];
-float LastUber[MAXPLAYERS+1];
-int g_EngiMetal[MAXPLAYERS+1];
+#define ACC_MAX_DIST        768.0
+#define ACC_THRESH_NEAR       38.0
+#define ACC_THRESH_FAR        10.0
+#define ACC_STREAK_TARGET      2
+
+#define ACC_EXPLODE_DAMAGE   50.0
+#define ACC_EXPLODE_RADIUS   180.0
+#define ACC_EXPLODE_SOUND   "ambient/fire/gascan_ignite1.wav"
+#define ACC_NOTIFY_SOUND "vo/taunts/pyro/pyro_taunt_rps_exert_21.mp3"
+#define ACC_NOTIFY_2 "vo/taunts/pyro/pyro_taunt_rps_exert_23.mp3"
+#define SOUND_ARROW_HEAL "weapons/fx/rics/arrow_impact_crossbow_heal.wav"
+#define SOUND_NEON_SIGN "weapons/neon_sign_hit_world_02.wav"
+#define SOUND_DISPENSER_METAL "weapons/dispenser_generate_metal.wav"
+#define SOUND_POMSON_DRAIN "weapons/drg_pomson_drain_01.wav"
+#define SOUND_FLAME_OUT "player/flame_out.wav"
+
+#define SPROKE_ATTR_NAME        "sproke attribute"
+#define SPROKE_PRIMARY_ATTR		"mod max primary clip override"
+#define SPROKE_ALT_ATTR		"Reload time decreased"
+#define SPROKE_PRIMARY_FACTOR     -1.0
+#define SPROKE_ALT_FACTOR     0.75
+#define SPROKE_PARTICLE_RED      "soldierbuff_red_buffed"
+#define SPROKE_PARTICLE_BLUE     "soldierbuff_blue_buffed"
+#define BURP_SOUND      "vo/burp02.mp3"
+
+#define TF2_JUMP_NONE 0
+#define TF2_JUMP_ROCKET_START 1
+#define TF2_JUMP_ROCKET 2
+#define TF2_JUMP_STICKY 3
+
+tf2_player tf2_players[MAXPLAYERS + 1];
+
+enum struct tf2_player
+{
+	int jump_status;
+	int lastAfterburnDamage;
+	int scytheWeapon;
+	int shockCharge;
+	int healCount;
+	float lastUber;
+	int engiMetal;
+	int accuracyStreak;
+	Handle sprokeTimer;
+	int sprokePrimaryRef;
+	int sprokeParticleRef;
+	int sprokeClipRecord;
+}
+
+Handle g_SDKGetMaxClip1 = null;
 int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
- 
+
+#include <weaponreverts>
+
 ConVar g_sEnabled;
-ConVar g_cvDebug;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 Handle g_hHealTimer = INVALID_HANDLE;
+
+static void StartHealTimer()
+{
+	if (g_hHealTimer == INVALID_HANDLE)
+	{
+		g_hHealTimer = CreateTimer(1.0, Timer_HealTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+	}
+}
+
+static void StopHealTimer()
+{
+	if (g_hHealTimer != INVALID_HANDLE)
+	{
+		KillTimer(g_hHealTimer);
+		g_hHealTimer = INVALID_HANDLE;
+	}
+}
 
 MemoryPatch patch_Wrangler_CustomShieldRepair;
 MemoryPatch patch_Wrangler_CustomShieldShellRefill;
@@ -31,75 +92,90 @@ MemoryPatch patch_Wrangler_CustomShieldDamageTaken;
 MemoryPatch patch_Wrangler_RescueRanger_CustomShieldRepair;
 float g_flWranglerCustomShieldValue = 0.75;
 
-native bool SaySounds_ShouldPlay(int client);
-
-stock void PlaySoundForClient(int client, const char[] sound)
-{
-	bool allow = true;
-	FeatureStatus status = GetFeatureStatus(FeatureType_Native, "SaySounds_ShouldPlay");
-	if (status == FeatureStatus_Available)
-	{
-		allow = SaySounds_ShouldPlay(client);
-	}
-
-	if (!allow)
-		return;
-
-	ClientCommand(client, "playgamesound %s", sound);
-}
-
 public Plugin myinfo =
 {
 	name = "WeaponReverts",
 	author = "Hombre, Huutti, Utsuho",
 	description = "Weapon changes plugin for Kogasatopia, very specific, this includes custom attribute code such as recoil jumping",
-	version = "4.5",
+	version = "5.0",
 	url = "https://kogasa.tf"
 };
 
 stock void ResetClientArrays(int client)
 {
     if (client <= 0 || client > MaxClients) return;
-    LastDamage[client] = 0;
-    Scythe[client] = 0;
-    ShockCharge[client] = 30;
-    HealCount[client] = 0;
-    LastUber[client] = 0.0;
-    g_EngiMetal[client] = 0;
+    tf2_players[client].lastAfterburnDamage = 0;
+    tf2_players[client].scytheWeapon = 0;
+    tf2_players[client].shockCharge = 30;
+    tf2_players[client].healCount = 0;
+    tf2_players[client].lastUber = 0.0;
+    tf2_players[client].engiMetal = 0;
+	tf2_players[client].accuracyStreak = 0;
+	tf2_players[client].jump_status = TF2_JUMP_NONE;
+    if (tf2_players[client].sprokeTimer != null)
+    {
+        KillTimer(tf2_players[client].sprokeTimer);
+        tf2_players[client].sprokeTimer = null;
+    }
+    Sproke_ClearEffect(client, true, false);
 }
 
 public void OnPluginStart() {
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
-	g_cvDebug = CreateConVar("weaponreverts_debug", "0", "Log debug messages from weaponreverts.smx to the console");
 	MarkNativeAsOptional("SaySounds_ShouldPlay");
 	if (GetConVarInt(g_sEnabled)) {
-
-        if (g_hHealTimer == INVALID_HANDLE)
-            g_hHealTimer = CreateTimer(1.0, Timer_HealTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
-
 		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
-		if (g_iMetalOffset == -1 && !g_bWarnedMetalOffset)
-		{
-			LogError("[weaponreverts] Failed to resolve metal ammo offset. Metal transfer attributes disabled.");
-			g_bWarnedMetalOffset = true;
-		}
+	// This is used to ignore clients without the m_iAmmo netprop
 
-		for (int i = 1; i <= MaxClients; i++) {
-			if (IsClientInGame(i)) {
-				ResetClientArrays(i);
-			}
+		PrecacheSound(SOUND_ARROW_HEAL, true);
+		PrecacheSound(SOUND_NEON_SIGN, true);
+		PrecacheSound(ACC_EXPLODE_SOUND, true);
+		PrecacheSound(ACC_NOTIFY_SOUND, true);
+		PrecacheSound(ACC_NOTIFY_2, true);
+		PrecacheSound(BURP_SOUND, true);
+
+		for (int i = 1; i <= MaxClients; i++)
+		{
+			tf2_players[i].sprokeTimer = null;
+			tf2_players[i].sprokePrimaryRef = INVALID_ENT_REFERENCE;
+			tf2_players[i].sprokeParticleRef = INVALID_ENT_REFERENCE;
+			tf2_players[i].sprokeClipRecord = 0;
+			tf2_players[i].jump_status = TF2_JUMP_NONE;
+
+			if (IsClientInGame(i))
+				{
+					ResetClientArrays(i);
+					SDKHook(i, SDKHook_OnTakeDamagePost, Accuracy_OnTakeDamagePost);
+				}
 		}
 
 		HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
 		HookEvent("post_inventory_application", Event_Resupply, EventHookMode_Post);
 		HookEvent("player_spawn", OnPlayerSpawn);
-		PrecacheSound("weapons/fx/rics/arrow_impact_crossbow_heal.wav");
-		PrecacheSound("weapons/neon_sign_hit_world_02.wav");
+
+		// Blast jumping hooks
+
+		HookEvent("rocket_jump", 				Event_TF2RocketJump);
+		HookEvent("rocket_jump_landed", 	 	Event_TF2JumpLanded);
+		HookEvent("sticky_jump", 				Event_TF2StickyJump);
+		HookEvent("sticky_jump_landed", 	 	Event_TF2JumpLanded);
 
 		// Cozy Camper revert and Wrangler nerf
 		GameData conf;
 		conf = new GameData("weaponreverts");
 		if (conf == null) SetFailState("Failed to load weaponreverts.txt conf!");
+
+		// Setup SDKCall for GetMaxClip1
+		StartPrepSDKCall(SDKCall_Entity);
+		PrepSDKCall_SetFromConf(conf, SDKConf_Virtual, "CTFWeaponBase::GetMaxClip1()");
+		PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
+    	g_SDKGetMaxClip1 = EndPrepSDKCall();
+
+		if (g_SDKGetMaxClip1 == null)
+		{
+			SetFailState("Failed to create SDKCall for GetMaxClip1");
+		}
+
 		// Create the patches
 		patch_RevertCozyCamper_FlinchNerf = MemoryPatch.CreateFromConf(conf, "CTFPlayer::ApplyPunchImpulseX_FakeFullyChargedCondition");
 		patch_Wrangler_CustomShieldRepair = MemoryPatch.CreateFromConf(conf, "CObjectSentrygun::OnWrenchHit_CustomShieldRepair");
@@ -127,15 +203,38 @@ public void OnPluginStart() {
 		StoreToAddress(patch_Wrangler_CustomShieldRocketRefill.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
 		StoreToAddress(patch_Wrangler_CustomShieldDamageTaken.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
 		StoreToAddress(patch_Wrangler_RescueRanger_CustomShieldRepair.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
+		delete conf;
+
+		StartHealTimer();
 	}
 }
 
-public void OnPluginEnd() {
-    if (g_hHealTimer != INVALID_HANDLE) {
-        CloseHandle(g_hHealTimer);
-        g_hHealTimer = INVALID_HANDLE;
-    }
+public void OnMapStart() {
+	StartHealTimer();
 }
+
+public void OnMapEnd()
+{
+	StopHealTimer();
+}
+
+public void OnPluginEnd()
+{
+	StopHealTimer();
+	for (int i = 1; i <= MaxClients; i++)
+	{
+		ResetClientArrays(i);
+	}
+
+	DestroyPatch(patch_RevertCozyCamper_FlinchNerf); patch_RevertCozyCamper_FlinchNerf = null;
+	DestroyPatch(patch_Wrangler_CustomShieldRepair); patch_Wrangler_CustomShieldRepair = null;
+	DestroyPatch(patch_Wrangler_CustomShieldShellRefill); patch_Wrangler_CustomShieldShellRefill = null;
+	DestroyPatch(patch_Wrangler_CustomShieldRocketRefill); patch_Wrangler_CustomShieldRocketRefill = null;
+	DestroyPatch(patch_Wrangler_CustomShieldDamageTaken); patch_Wrangler_CustomShieldDamageTaken = null;
+	DestroyPatch(patch_Wrangler_RescueRanger_CustomShieldRepair); patch_Wrangler_RescueRanger_CustomShieldRepair = null;
+}
+
+// I added functions like these while I was worried about memory safety... I assume they're redundant
 
 public OnClientPutInServer(client)
 {
@@ -144,6 +243,7 @@ public OnClientPutInServer(client)
 		SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 		SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
 		SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
+		SDKHook(client, SDKHook_OnTakeDamagePost, Accuracy_OnTakeDamagePost);
 
 		ResetClientArrays(client);
 	}
@@ -155,35 +255,241 @@ public void OnClientDisconnect(int client)
 	ResetClientArrays(client);
 }
 
+// ----------------- Accuracy Debug Integration -----------------
+
+static bool Accuracy_IsValidClient(int client)
+{
+    return (client > 0 && client <= MaxClients && IsClientInGame(client));
+}
+
+static bool Accuracy_IsValidShotgun(int weapon)
+{
+    return (weapon != -1 && IsValidEntity(weapon) && TF2CustAttr_GetInt(weapon, "flame shotgun attributes") != 0);
+}
+
+static float Accuracy_RequiredDamageForDistance(float dist)
+{
+    if (dist < 0.0) dist = 0.0;
+    if (dist > ACC_MAX_DIST) dist = ACC_MAX_DIST;
+
+    float t = dist / ACC_MAX_DIST;
+    return ACC_THRESH_NEAR + (ACC_THRESH_FAR - ACC_THRESH_NEAR) * t;
+}
+
+static bool Accuracy_IsAccurateHit(float damage, float dist)
+{
+	return (damage >= Accuracy_RequiredDamageForDistance(dist));
+}
+
+static void Accuracy_Explode(int attacker, int victim, float position[3], float damage, float radius)
+{
+    int bomb = CreateEntityByName("tf_generic_bomb");
+    if (bomb == -1)
+        return;
+
+    DispatchKeyValueVector(bomb, "origin", position);
+    DispatchKeyValueFloat(bomb, "damage", damage);
+    DispatchKeyValueFloat(bomb, "radius", radius);
+    DispatchKeyValue(bomb, "health", "1");
+    DispatchSpawn(bomb);
+
+    EmitAmbientSound(ACC_EXPLODE_SOUND, position, victim, SNDLEVEL_NORMAL);
+
+    int particle = CreateEntityByName("info_particle_system");
+    if (particle != -1)
+    {
+        float particlePos[3];
+        particlePos = position;
+        particlePos[2] += Accuracy_GetClassSubtractionValue(attacker);
+        TeleportEntity(particle, particlePos, NULL_VECTOR, NULL_VECTOR);
+        DispatchKeyValue(particle, "effect_name", "mvm_cash_explosion");
+        DispatchKeyValue(particle, "start_active", "0");
+        DispatchSpawn(particle);
+        ActivateEntity(particle);
+        AcceptEntityInput(particle, "Start");
+        CreateTimer(1.0, Accuracy_Timer_RemoveEntity, EntIndexToEntRef(particle), TIMER_FLAG_NO_MAPCHANGE);
+    }
+
+    int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
+    SDKHooks_TakeDamage(bomb, attacker, attacker, 9001.0, DMG_BULLET, weapon);
+
+    int targetTeam = GetClientTeam(victim);
+    if (targetTeam > 1)
+    {
+        for (int i = 1; i <= MaxClients; i++)
+        {
+            if (!Accuracy_IsValidClient(i) || !IsPlayerAlive(i))
+                continue;
+            if (GetClientTeam(i) != targetTeam)
+                continue;
+
+            float clientPos[3];
+            GetClientAbsOrigin(i, clientPos);
+            if (GetVectorDistance(position, clientPos) <= radius)
+            {
+                TF2_IgnitePlayer(i, attacker, 2.0);
+            }
+        }
+    }
+}
+
+public Action Accuracy_Timer_RemoveEntity(Handle timer, int ref)
+{
+    int entity = EntRefToEntIndex(ref);
+    if (entity != INVALID_ENT_REFERENCE)
+    {
+        RemoveEntity(entity);
+    }
+    return Plugin_Stop;
+}
+
+public Action Accuracy_Timer_RemoveChargeCount(Handle timer, int client)
+{
+    if (!Accuracy_IsValidClient(client))
+        return Plugin_Stop;
+
+	if (tf2_players[client].accuracyStreak > 0)
+		tf2_players[client].accuracyStreak -= 1;
+
+    return Plugin_Stop;
+}
+
+public void Accuracy_OnTakeDamagePost(int victim, int attacker, int inflictor, float damage,
+                                      int damagetype, int weapon, const float damageForce[3],
+                                      const float damagePosition[3])
+{
+    if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
+        return;
+    if (!Accuracy_IsValidShotgun(weapon))
+        return;
+
+    float eye[3], pos[3];
+    GetClientEyePosition(attacker, eye);
+    GetClientAbsOrigin(victim, pos);
+	pos[2] += Accuracy_GetClassSubtractionValue(victim);
+
+    float dist = GetVectorDistance(eye, pos);
+	if (dist > ACC_MAX_DIST) return;
+
+    bool accurate = Accuracy_IsAccurateHit(damage, dist);
+    int remainingHealth = IsPlayerAlive(victim) ? GetClientHealth(victim) : 0;
+    if (remainingHealth > 0 && remainingHealth <= RoundToCeil(damage))
+        remainingHealth = 0; // treat as lethal if the incoming damage equals remaining HP
+    bool lethal = (remainingHealth <= 0);
+
+    if (accurate || lethal)
+    {
+        if (lethal)
+        {
+		tf2_players[victim].accuracyStreak = ACC_STREAK_TARGET;
+        }
+        else
+        {
+		tf2_players[victim].accuracyStreak++;
+        }
+        CreateTimer(4.0, Accuracy_Timer_RemoveChargeCount, victim, TIMER_FLAG_NO_MAPCHANGE);
+	if (tf2_players[victim].accuracyStreak >= ACC_STREAK_TARGET || lethal)
+        {
+            float boomPos[3];
+            GetClientAbsOrigin(victim, boomPos);
+            boomPos[2] -= Accuracy_GetClassSubtractionValue(victim);
+
+            TF2_IgnitePlayer(victim, attacker, 4.0);
+            Accuracy_Explode(attacker, victim, boomPos, ACC_EXPLODE_DAMAGE, ACC_EXPLODE_RADIUS);
+			EmitAmbientSound(ACC_NOTIFY_2, eye, attacker, SNDLEVEL_NORMAL);
+
+		tf2_players[victim].accuracyStreak = 0;
+        } else EmitAmbientSound(ACC_NOTIFY_SOUND, eye, attacker, SNDLEVEL_NORMAL);
+    }
+}
+
+static int Accuracy_GetClassSubtractionValue(int client)
+{
+    TFClassType cls = TF2_GetPlayerClass(client);
+    switch (cls)
+    {
+        case TFClass_Scout:
+            return 65;
+        case TFClass_Soldier, TFClass_Pyro, TFClass_DemoMan, TFClass_Engineer:
+            return 68;
+        case TFClass_Heavy, TFClass_Medic, TFClass_Sniper, TFClass_Spy:
+            return 75;
+        default:
+            return 0;
+    }
+}
+
+public Event_TF2RocketJump(Handle:event, const String:name[], bool:dontBroadcast)
+{
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	if (client > 0) {
+		if (tf2_players[client].jump_status == TF2_JUMP_ROCKET_START) {
+			tf2_players[client].jump_status = TF2_JUMP_ROCKET;
+		} else if (tf2_players[client].jump_status != TF2_JUMP_ROCKET) {
+			tf2_players[client].jump_status = TF2_JUMP_ROCKET_START;
+		}
+	}
+}
+
+public Event_TF2StickyJump(Handle:event, const String:name[], bool:dontBroadcast)
+{
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	if (client > 0) {
+		if (tf2_players[client].jump_status != TF2_JUMP_STICKY) {
+			tf2_players[client].jump_status = TF2_JUMP_STICKY;
+		}
+	}
+}
+
+public Event_TF2JumpLanded(Handle:event, const String:name[], bool:dontBroadcast)
+{
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	if (client > 0) {
+		tf2_players[client].jump_status = TF2_JUMP_NONE;
+	}
+}
+
 public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
-        int userId = event.GetInt("userid");
-        int client = GetClientOfUserId(userId);
+    int userId = event.GetInt("userid");
+    int client = GetClientOfUserId(userId);
 	int attackerId = event.GetInt("attacker");
 	int attacker = GetClientOfUserId(attackerId);
 	if (attacker == 0 || client == 0) return Plugin_Continue;
-	if (ShockCharge[client] != 30) ShockCharge[client] = 30;
+	if (tf2_players[client].shockCharge != 30) tf2_players[client].shockCharge = 30;
 	if (TF2_GetPlayerClass(client) == TFClassType:TFClass_Medic) {
 		if (GetEntProp(GetPlayerWeaponSlot(client, 2), Prop_Send, "m_iItemDefinitionIndex") == 173) {
-			LastUber[client] = GetEntPropFloat(GetPlayerWeaponSlot(client, 1), Prop_Send, "m_flChargeLevel");
+			tf2_players[client].lastUber = GetEntPropFloat(GetPlayerWeaponSlot(client, 1), Prop_Send, "m_flChargeLevel");
 		}
 	}
-	if (Scythe[attacker] != 0 && (TF2_IsPlayerInCondition(client, TFCond_OnFire))) {
-	HealCount[attacker] = 4;
-	return Plugin_Changed;
+	if (tf2_players[attacker].scytheWeapon != 0 && (TF2_IsPlayerInCondition(client, TFCond_OnFire))) {
+		tf2_players[attacker].healCount += 4;
+		return Plugin_Changed;
 	}
 	return Plugin_Continue;
 }
 
 public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast) {
-        int userId = event.GetInt("userid");
-        int client = GetClientOfUserId(userId);
-	if (ShockCharge[client] != 30) ShockCharge[client] = 29; // The 29 is for visual effect
-	int watch = GetPlayerWeaponSlot(client, 4);
-        if ( (watch > -1) && TF2CustAttr_GetInt(watch, "escampette attributes") != 1.0) {
-                TF2_RemoveCondition(client, TFCond_SpeedBuffAlly);
+	int userId = event.GetInt("userid");
+	int client = GetClientOfUserId(userId);
+	if (tf2_players[client].shockCharge != 30)
+	{
+		tf2_players[client].shockCharge = 29; // The 29 is for visual effect
 		return Plugin_Changed;
-        }
+	}
+
+	int watch = GetPlayerWeaponSlot(client, 4);
+	if ((watch > -1) && TF2CustAttr_GetInt(watch, "escampette attributes") != 1.0)
+	{
+		TF2_RemoveCondition(client, TFCond_SpeedBuffAlly);
+		return Plugin_Changed;
+	}
+
+	if (tf2_players[client].sprokeTimer != null)
+	{
+		Sproke_ClearEffect(client, false, true);
+	}
 	return Plugin_Continue;
+
 }
 
 public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
@@ -207,11 +513,11 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 
         if (charge < 0.2)
         {
-            if (LastUber[client] > 0.2)
-                LastUber[client] = 0.2;
+		if (tf2_players[client].lastUber > 0.2)
+			tf2_players[client].lastUber = 0.2;
 
-            SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", LastUber[client]);
-            LastUber[client] = 0.0;
+		SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", tf2_players[client].lastUber);
+		tf2_players[client].lastUber = 0.0;
             return Plugin_Changed;
         }
     }
@@ -245,37 +551,51 @@ public Action TF2_CalcIsAttackCritical(client, weapon, String:weaponname[], &boo
     velocity[1] -= push * Sine(yaw);
     velocity[2] -= 280.0 * Sine(pitch);
 
-	int rand = GetRandomInt(1, 4);
-
 	int health = GetClientHealth(client);
 	float rounded = float(RoundFloat(float(health) * 0.10));
-	SDKHooks_TakeDamage(client, client, client, rounded, DMG_PREVENT_PHYSICS_FORCE);
-
-	char soundPath[64];
-	Format(soundPath, sizeof(soundPath), "vo/pyro_painsharp0%d.mp3", rand);
-
-	PlaySoundForClient(client, soundPath);
+	SDKHooks_TakeDamage(client, client, client, rounded, DMG_CLUB, 0);
 
     TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
     return Plugin_Changed;
 }
 
-// Timer for TF2C afterburn heal attribute and shock charge refill
+// Attribute timer
 public Action Timer_HealTimer(Handle timer) {
-	for (int iClient = 1; iClient <= MaxClients; iClient++) {
-		if (!IsClientInGame(iClient)) continue;
-		if (HealCount[iClient] != 0) {
-			if (GetClientHealth(iClient) < TF2_GetPlayerMaxHealth(iClient) && IsPlayerAlive(iClient) && CheckScythe(iClient) == 2) {
-				AddPlayerHealth(iClient, LastDamage[iClient], 1.0, false, true);
-				PlaySoundForClient(iClient, "weapons/dispenser_generate_metal.wav");
-			}
-			HealCount[iClient]--;
+	for (int client = 1; client <= MaxClients; client++) {
+		if (!IsClientInGame(client)) continue;
+		
+		// Handle afterburn heal
+	if (tf2_players[client].healCount > 0 && IsPlayerAlive(client) && 
+	    GetClientHealth(client) < TF2_GetPlayerMaxHealth(client) && 
+	    CheckScythe(client) == 2) {
+		tf2_players[client].healCount--;
+			AddPlayerHealth(client, tf2_players[client].lastAfterburnDamage, 1.0, false, true);
+			EmitSoundToClient(client, SOUND_DISPENSER_METAL);
 		}
-		else if (ShockCharge[iClient] < 30) {
-			ShockCharge[iClient]++;
-			if (ShockCharge[iClient] % 2 == 0 || ShockCharge[iClient] == 1) {
-				PrintHintText(iClient, "Shock Charge: %i%%%", (ShockCharge[iClient] * 100 / 30));
+		// Handle shock charge refill
+	else if (tf2_players[client].shockCharge < 30) {
+		tf2_players[client].shockCharge++;
+		if (tf2_players[client].shockCharge % 2 == 0 || tf2_players[client].shockCharge == 1) {
+			PrintHintText(client, "Shock Charge: %i%%%", (tf2_players[client].shockCharge * 100 / 30));
+		}
+	}
+		
+		// Handle sproke logic
+		int secondaryWeapon = GetPlayerWeaponSlot(client, 1);
+		float sprokeDuration = Sproke_GetAttributeDuration(secondaryWeapon);
+		
+		if (sprokeDuration > 0.0) {
+			int activeWeapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
+			if (activeWeapon == secondaryWeapon && TF2_IsPlayerInCondition(client, TFCond_Taunting)) {
+				Sproke_TryActivate(client, sprokeDuration);
 			}
+		}
+		else if (tf2_players[client].sprokeTimer != null || tf2_players[client].sprokePrimaryRef != INVALID_ENT_REFERENCE) {
+			if (tf2_players[client].sprokeTimer != null) {
+				delete tf2_players[client].sprokeTimer;
+				tf2_players[client].sprokeTimer = null;
+			}
+			Sproke_ClearEffect(client, true, false);
 		}
 	}
 	return Plugin_Continue;
@@ -291,8 +611,6 @@ float GetDistanceMultiplier(float posVic[3], float posAtt[3]) {
     rampup = clamp(rampup, 0.0, 1.0);          // cap at +100%
 
     float calculated = 1.0 + rampup;           // final multiplier
-    if (GetConVarInt(g_cvDebug))
-        PrintToServer("[Weaponreverts.smx] Calculated damage distance multiplier: %f (distance: %.1f)", calculated, distance);
 
     return calculated;
 }
@@ -340,57 +658,6 @@ public Action OnWeaponSwitch(client, weapon)
 	return Plugin_Continue;
 }
 
-stock int TF_GetMetalAmount(int client)
-{
-	if (client <= 0 || client > MaxClients || !IsClientInGame(client))
-	{
-		return 0;
-	}
-
-	if (g_iMetalOffset == -1)
-	{
-		if (!g_bWarnedMetalOffset)
-		{
-			LogError("[weaponreverts] Metal offset unresolved when reading metal.");
-			g_bWarnedMetalOffset = true;
-		}
-		return 0;
-	}
-
-	int metal = GetEntData(client, g_iMetalOffset + (3 * 4), 4);
-	g_EngiMetal[client] = metal;
-	return metal;
-}
-
-stock void TF_SetMetalAmount(int client, int metal)
-{
-	if (client <= 0 || client > MaxClients || !IsClientInGame(client))
-	{
-		return;
-	}
-
-	if (metal < 0)
-	{
-		metal = 0;
-	}
-	else if (metal > 200)
-	{
-		metal = 200;
-	}
-
-	if (g_iMetalOffset == -1)
-	{
-		if (!g_bWarnedMetalOffset)
-		{
-			LogError("[weaponreverts] Metal offset unresolved when writing metal.");
-			g_bWarnedMetalOffset = true;
-		}
-		return;
-	}
-
-	g_EngiMetal[client] = metal;
-	SetEntData(client, g_iMetalOffset + (3 * 4), metal, 4, true);
-}
 
 public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damagetype, &weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom)
 {
@@ -539,24 +806,23 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 			float flCloakMeter = GetEntPropFloat(client, Prop_Send, "m_flCloakMeter");
 			flCloakMeter -= 10;
 			SetEntPropFloat(client, Prop_Send, "m_flCloakMeter", flCloakMeter);
-			EmitAmbientSound("weapons/drg_pomson_drain_01.wav", damagePosition);
+		EmitAmbientSound(SOUND_POMSON_DRAIN, damagePosition, client, SNDLEVEL_NORMAL);
 			return Plugin_Changed;
 		}
-	} else if (damagetype & DMG_BURN) {
-		if ((damage < 7) && TF2_IsPlayerInCondition(client, TFCond_OnFire)) {
-			Scythe[attacker] = CheckScythe(attacker);
-			if (Scythe[attacker] != 0) {
-				int heal = RoundToNearest(damage);
-				LastDamage[attacker] = heal;
-					if (!IsPlayerAlive(attacker)) {
-						TF2_RemoveCondition(client, TFCond_OnFire);
-						PlaySoundForClient(attacker, "player/flame_out.wav");
-						PlaySoundForClient(client, "player/flame_out.wav");
-					return Plugin_Changed;
-				} else if (Scythe[attacker] == 2) {
-					AddPlayerHealth(attacker, heal, 1.0, false, true);
-					return Plugin_Changed;
-				}
+	} else if (CheckIfAfterburn(damagecustom)) {
+	tf2_players[attacker].scytheWeapon = CheckScythe(attacker);
+	if (tf2_players[attacker].scytheWeapon != 0) {
+			int heal = RoundToNearest(damage);
+		tf2_players[attacker].lastAfterburnDamage = heal;
+			if (!IsPlayerAlive(attacker)) {
+				TF2_RemoveCondition(client, TFCond_OnFire);
+			EmitAmbientSound(SOUND_FLAME_OUT, damagePosition, client, SNDLEVEL_NORMAL, SND_NOFLAGS, 1.0, SNDPITCH_NORMAL);
+				// PlaySoundForClient(attacker, "player/flame_out.wav");
+				// PlaySoundForClient(client, "player/flame_out.wav");
+				return Plugin_Changed;
+		} else if (tf2_players[attacker].scytheWeapon == 2) {
+				AddPlayerHealth(attacker, heal, 1.0, false, true);
+				return Plugin_Changed;
 			}
 		}
 	} else if ((weapon != -1) && (TF2CustAttr_GetInt(weapon, "twin barrel attributes") != 0)) {
@@ -580,10 +846,9 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 		TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, vecVelocity);
 		return Plugin_Changed;
 	} else if ((weapon != -1) && (TF2CustAttr_GetInt(weapon, "shock therapy attributes") != 0)) {
-		damage = float(ShockCharge[attacker] * 100 / 30);
-		ShockCharge[attacker] = 0;
-		EmitAmbientSound("weapons/neon_sign_hit_world_02.wav", damagePosition);
-		PlaySoundForClient(attacker, "weapons/neon_sign_hit_world_02.wav");
+		damage = float(tf2_players[attacker].shockCharge * 100 / 30);
+		tf2_players[attacker].shockCharge = 0;
+		EmitAmbientSound(SOUND_NEON_SIGN, damagePosition, client, SNDLEVEL_NORMAL);
 		return Plugin_Changed;
 	}
 	return damageModified ? Plugin_Changed : Plugin_Continue;
@@ -607,9 +872,8 @@ public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damag
 				float pos[3];
 				GetClientAbsAngles(victim, pos);
 				TF2_SetHealth(victim, buff);
-				ShockCharge[attacker] = 0;
-				EmitAmbientSound("weapons/fx/rics/arrow_impact_crossbow_heal.wav", pos);
-			PlaySoundForClient(attacker, "weapons/fx/rics/arrow_impact_crossbow_heal.wav");
+				tf2_players[attacker].shockCharge = 0;
+				EmitAmbientSound(SOUND_ARROW_HEAL, pos, victim, SNDLEVEL_NORMAL);
 				float uber = (float((buff - health) / 5000) + (GetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel")));
 				SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", uber);
 			}
@@ -618,141 +882,47 @@ public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damag
 	return Plugin_Continue;
 } 
 
-stock int CheckScythe(int client) {
-	// Does the client have the harvester?
-	int tally = 0;
-	int scythe = GetPlayerWeaponSlot(client, 2);
-	
-	if (TF2CustAttr_GetInt(scythe, "harvester attributes") != 0) tally++;
-	if (scythe == GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon")) tally++;
-	
-	if (tally > 0) Scythe[client] = scythe;
-	
-	return tally; 
-	// 0 = not a scythe, 1 = has a scythe, 2 = scythe is active
-}
-
-stock int CheckShock(int client) {
-	// Does the client have the Shock Therapy?
-    int tally = 0;
-    int shock = GetPlayerWeaponSlot(client, 2);
-    if (TF2CustAttr_GetInt(shock, "shock therapy attributes") != 0) tally++;
-    if (shock == GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon")) tally++;
-	if (ShockCharge[client] != 30) tally = 1;
-        return tally;
-}
-
-stock bool CheckRocketJumping(int client) {
-	//This is fairly primitive, hopefully I can find a netprop to determine a client's real blast jumping status later
-	if (!(GetEntityFlags(client) & FL_ONGROUND)) {
-		float flVel[3];
-		GetEntPropVector(client, Prop_Data, "m_vecVelocity", flVel);
-		if (GetVectorLength(flVel) > 300) return true;
-	}
-	return false;
-}
-
-stock GetAmmo_Weapon(weapon)
-{
-	if (weapon == -1) return 0;
-	new owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
-	if (owner == -1) return 0;
-	new iOffset = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", 1)*4;
-	new iAmmoTable = FindSendPropInfo("CTFPlayer", "m_iAmmo");
-	return GetEntData(owner, iAmmoTable+iOffset, 4);
-}
-
-stock SetAmmo_Weapon(weapon, newAmmo)
-{
-	new owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
-	if (owner == -1) return;
-	new iOffset = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", 1)*4;
-	new iAmmoTable = FindSendPropInfo("CTFPlayer", "m_iAmmo");
-	SetEntData(owner, iAmmoTable+iOffset, newAmmo, 4, true);
-}
-
-stock GetClip(weapon)
-{
-	new clip = -1;
-	if (IsValidEntity(weapon))
-	{
-		new iAmmoTable = FindSendPropInfo("CTFWeaponBase", "m_iClip1");
-		clip = GetEntData(weapon, iAmmoTable, 4);
-	}
-	return clip;
-}
-
-stock SetClip_Weapon(weapon, newClip)
-{
-	new iAmmoTable = FindSendPropInfo("CTFWeaponBase", "m_iClip1");
-	SetEntData(weapon, iAmmoTable, newClip, 4, true);
-}
-
-stock int TF2_GetPlayerMaxHealth(int client) {
-	return GetEntProp(GetPlayerResourceEntity(), Prop_Send, "m_iMaxHealth", _, client);
-}
-
-stock int OverhealStruct(int client)
-{
-    // Get the player's maximum health
-    int maxHealth = TF2_GetPlayerMaxHealth(client);
-
-    // Check if the health is NOT divisible by 100
-    if (maxHealth % 100 != 0)
-    {
-        // Multiply health by 1.5
-        float modifiedHealth = maxHealth * 1.5;
-
-        // Round down to the nearest multiple of 5
-        int roundedHealth = RoundToFloor(modifiedHealth / 5.0) * 5;
-
-        return roundedHealth;
-    }
-
-    // Return maxHealth multiplied by 1.5
-    return RoundToNearest(maxHealth * 1.5);
-
-}
-
 // Gas passer buff
 public TF2_OnConditionAdded(int client, TFCond condition)
 {
-        if (condition == TFCond_Gas) //If gas is applied
-        {
-                TF2_AddCondition(client, TFCond_Jarated, 6.0); //Apply Jarate for 6 seconds
-        } else if (condition == TFCond_Cloaked) {
-                new weapon = GetPlayerWeaponSlot(client, 4);
-                if ( (weapon > -1) && TF2CustAttr_GetInt(weapon, "escampette attributes") != 0) {
-                        TF2_AddCondition(client, TFCond_SpeedBuffAlly, 120.0);
-                }
-        } else if (condition == TFCond_SpeedBuffAlly) {
-                new weapon = GetPlayerWeaponSlot(client, 4);
-                if ( (weapon > -1) && TF2CustAttr_GetInt(weapon, "revertdr") != 0) {
-                }
-        }
+	if (condition == TFCond_Gas) //If gas is applied
+	{
+		TF2_AddCondition(client, TFCond_Jarated, 6.0); //Apply Jarate for 6 seconds
+	} else if (condition == TFCond_Cloaked) {
+		int weapon = GetPlayerWeaponSlot(client, 4);
+		if ( (weapon > -1) && TF2CustAttr_GetInt(weapon, "escampette attributes") != 0) {
+				TF2_AddCondition(client, TFCond_SpeedBuffAlly, 120.0);
+		}
+	} else if (condition == TFCond_CritCola) {
+		if (Sproke_ClientHasAttribute(client))
+		{
+			TF2_RemoveCondition(client, TFCond_CritCola);
+		}
+	}
 }
 
 public TF2_OnConditionRemoved(int client, TFCond condition)
 {
-        if (condition == TFCond_Cloaked)
-        {
-                new weapon = GetPlayerWeaponSlot(client, 4);
-                if ( (weapon > -1) && TF2CustAttr_GetInt(weapon, "escampette attributes") != 0) {
-                        TF2_RemoveCondition(client, TFCond_SpeedBuffAlly);
-                }
-        }
+	if (condition == TFCond_Cloaked)
+	{
+		int weapon = GetPlayerWeaponSlot(client, 4);
+		if ((weapon > -1) && TF2CustAttr_GetInt(weapon, "escampette attributes") != 0) {
+				TF2_RemoveCondition(client, TFCond_SpeedBuffAlly);
+		}
+	}
 }
 
 public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, quality, entity)
 {
 	if (GetConVarInt(g_sEnabled)) {
-		ShockCharge[client] = 30;
+	tf2_players[client].shockCharge = 30;
 		// Attach the `m_bValidatedAttachedEntity` property to every weapon/cosmetic.
 		// ^ This allows custom weapons/weapons with changed models to be seen.
 		//if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
 		//{
 			//SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
 		//}
+		// This was moved to my fork of CWX
 
 		// I disable random melee crits for Sniper here, tf_weapon_criticals 0 is default for me
 		if (TF2_GetPlayerClass(client) == TFClassType:TFClass_Sniper)
@@ -974,9 +1144,10 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2Attrib_SetByName(entity, "metal regen", 15.00); // This activates every 5 seconds, so let's use 15
 				TF2Attrib_SetByName(entity, "damage bonus", 1.10);
 			}
-            case 56, 1092, 1005: // Bow & Arrows
+            case 56, 1092, 1005: // Bow & Arrows / Huntsman
             {
 				TF2Attrib_SetByName(entity, "max health additive bonus", 15.00); // Self explanatory
+				TF2CustAttr_SetInt(entity, "wall climb enabled", 1);
             }
 		}
 	}
@@ -984,6 +1155,15 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 
 bool ValidateAndNullCheck(MemoryPatch patch) {
         return patch.Validate() && patch != null;
+}
+
+static void DestroyPatch(MemoryPatch patch)
+{
+	if (patch != null)
+	{
+		patch.Disable();
+		delete patch;
+	}
 }
 
 public float clamp(float a, float b, float c)

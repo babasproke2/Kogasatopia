@@ -30,7 +30,7 @@ Handle g_hCookieBlacklist;
 
 // Truthtext handles
 Handle g_sEnabled = INVALID_HANDLE;
-Handle g_sCordMode2 = INVALID_HANDLE;
+Handle g_sChatMode2 = INVALID_HANDLE;
 
 // Global arrays for word filtering
 char g_FilterWords[MAX_FILTERS][MAX_WORD_LENGTH];
@@ -65,7 +65,7 @@ public void OnPluginStart()
 
     // Truthtext Convars
     g_sEnabled = CreateConVar("nobroly", "1", "If 0, filter chat to one word");
-    g_sCordMode2 = CreateConVar("filtermode", "0", "Enable/Disable the quarantined filter mode");
+    g_sChatMode2 = CreateConVar("filtermode", "0", "Enable/Disable the quarantined filter mode");
     
     // Initialize cookies
     g_hCookieWhitelist = RegClientCookie("filter_whitelist", "Player is whitelisted from all filters", CookieAccess_Protected);
@@ -143,7 +143,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 void BuildChatContext(int client, const char[] sArgs, ChatContext context)
 {
     context.pluginEnabled = GetConVarInt(g_sEnabled) != 0;
-    context.cordMode = GetConVarInt(g_sCordMode2) != 0;
+    context.cordMode = GetConVarInt(g_sChatMode2) != 0;
     context.isBlacklisted = g_PlayerState[client].isBlacklisted;
     context.isWhitelisted = g_PlayerState[client].isWhitelisted;
     context.isFilterWhitelisted = g_PlayerState[client].isFilterWhitelisted;

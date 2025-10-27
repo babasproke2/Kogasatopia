@@ -26,6 +26,15 @@
 			}
         }
 
+		"Offsets"
+		{
+			"CTFWeaponBase::GetMaxClip1()"
+			{
+				"windows"    "325"
+				"linux"      "331"
+			}
+		}
+
 		"MemPatches"
 		{
 			// Cozy Camper no flinching regardless of charge level
