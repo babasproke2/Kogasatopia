@@ -259,16 +259,34 @@ stock void Sproke_ClearEffect(int client, bool restoreClip, bool playSound)
 
 public void Sproke_TryActivate(int client, float duration)
 {
-    if (duration <= 0.0 || tf2_players[client].sprokeTimer != null)
+    // Always kill existing timer (if any) before proceeding
+    if (tf2_players[client].sprokeTimer != null)
+    {
+        delete tf2_players[client].sprokeTimer;
+        tf2_players[client].sprokeTimer = null;
+    }
+
+    // If duration is invalid or player isn't valid, clear and stop
+    if (duration <= 0.0 || !IsClientInGame(client) || !IsPlayerAlive(client))
+    {
+        Sproke_ClearEffect(client, true, false);
         return;
-    if (!IsClientInGame(client) || !IsPlayerAlive(client))
-        return;
+    }
+
     if (!Sproke_ClientHasAttribute(client))
+    {
+        Sproke_ClearEffect(client, true, false);
         return;
+    }
 
     int primary = GetPlayerWeaponSlot(client, 0);
     if (primary <= MaxClients || !IsValidEntity(primary))
+    {
+        Sproke_ClearEffect(client, true, false);
         return;
+    }
+
+    CreateTimer(1.2, Sproke_ClearColaEffect, client);
 
     int maxClip = GetWeaponMaxClip(primary);
     tf2_players[client].sprokeClipRecord = maxClip;
@@ -280,13 +298,25 @@ public void Sproke_TryActivate(int client, float duration)
     }
 
     TF2Attrib_SetByName(primary, SPROKE_ALT_ATTR, SPROKE_ALT_FACTOR);
-
     tf2_players[client].sprokePrimaryRef = EntIndexToEntRef(primary);
 
+    // Refresh visual FX
     Sproke_RemoveParticle(client);
     Sproke_AttachParticle(client);
 
-    tf2_players[client].sprokeTimer = CreateTimer(duration, Sproke_TimerFinished, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+    // Start fresh timer
+    tf2_players[client].sprokeTimer = CreateTimer(
+        duration, 
+        Sproke_TimerFinished, 
+        GetClientUserId(client), 
+        TIMER_FLAG_NO_MAPCHANGE
+    );
+}
+
+public Action Sproke_ClearColaEffect(Handle timer, int client)
+{
+    TF2_RemoveCondition(client, TFCond_CritCola);
+    return Plugin_Stop;
 }
 
 public Action Sproke_TimerFinished(Handle timer, int userid)

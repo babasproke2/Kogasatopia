@@ -138,7 +138,7 @@ public void OnPluginStart() {
 		{
 			tf2_players[i].sprokeTimer = null;
 			tf2_players[i].sprokePrimaryRef = INVALID_ENT_REFERENCE;
-			tf2_players[i].sprokeParticleRef = INVALID_ENT_REFERENCE;
+			tf2_players[i].sprokeParticleRef = INVALID_ENT_REFERENCE;	
 			tf2_players[i].sprokeClipRecord = 0;
 			tf2_players[i].jump_status = TF2_JUMP_NONE;
 
@@ -381,11 +381,11 @@ public void Accuracy_OnTakeDamagePost(int victim, int attacker, int inflictor, f
     {
         if (lethal)
         {
-		tf2_players[victim].accuracyStreak = ACC_STREAK_TARGET;
+			tf2_players[victim].accuracyStreak = ACC_STREAK_TARGET;
         }
         else
         {
-		tf2_players[victim].accuracyStreak++;
+			tf2_players[victim].accuracyStreak++;
         }
         CreateTimer(4.0, Accuracy_Timer_RemoveChargeCount, victim, TIMER_FLAG_NO_MAPCHANGE);
 	if (tf2_players[victim].accuracyStreak >= ACC_STREAK_TARGET || lethal)
@@ -398,7 +398,7 @@ public void Accuracy_OnTakeDamagePost(int victim, int attacker, int inflictor, f
             Accuracy_Explode(attacker, victim, boomPos, ACC_EXPLODE_DAMAGE, ACC_EXPLODE_RADIUS);
 			EmitAmbientSound(ACC_NOTIFY_2, eye, attacker, SNDLEVEL_NORMAL);
 
-		tf2_players[victim].accuracyStreak = 0;
+			tf2_players[victim].accuracyStreak = 0;
         } else EmitAmbientSound(ACC_NOTIFY_SOUND, eye, attacker, SNDLEVEL_NORMAL);
     }
 }
@@ -452,10 +452,19 @@ public Event_TF2JumpLanded(Handle:event, const String:name[], bool:dontBroadcast
 public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
     int userId = event.GetInt("userid");
     int client = GetClientOfUserId(userId);
+
+	if (tf2_players[client].sprokeTimer != null)
+	{
+		Sproke_ClearEffect(client, false, true);
+		return Plugin_Changed;
+	}
+
 	int attackerId = event.GetInt("attacker");
 	int attacker = GetClientOfUserId(attackerId);
 	if (attacker == 0 || client == 0) return Plugin_Continue;
-	if (tf2_players[client].shockCharge != 30) tf2_players[client].shockCharge = 30;
+
+	if (tf2_players[client].shockCharge != 30) 
+	tf2_players[client].shockCharge = 30;
 	if (TF2_GetPlayerClass(client) == TFClassType:TFClass_Medic) {
 		if (GetEntProp(GetPlayerWeaponSlot(client, 2), Prop_Send, "m_iItemDefinitionIndex") == 173) {
 			tf2_players[client].lastUber = GetEntPropFloat(GetPlayerWeaponSlot(client, 1), Prop_Send, "m_flChargeLevel");
@@ -471,6 +480,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast) {
 	int userId = event.GetInt("userid");
 	int client = GetClientOfUserId(userId);
+
 	if (tf2_players[client].shockCharge != 30)
 	{
 		tf2_players[client].shockCharge = 29; // The 29 is for visual effect
@@ -560,49 +570,34 @@ public Action TF2_CalcIsAttackCritical(client, weapon, String:weaponname[], &boo
 }
 
 // Attribute timer
-public Action Timer_HealTimer(Handle timer) {
-	for (int client = 1; client <= MaxClients; client++) {
+public Action Timer_HealTimer(Handle timer)
+{
+	for (int client = 1; client <= MaxClients; client++)
+	{
 		if (!IsClientInGame(client)) continue;
 		
-		// Handle afterburn heal
-	if (tf2_players[client].healCount > 0 && IsPlayerAlive(client) && 
-	    GetClientHealth(client) < TF2_GetPlayerMaxHealth(client) && 
-	    CheckScythe(client) == 2) {
-		tf2_players[client].healCount--;
-			AddPlayerHealth(client, tf2_players[client].lastAfterburnDamage, 1.0, false, true);
-			EmitSoundToClient(client, SOUND_DISPENSER_METAL);
-		}
-		// Handle shock charge refill
-	else if (tf2_players[client].shockCharge < 30) {
-		tf2_players[client].shockCharge++;
-		if (tf2_players[client].shockCharge % 2 == 0 || tf2_players[client].shockCharge == 1) {
-			PrintHintText(client, "Shock Charge: %i%%%", (tf2_players[client].shockCharge * 100 / 30));
-		}
-	}
-		
-		// Handle sproke logic
-		int secondaryWeapon = GetPlayerWeaponSlot(client, 1);
-		float sprokeDuration = Sproke_GetAttributeDuration(secondaryWeapon);
-		
-		if (sprokeDuration > 0.0) {
-			int activeWeapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
-			if (activeWeapon == secondaryWeapon && TF2_IsPlayerInCondition(client, TFCond_Taunting)) {
-				Sproke_TryActivate(client, sprokeDuration);
+			// Handle afterburn heal
+		if (tf2_players[client].healCount > 0 && IsPlayerAlive(client) && 
+			GetClientHealth(client) < TF2_GetPlayerMaxHealth(client) && 
+			CheckScythe(client) == 2) {
+			tf2_players[client].healCount--;
+				AddPlayerHealth(client, tf2_players[client].lastAfterburnDamage, 1.0, false, true);
+				EmitSoundToClient(client, SOUND_DISPENSER_METAL);
 			}
-		}
-		else if (tf2_players[client].sprokeTimer != null || tf2_players[client].sprokePrimaryRef != INVALID_ENT_REFERENCE) {
-			if (tf2_players[client].sprokeTimer != null) {
-				delete tf2_players[client].sprokeTimer;
-				tf2_players[client].sprokeTimer = null;
+			// Handle shock charge refill
+		else if (tf2_players[client].shockCharge < 30) {
+			tf2_players[client].shockCharge++;
+			if (tf2_players[client].shockCharge % 2 == 0 || tf2_players[client].shockCharge == 1) {
+				PrintHintText(client, "Shock Charge: %i%%%", (tf2_players[client].shockCharge * 100 / 30));
 			}
-			Sproke_ClearEffect(client, true, false);
 		}
 	}
 	return Plugin_Continue;
-}
+} 
 
 // Damage distance multiplier attribute
-float GetDistanceMultiplier(float posVic[3], float posAtt[3]) {
+float GetDistanceMultiplier(float posVic[3], float posAtt[3])
+{
     float distance = GetVectorDistance(posVic, posAtt);
 
     // Distance-based rampup
@@ -806,7 +801,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 			float flCloakMeter = GetEntPropFloat(client, Prop_Send, "m_flCloakMeter");
 			flCloakMeter -= 10;
 			SetEntPropFloat(client, Prop_Send, "m_flCloakMeter", flCloakMeter);
-		EmitAmbientSound(SOUND_POMSON_DRAIN, damagePosition, client, SNDLEVEL_NORMAL);
+			EmitAmbientSound(SOUND_POMSON_DRAIN, damagePosition, client, SNDLEVEL_NORMAL);
 			return Plugin_Changed;
 		}
 	} else if (CheckIfAfterburn(damagecustom)) {
@@ -816,9 +811,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 		tf2_players[attacker].lastAfterburnDamage = heal;
 			if (!IsPlayerAlive(attacker)) {
 				TF2_RemoveCondition(client, TFCond_OnFire);
-			EmitAmbientSound(SOUND_FLAME_OUT, damagePosition, client, SNDLEVEL_NORMAL, SND_NOFLAGS, 1.0, SNDPITCH_NORMAL);
-				// PlaySoundForClient(attacker, "player/flame_out.wav");
-				// PlaySoundForClient(client, "player/flame_out.wav");
+				EmitAmbientSound(SOUND_FLAME_OUT, damagePosition, client, SNDLEVEL_NORMAL, SND_NOFLAGS, 0.2, SNDPITCH_NORMAL);
 				return Plugin_Changed;
 		} else if (tf2_players[attacker].scytheWeapon == 2) {
 				AddPlayerHealth(attacker, heal, 1.0, false, true);
@@ -880,7 +873,7 @@ public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damag
 		}
 	}
 	return Plugin_Continue;
-} 
+}
 
 // Gas passer buff
 public TF2_OnConditionAdded(int client, TFCond condition)
@@ -888,15 +881,23 @@ public TF2_OnConditionAdded(int client, TFCond condition)
 	if (condition == TFCond_Gas) //If gas is applied
 	{
 		TF2_AddCondition(client, TFCond_Jarated, 6.0); //Apply Jarate for 6 seconds
-	} else if (condition == TFCond_Cloaked) {
+	}
+
+	if (condition == TFCond_Cloaked)
+	{
 		int weapon = GetPlayerWeaponSlot(client, 4);
 		if ( (weapon > -1) && TF2CustAttr_GetInt(weapon, "escampette attributes") != 0) {
 				TF2_AddCondition(client, TFCond_SpeedBuffAlly, 120.0);
 		}
-	} else if (condition == TFCond_CritCola) {
-		if (Sproke_ClientHasAttribute(client))
-		{
-			TF2_RemoveCondition(client, TFCond_CritCola);
+	}
+
+	if (condition == TFCond_Taunting) {
+		int secondary = GetPlayerWeaponSlot(client, 1);
+		int active = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
+
+		if (active == secondary) {
+			float duration = Sproke_GetAttributeDuration(secondary);
+			Sproke_TryActivate(client, duration);
 		}
 	}
 }
@@ -949,10 +950,10 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			}
 			case 220: //The Shortstop
 			{
-				TF2Attrib_SetByName(entity, "Reload time decreased", 0.75);
+				TF2Attrib_SetByName(entity, "reload time increased hidden", 1.0);
 				TF2Attrib_SetByName(entity, "healing received bonus", 1.20); // Self explanatory
-				TF2Attrib_SetByName(entity, "damage force increase", 1.80); // Increased 20% -> 80%
-				TF2Attrib_SetByName(entity, "airblast vulnerability multiplier hidden", 1.80); // Increased 20% -> 80%
+				TF2Attrib_SetByName(entity, "damage force increase", 1.40); // Increased 20% -> 80%
+				TF2Attrib_SetByName(entity, "airblast vulnerability multiplier hidden", 1.40); // Increased 20% -> 80%
 			} 
 			case 317: //The Candy Cane
 			{

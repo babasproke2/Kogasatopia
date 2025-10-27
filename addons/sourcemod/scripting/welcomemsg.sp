@@ -16,7 +16,7 @@ static const char g_Info[][] = {
 static const char g_ScoutReverts[][] = {
     "{default}Back Scatter:{green} +10% more accurate instead of -20% less\n",
     "{default}Baby Face's:{chartreuse} Boost kept on damage taken, -20% base movement speed\n",
-    "{default}The Shortstop:{green} +25% reload speed, +20% healing received, +80% damage force taken\n",
+    "{default}The Shortstop:{green} +50% reload speed, +20% healing received, +40% damage force taken\n",
     "{default}Flying Guillotine:{chartreuse} Deals +100% damage to stunned targets\n",
     "{default}Crit-a-Cola:{green} No mark for death visual, damage vuln. reduced to 25%\n",
     "{default}The Sandman:{chartreuse} stuns, 512 unit min range\n",
@@ -27,7 +27,7 @@ static const char g_ScoutReverts[][] = {
 static const char g_ScoutCustom[][] = {
     "\x01 [Primary] Original Baby Face: {lightgreen}+40% accuracy, 6 clip size,{red} -30% damage, -25% base movement speed\n",
     "\x01 [Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
-    "\x01 [Secondary] Sproke (Redbull on Blu): {lightgreen}Ammo becomes magazine for 12 seconds {red}ammo is set to 0 when effect ends,{default}FaN/Popper receive +25% reload speed instead"
+    "\x01 [Secondary] Sproke (Redbull on Blu): {lightgreen}Ammo becomes magazine for 12 seconds, {red}ammo is set to 0 when effect ends,{default} FaN/Popper receive +25% reload speed instead"
 };
 
 static const char g_SoldierReverts[][] = {
