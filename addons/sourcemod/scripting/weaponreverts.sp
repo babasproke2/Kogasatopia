@@ -1051,6 +1051,10 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "damage penalty", 1.00); // Remove the damage penalty
 			}
+			case 41: // The Natascha
+			{
+				TF2Attrib_SetByName(entity, "slow enemy on hit", 0.0);
+			}
 			// These are the secret nerfs for the vaccinator, shields and short circuit
 			// Sometimes I delete these but I feel they'll soon be official
 			// The usual policy is to only buff things but because the Zesty server bans weapons I feel like I can do this + people would like it
@@ -1103,6 +1107,10 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2Attrib_SetByName(entity, "deploy time decreased", 0.65); // Modify all swap speeds
 				TF2Attrib_SetByName(entity, "switch from wep deploy time decreased", 1.00); // Remove the holster bonus
 				TF2Attrib_SetByName(entity, "single wep deploy time decreased", 1.00); // Remove the deploy bonus
+			}
+			case 1178: // The Dragon's Fury
+			{
+				TF2CustAttr_SetInt(entity, "airblast jump", 1);
 			}
 			case 17, 204, 36, 412: // Syringe guns
 			{
