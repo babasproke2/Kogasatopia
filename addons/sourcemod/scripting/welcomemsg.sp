@@ -25,9 +25,10 @@ static const char g_ScoutReverts[][] = {
 };
 
 static const char g_ScoutCustom[][] = {
-    "\x01 [Primary] Original Baby Face: {lightgreen}+40% accuracy, 6 clip size,{red} -30% damage, -25% base movement speed\n",
+    //"\x01 [Primary] Original Baby Face: {lightgreen}+40% accuracy, 6 clip size,{red} -30% damage, -25% base movement speed\n",
     "\x01 [Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
-    "\x01 [Secondary] Sproke (Redbull on Blu): {lightgreen}Ammo becomes magazine for 12 seconds, {red}ammo is set to 0 when effect ends,{default} FaN/Popper receive +25% reload speed instead"
+    "\x01 [Secondary] Sproke (Redbull on Blu): {lightgreen}Ammo becomes magazine for 12 seconds, {red}ammo is set to 0 when effect ends,{default} FaN/Popper receive +25% reload speed instead",
+    "\x01[Secondary] Conagher's Bull: Drain 25 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 60% tighter spread\n"
 };
 
 static const char g_SoldierReverts[][] = {
@@ -101,7 +102,7 @@ static const char g_EngineerReverts[][] = {
 static const char g_EngineerCustom[][] = {
     "\x01[Primary] The Family Business\n",
     "\x01[Primary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
-    "\x01[Secondary] Conagher's Bull: Drain 25 metal on hit, first shot deals 300 damage to enemies holding the same weapon, 80% tighter spread\n",
+    "\x01[Secondary] Conagher's Bull: Drain 25 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 80% tighter spread\n",
     "\x01[Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
     "\x01[Secondary] The Winger, Pretty Boy's Pocket Pistol\n",
     "\x01[PDA1] Boost/Jump pads (Or use !pads for convenience)\n",
@@ -140,7 +141,7 @@ static const char g_SpyReverts[][] = {
 
 static const char g_SpyCustom[][] = {
     "\x01[Secondary] Enforcer (Alt): {lightgreen}No fire rate penalty, +10% damage,\x07FF2400 -25% damage while disguised, +0.5s time to cloak\n",
-    "\x01[Secondary] Wall Climbing Kit: {lightgreen}enables wall climb,\x07FF2400 +15% damage from all sources\n",
+    "\x01[Secondary] Wall Climbing Kit: {lightgreen}enables wall climb,\x07FF2400 -10 health on wearer\n",
     "\x07FFFF00This class has additional weapons; check !c2 to read the second page."
 };
 

@@ -68,23 +68,6 @@ ConVar g_sEnabled;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 Handle g_hHealTimer = INVALID_HANDLE;
 
-static void StartHealTimer()
-{
-	if (g_hHealTimer == INVALID_HANDLE)
-	{
-		g_hHealTimer = CreateTimer(1.0, Timer_HealTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
-	}
-}
-
-static void StopHealTimer()
-{
-	if (g_hHealTimer != INVALID_HANDLE)
-	{
-		KillTimer(g_hHealTimer);
-		g_hHealTimer = INVALID_HANDLE;
-	}
-}
-
 MemoryPatch patch_Wrangler_CustomShieldRepair;
 MemoryPatch patch_Wrangler_CustomShieldShellRefill;
 MemoryPatch patch_Wrangler_CustomShieldRocketRefill;
@@ -122,7 +105,6 @@ stock void ResetClientArrays(int client)
 
 public void OnPluginStart() {
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
-	MarkNativeAsOptional("SaySounds_ShouldPlay");
 	if (GetConVarInt(g_sEnabled)) {
 		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
 	// This is used to ignore clients without the m_iAmmo netprop
@@ -138,16 +120,19 @@ public void OnPluginStart() {
 		{
 			tf2_players[i].sprokeTimer = null;
 			tf2_players[i].sprokePrimaryRef = INVALID_ENT_REFERENCE;
-			tf2_players[i].sprokeParticleRef = INVALID_ENT_REFERENCE;	
+			tf2_players[i].sprokeParticleRef = INVALID_ENT_REFERENCE;
 			tf2_players[i].sprokeClipRecord = 0;
 			tf2_players[i].jump_status = TF2_JUMP_NONE;
 
 			if (IsClientInGame(i))
-				{
-					ResetClientArrays(i);
-					SDKHook(i, SDKHook_OnTakeDamagePost, Accuracy_OnTakeDamagePost);
-				}
+			{
+				ResetClientArrays(i);
+				SDKHook(i, SDKHook_OnTakeDamagePost, Accuracy_OnTakeDamagePost);
+			}
 		}
+
+		HookAllBuildings();
+		HookEvent("player_builtobject", Event_PlayerBuiltObject);
 
 		HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
 		HookEvent("post_inventory_application", Event_Resupply, EventHookMode_Post);
@@ -255,8 +240,6 @@ public void OnClientDisconnect(int client)
 	ResetClientArrays(client);
 }
 
-// ----------------- Accuracy Debug Integration -----------------
-
 static bool Accuracy_IsValidClient(int client)
 {
     return (client > 0 && client <= MaxClients && IsClientInGame(client));
@@ -265,6 +248,69 @@ static bool Accuracy_IsValidClient(int client)
 static bool Accuracy_IsValidShotgun(int weapon)
 {
     return (weapon != -1 && IsValidEntity(weapon) && TF2CustAttr_GetInt(weapon, "flame shotgun attributes") != 0);
+}
+
+static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float &damage, int &damagetype)
+{
+	if (!IsValidEntity(entity) || attacker <= 0 || attacker > MaxClients || !IsClientInGame(attacker))
+		return Plugin_Continue;
+
+	int weapon = GetEntPropEnt(attacker, Prop_Data, "m_hActiveWeapon");
+	if (weapon <= 0 || !IsValidEntity(weapon))
+		return Plugin_Continue;
+
+	int drainAttr = TF2CustAttr_GetInt(weapon, "drain ammo on hit sentry");
+	if (drainAttr <= 0)
+		return Plugin_Continue;
+
+	char classname[64];
+	GetEntityClassname(entity, classname, sizeof(classname));
+	bool isDispenser = StrEqual(classname, "obj_dispenser");
+	bool isSentry = StrEqual(classname, "obj_sentrygun");
+
+	if (!isDispenser && !isSentry)
+		return Plugin_Continue;
+
+	int drained = 0;
+
+	if (isDispenser)
+	{
+		int currentMetal = GetEntProp(entity, Prop_Send, "m_iAmmoMetal");
+		int newMetal = currentMetal - drainAttr;
+		if (newMetal < 0)
+			newMetal = 0;
+		SetEntProp(entity, Prop_Send, "m_iAmmoMetal", newMetal);
+		drained = currentMetal - newMetal;
+	}
+	else
+	{
+		int currentShells = GetEntProp(entity, Prop_Send, "m_iAmmoShells");
+		int newShells = currentShells - drainAttr;
+		if (newShells < 0)
+			newShells = 0;
+		SetEntProp(entity, Prop_Send, "m_iAmmoShells", newShells);
+		drained = currentShells - newShells;
+	}
+
+	if (drained > 0 && TF2_GetPlayerClass(attacker) == TFClassType:TFClass_Engineer && g_iMetalOffset != -1)
+	{
+		int attackerMetal = TF_GetMetalAmount(attacker);
+		int credit = drained;
+		if (attackerMetal + credit > 200)
+			credit = 200 - attackerMetal;
+		if (credit > 0)
+		{
+			TF_SetMetalAmount(attacker, attackerMetal + credit);
+		}
+	}
+
+	return Plugin_Continue;
+}
+
+public void Event_PlayerBuiltObject(Event event, const char[] name, bool dontBroadcast)
+{
+	int ent = event.GetInt("index");
+	HookBuildingEntity(ent);
 }
 
 static float Accuracy_RequiredDamageForDistance(float dist)
@@ -660,95 +706,20 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	if (attacker < 1 || weapon < 1) return Plugin_Continue;
 
 	bool attackerIsPlayer = (attacker >= 1 && attacker <= MaxClients && IsClientInGame(attacker));
-	bool damageModified = false;
-	bool metalFeaturesEnabled = (g_iMetalOffset != -1);
-	TFClassType attackerClass = TFClassType:TFClass_Unknown;
-	TFClassType victimClass = TFClassType:TFClass_Unknown;
-	if (attackerIsPlayer)
-	{
-		attackerClass = TF2_GetPlayerClass(attacker);
-	}
-	victimClass = TF2_GetPlayerClass(client);
 
 	if (attackerIsPlayer && IsValidEntity(weapon) && weapon > MaxClients)
 	{
-		int falloffAttr = TF2CustAttr_GetInt(weapon, "steep damage falloff");
-		if (falloffAttr != 0)
-		{
-			float posVictim[3], posAttacker[3];
-			GetClientAbsOrigin(client, posVictim);
-			GetClientAbsOrigin(attacker, posAttacker);
-
-			float distance = GetVectorDistance(posVictim, posAttacker);
-			if (distance > 1200.0)
+        int duelAttr = TF2CustAttr_GetInt(weapon, "duel declared");
+        if (duelAttr != 0)
+        {
+            int victimWeapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
+            if (IsValidEntity(victimWeapon) && TF2CustAttr_GetInt(victimWeapon, "duel declared") != 0)
 			{
-				damage *= float(falloffAttr);
-				damageModified = true;
-			}
-		}
-
-		int duelAttr = TF2CustAttr_GetInt(weapon, "duel declared");
-		if (duelAttr != 0)
-		{
-			int victimWeapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
-			if (IsValidEntity(victimWeapon) && TF2CustAttr_GetInt(victimWeapon, "duel declared") != 0)
-			{
-				int clipCount = GetClip(weapon);
-				if (clipCount == 6)
+				if (GetClip(weapon) == 6)
 				{
 					damage = 100.0;
 					damagetype |= DMG_CRIT;
-					damageModified = true;
-
-					if (metalFeaturesEnabled && attackerClass == TFClassType:TFClass_Engineer
-							&& victimClass == TFClassType:TFClass_Engineer)
-					{
-						int victimMetal = TF_GetMetalAmount(client);
-						if (victimMetal > 0)
-						{
-							TF_SetMetalAmount(client, 0);
-
-							int attackerMetal = TF_GetMetalAmount(attacker);
-							int newAttackerMetal = attackerMetal + victimMetal;
-							if (newAttackerMetal > 200)
-							{
-								newAttackerMetal = 200;
-							}
-							TF_SetMetalAmount(attacker, newAttackerMetal);
-						}
-					}
-				}
-			}
-		}
-
-		if (TF2CustAttr_GetInt(weapon, "drain metal on hit engineer") != 0
-				&& metalFeaturesEnabled
-				&& attackerClass == TFClassType:TFClass_Engineer
-				&& victimClass == TFClassType:TFClass_Engineer)
-		{
-			int victimMetal = TF_GetMetalAmount(client);
-			if (victimMetal > 0)
-			{
-				int attackerMetal = TF_GetMetalAmount(attacker);
-				int transfer = 25;
-				if (victimMetal < transfer)
-				{
-					transfer = victimMetal;
-				}
-
-				if (attackerMetal >= 200)
-				{
-					transfer = 0;
-				}
-				else if (attackerMetal + transfer > 200)
-				{
-					transfer = 200 - attackerMetal;
-				}
-
-				if (transfer > 0)
-				{
-					TF_SetMetalAmount(client, victimMetal - transfer);
-					TF_SetMetalAmount(attacker, attackerMetal + transfer);
+					return Plugin_Changed;
 				}
 			}
 		}
@@ -844,7 +815,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 		EmitAmbientSound(SOUND_NEON_SIGN, damagePosition, client, SNDLEVEL_NORMAL);
 		return Plugin_Changed;
 	}
-	return damageModified ? Plugin_Changed : Plugin_Continue;
+	return Plugin_Continue;
 }
 
 public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damagetype, &ammotype, hitbox, hitgroup)
@@ -1178,4 +1149,43 @@ static void DestroyPatch(MemoryPatch patch)
 public float clamp(float a, float b, float c)
 {
     return (a > c ? c : (a < b ? b : a));
+}
+
+static void StartHealTimer()
+{
+	if (g_hHealTimer == INVALID_HANDLE)
+	{
+		g_hHealTimer = CreateTimer(1.0, Timer_HealTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+	}
+}
+
+static void StopHealTimer()
+{
+	if (g_hHealTimer != INVALID_HANDLE)
+	{
+		KillTimer(g_hHealTimer);
+		g_hHealTimer = INVALID_HANDLE;
+	}
+}
+
+static void HookAllBuildings()
+{
+	static const char classes[][] = { "obj_sentrygun", "obj_dispenser" };
+
+	for (int i = 0; i < sizeof(classes); i++)
+	{
+		int ent = -1;
+		while ((ent = FindEntityByClassname(ent, classes[i])) != -1)
+		{
+			HookBuildingEntity(ent);
+		}
+	}
+}
+
+static void HookBuildingEntity(int entity)
+{
+	if (entity <= 0 || !IsValidEntity(entity))
+		return;
+
+	SDKHook(entity, SDKHook_OnTakeDamage, OnBuildingDamaged);
 }

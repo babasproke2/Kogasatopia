@@ -2,6 +2,7 @@
 #include <sdkhooks>
 #include <tf2_stocks>
 #include <tf_custom_attributes>
+#include <tf2attributes>
 #include <clientprefs>
 #include <morecolors>
 
@@ -14,6 +15,8 @@
 #define PATCH	"0"
 #define PLUGIN_VERSION	MAJOR..."."...MINOR..."."...PATCH
 #define ATTRIBUTE_WEAPON_SLOT 3 // Build PDA
+#define ATTRIBUTE_BUILD_SPEED "engineer teleporter build rate multiplier"
+#define ATTRIBUTE_BUILD_SPEED_FACTOR 3.0
 
 //Debug "Mode"
 // #define DEBUG	//Uncomment for "debug" stuff. Just some 'PrintToChatAll's here and there.
@@ -347,36 +350,41 @@ public void ObjectDeflected(Event event, const char[] name, bool dontBroadcast)
 
 public void ObjectBuilt(Event event, const char[] name, bool dontBroadcast)
 {
-	if (view_as<TFObjectType>(event.GetInt("object")) != TFObject_Teleporter)
-		return;
-	
-	int iBuilder = GetClientOfUserId(event.GetInt("userid"));
-	int iObj = event.GetInt("index");
+    if (view_as<TFObjectType>(event.GetInt("object")) != TFObject_Teleporter)
+        return;
 
-	char mapName[PLATFORM_MAX_PATH];
-    GetCurrentMap(mapName, sizeof(mapName));
+    int builder = GetClientOfUserId(event.GetInt("userid"));
+    int obj = event.GetInt("index");
+    bool deployed = !GetEntProp(obj, Prop_Send, "m_bCarryDeploy");
 
-    if (cvarPads[PadForce].IntValue == 2)
+    int padForce = cvarPads[PadForce].IntValue;
+    bool padsEnabled = GetClientPadsEnabled(builder) || GetClientEngipadsAttribute(builder, ATTRIBUTE_WEAPON_SLOT);
+
+    if (padForce == 2)
     {
-		ConvertTeleporterToPad(iObj, GetPadType(iObj), GetEntProp(iObj, Prop_Send, "m_bCarryDeploy") ? false : true);
-		PrintPadTypeNameToClient(g_iPadType[iObj], iBuilder);
-		PrintToChat(iBuilder, "Teleporters have been disabled on this map due to exploits; Engipad placed instead!");
-		return;
+        ConvertTeleporterToPad(obj, GetPadType(obj), deployed);
+        PrintPadTypeNameToClient(g_iPadType[obj], builder);
+        PrintToChat(builder, "Teleporters have been disabled on this map due to exploits; Engipad placed instead!");
     }
-    if (cvarPads[PadForce].IntValue != 1 && !GetClientPadsEnabled(iBuilder) && !GetClientEngipadsAttribute(iBuilder, ATTRIBUTE_WEAPON_SLOT))
-	{
-			if (g_iPadType[iObj])
-			{
-				ConvertPadToTeleporter(iObj);
-			}
-			if (TF2_GetMatchingTeleporter(iObj) == iObj)
-			{
-				TF2_SetMatchingTeleporter(iObj, -1);	//Reset m_hMatchingTeleporter if the buidling is no longer a Pad.
-			}
-			return;
-	}
-	ConvertTeleporterToPad(iObj, GetPadType(iObj), GetEntProp(iObj, Prop_Send, "m_bCarryDeploy") ? false : true);
-	PrintPadTypeNameToClient(g_iPadType[iObj], iBuilder);
+    else if (padForce != 1 && !padsEnabled)
+    {
+        if (g_iPadType[obj])
+            ConvertPadToTeleporter(obj);
+
+        if (TF2_GetMatchingTeleporter(obj) == obj)
+            TF2_SetMatchingTeleporter(obj, -1);
+    }
+    else
+    {
+        ConvertTeleporterToPad(obj, GetPadType(obj), deployed);
+        PrintPadTypeNameToClient(g_iPadType[obj], builder);
+    }
+
+    int wrench = GetPlayerWeaponSlot(builder, 2);
+    if (padsEnabled)
+        TF2Attrib_SetByName(wrench, ATTRIBUTE_BUILD_SPEED, ATTRIBUTE_BUILD_SPEED_FACTOR);
+    else
+        TF2Attrib_RemoveByName(wrench, ATTRIBUTE_BUILD_SPEED);
 }
 
 public void ObjectDestroyed(Event event, const char[] name, bool dontBroadcast)

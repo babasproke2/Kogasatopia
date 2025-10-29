@@ -47,6 +47,7 @@ AmplifierPlayerState g_PlayerState[MP];
 Handle g_hAmplifierTimer = INVALID_HANDLE;
 // Building States
 bool AmplifierOn[ME];
+bool AmplifierMini[ME];
 bool AmplifierSapped[ME];
 bool ConditionApplied[ME][MP];
 float AmplifierDistance[ME];
@@ -151,8 +152,6 @@ public OnPluginStart()
 	HookEvent("player_builtobject", Event_Build);
     HookEvent("object_destroyed", Event_ObjectDestroyed);
 	HookEvent("player_death", event_player_death);
-	g_hAmplifierTimer = CreateTimer(1.0, Timer_amplifier, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
-
 	
 	RegConsoleCmd("sm_amplifier", CallPanel, "Select engineer's building type");
 	RegConsoleCmd("sm_a", CallPanel, "Select engineer's building type");
@@ -222,6 +221,7 @@ public OnConfigsExecuted()
 	MetalPerPlayer = GetConVarInt(cvarMetal);
 	MetalMax = GetConVarInt(cvarMetalMax);
 	ForceAmplifier = GetConVarInt(cvarForceAmplifier);
+	g_hAmplifierTimer = CreateTimer(1.0, Timer_amplifier, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public OnMapStart()
@@ -798,7 +798,12 @@ CheckBuilding(ent)
 	{
 		AmplifierOn[ent] = false;
 		SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
-		SetEntPropFloat(ent, Prop_Send, "m_flModelScale", 1.0);
+		if (GetEntPropFloat(ent, Prop_Send, "m_flModelScale") != 1.0)
+		{
+			AmplifierMini[ent] = true;
+			SetEntPropFloat(ent, Prop_Send, "m_flModelScale", 0.85); // Minis use 0.75... too small
+		}
+			
 		AmplifierSapped[ent] = false;
 		AmplifierFill[ent] = 0.0;
 		
@@ -817,14 +822,14 @@ CheckBuilding(ent)
 		Format(s, 128, "%s.mdl", AmplifierModel);
 		SetEntityModel(ent, s);
 		SetEntProp(ent, Prop_Send, "m_nSkin", GetEntProp(ent, Prop_Send, "m_nSkin") + 2);
-		CreateTimer(2.5, BuildingCheckStage1, EntIndexToEntRef(ent));
+		CreateTimer(1.0, BuildingCheckStage1, EntIndexToEntRef(ent));
 	}
 }
 
 public Action:BuildingCheckStage1(Handle hTimer, any:ref)
 {
 	if (EntRefToEntIndex(ref) > 0)
-		CreateTimer(0.25, BuildingCheckStage2, ref, TIMER_REPEAT);
+		CreateTimer(0.1, BuildingCheckStage2, ref, TIMER_REPEAT);
 	return Plugin_Continue;
 }
 
@@ -838,11 +843,16 @@ public Action:BuildingCheckStage2(Handle hTimer, any:ref)
 	
 	AmplifierOn[ent] = true;
 	new String:modelname[128];
+	int health = 150;
+	char sHealth[16];
+	Format(sHealth, sizeof(sHealth), "%d", health);
 	Format(modelname, 128, "%s.mdl", AmplifierModel);
 	SetEntProp(ent, Prop_Send, "m_iUpgradeLevel", 1);
 	SetEntityModel(ent, modelname);
-	SetEntProp(ent, Prop_Send, "m_iMaxHealth", 150);
-	SetVariantString("150");
+	if (AmplifierMini[ent])
+		health = 100;
+	SetEntProp(ent, Prop_Send, "m_iMaxHealth", health);
+	SetVariantString(sHealth);
 	AcceptEntityInput(ent, "SetHealth");
 	
 	new String:buildingClass[64];
@@ -881,7 +891,7 @@ public Action:SapperCheckStage1(Handle:hTimer, any:ref)
 		if (ampent > 0 && GetEntProp(ampent, Prop_Send, "m_bHasSapper") == 1 && !AmplifierSapped[ampent])
 		{
 			AmplifierSapped[ampent] = true;
-			CreateTimer(0.2, SapperCheckStage2, ampref, TIMER_REPEAT);
+			CreateTimer(0.5, SapperCheckStage2, ampref, TIMER_REPEAT);
 			break;
 		}
 	}
