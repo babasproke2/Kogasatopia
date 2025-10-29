@@ -64,6 +64,8 @@ bool g_bWarnedMetalOffset = false;
 
 #include <weaponreverts>
 
+bool HoldingJump[MAXPLAYERS+1];
+ 
 ConVar g_sEnabled;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 Handle g_hHealTimer = INVALID_HANDLE;
@@ -95,6 +97,7 @@ stock void ResetClientArrays(int client)
     tf2_players[client].engiMetal = 0;
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].jump_status = TF2_JUMP_NONE;
+	HoldingJump[client] = false;
     if (tf2_players[client].sprokeTimer != null)
     {
         KillTimer(tf2_players[client].sprokeTimer);
@@ -229,7 +232,7 @@ public OnClientPutInServer(client)
 		SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
 		SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
 		SDKHook(client, SDKHook_OnTakeDamagePost, Accuracy_OnTakeDamagePost);
-
+		SDKHook(client, SDKHook_OnTakeDamagePost, OnTakeDamagePost);
 		ResetClientArrays(client);
 	}
 }
@@ -818,6 +821,24 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	return Plugin_Continue;
 }
 
+
+void OnTakeDamagePost(client, attacker, inflictor, Float:damage, damagetype, weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom)
+{
+	if (attacker < 1 || weapon < 1) return;
+
+	int primary = GetPlayerWeaponSlot(attacker, TFWeaponSlot_Primary);
+
+	// Boost player move speed further for original babyface
+	if (primary != -1 && TF2CustAttr_GetInt(weapon, "original babyface attributes") == 1)
+	{
+		float boost = GetEntPropFloat(attacker, Prop_Send, "m_flHypeMeter");
+		float movespeed_boost = ValveRemapVal(boost, 0.0, 99.0, 1.0, 1.38);
+		TF2Attrib_SetByName(attacker, "SET BONUS: move speed set bonus", movespeed_boost);
+		if (GetConVarInt(g_cvDebug))
+			LogMessage("Original BFB: boost %f movespeed attrib %f on %N", boost, movespeed_boost, attacker);
+	}
+}
+
 public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damagetype, &ammotype, hitbox, hitgroup)
 {
 	// We use this function to check if you've hit an ally with the TF2C Shock Therapy
@@ -844,6 +865,140 @@ public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damag
 		}
 	}
 	return Plugin_Continue;
+} 
+
+public Action OnPlayerRunCmd(
+	int client, int& buttons, int& impulse, float vel[3], float angles[3],
+	int& weapon, int& subtype, int& cmdnum, int& tickcount, int& seed, int mouse[2]
+) {
+	int primary = GetPlayerWeaponSlot(client, TFWeaponSlot_Primary);
+
+	if (primary != -1 && TF2CustAttr_GetInt(primary, "original babyface attributes") == 1) {
+		// Original babyface boost reset on jump
+		if (buttons & IN_JUMP != 0)
+		{
+			if (!HoldingJump[client])
+			{
+				if (
+					GetEntPropFloat(client, Prop_Send, "m_flHypeMeter") > 0.0 && 
+					GetEntProp(client, Prop_Data, "m_nWaterLevel") <= 1 && // don't reset if swimming 
+					buttons & IN_DUCK == 0 && // don't reset if crouching
+					(GetEntityFlags(client) & FL_ONGROUND) != 0 // don't reset if airborne, the attribute will handle air jumps
+				) {
+					SetEntPropFloat(client, Prop_Send, "m_flHypeMeter", 0.0);
+					TF2Attrib_RemoveByName(client, "SET BONUS: move speed set bonus");
+					// apply the following so movespeed gets reset immediately
+					TF2Attrib_AddCustomPlayerAttribute(client, "move speed penalty", 0.99, 0.001);
+
+					if (GetConVarInt(g_cvDebug))
+						LogMessage("Original BFB: Boost reset on jump for %N", client);
+				}
+				HoldingJump[client] = true;
+			}
+		}
+		else
+		{
+			HoldingJump[client] = false;
+		}
+	}
+	
+	return Plugin_Continue;
+}
+
+stock int CheckScythe(int client) {
+	// Does the client have the harvester?
+	int tally = 0;
+	int scythe = GetPlayerWeaponSlot(client, 2);
+	
+	if (TF2CustAttr_GetInt(scythe, "harvester attributes") != 0) tally++;
+	if (scythe == GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon")) tally++;
+	
+	if (tally > 0) Scythe[client] = scythe;
+	
+	return tally; 
+	// 0 = not a scythe, 1 = has a scythe, 2 = scythe is active
+}
+
+stock int CheckShock(int client) {
+	// Does the client have the Shock Therapy?
+    int tally = 0;
+    int shock = GetPlayerWeaponSlot(client, 2);
+    if (TF2CustAttr_GetInt(shock, "shock therapy attributes") != 0) tally++;
+    if (shock == GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon")) tally++;
+	if (ShockCharge[client] != 30) tally = 1;
+        return tally;
+}
+
+stock bool CheckRocketJumping(int client) {
+	//This is fairly primitive, hopefully I can find a netprop to determine a client's real blast jumping status later
+	if (!(GetEntityFlags(client) & FL_ONGROUND)) {
+		float flVel[3];
+		GetEntPropVector(client, Prop_Data, "m_vecVelocity", flVel);
+		if (GetVectorLength(flVel) > 300) return true;
+	}
+	return false;
+}
+
+stock GetAmmo_Weapon(weapon)
+{
+	if (weapon == -1) return 0;
+	new owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
+	if (owner == -1) return 0;
+	new iOffset = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", 1)*4;
+	new iAmmoTable = FindSendPropInfo("CTFPlayer", "m_iAmmo");
+	return GetEntData(owner, iAmmoTable+iOffset, 4);
+}
+
+stock SetAmmo_Weapon(weapon, newAmmo)
+{
+	new owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
+	if (owner == -1) return;
+	new iOffset = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", 1)*4;
+	new iAmmoTable = FindSendPropInfo("CTFPlayer", "m_iAmmo");
+	SetEntData(owner, iAmmoTable+iOffset, newAmmo, 4, true);
+}
+
+stock GetClip(weapon)
+{
+	new clip = -1;
+	if (IsValidEntity(weapon))
+	{
+		new iAmmoTable = FindSendPropInfo("CTFWeaponBase", "m_iClip1");
+		clip = GetEntData(weapon, iAmmoTable, 4);
+	}
+	return clip;
+}
+
+stock SetClip_Weapon(weapon, newClip)
+{
+	new iAmmoTable = FindSendPropInfo("CTFWeaponBase", "m_iClip1");
+	SetEntData(weapon, iAmmoTable, newClip, 4, true);
+}
+
+stock int TF2_GetPlayerMaxHealth(int client) {
+	return GetEntProp(GetPlayerResourceEntity(), Prop_Send, "m_iMaxHealth", _, client);
+}
+
+stock int OverhealStruct(int client)
+{
+    // Get the player's maximum health
+    int maxHealth = TF2_GetPlayerMaxHealth(client);
+
+    // Check if the health is NOT divisible by 100
+    if (maxHealth % 100 != 0)
+    {
+        // Multiply health by 1.5
+        float modifiedHealth = maxHealth * 1.5;
+
+        // Round down to the nearest multiple of 5
+        int roundedHealth = RoundToFloor(modifiedHealth / 5.0) * 5;
+
+        return roundedHealth;
+    }
+
+    // Return maxHealth multiplied by 1.5
+    return RoundToNearest(maxHealth * 1.5);
+
 }
 
 // Gas passer buff
@@ -1189,3 +1344,21 @@ static void HookBuildingEntity(int entity)
 
 	SDKHook(entity, SDKHook_OnTakeDamage, OnBuildingDamaged);
 }
+
+float ValveRemapVal(float val, float a, float b, float c, float d) {
+	// https://github.com/ValveSoftware/source-sdk-2013/blob/master/sp/src/public/mathlib/mathlib.h#L648
+
+	float tmp;
+
+	if (a == b) {
+		return (val >= b ? d : c);
+	}
+
+	tmp = ((val - a) / (b - a));
+
+	if (tmp < 0.0) tmp = 0.0;
+	if (tmp > 1.0) tmp = 1.0;
+
+	return (c + ((d - c) * tmp));
+}
+

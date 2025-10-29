@@ -25,7 +25,7 @@ static const char g_ScoutReverts[][] = {
 };
 
 static const char g_ScoutCustom[][] = {
-    //"\x01 [Primary] Original Baby Face: {lightgreen}+40% accuracy, 6 clip size,{red} -30% damage, -25% base movement speed\n",
+    "\x01 [Primary] Original Baby Face: {lightgreen}+40% accuracy, 6 clip size,\x07FF0000 -30% damage, -35% base movement speed, boost resets on any jump\n",
     "\x01 [Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
     "\x01 [Secondary] Sproke (Redbull on Blu): {lightgreen}Ammo becomes magazine for 12 seconds, {red}ammo is set to 0 when effect ends,{default} FaN/Popper receive +25% reload speed instead",
     "\x01[Secondary] Conagher's Bull: Drain 25 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 60% tighter spread\n"
