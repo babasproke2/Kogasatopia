@@ -247,6 +247,14 @@ public void OnClientDisconnect(int client)
 	ResetClientArrays(client);
 }
 
+public void OnEntityCreated(int entity, const char[] class) {
+	if (entity < 0 || entity >= 2048) return;
+
+	if (StrEqual(class, "tf_projectile_energy_ring")) {
+		SDKHook(entity, SDKHook_SpawnPost, OnEnergyRingSpawnPost);
+	}
+}
+
 static bool Accuracy_IsValidClient(int client)
 {
     return (client > 0 && client <= MaxClients && IsClientInGame(client));
@@ -588,6 +596,17 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
     return Plugin_Continue;
 }
 
+#define FSOLID_USE_TRIGGER_BOUNDS 0x80
+void OnEnergyRingSpawnPost(int entity) {
+	float maxs[3] = { 2.0, 2.0, 10.0 };
+	float mins[3] = { -2.0, -2.0, -10.0 };
+
+	SetEntPropVector(entity, Prop_Send, "m_vecMaxs", maxs);
+	SetEntPropVector(entity, Prop_Send, "m_vecMins", mins);
+
+	SetEntProp(entity, Prop_Send, "m_usSolidFlags", (GetEntProp(entity, Prop_Send, "m_usSolidFlags") | FSOLID_USE_TRIGGER_BOUNDS));
+	SetEntProp(entity, Prop_Send, "m_triggerBloat", 24);
+}
 
 public Action TF2_CalcIsAttackCritical(client, weapon, String:weaponname[], &bool:result) {
     if (!IsClientInGame(client) || !IsValidEntity(weapon))
