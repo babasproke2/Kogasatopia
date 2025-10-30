@@ -6,4 +6,4 @@ The dependencies for these plugins are listed at the top in the include sections
 Requirements for the weapons plugin include: TF2Items, TF2 Attributes, Sourcescramble (https://github.com/nosoop/SMExt-SourceScramble), AddPlayerHealth by Chdata, tf custom attribtes (https://github.com/nosoop/SM-TFCustAttr)
 
 Detectgamemode/DGM is always a WIP and will eventually include scrambling and balancing to manage things the way I would like.
-The Amplifier used on this server has a repository and is designed in a drag and drop manner; check out https://github.com/babasproke2/Amplifier-Fork/tree/main
+The Amplifier used on this server has a repository; check out https://github.com/babasproke2/Amplifier-Fork/tree/main
