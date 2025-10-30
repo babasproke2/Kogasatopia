@@ -8,6 +8,7 @@
 #include <tf2attributes>
 #include <addplayerhealth>
 #include <sourcescramble>
+#include <dhooks>
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
 #define ACC_MAX_DIST        768.0
@@ -56,6 +57,7 @@ enum struct tf2_player
 	int sprokePrimaryRef;
 	int sprokeParticleRef;
 	int sprokeClipRecord;
+	bool holdingJump;
 }
 
 Handle g_SDKGetMaxClip1 = null;
@@ -63,8 +65,6 @@ int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
 
 #include <weaponreverts>
-
-bool HoldingJump[MAXPLAYERS+1];
  
 ConVar g_sEnabled;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
@@ -76,6 +76,8 @@ MemoryPatch patch_Wrangler_CustomShieldRocketRefill;
 MemoryPatch patch_Wrangler_CustomShieldDamageTaken;
 MemoryPatch patch_Wrangler_RescueRanger_CustomShieldRepair;
 float g_flWranglerCustomShieldValue = 0.75;
+
+DynamicDetour dhook_CTFPlayer_CalculateMaxSpeed;
 
 public Plugin myinfo =
 {
@@ -97,7 +99,7 @@ stock void ResetClientArrays(int client)
     tf2_players[client].engiMetal = 0;
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].jump_status = TF2_JUMP_NONE;
-	HoldingJump[client] = false;
+	tf2_players[client].holdingJump = false;
     if (tf2_players[client].sprokeTimer != null)
     {
         KillTimer(tf2_players[client].sprokeTimer);
@@ -148,7 +150,6 @@ public void OnPluginStart() {
 		HookEvent("sticky_jump", 				Event_TF2StickyJump);
 		HookEvent("sticky_jump_landed", 	 	Event_TF2JumpLanded);
 
-		// Cozy Camper revert and Wrangler nerf
 		GameData conf;
 		conf = new GameData("weaponreverts");
 		if (conf == null) SetFailState("Failed to load weaponreverts.txt conf!");
@@ -163,6 +164,10 @@ public void OnPluginStart() {
 		{
 			SetFailState("Failed to create SDKCall for GetMaxClip1");
 		}
+
+		dhook_CTFPlayer_CalculateMaxSpeed = DynamicDetour.FromConf(conf, "CTFPlayer::TeamFortress_CalculateMaxSpeed");
+		if (dhook_CTFPlayer_CalculateMaxSpeed == null) SetFailState("Failed to create dhook_CTFPlayer_CalculateMaxSpeed");
+		dhook_CTFPlayer_CalculateMaxSpeed.Enable(Hook_Post, CalculateMaxSpeed);
 
 		// Create the patches
 		patch_RevertCozyCamper_FlinchNerf = MemoryPatch.CreateFromConf(conf, "CTFPlayer::ApplyPunchImpulseX_FakeFullyChargedCondition");
@@ -232,7 +237,6 @@ public OnClientPutInServer(client)
 		SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
 		SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
 		SDKHook(client, SDKHook_OnTakeDamagePost, Accuracy_OnTakeDamagePost);
-		SDKHook(client, SDKHook_OnTakeDamagePost, OnTakeDamagePost);
 		ResetClientArrays(client);
 	}
 }
@@ -821,24 +825,6 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	return Plugin_Continue;
 }
 
-
-void OnTakeDamagePost(client, attacker, inflictor, Float:damage, damagetype, weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom)
-{
-	if (attacker < 1 || weapon < 1) return;
-
-	int primary = GetPlayerWeaponSlot(attacker, TFWeaponSlot_Primary);
-
-	// Boost player move speed further for original babyface
-	if (primary != -1 && TF2CustAttr_GetInt(weapon, "original babyface attributes") == 1)
-	{
-		float boost = GetEntPropFloat(attacker, Prop_Send, "m_flHypeMeter");
-		float movespeed_boost = ValveRemapVal(boost, 0.0, 99.0, 1.0, 1.38);
-		TF2Attrib_SetByName(attacker, "SET BONUS: move speed set bonus", movespeed_boost);
-		if (GetConVarInt(g_cvDebug))
-			LogMessage("Original BFB: boost %f movespeed attrib %f on %N", boost, movespeed_boost, attacker);
-	}
-}
-
 public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damagetype, &ammotype, hitbox, hitgroup)
 {
 	// We use this function to check if you've hit an ally with the TF2C Shock Therapy
@@ -877,7 +863,7 @@ public Action OnPlayerRunCmd(
 		// Original babyface boost reset on jump
 		if (buttons & IN_JUMP != 0)
 		{
-			if (!HoldingJump[client])
+			if (!tf2_players[client].holdingJump)
 			{
 				if (
 					GetEntPropFloat(client, Prop_Send, "m_flHypeMeter") > 0.0 && 
@@ -886,23 +872,41 @@ public Action OnPlayerRunCmd(
 					(GetEntityFlags(client) & FL_ONGROUND) != 0 // don't reset if airborne, the attribute will handle air jumps
 				) {
 					SetEntPropFloat(client, Prop_Send, "m_flHypeMeter", 0.0);
-					TF2Attrib_RemoveByName(client, "SET BONUS: move speed set bonus");
 					// apply the following so movespeed gets reset immediately
 					TF2Attrib_AddCustomPlayerAttribute(client, "move speed penalty", 0.99, 0.001);
 
 					if (GetConVarInt(g_cvDebug))
 						LogMessage("Original BFB: Boost reset on jump for %N", client);
 				}
-				HoldingJump[client] = true;
+				tf2_players[client].holdingJump = true;
 			}
 		}
 		else
 		{
-			HoldingJump[client] = false;
+			tf2_players[client].holdingJump = false;
 		}
 	}
 	
 	return Plugin_Continue;
+}
+
+MRESReturn CalculateMaxSpeed(int entity, DHookReturn returnValue) {
+	if (
+		entity >= 1 &&
+		entity <= MaxClients &&
+		IsValidEntity(entity) &&
+		IsClientInGame(entity)
+	) {
+		int primary = GetPlayerWeaponSlot(entity, TFWeaponSlot_Primary);
+
+		if (primary != -1 && TF2CustAttr_GetInt(primary, "original babyface attributes") == 1) {
+			// Original BFB proper speed application
+			float boost = GetEntPropFloat(entity, Prop_Send, "m_flHypeMeter");
+			returnValue.Value = view_as<float>(returnValue.Value) * ValveRemapVal(boost, 0.0, 99.0, 1.0, 1.383);
+			return MRES_Override;
+		}
+	}
+	return MRES_Ignored;
 }
 
 stock int CheckScythe(int client) {

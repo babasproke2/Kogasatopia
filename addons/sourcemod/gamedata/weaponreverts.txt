@@ -24,6 +24,11 @@
 				"library" "server"
 				"linux"   "@_ZN19CTFProjectile_Arrow20BuildingHealingArrowEP11CBaseEntity"
 			}
+			"CTFPlayer::TeamFortress_CalculateMaxSpeed"
+			{
+				"library" "server"
+				"linux"	  "@_ZNK9CTFPlayer30TeamFortress_CalculateMaxSpeedEb"
+			}
         }
 
 		"Offsets"
@@ -50,7 +55,7 @@
 				}
 			}
 
-			// Wrangler shield custom shield values
+			// Wrangler custom shield values
 
 			"CObjectSentrygun::OnWrenchHit_CustomShieldRepair"
 			{
@@ -100,6 +105,24 @@
 					"offset"	"260"
 					"verify"    "\xF3\x0F\x59\x05\x2A\x2A\x2A\x2A" // MULSS xmm0, [absolute addr]
 					"patch"     "\xF3\x0F\x59\x05\x00\x00\x00\x00" // MULSS xmm0, [0] (retrieve from plugin)
+				}
+			}
+		}
+
+		"Functions"
+		{
+			"CTFPlayer::TeamFortress_CalculateMaxSpeed"
+			{
+				"signature" "CTFPlayer::TeamFortress_CalculateMaxSpeed"
+				"callconv"  "thiscall"
+				"this"      "entity"
+				"return"    "float"
+				"arguments"
+				{
+					"bIgnoreSpecialAbility"
+					{
+						"type" "bool"
+					}
 				}
 			}
 		}
