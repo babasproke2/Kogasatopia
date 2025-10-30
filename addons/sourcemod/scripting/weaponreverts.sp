@@ -874,9 +874,6 @@ public Action OnPlayerRunCmd(
 					SetEntPropFloat(client, Prop_Send, "m_flHypeMeter", 0.0);
 					// apply the following so movespeed gets reset immediately
 					TF2Attrib_AddCustomPlayerAttribute(client, "move speed penalty", 0.99, 0.001);
-
-					if (GetConVarInt(g_cvDebug))
-						LogMessage("Original BFB: Boost reset on jump for %N", client);
 				}
 				tf2_players[client].holdingJump = true;
 			}
@@ -907,102 +904,6 @@ MRESReturn CalculateMaxSpeed(int entity, DHookReturn returnValue) {
 		}
 	}
 	return MRES_Ignored;
-}
-
-stock int CheckScythe(int client) {
-	// Does the client have the harvester?
-	int tally = 0;
-	int scythe = GetPlayerWeaponSlot(client, 2);
-	
-	if (TF2CustAttr_GetInt(scythe, "harvester attributes") != 0) tally++;
-	if (scythe == GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon")) tally++;
-	
-	if (tally > 0) Scythe[client] = scythe;
-	
-	return tally; 
-	// 0 = not a scythe, 1 = has a scythe, 2 = scythe is active
-}
-
-stock int CheckShock(int client) {
-	// Does the client have the Shock Therapy?
-    int tally = 0;
-    int shock = GetPlayerWeaponSlot(client, 2);
-    if (TF2CustAttr_GetInt(shock, "shock therapy attributes") != 0) tally++;
-    if (shock == GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon")) tally++;
-	if (ShockCharge[client] != 30) tally = 1;
-        return tally;
-}
-
-stock bool CheckRocketJumping(int client) {
-	//This is fairly primitive, hopefully I can find a netprop to determine a client's real blast jumping status later
-	if (!(GetEntityFlags(client) & FL_ONGROUND)) {
-		float flVel[3];
-		GetEntPropVector(client, Prop_Data, "m_vecVelocity", flVel);
-		if (GetVectorLength(flVel) > 300) return true;
-	}
-	return false;
-}
-
-stock GetAmmo_Weapon(weapon)
-{
-	if (weapon == -1) return 0;
-	new owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
-	if (owner == -1) return 0;
-	new iOffset = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", 1)*4;
-	new iAmmoTable = FindSendPropInfo("CTFPlayer", "m_iAmmo");
-	return GetEntData(owner, iAmmoTable+iOffset, 4);
-}
-
-stock SetAmmo_Weapon(weapon, newAmmo)
-{
-	new owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
-	if (owner == -1) return;
-	new iOffset = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", 1)*4;
-	new iAmmoTable = FindSendPropInfo("CTFPlayer", "m_iAmmo");
-	SetEntData(owner, iAmmoTable+iOffset, newAmmo, 4, true);
-}
-
-stock GetClip(weapon)
-{
-	new clip = -1;
-	if (IsValidEntity(weapon))
-	{
-		new iAmmoTable = FindSendPropInfo("CTFWeaponBase", "m_iClip1");
-		clip = GetEntData(weapon, iAmmoTable, 4);
-	}
-	return clip;
-}
-
-stock SetClip_Weapon(weapon, newClip)
-{
-	new iAmmoTable = FindSendPropInfo("CTFWeaponBase", "m_iClip1");
-	SetEntData(weapon, iAmmoTable, newClip, 4, true);
-}
-
-stock int TF2_GetPlayerMaxHealth(int client) {
-	return GetEntProp(GetPlayerResourceEntity(), Prop_Send, "m_iMaxHealth", _, client);
-}
-
-stock int OverhealStruct(int client)
-{
-    // Get the player's maximum health
-    int maxHealth = TF2_GetPlayerMaxHealth(client);
-
-    // Check if the health is NOT divisible by 100
-    if (maxHealth % 100 != 0)
-    {
-        // Multiply health by 1.5
-        float modifiedHealth = maxHealth * 1.5;
-
-        // Round down to the nearest multiple of 5
-        int roundedHealth = RoundToFloor(modifiedHealth / 5.0) * 5;
-
-        return roundedHealth;
-    }
-
-    // Return maxHealth multiplied by 1.5
-    return RoundToNearest(maxHealth * 1.5);
-
 }
 
 // Gas passer buff
