@@ -93,7 +93,7 @@ static const char g_HeavyCustom[][] = {
 };
 
 static const char g_EngineerReverts[][] = {
-    "\x01Pomson:\x04 Bigger hitbox size, penetrates targets, +20% firing rate, bonus damage up to +100% based on distance\n",
+    "\x01Pomson:\x04 Original hitbox size, penetrates targets\n",
     "\x01The Wrangler:\x07FF2400 Shield resistance 66% -> 25%\n",
     "\x01The Short Circuit:\x07FF2400 No ammo from dispensers/carts while held\n",
     "\x01Southern Hospitality:{lightgreen} +10% damage, 15 metal regenerated every 5 seconds on wearer\n"
@@ -251,7 +251,7 @@ static const char g_CommandInfo[][] = {
     "{lightgreen}Weapons:{default}\n {gold}!reverts !r !rp{default} (view weapon changes / panel)\n {gold}!c !cp{default} (custom weapons / panel)\n {gold}!cw{default} (equip custom weapons)",
     "{lightgreen}Engineer buildings:{default}\n {gold}!amp !a !pads !p !ah{default} (new engi buildings / info)",
     "{lightgreen}Voting:{default} {gold}!rtv !nominate !scramble !nextmap !next{default}",
-    "{lightgreen}Server:{default} {gold}!steam !chat !info !rules{default}",
+    "{lightgreen}Server:{default} {gold}!steam !chat !info !rules !color{default}",
     "{lightgreen}Gameplay:{default} {gold}!cw !center !duel !pads !fov !voice{default}",
     "{lightgreen}Fun:{default} {gold}!hug !rape !thirdperson !firstperson{default}"
 };

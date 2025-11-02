@@ -24,9 +24,12 @@
 #define AMPLIFIER_BUFF_SOUND "weapons/dispenser_heal.wav"
 #define AMPLIFIER_FILL_SOUND "weapons/dispenser_generate_metal.wav"
 
+// Gameplay
 #define ATTR_FIRE_RATE "fire rate bonus HIDDEN"
 #define ATTR_RELOAD_RATE "reload time increased hidden" // Set to < 1 for more speed
 #define BEGGARS_BAZOOKA 730
+#define AMPLIFIER_HEALTH 150
+#define AMPLIFIER_MINI_HEALTH 100
 
 // Sprites
 int g_BeamSprite;
@@ -69,7 +72,7 @@ int MetalPerPlayer = 5;
 int MetalMax = 200;
 TFCond DefaultCondition = TFCond_RuneHaste; // Formerly TFCond_Buffed
 float DefaultDistance = 225.0;
-float DefaultEffectLength = 4.0;
+float DefaultEffectLength = 6.0;
 int ForceAmplifier = 0; // 0=nothing, 1=dispenser, 2=sentry, 3=both
 int EnableExplosion = 65;
 int EnableZap = 0; // I prefer 20
@@ -800,8 +803,8 @@ CheckBuilding(ent)
 		SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
 		if (GetEntPropFloat(ent, Prop_Send, "m_flModelScale") != 1.0)
 		{
-			AmplifierMini[ent] = true;
 			SetEntPropFloat(ent, Prop_Send, "m_flModelScale", 0.85); // Minis use 0.75... too small
+			AmplifierMini[ent] = true;
 		}
 			
 		AmplifierSapped[ent] = false;
@@ -843,14 +846,17 @@ public Action:BuildingCheckStage2(Handle hTimer, any:ref)
 	
 	AmplifierOn[ent] = true;
 	new String:modelname[128];
-	int health = 150;
 	char sHealth[16];
+	int health = 0;
+	if (AmplifierMini[ent])
+	{
+		health = AMPLIFIER_MINI_HEALTH;
+	} else health = AMPLIFIER_HEALTH; // Had issues with this due to how sourcemod handles each frame I assume
 	Format(sHealth, sizeof(sHealth), "%d", health);
 	Format(modelname, 128, "%s.mdl", AmplifierModel);
 	SetEntProp(ent, Prop_Send, "m_iUpgradeLevel", 1);
 	SetEntityModel(ent, modelname);
-	if (AmplifierMini[ent])
-		health = 100;
+
 	SetEntProp(ent, Prop_Send, "m_iMaxHealth", health);
 	SetVariantString(sHealth);
 	AcceptEntityInput(ent, "SetHealth");
@@ -929,7 +935,7 @@ stock void AddAmplifierEffect(int client)
         int weapon = GetPlayerWeaponSlot(client, slot);
         if (weapon > MaxClients && IsValidEntity(weapon))
         {
-			float factor_firerate = 0.85;
+			float factor_firerate = 0.80;
 			float factor_reloadrate = 0.75;
             int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
 			if (defIndex == BEGGARS_BAZOOKA)

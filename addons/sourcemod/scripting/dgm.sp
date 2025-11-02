@@ -74,7 +74,7 @@ public void OnPluginStart()
     RegAdminCmd("sm_noset", Command_ResetSetup, ADMFLAG_KICK, "Set round setup time to 10 seconds");
 
     g_cHostname = FindConVar("hostname");
-    RegConsoleCmd("sm_stats", Command_Stats, "Show player count, map and hostname");
+    RegConsoleCmd("sm_st", Command_Stats, "Show player count, map and hostname");
     RegConsoleCmd("sm_manual", Command_CvarHelp, "Displays information about plugin ConVars.");
 }
 
@@ -95,7 +95,7 @@ public void ConVarChange_MpDisableRespawnTimes(ConVar convar, const char[] oldVa
 public void OnConfigsExecuted()
 {
     DetectGameMode();
-    RequestFrame(Frame_CheckPlayerCount); // Good to have this third check for the start of a map
+    RequestFrame(AdjustByPlayerCount); // Good to have this third check for the start of a map
     g_InternalOverride = false; // Reset this on map change
 }
 
@@ -122,15 +122,14 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
 	}
 }
 
-// Re-added this code because waiting for the round to change instead of these was ineffective
 public void OnClientPutInServer(int client)
 {
-    RequestFrame(Frame_CheckPlayerCount);
+    RequestFrame(AdjustByPlayerCount);
 }
 
 public void OnClientDisconnect(int client)
 {
-    RequestFrame(Frame_CheckPlayerCount);
+    RequestFrame(AdjustByPlayerCount);
 }
 
 // This command lets me see everything this plugin is doing at a given moment among other things
@@ -353,7 +352,7 @@ public void SetSetupTime()
     }
 }
 
-public void Frame_CheckPlayerCount(any data)
+public void AdjustByPlayerCount(any data)
 {
     int playerCount = GetClientCount(true);
     int threshhold = GetConVarInt(g_cvThreshold);

@@ -667,8 +667,8 @@ public Action Timer_HealTimer(Handle timer)
 	return Plugin_Continue;
 } 
 
-// Damage distance multiplier attribute
-float GetDistanceMultiplier(float posVic[3], float posAtt[3])
+// Damage distance multiplier attribute, now unused since we're giving Pom/Bison a larger hitbox
+/*float GetDistanceMultiplier(float posVic[3], float posAtt[3])
 {
     float distance = GetVectorDistance(posVic, posAtt);
 
@@ -680,7 +680,7 @@ float GetDistanceMultiplier(float posVic[3], float posAtt[3])
     float calculated = 1.0 + rampup;           // final multiplier
 
     return calculated;
-}
+}*/
 
 // Holster reload code, hard coded for clip size 40 and 2, can be rewritten as an attribute in the future
 public Action OnWeaponSwitch(client, weapon)
@@ -752,7 +752,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	}
 
 	new wepindex = (IsValidEntity(weapon) && weapon > MaxClients ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
-	if (wepindex == 442 || wepindex == 588)  // Pomson, bison
+	/*if (wepindex == 442 || wepindex == 588)  // Pomson, bison
 	{
 		// Distance between client and attacker
 		new Float:posVic[3]; // victim position vector
@@ -767,7 +767,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 		}
 		damage *= GetDistanceMultiplier(posVic, posAtt);
 		return Plugin_Changed;
-	}
+	}*/
 	int watch = GetPlayerWeaponSlot(client, 4);
 	if (wepindex == 307) { //Ullapool Caber weapon index
 		if (client == attacker) {
@@ -1059,7 +1059,6 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 	        }
 			case 588: //The Pomson 6000
 			{
-				TF2Attrib_SetByName(entity, "fire rate bonus", 0.80); // Increase firing rate
 				TF2Attrib_SetByName(entity, "energy weapon penetration", 1.00); // Penetrate targets
 			}
 			case 405, 608: //Demoman boots
@@ -1104,6 +1103,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			case 41: // The Natascha
 			{
 				TF2Attrib_SetByName(entity, "slow enemy on hit", 0.0);
+				TF2Attrib_SetByName(entity, "speed_boost_on_hit_enemy", 1.00);
 			}
 			// These are the secret nerfs for the vaccinator, shields and short circuit
 			// Sometimes I delete these but I feel they'll soon be official
@@ -1285,4 +1285,3 @@ float ValveRemapVal(float val, float a, float b, float c, float d) {
 
 	return (c + ((d - c) * tmp));
 }
-
