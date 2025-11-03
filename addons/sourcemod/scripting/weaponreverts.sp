@@ -752,22 +752,14 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	}
 
 	new wepindex = (IsValidEntity(weapon) && weapon > MaxClients ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
-	/*if (wepindex == 442 || wepindex == 588)  // Pomson, bison
+	if (wepindex == 442 || wepindex == 588)  // Pomson, bison
 	{
-		// Distance between client and attacker
-		new Float:posVic[3]; // victim position vector
-		GetEntPropVector(client, Prop_Send, "m_vecOrigin", posVic);
-		new Float:posAtt[3]; // attacker position vector
-		GetEntPropVector(attacker, Prop_Send, "m_vecOrigin", posAtt);
-		if (wepindex == 442)
-		{
-			damage *= (0.6 * GetDistanceMultiplier(posVic, posAtt));
-			// 40% damage nerf is applied here because I can't find an attribute for energy weapon damage changes
-			return Plugin_Changed;
-		}
-		damage *= GetDistanceMultiplier(posVic, posAtt);
+		// Remove bullet damage type (ignores Vaccinator bullet resist) and restore knockback
+		damagetype &= ~(DMG_BULLET | DMG_PREVENT_PHYSICS_FORCE);
+		// Enable sonic flag so ranged resist attrib still works
+		damagetype |= DMG_SONIC;
 		return Plugin_Changed;
-	}*/
+	}
 	int watch = GetPlayerWeaponSlot(client, 4);
 	if (wepindex == 307) { //Ullapool Caber weapon index
 		if (client == attacker) {
@@ -788,7 +780,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 			}
 		}
 	} else if ((wepindex == 812 || wepindex == 833) && damage > 40.0) { // Cleavers
-		if (TF2_IsPlayerInCondition(client, TFCond_Dazed)) { // if stunned
+		if (TF2_IsPlayerInCondition(client, TFCond_Dazed) && !(damagetype & DMG_CRIT)) { // if stunned
 			damage = 33.3;
 			damagetype|=DMG_CRIT;
 			return Plugin_Changed;
