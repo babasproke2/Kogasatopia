@@ -26,8 +26,8 @@ ArrayList gGroupNames;
 bool gConfigLoaded = false;
 float g_fClientVolume[MAXPLAYERS + 1];
 float g_fNextAllowedSound[MAXPLAYERS + 1];
-char g_szDeathSound[MAXPLAYERS + 1][MAX_COMMAND_NAME];
-char g_szKillSound[MAXPLAYERS + 1][MAX_COMMAND_NAME];
+char g_szDeathSound[MAXPLAYERS + 1][MAX_COMMAND_NAME * 4];
+char g_szKillSound[MAXPLAYERS + 1][MAX_COMMAND_NAME * 4];
 char g_szClientGroup[MAXPLAYERS + 1][MAX_GROUP_NAME];
 Handle g_hVolumeCookie = INVALID_HANDLE;
 Handle g_hDeathCookie = INVALID_HANDLE;
@@ -40,6 +40,7 @@ const float MIN_VOLUME = 0.0;
 const float MAX_VOLUME = 1.0;
 const float DEFAULT_COOLDOWN = 5.0;
 const float ADMIN_COOLDOWN = 1.0;
+const int MAX_SOUND_OPTIONS = 16;
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 {
@@ -724,6 +725,97 @@ public Action Command_SetVolume(int client, int args)
     return Plugin_Handled;
 }
 
+static bool BuildSoundPreferenceList(const char[] input, char[] aggregated, int aggregatedLen, bool &anyInvalid)
+{
+    aggregated[0] = '\0';
+    anyInvalid = false;
+
+    if (!input[0])
+    {
+        return false;
+    }
+
+    char token[MAX_COMMAND_NAME];
+    int len = strlen(input);
+    int start = 0;
+    int validCount = 0;
+
+    while (start < len)
+    {
+        // Find next comma starting from current position
+        int commaPos = -1;
+        for (int i = start; i < len; i++)
+        {
+            if (input[i] == ',')
+            {
+                commaPos = i;
+                break;
+            }
+        }
+
+        int end = (commaPos == -1) ? len : commaPos;
+        int tokenLen = end - start;
+
+        if (tokenLen > 0 && tokenLen < sizeof(token))
+        {
+            // Extract token
+            for (int i = 0; i < tokenLen; i++)
+            {
+                token[i] = input[start + i];
+            }
+            token[tokenLen] = '\0';
+
+            TrimString(token);
+            ToLowercaseInPlace(token, sizeof(token));
+
+            if (token[0])
+            {
+                char path[PLATFORM_MAX_PATH];
+                if (gSoundMap.GetString(token, path, sizeof(path)))
+                {
+                    if (validCount < MAX_SOUND_OPTIONS)
+                    {
+                        int currentLen = strlen(aggregated);
+                        int needed = (currentLen > 0 ? 1 : 0) + strlen(token);
+                        if (currentLen + needed < aggregatedLen - 1)
+                        {
+                            if (currentLen > 0)
+                            {
+                                StrCat(aggregated, aggregatedLen, ",");
+                            }
+                            StrCat(aggregated, aggregatedLen, token);
+                            validCount++;
+                        }
+                        else
+                        {
+                            anyInvalid = true;
+                        }
+                    }
+                    else
+                    {
+                        anyInvalid = true;
+                    }
+                }
+                else
+                {
+                    anyInvalid = true;
+                }
+            }
+        }
+
+        // Move past the comma
+        start = end + 1;
+        
+        // Safety check: if we've moved past the end, break
+        if (start > len)
+        {
+            break;
+        }
+    }
+
+    return (validCount > 0);
+}
+
 public Action Command_SetDeathSound(int client, int args)
 {
     if (client <= 0 || !IsClientInGame(client))
@@ -737,16 +829,16 @@ public Action Command_SetDeathSound(int client, int args)
 
     if (args < 1)
     {
-        PrintToChat(client, "[SaySounds] Usage: !diesound <command|none> (current: %s)", g_szDeathSound[client][0] ? g_szDeathSound[client] : "none");
+        PrintToChat(client, "[SaySounds] Usage: !diesound <command[,command...]|none> (current: %s)", g_szDeathSound[client][0] ? g_szDeathSound[client] : "none");
         return Plugin_Handled;
     }
 
-    char arg[64];
-    GetCmdArg(1, arg, sizeof(arg));
-    TrimString(arg);
-    ToLowercaseInPlace(arg, sizeof(arg));
+    char buffer[256];
+    GetCmdArgString(buffer, sizeof(buffer));
+    TrimString(buffer);
+    ToLowercaseInPlace(buffer, sizeof(buffer));
 
-    if (!arg[0] || StrEqual(arg, "none") || StrEqual(arg, "off"))
+    if (!buffer[0] || StrEqual(buffer, "none") || StrEqual(buffer, "off"))
     {
         g_szDeathSound[client][0] = '\0';
         SaveDeathSoundPreference(client);
@@ -754,16 +846,21 @@ public Action Command_SetDeathSound(int client, int args)
         return Plugin_Handled;
     }
 
-    char path[PLATFORM_MAX_PATH];
-    if (!gSoundMap.GetString(arg, path, sizeof(path)))
+    char aggregated[256];
+    bool anyInvalid = false;
+    if (!BuildSoundPreferenceList(buffer, aggregated, sizeof(aggregated), anyInvalid))
     {
-        PrintToChat(client, "[SaySounds] Unknown sound '%s'. Use !sounds to list commands.", arg);
+        PrintToChat(client, "[SaySounds] No valid sounds supplied. Use !sounds to list commands.");
         return Plugin_Handled;
     }
 
-    strcopy(g_szDeathSound[client], sizeof(g_szDeathSound[]), arg);
+    strcopy(g_szDeathSound[client], 256, aggregated);
     SaveDeathSoundPreference(client);
-    PrintToChat(client, "[SaySounds] Death sound set to '%s'.", arg);
+    PrintToChat(client, "[SaySounds] Death sound set to %s.", aggregated);
+    if (anyInvalid)
+    {
+        PrintToChat(client, "[SaySounds] Some sounds were unknown and ignored.");
+    }
     return Plugin_Handled;
 }
 
@@ -780,16 +877,16 @@ public Action Command_SetKillSound(int client, int args)
 
     if (args < 1)
     {
-        PrintToChat(client, "[SaySounds] Usage: !killsound <command|none> (current: %s)", g_szKillSound[client][0] ? g_szKillSound[client] : "none");
+        PrintToChat(client, "[SaySounds] Usage: !killsound <command[,command...]|none> (current: %s)", g_szKillSound[client][0] ? g_szKillSound[client] : "none");
         return Plugin_Handled;
     }
 
-    char arg[64];
-    GetCmdArg(1, arg, sizeof(arg));
-    TrimString(arg);
-    ToLowercaseInPlace(arg, sizeof(arg));
+    char buffer[256];
+    GetCmdArgString(buffer, sizeof(buffer));
+    TrimString(buffer);
+    ToLowercaseInPlace(buffer, sizeof(buffer));
 
-    if (!arg[0] || StrEqual(arg, "none") || StrEqual(arg, "off"))
+    if (!buffer[0] || StrEqual(buffer, "none") || StrEqual(buffer, "off"))
     {
         g_szKillSound[client][0] = '\0';
         SaveKillSoundPreference(client);
@@ -797,16 +894,21 @@ public Action Command_SetKillSound(int client, int args)
         return Plugin_Handled;
     }
 
-    char path[PLATFORM_MAX_PATH];
-    if (!gSoundMap.GetString(arg, path, sizeof(path)))
+    char aggregated[256];
+    bool anyInvalid = false;
+    if (!BuildSoundPreferenceList(buffer, aggregated, sizeof(aggregated), anyInvalid))
     {
-        PrintToChat(client, "[SaySounds] Unknown sound '%s'. Use !sounds to list commands.", arg);
+        PrintToChat(client, "[SaySounds] No valid sounds supplied. Use !sounds to list commands.");
         return Plugin_Handled;
     }
 
-    strcopy(g_szKillSound[client], sizeof(g_szKillSound[]), arg);
+    strcopy(g_szKillSound[client], 256, aggregated);  // FIXED: Changed from g_szDeathSound to g_szKillSound
     SaveKillSoundPreference(client);
-    PrintToChat(client, "[SaySounds] Kill sound set to '%s'.", arg);
+    PrintToChat(client, "[SaySounds] Kill sound set to %s.", aggregated);
+    if (anyInvalid)
+    {
+        PrintToChat(client, "[SaySounds] Some sounds were unknown and ignored.");
+    }
     return Plugin_Handled;
 }
 
@@ -983,12 +1085,93 @@ static bool GetCommandSoundData(const char[] commandName, char[] soundPath, int 
         return false;
     }
 
-    if (!gSoundMap.GetString(commandName, soundPath, soundLen))
+    char working[MAX_COMMAND_NAME * 4];
+    strcopy(working, sizeof(working), commandName);
+    TrimString(working);
+    ToLowercaseInPlace(working, sizeof(working));
+
+    if (!working[0])
     {
         return false;
     }
 
-    if (!gSoundGroupMap.GetString(commandName, groupName, groupLen))
+    char chosen[MAX_COMMAND_NAME];
+    if (StrContains(working, ",", false) != -1)
+    {
+        char options[MAX_SOUND_OPTIONS][MAX_COMMAND_NAME];
+        int optionCount = 0;
+
+        char token[MAX_COMMAND_NAME];
+        int start = 0;
+        int len = strlen(working);
+        
+        while (start < len && optionCount < MAX_SOUND_OPTIONS)
+        {
+            // Find next comma starting from current position
+            int commaPos = -1;
+            for (int i = start; i < len; i++)
+            {
+                if (working[i] == ',')
+                {
+                    commaPos = i;
+                    break;
+                }
+            }
+
+            int end = (commaPos == -1) ? len : commaPos;
+            int tokenLen = end - start;
+
+            if (tokenLen > 0 && tokenLen < sizeof(token))
+            {
+                // Extract token
+                for (int i = 0; i < tokenLen; i++)
+                {
+                    token[i] = working[start + i];
+                }
+                token[tokenLen] = '\0';
+
+                TrimString(token);
+                ToLowercaseInPlace(token, sizeof(token));
+
+                if (token[0])
+                {
+                    char dummy[PLATFORM_MAX_PATH];
+                    if (gSoundMap.GetString(token, dummy, sizeof(dummy)))
+                    {
+                        strcopy(options[optionCount], sizeof(options[]), token);
+                        optionCount++;
+                    }
+                }
+            }
+
+            start = end + 1;
+            
+            // Safety check
+            if (start > len)
+            {
+                break;
+            }
+        }
+
+        if (optionCount == 0)
+        {
+            return false;
+        }
+
+        int pick = GetRandomInt(0, optionCount - 1);
+        strcopy(chosen, sizeof(chosen), options[pick]);
+    }
+    else
+    {
+        strcopy(chosen, sizeof(chosen), working);
+    }
+
+    if (!gSoundMap.GetString(chosen, soundPath, soundLen))
+    {
+        return false;
+    }
+
+    if (!gSoundGroupMap.GetString(chosen, groupName, groupLen))
     {
         strcopy(groupName, groupLen, DEFAULT_GROUP);
     }
@@ -1057,7 +1240,7 @@ void LoadDeathSoundPreference(int client)
         return;
     }
 
-    char value[MAX_COMMAND_NAME];
+    char value[MAX_COMMAND_NAME * 4];
     GetClientCookie(client, g_hDeathCookie, value, sizeof(value));
     TrimString(value);
     ToLowercaseInPlace(value, sizeof(value));
@@ -1087,7 +1270,7 @@ void LoadKillSoundPreference(int client)
         return;
     }
 
-    char value[MAX_COMMAND_NAME];
+    char value[MAX_COMMAND_NAME * 4];
     GetClientCookie(client, g_hKillCookie, value, sizeof(value));
     TrimString(value);
     ToLowercaseInPlace(value, sizeof(value));

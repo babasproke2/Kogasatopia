@@ -28,7 +28,7 @@ public void OnPluginStart()
     // Create the map list array
     g_MapList = new ArrayList(PLATFORM_MAX_PATH);    
     g_cvConfigFile = CreateConVar("sm_emptymaps_file", "empty_server_maps.cfg", "Specifies the config file to load for map settings", FCVAR_PROTECTED);
-    g_cvCheckTimer = CreateConVar("sm_emptymaps_time", "30.0", "Empty map check interval", FCVAR_PROTECTED);
+    g_cvCheckTimer = CreateConVar("sm_emptymaps_time", "60.0", "Empty map check interval", FCVAR_PROTECTED);
     g_cvIgnoreBaseMap = CreateConVar("sm_ignore_base_map", "0", "If 1, do not change map when current map matches sm_base_maps", FCVAR_PROTECTED);
     g_cvBaseMaps = CreateConVar("sm_base_maps", "mge_eientei_v4a", "Comma-separated list of base maps to ignore when sm_ignore_base_map is enabled", FCVAR_PROTECTED);
 }

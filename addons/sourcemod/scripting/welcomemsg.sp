@@ -34,7 +34,7 @@ static const char g_ScoutCustom[][] = {
 static const char g_SoldierReverts[][] = {
     "{default}Air Strike:{green} +15% reload speed\n",
     "{default}Liberty Launcher:{chartreuse} +10% firing speed\n",
-    "{default}Righteous Bison:{green} Original hitbox size, fires 45% faster, ignores bullet resists, lights up friendly Huntsman arrows\n",
+    "{default}Righteous Bison:{green} Original hitbox size, ignores bullet resistance, ignites friendly Huntsman arrows\n",
     "{default}Base Jumper:{chartreuse} Re-deploy, float upwards while on fire\n",
     "{default}Equalizer:{green} -20% damage from ranged sources while active\n",
 };
@@ -49,7 +49,6 @@ static const char g_PyroReverts[][] = {
     "{default}Dragon's Fury:{green} Airblast jump\n",
     "{default}Degreaser:{chartreuse} +35% bonus to all switch speeds\n",
     "{default}Detonator:{green} Self damage penalty reduced from 50% to 25%\n",
-    "{default}Thermal Thruster:{chartreuse} Re-launch while midair\n",
     "{default}Gas Passer:{green} Gas applies jarate for 6s\n",
     "{default}Axtinguisher: {chartreuse} Crits burning targets, 50% less damage to non-burning targets\n",
     "{default}Volcano Fragment: {green} Mini-crits burning targets\n"

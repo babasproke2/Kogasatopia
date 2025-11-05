@@ -1143,10 +1143,10 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
                 TF2Attrib_SetByName(entity, "crit mod disabled", 0.00);
 				TF2Attrib_SetByName(entity, "mod crit while airborne", 1.00);
             }
-			case 442: //The Righteous Bison
+			/*case 442: //The Righteous Bison
 			{
 				TF2Attrib_SetByName(entity, "fire rate bonus", 0.55); // Increase firing rate by 45%
-			}
+			}*/ // Removal candidate
 			case 38, 457, 1000: //Axtinguisher, Plummeter, Festive Axtinguisher indexes
 			{
 				TF2Attrib_SetByName(entity, "attack_minicrits_and_consumes_burning", 0.0); // Remove the base properties
@@ -1158,10 +1158,10 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "fire rate bonus", 0.50); // Increase firing rate
 			}
-			case 1179: //The Thermal Thruster
+			/*case 1179: //The Thermal Thruster
 			{
 				TF2Attrib_SetByName(entity, "thermal_thruster_air_launch", 1.0); // Able to re-launch while already in-flight 
-			}
+			}*/ // Removal candidate
 			case 351: //The Detonator
 			{
 				TF2Attrib_SetByName(entity, "blast dmg to self increased", 0.75); // Halve the blast damage penalty

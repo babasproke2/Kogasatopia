@@ -173,6 +173,11 @@ public bool CheckIfAfterburn(int damagecustom)
     return (damagecustom == TF_CUSTOM_BURNING || damagecustom == TF_CUSTOM_BURNING_FLARE);
 }
 
+public bool CheckIfBleedDmg(int damageType)
+{
+    return (damageType & DMG_SLASH) != 0;
+}
+
 stock float Sproke_GetAttributeDuration(int weapon)
 {
     if (weapon <= MaxClients || !IsValidEntity(weapon))

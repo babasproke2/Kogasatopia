@@ -773,9 +773,9 @@ public Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBro
 
 CheckBuilding(ent)
 {
-	new String:classname[64];
-	new Client = GetEntPropEnt(ent, Prop_Send, "m_hBuilder");
-	GetEdictClassname(ent, classname, sizeof(classname));
+    new String:classname[64];
+    new Client = GetEntPropEnt(ent, Prop_Send, "m_hBuilder");
+    GetEdictClassname(ent, classname, sizeof(classname));
 	
 	bool isDispenser = !strcmp(classname, "obj_dispenser");
 	bool isSentry = !strcmp(classname, "obj_sentrygun");
@@ -784,12 +784,13 @@ CheckBuilding(ent)
 	
 	BuildingRef[ent] = EntIndexToEntRef(ent);
 	
-	bool shouldConvert = false;
+    bool shouldConvert = false;
+    bool forcedConversion = false;
 	
 	// Check force mode
-	if (ForceAmplifier == 1 && isDispenser) shouldConvert = true;
-	else if (ForceAmplifier == 2 && isSentry) shouldConvert = true;
-	else if (ForceAmplifier == 3) shouldConvert = true;
+    if (ForceAmplifier == 1 && isDispenser) { shouldConvert = true; forcedConversion = true; }
+    else if (ForceAmplifier == 2 && isSentry) { shouldConvert = true; forcedConversion = true; }
+    else if (ForceAmplifier == 3) { shouldConvert = true; forcedConversion = true; }
 	// Check custom attributes
 	else if (isDispenser && CheckAmpAttributesDisp(Client)) shouldConvert = true;
 	else if (isSentry && CheckAmpAttributesSentry(Client)) shouldConvert = true;
@@ -797,10 +798,10 @@ CheckBuilding(ent)
 	else if (isDispenser && g_PlayerState[Client].useDispenser) shouldConvert = true;
 	else if (isSentry && g_PlayerState[Client].useSentry) shouldConvert = true;
 	
-	if (shouldConvert)
-	{
-		AmplifierOn[ent] = false;
-		SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
+    if (shouldConvert)
+    {
+        AmplifierOn[ent] = false;
+        SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
 		if (GetEntPropFloat(ent, Prop_Send, "m_flModelScale") != 1.0)
 		{
 			SetEntPropFloat(ent, Prop_Send, "m_flModelScale", 0.85); // Minis use 0.75... too small
@@ -825,8 +826,15 @@ CheckBuilding(ent)
 		Format(s, 128, "%s.mdl", AmplifierModel);
 		SetEntityModel(ent, s);
 		SetEntProp(ent, Prop_Send, "m_nSkin", GetEntProp(ent, Prop_Send, "m_nSkin") + 2);
-		CreateTimer(1.0, BuildingCheckStage1, EntIndexToEntRef(ent));
-	}
+        CreateTimer(1.0, BuildingCheckStage1, EntIndexToEntRef(ent));
+
+        // If force==2 (sentry) and this build was converted only because of force,
+        // let the builder know they can still place amplifiers during No Sentry November.
+        if (forcedConversion && ForceAmplifier == 2)
+        {
+            CPrintToChat(Client, "{orange}[Amplifier]{default} It's no sentry November; however, you can still place Amplifiers!");
+        }
+    }
 }
 
 public Action:BuildingCheckStage1(Handle hTimer, any:ref)
