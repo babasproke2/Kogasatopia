@@ -38,6 +38,11 @@
 				"windows"    "325"
 				"linux"      "331"
 			}
+			"CObjectCartDispenser::DispenseMetal"
+			{
+				"windows"	"404"
+				"linux"		"418"
+			}
 		}
 
 		"MemPatches"
@@ -122,6 +127,20 @@
 					"bIgnoreSpecialAbility"
 					{
 						"type" "bool"
+					}
+				}
+			}
+			"CObjectCartDispenser::DispenseMetal"
+			{
+				"offset"	"CObjectCartDispenser::DispenseMetal"
+				"hooktype"	"entity"
+				"this"		"entity"
+				"return"	"int"
+				"arguments"
+				{
+					"pPlayer"
+					{
+						"type"	"cbaseentity"
 					}
 				}
 			}
