@@ -25,25 +25,25 @@ static const char g_ScoutReverts[][] = {
 };
 
 static const char g_ScoutCustom[][] = {
-    "\x01 [Primary] Original Baby Face: {lightgreen}+40% accuracy, 6 clip size,\x07FF0000 -30% damage, -35% base movement speed, boost resets on any jump\n",
-    "\x01 [Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
-    "\x01 [Secondary] Sproke (Redbull on Blu): {lightgreen}Ammo becomes magazine for 12 seconds, {red}ammo is set to 0 when effect ends,{default} FaN/Popper receive +25% reload speed instead",
+    "\x01 [Primary] Original Baby Face: {green}+40% accuracy, 6 clip size,\x07FF0000 -30% damage, -35% base movement speed, boost resets on any jump\n",
+    "\x01 [Secondary] Lightning Pistol: {chartreuse}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
+    "\x01 [Secondary] Sproke (Redbull on Blu): {green}Ammo becomes magazine for 12 seconds, {red}ammo is set to 0 when effect ends,{default} FaN/Popper receive +25% reload speed instead",
     "\x01[Secondary] Conagher's Bull: Drain 25 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 60% tighter spread\n"
 };
 
 static const char g_SoldierReverts[][] = {
     "{default}Air Strike:{green} +15% reload speed\n",
-    "{default}Liberty Launcher:{chartreuse} +10% firing speed\n",
+    "{default}Liberty Launcher:{green} +10% firing speed\n",
     "{default}Righteous Bison:{green} Original hitbox size, ignores bullet resistance, ignites friendly Huntsman arrows\n",
     "{default}Base Jumper:{chartreuse} Re-deploy, float upwards while on fire\n",
     "{default}Equalizer:{green} -20% damage from ranged sources while active\n",
 };
 
 static const char g_SoldierCustom[][] = {
-    "\x01[Secondary] The F.U.T.A.: {lightgreen}+30% blast jump damage resistance, +15% tighter spread,{red} -50% clip size\n",
-    "\x01[Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
+    "\x01[Secondary] The F.U.T.A.: {green}+30% blast jump damage resistance, +15% tighter spread,{red} -50% clip size\n",
+    "\x01[Secondary] Old Panic Attack: {chartreuse}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
     "\x01[Secondary] Soldier's Pistol\n",
-    "\x01[Secondary] Soldier's M16: SMG, {red}50% less accurate, {lightgreen}dealing 20 damage refills your rocket launcher clip by 1\n",
+    "\x01[Secondary] Soldier's M16: SMG, {red}50% less accurate, {green}dealing 20 damage refills your rocket launcher clip by 1\n",
 };
 
 static const char g_PyroReverts[][] = {
@@ -56,75 +56,75 @@ static const char g_PyroReverts[][] = {
 
 static const char g_PyroCustom[][] = {
     "\x01[Primary] Stock Shotgun\n",
-    "\x01[Secondary] Flame Shotgun: {lightgreen}Hitting a target accurately twice or killing them creates a fiery explosion,\x07FF2400 -15% clip size, -30% damage penalty\n",
-    "\x01[Secondary] TF2C Twin Barrel: {lightgreen}Holster reload, +20% bullets per shot, first shot is a recoil jump,\x07FF2400 10% wider spread, 15% slower draw speed\n",
-    "\x01[Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
+    "\x01[Secondary] Flame Shotgun: {green}Hitting a target accurately twice or killing them creates a fiery explosion,{red} -15% clip size, -30% damage penalty\n",
+    "\x01[Secondary] TF2C Twin Barrel: {chartreuse}Holster reload, +20% bullets per shot, first shot is a recoil jump,{red} 10% wider spread, 15% slower draw speed\n",
+    "\x01[Secondary] Old Panic Attack: {green}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
     "\x01[Secondary] The Family Business\n",
-    "\x01[Melee] TF2C Harvester: {lightgreen}Afterburn is returned as health while held,\x07FF2400 enemies are extinguished on your death\n"
+    "\x01[Melee] TF2C Harvester: {chartreuse}Afterburn is returned as health while held,{red} enemies are extinguished on your death\n"
 };
 
 static const char g_DemoReverts[][] = {
-    "\x01Booties:\x04 Provide speed even without a shield\n",
-    "\x01Base Jumper:{lightgreen} Re-deploy, float upwards while on fire\n",
-    "\x01Sticky Jumper:\x04 Max stickies 3 -> 8\n",
-    "\x01Scottish Resistance:{lightgreen} Arm time 0.8 -> 0.4\n",
-    "\x01Shields:\x04 Provide 65% blast jump damage resistance,\x07FF2400 all resistances are changed to 10%\n",
-    "\x01Caber:{lightgreen} Explosion deals 125 damage, deals 175 damage while blast jumping\n",
-    "\x01Scottish Handshake:\x04 Market gardener stats\n",
+    "\x01Booties:{green} Provide speed even without a shield\n",
+    "\x01Base Jumper:{green} Re-deploy, float upwards while on fire\n",
+    "\x01Sticky Jumper:{green} Max stickies 3 -> 8\n",
+    "\x01Scottish Resistance:{chartreuse} Arm time 0.8 -> 0.4\n",
+    "\x01Shields:{green} Provide 65% blast jump damage resistance,{red} all resistances are changed to 10%\n",
+    "\x01Caber:{green} Explosion deals 125 damage, deals 175 damage while blast jumping\n",
+    "\x01Scottish Handshake:{green} Market gardener stats\n",
 };
 
 static const char g_DemoCustom[][] = {
     "\x01[Primary] Grenade Launcher (straight grenades)\n",
     "\x01[Primary] Demoman Gunboats\n",
-    "\x01[Secondary] Demoman Banana: {lightgreen}Throw and eat to heal yourself!\n"
+    "\x01[Secondary] Demoman Banana: {green}Throw and eat to heal yourself!\n"
 };
 
 static const char g_HeavyReverts[][] = {
-    "\x01Huo Long Heater:\x04 No damage penalty\n",
-    "\x01Shotguns:{lightgreen} +10% movement speed while held\n",
-    "\x01Gloves of Running:\x04 No health drain, marks for death\n",
-    "\x01Eviction Notice:{lightgreen} No health drain, fires 60% faster instead of 40%\n",
-    "\x01Warrior's Spirit:{lightgreen} No active dmg. vuln, +20 health on hit,\x07FF2400 no health on kill, -20 max health\n"
+    "\x01Huo Long Heater:{green} No damage penalty\n",
+    "\x01Shotguns:{green} +10% movement speed while held\n",
+    "\x01Gloves of Running:{green} No health drain, marks for death\n",
+    "\x01Eviction Notice:{chartreuse} No health drain, fires 60% faster instead of 40%\n",
+    "\x01Warrior's Spirit:{green} No active dmg. vuln, +20 health on hit,{red} no health on kill, -20 max health\n"
 };
 
 static const char g_HeavyCustom[][] = {
-    "\x01[Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n"
+    "\x01[Secondary] Old Panic Attack: {green}Hold fire to load up to 4 shells, fires faster as HP decreases\n"
 };
 
 static const char g_EngineerReverts[][] = {
-    "\x01Pomson:\x04 Original hitbox size, penetrates targets, ignores bullet resists, lights up friendly Huntsman arrows\n",
-    "\x01The Wrangler:\x07FF2400 Shield resistance 66% -> 25%\n",
-    "\x01The Short Circuit:{lightgreen} Damage dealt with primary fire is returned as metal,\x07FF2400 75% less metal from carts on wearer\n",
-    "\x01Southern Hospitality:{lightgreen} +10% damage, 15 metal regenerated every 5 seconds on wearer\n"
+    "\x01Pomson:{green} Original hitbox size, penetrates targets, ignores bullet resists, lights up friendly Huntsman arrows\n",
+    "\x01The Wrangler:{red} Shield resistance 66% -> 25%\n",
+    "\x01The Short Circuit:{chartreuse} Damage dealt with primary fire is returned as metal,{red} 75% less metal from carts on wearer\n",
+    "\x01Southern Hospitality:{green} +10% damage, 15 metal regenerated every 5 seconds on wearer\n"
 };
 
 static const char g_EngineerCustom[][] = {
     "\x01[Primary] The Family Business\n",
-    "\x01[Primary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
+    "\x01[Primary] Old Panic Attack: {chartreuse}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
     "\x01[Secondary] Conagher's Bull: Drain 25 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 80% tighter spread\n",
-    "\x01[Secondary] Lightning Pistol: {lightgreen}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
+    "\x01[Secondary] Lightning Pistol: {green}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
     "\x01[Secondary] The Winger, Pretty Boy's Pocket Pistol\n",
     "\x01[PDA1] Boost/Jump pads (Or use !pads for convenience)\n",
     "\x01[PDA2] Amplifier Dispenser Replacement (Or use !amp or !a)\n"
 };
 
 static const char g_MedicReverts[][] = {
-    "\x01Syringe guns:\x04 +1.25% uber on hit, reload on holster\n",
-    "\x01The Vita-Saw:{lightgreen} Retain up to 20% uber after death regardless of organs, wall climbing\n",
-    "\x01The Vaccinator:\x07FF2400 +20% damage taken while held\n"
+    "\x01Syringe guns:{green} +1.25% uber on hit, reload on holster\n",
+    "\x01The Vita-Saw:{chartreuse} Retain up to 20% uber after death regardless of organs, wall climbing\n",
+    "\x01The Vaccinator:{red}} +20% damage taken while held\n"
 };
 
 static const char g_MedicCustom[][] = {
-    "\x01[Melee] TF2C Shock Therapy: {lightgreen}Hit allies to fully overheal them, {unique} enemies take charge as damage,\x07FF2400 30s recharge time, -15% healing on medigun\n",
+    "\x01[Melee] TF2C Shock Therapy: {green}Hit allies to fully overheal them, {unique} enemies take charge as damage,{red} 30s recharge time, -15% healing on medigun\n",
     "\x01[Melee] The Mantreads"
 };
 
 static const char g_SniperReverts[][] = {
-    "\x01The Huntsman:\x04 +15hp on wearer, enables melee wall climbing\n",
-    "\x01The Classic:{lightgreen} +20% charge rate\n",
-    "\x01The Cozy Camper:\x04 No aim flinch at any charge\n",
-    "\x01The Cleaner's Carbine:{lightgreen} Critboost on kill (3s)\n",
-    "\x01The Tribalman's Shiv\x04 -25% damage instead of -50% damage\n"
+    "\x01The Huntsman:{green}} +15hp on wearer, enables melee wall climbing\n",
+    "\x01The Classic:{chartreuse} +20% charge rate\n",
+    "\x01The Cozy Camper:{green} No aim flinch at any charge\n",
+    "\x01The Cleaner's Carbine:{chartreuse} Critboost on kill (3s)\n",
+    "\x01The Tribalman's Shiv:{green} -25% damage instead of -50% damage\n"
 };
 
 static const char g_SniperCustom[][] = {
@@ -132,22 +132,22 @@ static const char g_SniperCustom[][] = {
 };
 
 static const char g_SpyReverts[][] = {
-    "\x01The Ambassador:\x04 Headshots deal 102 damage\n",
-    "\x01The Enforcer:{lightgreen} 50% less bullet spread, +20% damage, no disguise bonus\n",
-    "\x01The Big Earner:\x04 +5hp\n",
-    "\x01Your Eternal Reward:{lightgreen} 0% cloak drain penalty, +10% swing speed\n"
+    "\x01The Ambassador:{green} Headshots deal 102 damage\n",
+    "\x01The Enforcer:{chartreuse} 50% less bullet spread, +20% damage, no disguise bonus\n",
+    "\x01The Big Earner:{green} +5hp\n",
+    "\x01Your Eternal Reward:{chartreuse} 0% cloak drain penalty, +10% swing speed\n"
 };
 
 static const char g_SpyCustom[][] = {
-    "\x01[Secondary] Enforcer (Alt): {lightgreen}No fire rate penalty, +10% damage,\x07FF2400 -25% damage while disguised, +0.5s time to cloak\n",
-    "\x01[Secondary] Wall Climbing Kit: {lightgreen}enables wall climb,\x07FF2400 -10 health on wearer\n",
-    "\x07FFFF00This class has additional weapons; check !c2 to read the second page."
+    "\x01[Secondary] Enforcer (Alt): {green}No fire rate penalty, +10% damage,{red} -25% damage while disguised, +0.5s time to cloak\n",
+    "\x01[Secondary] Wall Climbing Kit: {chartreuse}enables wall climb,{red} -10 health on wearer\n",
+    "{gold}This class has additional weapons; check !c2 to read the second page."
 };
 
 static const char g_SpyCustom2[][] = {
     "{unique} ----- !cw weapons (2) -----\n",
-    "\x01 [Building] The Surfboard: {lightgreen}-60% damage taken from sentries, \x07FF2400 60% less sapper damage\n",
-    "\x01 [PDA] TF2C L'escampette: {lightgreen}Move 30% faster while cloaked,\x07FF2400 50% less cloak, 10% cloak lost on hit, no pickups while cloaked\n"
+    "\x01 [Building] The Surfboard: {chartreuse}-60% damage taken from sentries, {red} 60% less sapper damage\n",
+    "\x01 [PDA] TF2C L'escampette: {chartreuse}Move 30% faster while cloaked,{red} 50% less cloak, 10% cloak lost on hit, no pickups while cloaked\n"
 };
 
 public Plugin:myinfo = {

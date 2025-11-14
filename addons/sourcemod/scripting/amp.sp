@@ -369,7 +369,7 @@ public Action:HelpPanel(client, Args)
 	
 	SetPanelTitle(panel, "=== Amplifier Info ===");
 	DrawPanelText(panel, "Amplifiers can replace Sentries or Dispensers");
-	DrawPanelText(panel, "They consume metal to provide a fire rate and reload speed bonus to nearby teammates");
+	DrawPanelText(panel, "They consume metal to provide a 30% fire rate & reload speed bonus to teammates");
 	DrawPanelText(panel, "Hit with wrench to refill");
 	DrawPanelText(panel, "=== Jump/Speed Pad Info ===");
 	DrawPanelText(panel, "Teleporters can be converted to Jump or Speed pads");
