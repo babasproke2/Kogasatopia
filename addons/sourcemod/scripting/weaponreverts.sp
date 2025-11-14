@@ -81,6 +81,7 @@ MemoryPatch patch_Wrangler_RescueRanger_CustomShieldRepair;
 float g_flWranglerCustomShieldValue = 0.75;
 
 DynamicDetour dhook_CTFPlayer_CalculateMaxSpeed;
+DynamicHook dhook_CObjectCartDispenser_DispenseMetal;
 
 public Plugin myinfo =
 {
@@ -171,7 +172,11 @@ public void OnPluginStart() {
 		}
 
 		dhook_CTFPlayer_CalculateMaxSpeed = DynamicDetour.FromConf(conf, "CTFPlayer::TeamFortress_CalculateMaxSpeed");
+		dhook_CObjectCartDispenser_DispenseMetal = DynamicHook.FromConf(conf, "CObjectCartDispenser::DispenseMetal");
+
 		if (dhook_CTFPlayer_CalculateMaxSpeed == null) SetFailState("Failed to create dhook_CTFPlayer_CalculateMaxSpeed");
+		if (dhook_CObjectCartDispenser_DispenseMetal == null) SetFailState("Failed to create dhook_CObjectCartDispenser_DispenseMetal");
+
 		dhook_CTFPlayer_CalculateMaxSpeed.Enable(Hook_Post, CalculateMaxSpeed);
 
 		// Create the patches
@@ -242,6 +247,7 @@ public OnClientPutInServer(client)
 		SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
 		SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
 		SDKHook(client, SDKHook_OnTakeDamagePost, Accuracy_OnTakeDamagePost);
+		SDKHook(client, SDKHook_OnTakeDamageAlivePost, OnTakeDamageAlivePost);
 		ResetClientArrays(client);
 	}
 }
@@ -261,6 +267,11 @@ public void OnEntityCreated(int entity, const char[] class) {
 		{
 			SDKHook(entity, SDKHook_SpawnPost, OnEnergyRingSpawnPost);
 			SDKHook(entity, SDKHook_Touch, OnEnergyRingTouch);
+		}
+
+		if (StrEqual(class, "mapobj_cart_dispenser"))
+		{
+			dhook_CObjectCartDispenser_DispenseMetal.HookEntity(Hook_Pre, entity, CartDispenseMetal);
 		}
 	}
 }
@@ -999,6 +1010,32 @@ public Action OnPlayerRunCmd(
 	return Plugin_Continue;
 }
 
+void OnTakeDamageAlivePost(
+	int victim, int attacker, int inflictor, float damage, int damage_type,
+	int weapon, float damage_force[3], float damage_position[3], int damage_custom
+) {
+	if (attacker < 1 || weapon < 1) return;
+
+	if (
+		damage > 0 &&
+		victim != attacker &&
+		inflictor == attacker &&
+		TF2CustAttr_GetInt(weapon, "taser damage becomes metal") == 1
+	) {
+		if (TF2_GetPlayerClass(attacker) == TFClassType:TFClass_Engineer && g_iMetalOffset != -1)
+		{
+			int attackerMetal = TF_GetMetalAmount(attacker);
+			int credit = RoundFloat(damage);
+			if (attackerMetal + credit > 200)
+				credit = 200 - attackerMetal;
+			if (credit > 0)
+			{
+				TF_SetMetalAmount(attacker, attackerMetal + credit);
+			}
+		}
+	}
+}
+
 MRESReturn CalculateMaxSpeed(int entity, DHookReturn returnValue) {
 	if (
 		entity >= 1 &&
@@ -1013,6 +1050,26 @@ MRESReturn CalculateMaxSpeed(int entity, DHookReturn returnValue) {
 			float boost = GetEntPropFloat(entity, Prop_Send, "m_flHypeMeter");
 			returnValue.Value = view_as<float>(returnValue.Value) * ValveRemapVal(boost, 0.0, 99.0, 1.0, 1.383);
 			return MRES_Override;
+		}
+	}
+	return MRES_Ignored;
+}
+
+MRESReturn CartDispenseMetal(int entity, DHookReturn returnValue, DHookParam parameters) {
+	int client = parameters.Get(1);
+	if (
+		client > 0 &&
+		client <= MaxClients
+	) {
+		int secondary = GetPlayerWeaponSlot(client, TFWeaponSlot_Secondary);
+
+		if (secondary > 0) {
+			// Reduced metal yields from Payload carts
+			float ammo_mult = TF2CustAttr_GetFloat(secondary, "mult metal from carts", 1.0);
+
+			if (ammo_mult != 1.0) {
+				TF2Attrib_AddCustomPlayerAttribute(client, "metal_pickup_decreased", ammo_mult, 0.001);
+			}
 		}
 	}
 	return MRES_Ignored;
@@ -1213,7 +1270,8 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			}
 			case 528: // Short Circuit
 			{
-				TF2Attrib_SetByName(entity, "no metal from dispensers while active", 1.00); // No hugging the cart
+				TF2CustAttr_SetInt(entity, "taser damage becomes metal", 1); // Damage dealt with primary fire becomes metal
+				TF2CustAttr_SetFloat(entity, "mult metal from carts", 0.25); // Reduced metal from carts
 			}
 			// Nerf section ends here
             case 609: //Scottish Handshake
