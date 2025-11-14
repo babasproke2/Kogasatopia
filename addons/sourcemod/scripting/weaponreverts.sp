@@ -26,6 +26,8 @@
 #define SOUND_DISPENSER_METAL "weapons/dispenser_generate_metal.wav"
 #define SOUND_POMSON_DRAIN "weapons/drg_pomson_drain_01.wav"
 #define SOUND_FLAME_OUT "player/flame_out.wav"
+#define ATTR_SECONDARY_AMMO_REFILL "secondary damage ammo refill"
+#define ATTR_SECONDARY_REFILL_SOUND "tools/ifm/beep.wav"
 
 #define SPROKE_ATTR_NAME        "sproke attribute"
 #define SPROKE_PRIMARY_ATTR		"mod max primary clip override"
@@ -53,6 +55,7 @@ enum struct tf2_player
 	float lastUber;
 	int engiMetal;
 	int accuracyStreak;
+	float secondaryDamageProgress;
 	Handle sprokeTimer;
 	int sprokePrimaryRef;
 	int sprokeParticleRef;
@@ -94,10 +97,11 @@ stock void ResetClientArrays(int client)
     tf2_players[client].lastAfterburnDamage = 0;
     tf2_players[client].scytheWeapon = 0;
     tf2_players[client].shockCharge = 30;
-    tf2_players[client].healCount = 0;
-    tf2_players[client].lastUber = 0.0;
-    tf2_players[client].engiMetal = 0;
+	tf2_players[client].healCount = 0;
+	tf2_players[client].lastUber = 0.0;
+	tf2_players[client].engiMetal = 0;
 	tf2_players[client].accuracyStreak = 0;
+	tf2_players[client].secondaryDamageProgress = 0.0;
 	tf2_players[client].jump_status = TF2_JUMP_NONE;
 	tf2_players[client].holdingJump = false;
     if (tf2_players[client].sprokeTimer != null)
@@ -120,6 +124,7 @@ public void OnPluginStart() {
 		PrecacheSound(ACC_NOTIFY_SOUND, true);
 		PrecacheSound(ACC_NOTIFY_2, true);
 		PrecacheSound(BURP_SOUND, true);
+		PrecacheSound(ATTR_SECONDARY_REFILL_SOUND, true);
 
 		for (int i = 1; i <= MaxClients; i++)
 		{
@@ -529,6 +534,26 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	int attacker = GetClientOfUserId(attackerId);
 	if (attacker == 0 || client == 0) return Plugin_Continue;
 
+	if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
+	{
+		int activeWeapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
+		if (activeWeapon > MaxClients && IsValidEntity(activeWeapon))
+		{
+			if (TF2CustAttr_GetFloat(activeWeapon, ATTR_SECONDARY_AMMO_REFILL, 0.0) > 0.0)
+			{
+				int primary = GetPlayerWeaponSlot(attacker, 0);
+				if (primary > MaxClients && IsValidEntity(primary))
+				{
+					int maxClip = GetWeaponMaxClip(primary);
+					if (maxClip > 0)
+					{
+						SetClip_Weapon(primary, maxClip);
+					}
+				}
+			}
+		}
+	}
+
 	if (tf2_players[client].shockCharge != 30) 
 	tf2_players[client].shockCharge = 30;
 	if (TF2_GetPlayerClass(client) == TFClassType:TFClass_Medic) {
@@ -748,6 +773,58 @@ public Action OnWeaponSwitch(client, weapon)
 }
 
 
+static void SecondaryDamageRefill_OnDamage(int attacker, int weapon, float damage)
+{
+	if (attacker < 1 || attacker > MaxClients || !IsClientInGame(attacker))
+		return;
+
+	if (weapon <= MaxClients || !IsValidEntity(weapon) || damage <= 0.0)
+		return;
+
+	float requirement = TF2CustAttr_GetFloat(weapon, ATTR_SECONDARY_AMMO_REFILL, 0.0);
+	if (requirement <= 0.0)
+		return;
+
+	tf2_players[attacker].secondaryDamageProgress += damage;
+
+	int primary = GetPlayerWeaponSlot(attacker, 0);
+	if (primary <= MaxClients || !IsValidEntity(primary))
+		return;
+
+	int maxClip = GetWeaponMaxClip(primary);
+	if (maxClip <= 0)
+		return;
+
+	int clip = GetClip(primary);
+	if (clip < 0)
+		return;
+
+	bool updated = false;
+	while (tf2_players[attacker].secondaryDamageProgress >= requirement)
+	{
+		if (clip >= maxClip)
+		{
+			float cap = requirement * 2.0;
+			if (tf2_players[attacker].secondaryDamageProgress > cap)
+			{
+				tf2_players[attacker].secondaryDamageProgress = cap;
+			}
+			break;
+		}
+
+		clip++;
+		tf2_players[attacker].secondaryDamageProgress -= requirement;
+		updated = true;
+	}
+
+	if (updated)
+	{
+		SetClip_Weapon(primary, clip);
+		PrintToChat(attacker, "cobson");
+	}
+}
+
+
 public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damagetype, &weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom)
 {
 	if (client < 1 || client > MaxClients || !IsClientInGame(client)) return Plugin_Continue;
@@ -757,6 +834,8 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 
 	if (attackerIsPlayer && IsValidEntity(weapon) && weapon > MaxClients)
 	{
+		SecondaryDamageRefill_OnDamage(attacker, weapon, damage);
+
         int duelAttr = TF2CustAttr_GetInt(weapon, "duel declared");
         if (duelAttr != 0)
         {
@@ -939,13 +1018,13 @@ MRESReturn CalculateMaxSpeed(int entity, DHookReturn returnValue) {
 	return MRES_Ignored;
 }
 
-// Gas passer buff
+// Gas passer buff is a candidate for removal, it's uninspired and could be more creative
 public TF2_OnConditionAdded(int client, TFCond condition)
 {
-	if (condition == TFCond_Gas) //If gas is applied
+	/*if (condition == TFCond_Gas) //If gas is applied
 	{
 		TF2_AddCondition(client, TFCond_Jarated, 6.0); //Apply Jarate for 6 seconds
-	}
+	}*/
 
 	if (condition == TFCond_Cloaked)
 	{

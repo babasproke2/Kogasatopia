@@ -9,7 +9,7 @@ static const char g_Info[][] = {
     "{default}Some weapons have better stats; use {yellow}!r {default}to read about your class.\n",
     "{default}We're also testing custom weapons; check {yellow}!c {default}to read and {yellow}!cw {default}to equip.\n",
     "{default}Use {yellow}!commands {default}to browse the rest of the server commands.\n",
-    "{default}Melee random crits are enabled, respawn times are reduced, and random bullet spread is disabled.\n",
+    "{default}Random crits are disabled, respawn times are reduced, and random bullet spread is disabled.\n",
     "{default}Google 'kogtf2' or visit our group with {yellow}!steam {default}to learn more and see when people are playing.\n"
 };
 
@@ -42,14 +42,14 @@ static const char g_SoldierReverts[][] = {
 static const char g_SoldierCustom[][] = {
     "\x01[Secondary] The F.U.T.A.: {lightgreen}+30% blast jump damage resistance, +15% tighter spread,{red} -50% clip size\n",
     "\x01[Secondary] Old Panic Attack: {lightgreen}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
-    "\x01[Secondary] Soldier's Pistol\n"
+    "\x01[Secondary] Soldier's Pistol\n",
+    "\x01[Secondary] Soldier's M16: SMG, {red}50% less accurate, {lightgreen}dealing 20 damage refills your rocket launcher clip by 1\n",
 };
 
 static const char g_PyroReverts[][] = {
     "{default}Dragon's Fury:{green} Airblast jump\n",
     "{default}Degreaser:{chartreuse} +35% bonus to all switch speeds\n",
     "{default}Detonator:{green} Self damage penalty reduced from 50% to 25%\n",
-    "{default}Gas Passer:{green} Gas applies jarate for 6s\n",
     "{default}Axtinguisher: {chartreuse} Crits burning targets, 50% less damage to non-burning targets\n",
     "{default}Volcano Fragment: {green} Mini-crits burning targets\n"
 };

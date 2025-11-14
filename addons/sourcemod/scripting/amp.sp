@@ -943,8 +943,8 @@ stock void AddAmplifierEffect(int client)
         int weapon = GetPlayerWeaponSlot(client, slot);
         if (weapon > MaxClients && IsValidEntity(weapon))
         {
-			float factor_firerate = 0.80;
-			float factor_reloadrate = 0.75;
+			float factor_firerate = 0.75;
+			float factor_reloadrate = 0.65;
             int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
 			if (defIndex == BEGGARS_BAZOOKA)
 			{

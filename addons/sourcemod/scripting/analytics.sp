@@ -38,7 +38,7 @@ public Plugin myinfo =
 {
     name = "Log Connections",
     author = "Xander, IT-KiLLER, Dosergen, Hombre",
-    description = "This plugin logs players' connect and disconnect times, capturing their Name, SteamID and Country.",
+    description = "This plugin logs players' connect and disconnect times, capturing their Name, SteamID, IP Address and Country.",
     version = PLUGIN_VERSION,
     url = "https://forums.alliedmods.net/showthread.php?t=201967"
 }
