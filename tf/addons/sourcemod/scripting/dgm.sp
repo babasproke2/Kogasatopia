@@ -5,9 +5,6 @@
 #include <sdkhooks>
 #include <tf2_stocks>
 #include <tf2>
-#include <controlpoints>
-// I forked the controlpoints file from powerlord to add new gamemodes, you can get it at https://github.com/babasproke2/sourcemod-snippets
-
 #define PLUGIN_VERSION "4.3"
 
 ConVar g_cvEnabled;
@@ -19,7 +16,10 @@ ConVar g_cvBluTime;
 ConVar g_cvAutoAddTime;
 ConVar g_cvTimeOverride;
 ConVar g_cvRespawnTime;
+ConVar g_cvPlayerCountConfigs;
 bool g_bSymmetrical;
+float g_fBaseRespawnTime = 0.0;
+bool g_bBaseRespawnInitialized = false;
 
 ConVar g_cHostname;
 ConVar g_hVisibleMaxPlayers;
@@ -27,7 +27,6 @@ ConVar g_hVisibleMaxPlayers;
 int g_PointCaptures;
 bool g_InternalOverride; // For disabling this plugin's respawn time management in any case
 
-ConVar g_cvGameMode;
 
 // Add a ConVar to hook the value of mp_disable_respawn_times
 Handle g_cvMpDisableRespawnTimes = INVALID_HANDLE;
@@ -35,7 +34,7 @@ Handle g_cvMpDisableRespawnTimes = INVALID_HANDLE;
 public Plugin myinfo = {
     name = "Gamemode Detector",
     author = "Hombre",
-    description = "Handles gamemode settings and instant respawns",
+    description = "Handles instant respawns",
     version = PLUGIN_VERSION,
     url = "https://tf2.gyate.net"
 };
@@ -59,8 +58,8 @@ public void OnPluginStart()
     g_cvAsymCapRespawn = CreateConVar("respawn_red_on_cap", "0", "Override respawn times", _, true, 0.0, true, 1.0);
     // Change the setup time to this in asymmetrical gamemodes
     g_cvSetSetupTime = CreateConVar("sm_setuptime", "40", "Set setup time to X - 0 to disable management - only enable this per-map or in gamemode configs", _, true, 0.0, true,60.0);
-    // Stores the executed gamemode
-    g_cvGameMode = CreateConVar("sm_gamemode", "unknown", "Stores the executed gamemode", FCVAR_NONE);
+    // Enable automatic player count configuration switching
+    g_cvPlayerCountConfigs = CreateConVar("sm_playercount_configs", "1", "Enable auto config switching based on player count", _, true, 0.0, true, 1.0);
     // Hook the value of mp_disable_respawn_times
     g_cvMpDisableRespawnTimes = FindConVar("mp_disable_respawn_times");
     HookConVarChange(g_cvRespawnTime, ConVarChange_MpDisableRespawnTimes);
@@ -76,6 +75,13 @@ public void OnPluginStart()
     g_cHostname = FindConVar("hostname");
     RegConsoleCmd("sm_st", Command_Stats, "Show player count, map and hostname");
     RegConsoleCmd("sm_manual", Command_CvarHelp, "Displays information about plugin ConVars.");
+
+    g_bSymmetrical = true;
+}
+
+public void OnMapStart()
+{
+    g_bBaseRespawnInitialized = false;
 }
 
 // I prefer the visual effect when TF2's mp_disable_respawn_times cvar is true but dislike that it can be exploited
@@ -94,8 +100,15 @@ public void ConVarChange_MpDisableRespawnTimes(ConVar convar, const char[] oldVa
 // We can be sure entities are loaded by this point
 public void OnConfigsExecuted()
 {
-    DetectGameMode();
-    RequestFrame(AdjustByPlayerCount); // Good to have this third check for the start of a map
+    if (!g_bBaseRespawnInitialized)
+    {
+        g_fBaseRespawnTime = GetConVarFloat(g_cvRespawnTime);
+        g_bBaseRespawnInitialized = true;
+    }
+    if (GetConVarBool(g_cvPlayerCountConfigs))
+    {
+        RequestFrame(AdjustByPlayerCount); // Good to have this third check for the start of a map
+    }
     g_InternalOverride = false; // Reset this on map change
 }
 
@@ -124,12 +137,18 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
 
 public void OnClientPutInServer(int client)
 {
-    RequestFrame(AdjustByPlayerCount);
+    if (GetConVarBool(g_cvPlayerCountConfigs))
+    {
+        RequestFrame(AdjustByPlayerCount);
+    }
 }
 
 public void OnClientDisconnect(int client)
 {
-    RequestFrame(AdjustByPlayerCount);
+    if (GetConVarBool(g_cvPlayerCountConfigs))
+    {
+        RequestFrame(AdjustByPlayerCount);
+    }
 }
 
 // This command lets me see everything this plugin is doing at a given moment among other things
@@ -209,7 +228,6 @@ public Action Command_CvarHelp(int client, int args)
         "sm_autoaddtime: int - Seconds to add to KOTH timers when enabled (0 disables)",
         "respawn_red_on_cap: 0/1 - In asymmetrical modes, when 1, respawns Red instantly on cap",
         "sm_setuptime: int - Forces round setup time to this value (0 = disabled)",
-        "sm_gamemode: string - Read-only; stores the detected gamemode name",
         "mp_disable_respawn_times: 0/1 - Server cvar hooked by this plugin to toggle visual respawn behavior"
     };
 
@@ -354,135 +372,42 @@ public void SetSetupTime()
 
 public void AdjustByPlayerCount(any data)
 {
+    if (!GetConVarBool(g_cvPlayerCountConfigs))
+    {
+        return;
+    }
+    if (!g_bBaseRespawnInitialized)
+    {
+        g_fBaseRespawnTime = GetConVarFloat(g_cvRespawnTime);
+        g_bBaseRespawnInitialized = true;
+    }
+
     int playerCount = GetClientCount(true);
     int threshhold = GetConVarInt(g_cvThreshold);
-    if (!g_bSymmetrical) {
-        ServerCommand(playerCount > threshhold ? "exec d_highpop_a.cfg" : "exec d_lowpop_a.cfg");
-    } else {
-        ServerCommand(playerCount > threshhold ? "exec d_highpop.cfg" : "exec d_lowpop.cfg");
+    float currentRespawn = GetConVarFloat(g_cvRespawnTime);
+
+    if (playerCount > threshhold)
+    {
+        if (currentRespawn < g_fBaseRespawnTime)
+        {
+            SetConVarFloat(g_cvRespawnTime, g_fBaseRespawnTime);
+        }
+        return;
+    }
+
+    if (g_fBaseRespawnTime <= 9.0)
+    {
+        return;
+    }
+
+    float reduced = g_fBaseRespawnTime - 4.0;
+    if (FloatAbs(currentRespawn - reduced) > 0.01)
+    {
+        SetConVarFloat(g_cvRespawnTime, reduced);
     }
 }
 
 static bool IsValidClient(int client)
 {
     return (client >= 1 && client <= MaxClients) && IsClientInGame(client);
-}
-
-static void DetectGameMode()
-{
-    TF2_GameMode gameMode = TF2_DetectGameMode();
-    CreateDefaultConfigs();
-    bool sym = false;
-    char modeName[32] = "unknown";
-
-    switch (gameMode)
-    {
-        case TF2_GameMode_Arena:
-        {
-            ServerCommand("exec d_arena.cfg");
-            sym = true;
-            strcopy(modeName, sizeof(modeName), "Arena");
-        }
-        case TF2_GameMode_Medieval:
-        {
-            ServerCommand("exec d_medieval.cfg");
-            sym = false;
-            strcopy(modeName, sizeof(modeName), "Medieval");
-        }
-        case TF2_GameMode_PD:
-        {
-            ServerCommand("exec d_pd.cfg");
-            sym = true;
-            strcopy(modeName, sizeof(modeName), "Player Destruction");
-            // Issue: many of the modern Arena maps are using player destruction logic, I can try checking for both later
-        }
-        case TF2_GameMode_KOTH:
-        {
-            ServerCommand("exec d_koth.cfg");
-            sym = true;
-            strcopy(modeName, sizeof(modeName), "King of the Hill");
-        }
-        case TF2_GameMode_PL:
-        {
-            ServerCommand("exec d_payload.cfg");
-            strcopy(modeName, sizeof(modeName), "Payload");
-        }
-        case TF2_GameMode_PLR:
-        {
-            ServerCommand("exec d_payloadrace.cfg");
-            sym = true;
-            strcopy(modeName, sizeof(modeName), "Payload Race");
-        }
-        case TF2_GameMode_CTF:
-        {
-            ServerCommand("exec d_ctf.cfg");
-            sym = true;
-            strcopy(modeName, sizeof(modeName), "Capture the Flag");
-        }
-        case TF2_GameMode_5CP:
-        {
-            ServerCommand("exec d_ctf.cfg");
-            sym = true;
-            strcopy(modeName, sizeof(modeName), "Capture the Flag");
-        }
-        case TF2_GameMode_ADCP:
-        {
-            ServerCommand("exec d_adcp.cfg");
-            strcopy(modeName, sizeof(modeName), "Attack/Defend CP");
-        }
-        case TF2_GameMode_TC:
-        {
-            ServerCommand("exec d_tc.cfg");
-            strcopy(modeName, sizeof(modeName), "Territorial Control");
-        }
-        default:
-        {
-            ServerCommand("exec d_default.cfg");
-            sym = true;
-            strcopy(modeName, sizeof(modeName), "Default");
-        }
-    }
-    g_bSymmetrical = sym;
-    g_cvGameMode.SetString(modeName);
-}
-
-static void CreateDefaultConfigs()
-{
-    char configNames[][] = {
-        "d_arena.cfg",
-        "d_koth.cfg", 
-        "d_payload.cfg",
-        "d_payloadrace.cfg",
-        "d_ctf.cfg",
-        "d_5cp.cfg",
-        "d_adcp.cfg",
-        "d_tc.cfg",
-        "d_medieval.cfg",
-        "d_pd.cfg",
-        "d_default.cfg",
-        "d_highpop_a",
-        "d_highpop",
-        "d_lowpop_a.cfg",
-        "d_lowpop.cfg",
-    };
-    
-    char configPath[PLATFORM_MAX_PATH];
-    
-    for (int i = 0; i < sizeof(configNames); i++)
-    {
-        BuildPath(Path_SM, configPath, sizeof(configPath), "../../cfg/%s", configNames[i]);
-        if (!FileExists(configPath))
-        {
-            File file = OpenFile(configPath, "w");
-            if (file != null)
-            {
-                file.WriteLine("// %s configuration", configNames[i]);
-                file.WriteLine("// This file is auto-generated");
-                file.WriteLine("");
-                file.WriteLine("echo \"Executing %s\"", configNames[i]);
-                file.Close();
-                LogMessage("Created config file: %s", configPath);
-            }
-        }
-    }
 }

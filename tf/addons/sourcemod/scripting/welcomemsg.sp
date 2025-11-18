@@ -6,11 +6,12 @@ bool g_HasBeenWelcomed[MAXPLAYERS + 1];
 ConVar g_hUncleCycleState;
 
 static const char g_Info[][] = {
-    "{default}Some weapons have better stats; use {yellow}!r {default}to read about your class.\n",
-    "{default}We're also testing custom weapons; check {yellow}!c {default}to read and {yellow}!cw {default}to equip.\n",
-    "{default}Use {yellow}!commands {default}to browse the rest of the server commands.\n",
-    "{default}Random crits are disabled, respawn times are reduced, and random bullet spread is disabled.\n",
-    "{default}Google 'kogtf2' or visit our group with {yellow}!steam {default}to learn more and see when people are playing.\n"
+    "{peachpuff}Some weapons have better stats; use {yellow}!r {peachpuff}to read about your class.\n",
+    "{peachpuff}We're also testing custom weapons; check {yellow}!c {peachpuff}to read and {yellow}!cw {peachpuff}to equip.\n",
+    "{peachpuff}Use {yellow}!commands {peachpuff}to browse the rest of the server commands.\n",
+    "{peachpuff}Random crits and bullet spread are disabled, respawn times are reduced\n",
+    "{peachpuff}Some classes are limited on Payload/AD gamemodes;\n",
+    "{peachpuff}Google 'kogtf2' or visit our group with {yellow}!steam {peachpuff}to learn more and see when people are playing.\n"
 };
 
 static const char g_ScoutReverts[][] = {
@@ -69,7 +70,7 @@ static const char g_DemoReverts[][] = {
     "\x01Sticky Jumper:{green} Max stickies 3 -> 8\n",
     "\x01Scottish Resistance:{chartreuse} Arm time 0.8 -> 0.4\n",
     "\x01Shields:{green} Provide 65% blast jump damage resistance,{red} all resistances are changed to 10%\n",
-    "\x01Caber:{green} Explosion deals 125 damage, deals 175 damage while blast jumping\n",
+    "\x01Caber:{green} Explosion deals 120 damage, deals 175 damage while blast jumping\n",
     "\x01Scottish Handshake:{green} Market gardener stats\n",
 };
 
@@ -81,6 +82,7 @@ static const char g_DemoCustom[][] = {
 
 static const char g_HeavyReverts[][] = {
     "\x01Huo Long Heater:{green} No damage penalty\n",
+    "\x01Natascha:{red} Does not slow targets\n",
     "\x01Shotguns:{green} +10% movement speed while held\n",
     "\x01Gloves of Running:{green} No health drain, marks for death\n",
     "\x01Eviction Notice:{chartreuse} No health drain, fires 60% faster instead of 40%\n",
@@ -95,7 +97,8 @@ static const char g_EngineerReverts[][] = {
     "\x01Pomson:{green} Original hitbox size, penetrates targets, ignores bullet resists, lights up friendly Huntsman arrows\n",
     "\x01The Wrangler:{red} Shield resistance 66% -> 25%\n",
     "\x01The Short Circuit:{chartreuse} Damage dealt with primary fire is returned as metal,{red} 75% less metal from carts on wearer\n",
-    "\x01Southern Hospitality:{green} +10% damage, 15 metal regenerated every 5 seconds on wearer\n"
+    "\x01Southern Hospitality:{green} +10% damage, 15 metal regenerated every 5 seconds on wearer\n",
+    "\x01Sentries:{red} -50% damage, -40% range\n"
 };
 
 static const char g_EngineerCustom[][] = {
@@ -111,7 +114,7 @@ static const char g_EngineerCustom[][] = {
 static const char g_MedicReverts[][] = {
     "\x01Syringe guns:{green} +1.25% uber on hit, reload on holster\n",
     "\x01The Vita-Saw:{chartreuse} Retain up to 20% uber after death regardless of organs, wall climbing\n",
-    "\x01The Vaccinator:{red}} +20% damage taken while held\n"
+    "\x01The Vaccinator:{red}} -95% uber charge rate\n"
 };
 
 static const char g_MedicCustom[][] = {
@@ -250,9 +253,9 @@ static const char g_CommandInfo[][] = {
     "{lightgreen}Weapons:{default}\n {gold}!reverts !r !rp{default} (view weapon changes / panel)\n {gold}!c !cp{default} (custom weapons / panel)\n {gold}!cw{default} (equip custom weapons)",
     "{lightgreen}Engineer buildings:{default}\n {gold}!amp !a !pads !p !ah{default} (new engi buildings / info)",
     "{lightgreen}Voting:{default} {gold}!rtv !nominate !scramble !nextmap !next{default}",
-    "{lightgreen}Server:{default} {gold}!steam !chat !info !rules !color{default}",
-    "{lightgreen}Gameplay:{default} {gold}!cw !center !duel !pads !fov !voice{default}",
-    "{lightgreen}Fun:{default} {gold}!hug !rape !thirdperson !firstperson{default}"
+    "{lightgreen}Server:{default} {gold}!steam !chat !info !rules !voice {default}",
+    "{lightgreen}Gameplay:{default} {gold}!cw !center !duel !pads !fov !classlimits{default}",
+    "{lightgreen}Fun:{default} {gold}!hug !rape !thirdperson !firstperson !name (color){default}"
 };
 
 public Action:Command_cmds(int client, int args)

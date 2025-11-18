@@ -12,8 +12,8 @@
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
 #define ACC_MAX_DIST        768.0
-#define ACC_THRESH_NEAR       38.0
-#define ACC_THRESH_FAR        10.0
+#define ACC_THRESH_NEAR       32.0
+#define ACC_THRESH_FAR        8.0
 #define ACC_STREAK_TARGET      2
 
 #define ACC_EXPLODE_DAMAGE   50.0
@@ -887,7 +887,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 				damagetype|=DMG_CRIT;
 				return Plugin_Changed;
 			} else {
-				damage = 90.00;
+				damage = 85.00;
 				return Plugin_Changed;
 			}
 		}
@@ -1260,7 +1260,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			// The usual policy is to only buff things but because the Zesty server bans weapons I feel like I can do this + people would like it
 			case 998: //The Vaccinator
 			{
-				TF2Attrib_SetByName(entity, "mult_dmgtaken_active", 1.20);
+				TF2Attrib_SetByName(entity, "ubercharge rate penalty ", 0.05);
 			}
 			case 1144, 131, 1099, 406: //Demoshields
 			{
