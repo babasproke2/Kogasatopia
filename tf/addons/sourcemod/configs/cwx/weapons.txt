@@ -36,6 +36,16 @@
 		"item_class"	"tf_weapon_shotgun_primary"
                 "name"                  "The Shotgun"
         }
+        "pyroshotgun2"
+        {
+                "used_by_classes"
+                {
+                    "pyro" "secondary"
+                }
+		"defindex"	"9"
+		"item_class"	"tf_weapon_shotgun_primary"
+                "name"                  "The Shotgun"
+        }
         "lightningpistol"
         {
                 "name"                  "Lightning Pistol"
@@ -278,6 +288,7 @@
                 "used_by_classes"
                 {
                     "engineer" "secondary"
+                    "scout" "secondary"
                 }
 		"attributes_game"
 		{
@@ -289,15 +300,14 @@
 			"hidden secondary max ammo penalty"	"0.15"
 			"reload time increased hidden"		"1.1"
 			"sniper fires tracer HIDDEN"		"1"
-                        "weapon spread bonus"                           "0.2"
+                        "weapon spread bonus"                           "0.4"
 		}
                 "attributes_custom"
                 {
                     "clientmodel override"                                  "models/workshop/weapons/c_models/c_adjudicator/c_adjudicator.mdl"
                     "replace sound"     "colt_navy"
-		    "steep damage falloff"	"0.15"
 		    "duel declared"		"1.0"
-		    "drain metal on hit engineer"	"1.0"
+		    "drain ammo on hit sentry"	"25"
 		}
 	}
         "medic1"

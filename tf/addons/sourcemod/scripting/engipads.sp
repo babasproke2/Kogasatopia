@@ -208,7 +208,7 @@ public void OnConfigsExecuted()
 	
 	if (cvarPads[PadsEnabled].IntValue > EngiPads_Disabled && cvarPads[PadsAnnounce].FloatValue > 0.0)
 	{
-		g_hPadTimerAnnounce = CreateTimer(cvarPads[PadsAnnounce].FloatValue, Timer_PadsAnnounce, _, TIMER_FLAG_NO_MAPCHANGE);
+		// Announcements disabled; do not start timer
 	}
 }
 
@@ -226,18 +226,13 @@ public void CvarChange(ConVar cvar, const char[] szOldValue, const char[] szNewV
 			ConvertAllPadsToTeleporters();
 			ClearTimer(g_hPadTimerAnnounce);
 		}
-		else if (cvarPads[PadsAnnounce].FloatValue > 0.0 && RoundToFloor(StringToFloat(szOldValue)) == EngiPads_Disabled)
-		{
-			ClearTimer(g_hPadTimerAnnounce);
-			g_hPadTimerAnnounce = CreateTimer(cvarPads[PadsAnnounce].FloatValue, Timer_PadsAnnounce, _, TIMER_FLAG_NO_MAPCHANGE);
-		}
 	}
 	else if (cvar == cvarPads[PadsAnnounce])
 	{
 		if (StringToFloat(szNewValue) > 0.0 && cvarPads[PadsEnabled].IntValue > EngiPads_Disabled)
 		{
+			// Announcements disabled; ensure timer stays cleared
 			ClearTimer(g_hPadTimerAnnounce);
-			g_hPadTimerAnnounce = CreateTimer(cvarPads[PadsAnnounce].FloatValue, Timer_PadsAnnounce, _, TIMER_FLAG_NO_MAPCHANGE);
 		}
 		else if (StringToFloat(szNewValue) <= 0.0)
 		{
@@ -248,29 +243,9 @@ public void CvarChange(ConVar cvar, const char[] szOldValue, const char[] szNewV
 
 public Action Timer_PadsAnnounce(Handle hTimer)
 {
-	if (cvarPads[PadsEnabled].IntValue == EngiPads_Disabled || cvarPads[PadsAnnounce].FloatValue <= 0.0)
-	{
-		g_hPadTimerAnnounce = INVALID_HANDLE;
-		return Plugin_Stop;
-	}
-	
-	int iAnnouncement = GetRandomInt(0, 5);
-	
-	switch (iAnnouncement)
-	{
-		case 0:
-		{
-			CPrintToChatAll("{orange}[EngiPads]{default} %t", "padphrase_announcement1", PLUGIN_VERSION);
-		}
-		default:
-		{
-			CPrintToChatAll("{orange}[EngiPads]{default} %t", "padphrase_announcement2");
-		}
-	}
-	
-	g_hPadTimerAnnounce = CreateTimer(cvarPads[PadsAnnounce].FloatValue, Timer_PadsAnnounce, _, TIMER_FLAG_NO_MAPCHANGE);
-	
-	return Plugin_Handled;
+	// Announcements disabled
+	g_hPadTimerAnnounce = INVALID_HANDLE;
+	return Plugin_Stop;
 }
 
 public void OnMapStart()

@@ -70,7 +70,7 @@ static const char g_DemoReverts[][] = {
     "\x01Sticky Jumper:{green} Max stickies 3 -> 8\n",
     "\x01Scottish Resistance:{chartreuse} Arm time 0.8 -> 0.4\n",
     "\x01Shields:{green} Provide 65% blast jump damage resistance,{red} all resistances are changed to 10%\n",
-    "\x01Caber:{green} Explosion deals 120 damage, deals 175 damage while blast jumping\n",
+    "\x01Caber:{green} Explosion deals 125 damage, deals 175 damage while blast jumping\n",
     "\x01Scottish Handshake:{green} Market gardener stats\n",
 };
 
@@ -82,7 +82,6 @@ static const char g_DemoCustom[][] = {
 
 static const char g_HeavyReverts[][] = {
     "\x01Huo Long Heater:{green} No damage penalty\n",
-    "\x01Natascha:{red} Does not slow targets\n",
     "\x01Shotguns:{green} +10% movement speed while held\n",
     "\x01Gloves of Running:{green} No health drain, marks for death\n",
     "\x01Eviction Notice:{chartreuse} No health drain, fires 60% faster instead of 40%\n",
@@ -97,8 +96,7 @@ static const char g_EngineerReverts[][] = {
     "\x01Pomson:{green} Original hitbox size, penetrates targets, ignores bullet resists, lights up friendly Huntsman arrows\n",
     "\x01The Wrangler:{red} Shield resistance 66% -> 25%\n",
     "\x01The Short Circuit:{chartreuse} Damage dealt with primary fire is returned as metal,{red} 75% less metal from carts on wearer\n",
-    "\x01Southern Hospitality:{green} +10% damage, 15 metal regenerated every 5 seconds on wearer\n",
-    "\x01Sentries:{red} -50% damage, -40% range\n"
+    "\x01Southern Hospitality:{green} +10% damage, 15 metal regenerated every 5 seconds on wearer\n"
 };
 
 static const char g_EngineerCustom[][] = {
@@ -114,7 +112,7 @@ static const char g_EngineerCustom[][] = {
 static const char g_MedicReverts[][] = {
     "\x01Syringe guns:{green} +1.25% uber on hit, reload on holster\n",
     "\x01The Vita-Saw:{chartreuse} Retain up to 20% uber after death regardless of organs, wall climbing\n",
-    "\x01The Vaccinator:{red}} -95% uber charge rate\n"
+    "\x01The Vaccinator:{red}} +20% damage taken while held\n"
 };
 
 static const char g_MedicCustom[][] = {
@@ -164,7 +162,6 @@ public Plugin:myinfo = {
 public OnPluginStart()
 {
     HookEvent("player_spawn", Event_PlayerSpawn);
-    LoadTranslations("welcomemsg.phrases.txt");
     g_hUncleCycleState = FindConVar("uncle_cycle_active");
     
     RegConsoleCmd("sm_info", Command_ListInfo, "Displays an brief message to the client about the server.");

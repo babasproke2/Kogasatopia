@@ -37,10 +37,8 @@ int g_iClass[MAXPLAYERS + 1];
 ConVar g_hEnabled;
 ConVar g_hFlags;
 ConVar g_hImmunity;
-ConVar g_hBanConfig;
 ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[32] = "Default";
-StringMap g_ClassBanMap = null;
 
 static const char g_ClassNames[TF_CLASS_ENGINEER + 1][16] = {
     "Unknown",
@@ -77,9 +75,7 @@ public void OnPluginStart()
     CreateConVar("classlimits_version", PL_VERSION, "Restrict classes in TF2.", FCVAR_NOTIFY);
     g_hEnabled  = CreateConVar("restrict_enabled",  "1",  "Enable or disable class limits.");
     g_hFlags    = CreateConVar("restrict_flags",    "z",  "Admin flags allowed to bypass class limits.");
-    g_hImmunity = CreateConVar("restrict_immunity", "0",  "Enable/disable admin immunity for class limits.");
-    g_hBanConfig = CreateConVar("sm_classlimits_bans", "", "Semicolon separated Steam3=class list entries (e.g. [U:1:123]=pyro,spy;[U:1:456]=scout)");
-    g_hBanConfig.AddChangeHook(OnClassBanChanged);
+    g_hImmunity = CreateConVar("restrict_immunity", "1",  "Enable/disable admin immunity for class limits.");
 
     for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
     {
@@ -93,11 +89,9 @@ public void OnPluginStart()
     HookEvent("player_changeclass", Event_PlayerClass);
     HookEvent("player_spawn",       Event_PlayerSpawn);
     HookEvent("player_team",        Event_PlayerTeam);
+    HookEvent("player_say",         Event_PlayerSay, EventHookMode_PostNoCopy);
     RegConsoleCmd("sm_classlimits", Command_ShowClassLimits, "Show current class limits.");
-    RegConsoleCmd("sm_classrestrict", Command_ShowClassLimits, "Show current class limits.");
-    RegConsoleCmd("sm_cl", Command_ShowClassLimits, "Show current class limits.");
-    RegConsoleCmd("sm_cr", Command_ShowClassLimits, "Show current class limits.");
-    LoadClassBanConfig();
+
 }
 
 public void OnMapStart()
@@ -114,6 +108,42 @@ public void OnMapStart()
 public void OnClientPutInServer(int client)
 {
     g_iClass[client] = TF_CLASS_UNKNOWN;
+}
+
+public void Event_PlayerSay(Event event, const char[] name, bool dontBroadcast)
+{
+    int client = GetClientOfUserId(event.GetInt("userid"));
+    if (!IsClientInGame(client))
+    {
+        return;
+    }
+
+    char text[64];
+    event.GetString("text", text, sizeof(text));
+
+    char lower[64];
+    strcopy(lower, sizeof(lower), text);
+    for (int i = 0; lower[i]; i++)
+    {
+        if (lower[i] >= 'A' && lower[i] <= 'Z')
+        {
+            lower[i] += 'a' - 'A';
+        }
+    }
+
+    if (!StrEqual(lower, "!classrestrict") && !StrEqual(lower, "!classlimits") && !StrEqual(lower, "!cr") && !StrEqual(lower, "!cl"))
+    {
+        return;
+    }
+
+    char limitText[32];
+    for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
+    {
+        FormatClassLimitText(classId, limitText, sizeof(limitText));
+        CPrintToChat(client, "{olive}  %s{default}: {gold}%s{default}", g_ClassNames[classId], limitText);
+    }
+    UpdateGameModeName();
+    CPrintToChat(client, "{olive}[Class Limits]{default} Current gamemode: {yellow}%s{default}", g_sGameMode);
 }
 
 public Action Command_ShowClassLimits(int client, int args)
@@ -152,7 +182,6 @@ public Action Command_ShowClassLimits(int client, int args)
 public void OnConfigsExecuted()
 {
     UpdateGameModeName();
-    LoadClassBanConfig();
 }
 
 public void Event_PlayerClass(Event event, const char[] name, bool dontBroadcast)
@@ -167,12 +196,6 @@ public void Event_PlayerClass(Event event, const char[] name, bool dontBroadcast
         //ShowVGUIPanel(iClient, iTeam == TF_TEAM_BLU ? "class_blue" : "class_red");
         EmitSoundToClient(iClient, g_sSounds[iClass]);
         NotifyClassRestricted(iClient, iClass, limit);
-        TF2_SetPlayerClass(iClient, view_as<TFClassType>(g_iClass[iClient]));
-    }
-    else if (IsClassBanned(iClient, iClass))
-    {
-        EmitSoundToClient(iClient, g_sSounds[iClass]);
-        NotifyClassBanned(iClient, iClass);
         TF2_SetPlayerClass(iClient, view_as<TFClassType>(g_iClass[iClient]));
     }
 }
@@ -192,12 +215,6 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
         EmitSoundToClient(iClient, g_sSounds[g_iClass[iClient]]);
         PickClass(iClient);
     }
-    else if (IsClassBanned(iClient, g_iClass[iClient]))
-    {
-        NotifyClassBanned(iClient, g_iClass[iClient]);
-        EmitSoundToClient(iClient, g_sSounds[g_iClass[iClient]]);
-        PickClass(iClient);
-    }
 }
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
@@ -212,38 +229,6 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
         EmitSoundToClient(iClient, g_sSounds[g_iClass[iClient]]);
         NotifyClassRestricted(iClient, g_iClass[iClient], limit);
     }
-    else if (IsClassBanned(iClient, g_iClass[iClient]))
-    {
-        EmitSoundToClient(iClient, g_sSounds[g_iClass[iClient]]);
-        NotifyClassBanned(iClient, g_iClass[iClient]);
-    }
-}
-
-bool ClientCountsForSniper(int client)
-{
-    if (client <= 0)
-    {
-        return false;
-    }
-
-    if (view_as<int>(TF2_GetPlayerClass(client)) != TF_CLASS_SNIPER)
-    {
-        return false;
-    }
-
-    int weapon = GetPlayerWeaponSlot(client, TFWeaponSlot_Primary);
-    if (weapon <= 0)
-    {
-        return true;
-    }
-
-    int itemDef = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
-    if (itemDef == 56 || itemDef == 1092 || itemDef == 1005)
-    {
-        return false;
-    }
-
-    return true;
 }
 
 bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
@@ -283,22 +268,7 @@ bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
 
     for (int i = 1, iCount = 0; i <= MaxClients; i++)
     {
-        if (!IsClientInGame(i) || GetClientTeam(i) != iTeam)
-        {
-            continue;
-        }
-
-        if (view_as<int>(TF2_GetPlayerClass(i)) != iClass)
-        {
-            continue;
-        }
-
-        if (iClass == TF_CLASS_SNIPER && !ClientCountsForSniper(i))
-        {
-            continue;
-        }
-
-        if (++iCount > limitOut)
+        if (IsClientInGame(i) && GetClientTeam(i) == iTeam && view_as<int>(TF2_GetPlayerClass(i)) == iClass && ++iCount > limitOut)
         {
             return true;
         }
@@ -428,138 +398,4 @@ void GetClassName(int classId, char[] buffer, int maxlen)
     {
         strcopy(buffer, maxlen, "Unknown");
     }
-}
-
-void LoadClassBanConfig()
-{
-    if (g_ClassBanMap != null)
-    {
-        delete g_ClassBanMap;
-    }
-    g_ClassBanMap = new StringMap();
-
-    char raw[2048];
-    if (g_hBanConfig != null)
-    {
-        g_hBanConfig.GetString(raw, sizeof(raw));
-    }
-    TrimString(raw);
-    if (!raw[0])
-    {
-        LogMessage("[ClassLimits] No class ban entries configured.");
-        return;
-    }
-
-    int entryCount = 0;
-    char entries[64][128];
-    int total = ExplodeString(raw, ";", entries, sizeof(entries), sizeof(entries[]));
-    if (total <= 0)
-    {
-        total = 1;
-        strcopy(entries[0], sizeof(entries[]), raw);
-    }
-
-    for (int i = 0; i < total; i++)
-    {
-        TrimString(entries[i]);
-        if (!entries[i][0])
-        {
-            continue;
-        }
-        char steam[64];
-        char classList[256];
-        char pieces[2][256];
-        if (ExplodeString(entries[i], "=", pieces, sizeof(pieces), sizeof(pieces[])) < 2)
-        {
-            continue;
-        }
-        strcopy(steam, sizeof(steam), pieces[0]);
-        strcopy(classList, sizeof(classList), pieces[1]);
-        TrimString(steam);
-        TrimString(classList);
-        if (!steam[0] || !classList[0])
-        {
-            continue;
-        }
-        int mask = 0;
-        char classes[16][32];
-        int classCount = ExplodeString(classList, ",", classes, sizeof(classes), sizeof(classes[]));
-        if (classCount <= 0)
-        {
-            classCount = 1;
-            strcopy(classes[0], sizeof(classes[]), classList);
-        }
-        for (int j = 0; j < classCount; j++)
-        {
-            TrimString(classes[j]);
-            int classId = ClassNameToId(classes[j]);
-            if (classId != TF_CLASS_UNKNOWN)
-            {
-                mask |= (1 << classId);
-            }
-        }
-        if (mask != 0)
-        {
-            g_ClassBanMap.SetValue(steam, mask);
-            entryCount++;
-        }
-    }
-
-    LogMessage("[ClassLimits] Loaded %d class ban entries from sm_classlimits_bans", entryCount);
-}
-
-int ClassNameToId(const char[] input)
-{
-    char name[32];
-    strcopy(name, sizeof(name), input);
-    TrimString(name);
-    for (int i = 0; name[i] != '\0'; i++)
-    {
-        name[i] = CharToLower(name[i]);
-    }
-    if (StrEqual(name, "scout")) return TF_CLASS_SCOUT;
-    if (StrEqual(name, "sniper")) return TF_CLASS_SNIPER;
-    if (StrEqual(name, "soldier")) return TF_CLASS_SOLDIER;
-    if (StrEqual(name, "demoman") || StrEqual(name, "demo")) return TF_CLASS_DEMOMAN;
-    if (StrEqual(name, "medic")) return TF_CLASS_MEDIC;
-    if (StrEqual(name, "heavy") || StrEqual(name, "heavyweapons")) return TF_CLASS_HEAVY;
-    if (StrEqual(name, "pyro")) return TF_CLASS_PYRO;
-    if (StrEqual(name, "spy")) return TF_CLASS_SPY;
-    if (StrEqual(name, "engineer") || StrEqual(name, "engi")) return TF_CLASS_ENGINEER;
-    return TF_CLASS_UNKNOWN;
-}
-
-bool IsClassBanned(int client, int classId)
-{
-    if (g_ClassBanMap == null || client <= 0 || !IsClientInGame(client))
-    {
-        return false;
-    }
-    char steam[64];
-    if (!GetClientAuthId(client, AuthId_Steam3, steam, sizeof(steam)))
-    {
-        return false;
-    }
-    int mask;
-    if (!g_ClassBanMap.GetValue(steam, mask))
-    {
-        return false;
-    }
-    return (mask & (1 << classId)) != 0;
-}
-
-public void OnClassBanChanged(ConVar convar, const char[] oldValue, const char[] newValue)
-{
-    LoadClassBanConfig();
-}
-
-void NotifyClassBanned(int client, int classId)
-{
-    if (!IsClientInGame(client))
-    {
-        return;
-    }
-    char name[32];
-    GetClassName(classId, name, sizeof(name));
-    CPrintToChat(client, "{olive}[Class Limits]{default} You are banned from playing {red}%s{default}.", name);
 }
