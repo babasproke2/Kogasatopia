@@ -70,6 +70,8 @@ bool g_bWarnedMetalOffset = false;
 #include <weaponreverts>
  
 ConVar g_sEnabled;
+ConVar g_hPomsonDamageMult;
+ConVar g_hBisonDamageMult;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 Handle g_hHealTimer = INVALID_HANDLE;
 
@@ -115,6 +117,8 @@ stock void ResetClientArrays(int client)
 
 public void OnPluginStart() {
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
+	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.75", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
+	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
 	if (GetConVarInt(g_sEnabled)) {
 		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
 	// This is used to ignore clients without the m_iAmmo netprop
@@ -866,6 +870,16 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	new wepindex = (IsValidEntity(weapon) && weapon > MaxClients ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
 	if (wepindex == 442 || wepindex == 588)  // Pomson, bison
 	{
+		float mult = 1.0;
+		if (wepindex == 442)
+		{
+			mult = GetConVarFloat(g_hBisonDamageMult);
+		}
+		else
+		{
+			mult = GetConVarFloat(g_hPomsonDamageMult);
+		}
+		damage *= mult;
 		// Remove bullet damage type (ignores bullet resist from e.g. Vaccinator) and restore knockback
 		damagetype &= ~(DMG_BULLET | DMG_PREVENT_PHYSICS_FORCE);
 		// Enable sonic flag so ranged resist attrib still works
@@ -906,17 +920,17 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 			return Plugin_Changed;
 		}
 	} else if (CheckIfAfterburn(damagecustom)) {
-	tf2_players[attacker].scytheWeapon = CheckScythe(attacker);
-	if (tf2_players[attacker].scytheWeapon != 0) {
-			int heal = RoundToNearest(damage);
-		tf2_players[attacker].lastAfterburnDamage = heal;
-			if (!IsPlayerAlive(attacker)) {
-				TF2_RemoveCondition(client, TFCond_OnFire);
-				EmitAmbientSound(SOUND_FLAME_OUT, damagePosition, client, SNDLEVEL_NORMAL, SND_NOFLAGS, 0.2, SNDPITCH_NORMAL);
-				return Plugin_Changed;
-		} else if (tf2_players[attacker].scytheWeapon == 2) {
-				AddPlayerHealth(attacker, heal, 1.0, false, true);
-				return Plugin_Changed;
+		tf2_players[attacker].scytheWeapon = CheckScythe(attacker);
+		if (tf2_players[attacker].scytheWeapon != 0) {
+				int heal = RoundToNearest(damage) * 2;
+			tf2_players[attacker].lastAfterburnDamage = heal;
+				if (!IsPlayerAlive(attacker)) {
+					TF2_RemoveCondition(client, TFCond_OnFire);
+					EmitAmbientSound(SOUND_FLAME_OUT, damagePosition, client, SNDLEVEL_NORMAL, SND_NOFLAGS, 0.2, SNDPITCH_NORMAL);
+					return Plugin_Changed;
+			} else if (tf2_players[attacker].scytheWeapon == 2) {
+					AddPlayerHealth(attacker, heal, 1.0, false, true);
+					return Plugin_Changed;
 			}
 		}
 	} else if ((weapon != -1) && (TF2CustAttr_GetInt(weapon, "twin barrel attributes") != 0)) {
@@ -1116,20 +1130,7 @@ public TF2_OnConditionRemoved(int client, TFCond condition)
 public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, quality, entity)
 {
 	if (GetConVarInt(g_sEnabled)) {
-	tf2_players[client].shockCharge = 30;
-		// Attach the `m_bValidatedAttachedEntity` property to every weapon/cosmetic.
-		// ^ This allows custom weapons/weapons with changed models to be seen.
-		//if (HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity"))
-		//{
-			//SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
-		//}
-		// This was moved to my fork of CWX
-
-		// I disable random melee crits for Sniper here, tf_weapon_criticals 0 is default for me
-		if (TF2_GetPlayerClass(client) == TFClassType:TFClass_Sniper)
-		{
-			TF2Attrib_SetByName(entity, "crit mod disabled hidden", 0.0);
-		}
+		tf2_players[client].shockCharge = 30;
 
 		// I add the falling stomp to all players; this is an exception for someone who hates the SFX
 		char auth[32];
@@ -1192,8 +1193,11 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			}
 			case 1101: //The K.E.Y.E. Jumper
 			{
-				//TF2Attrib_SetByName(entity, "boots falling stomp", 1.00); // Add this property
 				TF2Attrib_SetByName(entity, "rocket jump damage reduction", 0.75); // Half of the gunboats protection
+			}
+			case 133: //The Gunboats
+			{
+				TF2Attrib_SetByName(entity, "rocket jump damage reduction", 0.25); // Reverted to release
 			}
 			case 1104: //The Air Strike
 			{
@@ -1253,14 +1257,11 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			case 41: // The Natascha
 			{
 				TF2Attrib_SetByName(entity, "slow enemy on hit", 0.0);
-				TF2Attrib_SetByName(entity, "speed_boost_on_hit_enemy", 1.00);
+				//TF2Attrib_SetByName(entity, "speed_boost_on_hit_enemy", 1.00); // Not working
 			}
-			// These are the secret nerfs for the vaccinator, shields and short circuit
-			// Sometimes I delete these but I feel they'll soon be official
-			// The usual policy is to only buff things but because the Zesty server bans weapons I feel like I can do this + people would like it
 			case 998: //The Vaccinator
 			{
-				TF2Attrib_SetByName(entity, "mult_dmgtaken_active", 1.20);
+				TF2Attrib_SetByName(entity, "ubercharge rate penalty", 0.05);
 			}
 			case 1144, 131, 1099, 406: //Demoshields
 			{
@@ -1295,10 +1296,11 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "fire rate bonus", 0.50); // Increase firing rate
 			}
-			/*case 1179: //The Thermal Thruster
+			case 1179: //The Thermal Thruster
 			{
 				TF2Attrib_SetByName(entity, "thermal_thruster_air_launch", 1.0); // Able to re-launch while already in-flight 
-			}*/ // Removal candidate
+				TF2Attrib_SetByName(entity, "dmg taken increased", 1.15); // Take 15% more damage
+			}
 			case 351: //The Detonator
 			{
 				TF2Attrib_SetByName(entity, "blast dmg to self increased", 0.75); // Halve the blast damage penalty
