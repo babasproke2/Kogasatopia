@@ -9,5 +9,5 @@ cd /home/kogasa/hlserver/tf2 || exit 1
     -steam_dir /home/kogasa/hlserver \
     -steamcmd_script /home/kogasa/hlserver/update_script.txt \
     +maxplayers 18 \
-    +sv_setsteamaccount 73F295916B12E55AF9518BC7E74D85F1 \
+    +sv_setsteamaccount b \
     2>&1 | egrep -v "Staging library folder not found|Install library folder not found"
