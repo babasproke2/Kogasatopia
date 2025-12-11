@@ -43,6 +43,8 @@
 #define TF2_JUMP_ROCKET 2
 #define TF2_JUMP_STICKY 3
 
+#define FAN_O_WAR_MAX_MARK_COUNT 3
+
 tf2_player tf2_players[MAXPLAYERS + 1];
 
 enum struct tf2_player
@@ -61,6 +63,7 @@ enum struct tf2_player
 	int sprokeParticleRef;
 	int sprokeClipRecord;
 	bool holdingJump;
+	int markVictims[FAN_O_WAR_MAX_MARK_COUNT+1];
 }
 
 Handle g_SDKGetMaxClip1 = null;
@@ -113,6 +116,10 @@ stock void ResetClientArrays(int client)
         tf2_players[client].sprokeTimer = null;
     }
     Sproke_ClearEffect(client, true, false);
+	for (int i = 0; i <= FAN_O_WAR_MAX_MARK_COUNT; i++)
+	{
+		tf2_players[client].markVictims[i] = -1;
+	}
 }
 
 public void OnPluginStart() {
@@ -251,7 +258,7 @@ public OnClientPutInServer(client)
 		SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
 		SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
 		SDKHook(client, SDKHook_OnTakeDamagePost, Accuracy_OnTakeDamagePost);
-		SDKHook(client, SDKHook_OnTakeDamageAlivePost, OnTakeDamageAlivePost);
+		SDKHook(client, SDKHook_OnTakeDamageAlive, OnTakeDamageAlive);
 		ResetClientArrays(client);
 	}
 }
@@ -1024,11 +1031,11 @@ public Action OnPlayerRunCmd(
 	return Plugin_Continue;
 }
 
-void OnTakeDamageAlivePost(
-	int victim, int attacker, int inflictor, float damage, int damage_type,
-	int weapon, float damage_force[3], float damage_position[3], int damage_custom
+public Action OnTakeDamageAlive(
+	int victim, int& attacker, int& inflictor, float& damage, int& damage_type,
+	int& weapon, float damage_force[3], float damage_position[3], int damage_custom
 ) {
-	if (attacker < 1 || weapon < 1) return;
+	if (attacker < 1 || weapon < 1) return Plugin_Continue;
 
 	if (
 		damage > 0 &&
@@ -1048,6 +1055,32 @@ void OnTakeDamageAlivePost(
 			}
 		}
 	}
+	
+	if (TF2CustAttr_GetInt(weapon, "mark for death multiple") != 0)
+	{
+		if (tf2_players[attacker].markVictims[0] != victim)
+		{
+			// Shift mark victim array by one
+			for (int i = FAN_O_WAR_MAX_MARK_COUNT; i > 0; i--)
+			{
+				tf2_players[attacker].markVictims[i] = tf2_players[attacker].markVictims[i-1];
+			}
+
+			tf2_players[attacker].markVictims[0] = victim;
+
+			// If last victim in the array has the mark condition, remove it
+			int lastvictim = tf2_players[attacker].markVictims[FAN_O_WAR_MAX_MARK_COUNT];
+			if (lastvictim >= 1 && lastvictim <= MaxClients && IsClientInGame(lastvictim))
+			{
+				TF2_RemoveCondition(lastvictim, TFCond_MarkedForDeath);
+			}
+		}
+		
+		// Mark the player we attacked
+		TF2_AddCondition(victim, TFCond_MarkedForDeath, 15.0, attacker);
+	}
+
+	return Plugin_Continue;
 }
 
 MRESReturn CalculateMaxSpeed(int entity, DHookReturn returnValue) {
@@ -1164,6 +1197,8 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 	        {
 	            TF2Attrib_SetByName(entity, "switch from wep deploy time decreased", 0.80);
 	            TF2Attrib_SetByName(entity, "single wep deploy time decreased", 0.80);
+				TF2Attrib_SetByName(entity, "mark for death", 0.0); // Remove this and handle it ourselves
+				TF2CustAttr_SetInt(entity, "mark for death multiple", 1);
 	        }
 			case 772: //Baby Face's Blaster index
 			{

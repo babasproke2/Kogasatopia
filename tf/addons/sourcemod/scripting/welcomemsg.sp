@@ -22,7 +22,7 @@ static const char g_ScoutReverts[][] = {
     "{default}Crit-a-Cola:{green} No mark for death visual, damage vuln. reduced to 25%\n",
     "{default}The Sandman:{chartreuse} stuns, 512 unit min range\n",
     "{default}Candy Cane:{green} +40% more health from medkits\n",
-    "{default}Fan-o-War:{chartreuse} +20% deploy and holster speed\n"
+    "{default}Fan-o-War:{chartreuse} +20% deploy and holster speed, can mark up to 3 enemies at once\n"
 };
 
 static const char g_ScoutCustom[][] = {
