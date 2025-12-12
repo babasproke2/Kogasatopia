@@ -64,6 +64,7 @@ enum struct tf2_player
 	int sprokeClipRecord;
 	bool holdingJump;
 	int markVictims[FAN_O_WAR_MAX_MARK_COUNT+1];
+	int bonkFrame;
 }
 
 Handle g_SDKGetMaxClip1 = null;
@@ -283,6 +284,27 @@ public void OnEntityCreated(int entity, const char[] class) {
 		if (StrEqual(class, "mapobj_cart_dispenser"))
 		{
 			dhook_CObjectCartDispenser_DispenseMetal.HookEntity(Hook_Pre, entity, CartDispenseMetal);
+		}
+	}
+}
+
+public void OnGameFrame()
+{
+	static int frame;
+
+	frame++;
+
+	// run every frame
+	if (frame % 1 == 0)
+	{
+		for (int client = 1; client <= MaxClients; client++)
+		{
+			if (IsClientInGame(client) && IsPlayerAlive(client))
+			{
+				if (TF2_IsPlayerInCondition(client, TFCond_Bonked)) {
+					tf2_players[client].bonkFrame = GetGameTickCount();
+				}
+			}
 		}
 	}
 }
@@ -1147,6 +1169,20 @@ public TF2_OnConditionAdded(int client, TFCond condition)
 			Sproke_TryActivate(client, duration);
 		}
 	}
+
+	if (
+		condition == TFCond_Dazed &&
+		abs(GetGameTickCount() - tf2_players[client].bonkFrame) <= 2 &&
+		tf2_players[client].bonkFrame > 0
+	) {
+		// bonk mark for death
+		int stun_amt = GetEntProp(client, Prop_Send, "m_iMovementStunAmount");
+		float mark_dur = ValveRemapVal(float(stun_amt), 64.0, 127.0, 2.0, 5.0);
+		TF2_AddCondition(client, TFCond_MarkedForDeathSilent, mark_dur);
+
+		// remove the slowdown
+		TF2_RemoveCondition(client, TFCond_Dazed);
+	}
 }
 
 public TF2_OnConditionRemoved(int client, TFCond condition)
@@ -1472,4 +1508,10 @@ float ValveRemapVal(float val, float a, float b, float c, float d) {
 	if (tmp > 1.0) tmp = 1.0;
 
 	return (c + ((d - c) * tmp));
+}
+
+int abs(int x)
+{
+	int mask = x >> 31;
+	return (x + mask) ^ mask;
 }
