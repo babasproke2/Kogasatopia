@@ -16,13 +16,14 @@ static const char g_Info[][] = {
 
 static const char g_ScoutReverts[][] = {
     "{default}Back Scatter:{green} +10% more accurate instead of -20% less\n",
-    "{default}Baby Face's:{chartreuse} Boost kept on damage taken, -20% base movement speed\n",
-    "{default}The Shortstop:{green} +50% reload speed, +20% healing received, +40% damage force taken\n",
+    "{default}Baby Face's:{chartreuse} Boost kept on damage taken,{red} -20% base movement speed\n",
+    "{default}The Shortstop:{green} +50% reload speed, +20% healing received,{red} +40% damage force taken\n",
     "{default}Flying Guillotine:{chartreuse} Deals +100% damage to stunned targets\n",
-    "{default}Crit-a-Cola:{green} No mark for death visual, damage vuln. reduced to 25%\n",
-    "{default}The Sandman:{chartreuse} stuns, 512 unit min range\n",
-    "{default}Candy Cane:{green} +40% more health from medkits\n",
-    "{default}Fan-o-War:{chartreuse} +20% deploy and holster speed\n"
+    "{default}Crit-a-Cola:{green} No mark for death on attack,{red} +25% damage taken while active\n",
+    "{default}Bonk:{chartreuse} No post-effect slowdown,{red} marks for death after effect expires",
+    "{default}The Sandman:{green} stuns, 512 unit min range\n",
+    "{default}Candy Cane:{chartreuse} +40% more health from medkits\n",
+    "{default}Fan-o-War:{green} +20% deploy and holster speed, can mark up to 3 enemies at once\n"
 };
 
 static const char g_ScoutCustom[][] = {
