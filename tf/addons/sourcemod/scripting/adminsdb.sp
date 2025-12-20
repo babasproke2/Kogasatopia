@@ -1,6 +1,7 @@
 #include <sourcemod>
 #include <dbi>
 #include <files>
+#include <morecolors>
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -28,6 +29,7 @@ public void OnPluginStart()
 {
     BuildPath(Path_SM, g_sAdminsFile, sizeof(g_sAdminsFile), "configs/admins_simple.ini");
     ConnectToDatabase();
+    RegConsoleCmd("sm_admins", Command_ShowAdmins, "Lists online admins");
 }
 
 public void OnPluginEnd()
@@ -368,4 +370,63 @@ public void SQLErrorCheckCallback(Database db, DBResultSet results, const char[]
     {
         LogError("[AdminsDB] SQL error: %s", error);
     }
+}
+
+public Action Command_ShowAdmins(int client, int args)
+{
+    int admins[MAXPLAYERS + 1];
+    int adminCount = 0;
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (AdminsDb_IsClientAdmin(i))
+        {
+            admins[adminCount++] = i;
+        }
+    }
+
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        if (adminCount == 0)
+        {
+            PrintToServer("[AdminsDB] No admins are currently online.");
+        }
+        else
+        {
+            PrintToServer("[AdminsDB] %d admin(s) online:", adminCount);
+            char name[MAX_NAME_LENGTH];
+            for (int i = 0; i < adminCount; i++)
+            {
+                GetClientName(admins[i], name, sizeof(name));
+                PrintToServer(" - %s", name);
+            }
+        }
+        return Plugin_Handled;
+    }
+
+    if (adminCount == 0)
+    {
+        CPrintToChat(client, "{green}[AdminsDB]{default} No admins are currently online.");
+        return Plugin_Handled;
+    }
+
+    CPrintToChat(client, "{green}[AdminsDB]{default} Online admins (%d):", adminCount);
+    char adminName[MAX_NAME_LENGTH];
+    for (int i = 0; i < adminCount; i++)
+    {
+        GetClientName(admins[i], adminName, sizeof(adminName));
+        CPrintToChat(client, "{green}[AdminsDB]{default} {gold}%s", adminName);
+    }
+
+    return Plugin_Handled;
+}
+
+bool AdminsDb_IsClientAdmin(int client)
+{
+    if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return false;
+    }
+    AdminId id = GetUserAdmin(client);
+    return (id != INVALID_ADMIN_ID);
 }

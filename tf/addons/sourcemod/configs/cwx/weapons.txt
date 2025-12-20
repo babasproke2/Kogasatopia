@@ -26,6 +26,16 @@
                         "original babyface attributes"  "1.0"
                 }
         }
+        "scoutsproke"
+        {
+                "inherits"    "Crit-a-Cola"
+                "name"                  "Sproke / Redbull"
+                "attributes_custom"
+                {
+                        "sproke attribute"  "12"
+                        "clientmodel override" "models/weapons/c_models/c_energy_drink/c_sproke.mdl"
+                }
+        }
         "vanillabfb"
         {
                 "inherits"                      "Baby Face's Blaster"
@@ -47,13 +57,39 @@
         }
         "pyroshotgun2"
         {
+		"inherits" "TF_WEAPON_SHOTGUN_PYRO"
+                "name"                  "Flame Shotgun"
+                "attributes_game"
+                {
+                        "clip size bonus"                             "1.33"
+                        "damage penalty"        "0.65"
+                }
+                "attributes_custom"
+                {
+                        "flame shotgun attributes"      "1"
+                        "replace sound"     "flame_shotgun"
+                        "clientmodel override"  "models/weapons/c_models/c_dex_shotgun/c_dex_shotgun.mdl"
+                }
+        }
+        "soldierm16"
+        {
+		"inherits" "Upgradeable TF_WEAPON_SMG"
+                "name"                  "Soldier's M16"
                 "used_by_classes"
                 {
-                    "pyro" "secondary"
+                    "soldier" "secondary"
                 }
-		"defindex"	"9"
-		"item_class"	"tf_weapon_shotgun_primary"
-                "name"                  "The Shotgun"
+                "attributes_game"
+                {
+                        "clip size penalty"                             "0.80"
+                        "Reload time increased"                            "2.0"
+			"hidden secondary max ammo penalty"	"5.0"
+                }
+                "attributes_custom"
+                {
+                        "secondary damage ammo refill"      "20"
+                        "replace sound"     "m16"
+                }
         }
         "lightningpistol"
         {

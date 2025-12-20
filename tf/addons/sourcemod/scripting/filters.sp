@@ -3,6 +3,7 @@
 #include <clientprefs>
 #include <basecomm>
 #include <morecolors>
+#include <SteamWorks>
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -12,6 +13,8 @@
 #define MAX_WORD_LENGTH 64
 #define MAX_FORCED_STATUS 128
 #define MAX_COMMANDS 64
+#define FILTERS_OUTBOX_CLEANUP_INTERVAL 120
+#define FILTERS_OUTBOX_RETENTION_SECONDS 3600
 
 // Player state structure
 enum struct PlayerState
@@ -37,6 +40,9 @@ char g_NameColors[MAXPLAYERS + 1][32];
 Handle g_sEnabled = INVALID_HANDLE;
 Handle g_sChatMode2 = INVALID_HANDLE;
 ConVar g_hChatDebug = null;
+ConVar g_hFiltersCaseSensitive = null;
+ConVar g_hFiltersEnabled = null;
+ConVar g_hBlacklistMinLen = null;
 
 // Global arrays for word filtering
 char g_FilterWords[MAX_FILTERS][MAX_WORD_LENGTH];
@@ -46,6 +52,8 @@ int g_FilterCount = 0;
 // Global array for blacklisted words
 char g_BlacklistWords[MAX_BLACKLIST][MAX_WORD_LENGTH];
 int g_BlacklistCount = 0;
+char g_BlacklistWords50[MAX_BLACKLIST][MAX_WORD_LENGTH];
+int g_Blacklist50Count = 0;
 
 // Global arrays for forced status
 char g_ForcedStatusSteamIDs[MAX_FORCED_STATUS][32];
@@ -63,12 +71,24 @@ StringMap g_WebNameColors = null;
 // Connection event queue
 ArrayList g_ConnectQueue = null;
 Handle g_ConnectQueueTimer = null;
+char g_sServerName[128];
+ConVar g_hHostnameCvar = null;
 
 enum struct ConnectEvent
 {
     char name[MAX_NAME_LENGTH];
     bool connected;
 }
+
+char g_sHostIp[64];
+char g_sPublicHostIp[64];
+char g_sHostStamp[96];
+ConVar g_hHostIpCvar = null;
+ConVar g_hHostPortCvar = null;
+int g_iHostPort = 27015;
+bool g_bOutboxStampReady = false;
+int g_iPendingSchemaQueries = 0;
+int g_iLastOutboxCleanup = 0;
 
 bool Filters_DebugEnabled()
 {
@@ -83,6 +103,136 @@ void Filters_LogDebug(const char[] fmt, any ...)
     char buffer[256];
     VFormat(buffer, sizeof(buffer), fmt, 2);
     LogMessage("[Filters][Chat] %s", buffer);
+}
+
+static void RefreshHostAddress()
+{
+    if (g_hHostIpCvar == null)
+    {
+        g_hHostIpCvar = FindConVar("ip");
+        if (g_hHostIpCvar == null)
+        {
+            g_hHostIpCvar = FindConVar("hostip");
+        }
+    }
+
+    if (g_hHostIpCvar != null)
+    {
+        g_hHostIpCvar.GetString(g_sHostIp, sizeof(g_sHostIp));
+    }
+    else
+    {
+        g_sHostIp[0] = '\0';
+    }
+
+    if (!g_sHostIp[0])
+    {
+        strcopy(g_sHostIp, sizeof(g_sHostIp), "0.0.0.0");
+    }
+
+    if (g_hHostPortCvar == null)
+    {
+        g_hHostPortCvar = FindConVar("hostport");
+    }
+    g_iHostPort = (g_hHostPortCvar != null) ? g_hHostPortCvar.IntValue : 27015;
+
+    RefreshPublicHostIp();
+
+    Filters_LogDebug("Host identity refreshed: local=%s public=%s port=%d",
+        g_sHostIp[0] ? g_sHostIp : "(unset)",
+        g_sPublicHostIp[0] ? g_sPublicHostIp : "(unset)",
+        g_iHostPort);
+    Filters_UpdateHostStampString();
+}
+
+static void RefreshServerHostname()
+{
+    if (g_hHostnameCvar == null)
+    {
+        g_hHostnameCvar = FindConVar("hostname");
+    }
+    if (g_hHostnameCvar != null)
+    {
+        g_hHostnameCvar.GetString(g_sServerName, sizeof(g_sServerName));
+    }
+    else
+    {
+        g_sServerName[0] = '\0';
+    }
+}
+
+static void RefreshPublicHostIp()
+{
+    int addr[4];
+    if (SteamWorks_GetPublicIP(addr))
+    {
+        Format(g_sPublicHostIp, sizeof(g_sPublicHostIp), "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
+    }
+    else
+    {
+        g_sPublicHostIp[0] = '\0';
+    }
+}
+
+static void Filters_GetPreferredHostIp(char[] buffer, int maxlen)
+{
+    if (!g_sPublicHostIp[0] && !g_sHostIp[0])
+    {
+        RefreshHostAddress();
+    }
+
+    if (g_sPublicHostIp[0])
+    {
+        strcopy(buffer, maxlen, g_sPublicHostIp);
+    }
+    else
+    {
+        strcopy(buffer, maxlen, g_sHostIp);
+    }
+}
+
+static void Filters_GetLocalHostStamp(char[] ipOut, int ipLen, int &portOut)
+{
+    Filters_GetPreferredHostIp(ipOut, ipLen);
+    portOut = g_iHostPort;
+}
+
+static bool Filters_IsLocalHostStamp(const char[] otherIp, int otherPort)
+{
+    if (!otherIp[0] || otherPort <= 0)
+    {
+        return false;
+    }
+
+    char localIp[64];
+    Filters_GetPreferredHostIp(localIp, sizeof(localIp));
+    if (!localIp[0])
+    {
+        return false;
+    }
+
+    return (StrEqual(localIp, otherIp, false) && otherPort == g_iHostPort);
+}
+
+static void Filters_UpdateHostStampString()
+{
+    char ip[64];
+    int port;
+    Filters_GetLocalHostStamp(ip, sizeof(ip), port);
+    if (!ip[0])
+    {
+        strcopy(ip, sizeof(ip), "0.0.0.0");
+    }
+    Format(g_sHostStamp, sizeof(g_sHostStamp), "%s:%d", ip, port);
+}
+
+static void Filters_GetHostStamp(char[] buffer, int maxlen)
+{
+    if (!g_sHostStamp[0])
+    {
+        Filters_UpdateHostStampString();
+    }
+    strcopy(buffer, maxlen, g_sHostStamp);
 }
 
 public Plugin myinfo = 
@@ -113,6 +263,13 @@ public void OnPluginStart()
     g_sChatMode2 = CreateConVar("filtermode", "0", "Enable/Disable the quarantined filter mode");
     g_hChatDebug = CreateConVar("filters_chat_debug", "0", "Enable verbose debug logging for chat relay");
     g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Enable/Disable db functions");
+    g_hFiltersEnabled = CreateConVar("filters_filters", "1", "If 0, blacklist word matching is disabled.");
+    g_hBlacklistMinLen = CreateConVar("filters_blacklist_minlen", "8", "Minimum message length to check blacklist words.");
+    g_hFiltersCaseSensitive = CreateConVar(
+        "filters_case_sensitive",
+        "1",
+        "If 1, chat filters are case-sensitive (exact casing must match)"
+    );
     
     // Initialize cookies
     g_hCookieWhitelist = RegClientCookie("filter_whitelist", "Player is whitelisted from all filters", CookieAccess_Protected);
@@ -133,6 +290,7 @@ public void OnPluginStart()
     // Web chat relay
     RegConsoleCmd("sm_websay", Command_WebSay, "Relay a web chat message to all players");
 
+    RefreshHostAddress();
     Filters_SQLConnect();
     CreateTimer(2.0, Timer_PollOutbox, _, TIMER_REPEAT);
 
@@ -152,6 +310,19 @@ public void OnPluginStart()
             g_NameColors[i][0] = '\0';
         }
     }
+}
+
+public void OnConfigsExecuted()
+{
+    RefreshHostAddress();
+    RefreshServerHostname();
+}
+
+public void OnMapStart()
+{
+    char mapName[128];
+    GetCurrentMap(mapName, sizeof(mapName));
+    Filters_InsertSystemMessage(false, false, "{gold}[Server]{default}: Map changed to {cornflowerblue}%s", mapName);
 }
 
 // Database for chat log
@@ -181,12 +352,13 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
 
     g_hFiltersDb = db;
     g_bDbReady = true;
+    g_bOutboxStampReady = false;
     if (!g_hFiltersDb.SetCharset("utf8mb4"))
     {
         LogError("[Filters] Failed to set utf8mb4 charset");
     }
 
-    static const char queries[][] =
+    static const char schemaQueries[][] =
     {
         "CREATE TABLE IF NOT EXISTS whaletracker_chat ("
         ... "id INT AUTO_INCREMENT PRIMARY KEY,"
@@ -195,6 +367,7 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         ... "personaname VARCHAR(128) NULL,"
         ... "iphash VARCHAR(64) NULL,"
         ... "message TEXT NOT NULL,"
+        ... "alert TINYINT(1) NOT NULL DEFAULT 1,"
         ... "INDEX(created_at)) DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE IF NOT EXISTS whaletracker_chat_outbox ("
         ... "id INT AUTO_INCREMENT PRIMARY KEY,"
@@ -202,12 +375,35 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         ... "iphash VARCHAR(64) NOT NULL,"
         ... "display_name VARCHAR(128) DEFAULT '',"
         ... "message TEXT NOT NULL,"
-        ... "INDEX(created_at)) DEFAULT CHARSET=utf8mb4"
+        ... "host_ip VARCHAR(64) NOT NULL DEFAULT '',"
+        ... "host_port INT NOT NULL DEFAULT 0,"
+        ... "webchatonly TINYINT(1) NOT NULL DEFAULT 0,"
+        ... "alert TINYINT(1) NOT NULL DEFAULT 1,"
+        ... "server_ip VARCHAR(64) NULL,"
+        ... "server_port INT NULL,"
+        ... "delivered_to TEXT NULL,"
+        ... "INDEX(created_at)) DEFAULT CHARSET=utf8mb4",
+        "ALTER TABLE whaletracker_chat ADD COLUMN IF NOT EXISTS alert TINYINT(1) NOT NULL DEFAULT 1 AFTER message",
+        "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS host_ip VARCHAR(64) NOT NULL DEFAULT '' AFTER message",
+        "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS host_port INT NOT NULL DEFAULT 0 AFTER host_ip",
+        "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS webchatonly TINYINT(1) NOT NULL DEFAULT 0 AFTER host_port",
+        "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS alert TINYINT(1) NOT NULL DEFAULT 1 AFTER webchatonly",
+        "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS server_ip VARCHAR(64) NULL AFTER webchatonly",
+        "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS server_port INT NULL AFTER server_ip",
+        "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS delivered_to TEXT NULL AFTER server_port"
     };
 
-    for (int i = 0; i < sizeof(queries); i++)
+    g_iPendingSchemaQueries = sizeof(schemaQueries);
+    if (g_iPendingSchemaQueries <= 0)
     {
-        g_hFiltersDb.Query(Filters_SimpleSqlCallback, queries[i]);
+        g_bOutboxStampReady = true;
+    }
+    else
+    {
+        for (int i = 0; i < sizeof(schemaQueries); i++)
+        {
+            g_hFiltersDb.Query(Filters_SchemaQueryCallback, schemaQueries[i]);
+        }
     }
 
     Filters_LogDebug("Database connection established");
@@ -221,16 +417,49 @@ public void Filters_SimpleSqlCallback(Database db, DBResultSet results, const ch
     }
 }
 
+public void Filters_SchemaQueryCallback(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[Filters] Schema query failed: %s", error);
+    }
+
+    if (g_iPendingSchemaQueries > 0)
+    {
+        g_iPendingSchemaQueries--;
+    }
+
+    if (g_iPendingSchemaQueries <= 0)
+    {
+        g_bOutboxStampReady = true;
+        Filters_LogDebug("Schema ready; host stamp support enabled");
+    }
+}
+
 // Poll DB outbox and relay to all chat, then delete processed rows
 public Action Timer_PollOutbox(Handle timer, any data)
 {
-    if (!g_bDbReady)
+    if (GetConVarInt(g_hChatFrontend) < 1)
+	return Plugin_Continue;
+
+    if (!g_bDbReady || !g_bOutboxStampReady)
     {
-        Filters_LogDebug("DB not ready; skipping outbox poll");
+        Filters_LogDebug("DB/schema not ready; skipping outbox poll");
         return Plugin_Continue;
     }
-    char query[256];
-    Format(query, sizeof(query), "SELECT id, iphash, display_name, message FROM whaletracker_chat_outbox ORDER BY id ASC LIMIT 20");
+    char hostStamp[96];
+    Filters_GetHostStamp(hostStamp, sizeof(hostStamp));
+    if (!hostStamp[0])
+    {
+        Filters_LogDebug("Host stamp unavailable; skipping outbox poll");
+        return Plugin_Continue;
+    }
+    char needle[128];
+    Format(needle, sizeof(needle), "|%s|", hostStamp);
+    char escapedNeedle[192];
+    SQL_EscapeString(g_hFiltersDb, needle, escapedNeedle, sizeof(escapedNeedle));
+    char query[512];
+    Format(query, sizeof(query), "SELECT id, iphash, display_name, message, host_ip, host_port, webchatonly, alert, server_ip, server_port, delivered_to FROM whaletracker_chat_outbox WHERE delivered_to IS NULL OR LOCATE('%s', delivered_to) = 0 ORDER BY id ASC LIMIT 20", escapedNeedle);
     g_hFiltersDb.Query(Filters_OutboxQueryCallback, query);
     Filters_LogDebug("Polling chat outbox for pending messages");
     return Plugin_Continue;
@@ -243,9 +472,15 @@ public void Filters_OutboxQueryCallback(Database db, DBResultSet results, const 
         if (error[0] != '\0') LogError("[Filters] Outbox query failed: %s", error);
         return;
     }
-    int ids[64];
-    int count = 0;
-    while (results.FetchRow() && count < sizeof(ids))
+    char localStamp[96];
+    char hostNeedle[128];
+    Filters_GetHostStamp(localStamp, sizeof(localStamp));
+    hostNeedle[0] = '\0';
+    if (localStamp[0])
+    {
+        Format(hostNeedle, sizeof(hostNeedle), "|%s|", localStamp);
+    }
+    while (results.FetchRow())
     {
         int id = results.FetchInt(0);
         char hash[64];
@@ -254,47 +489,221 @@ public void Filters_OutboxQueryCallback(Database db, DBResultSet results, const 
         results.FetchString(2, display, sizeof(display));
         char msg[512];
         results.FetchString(3, msg, sizeof(msg));
+        bool isPlayerRelay = (strncmp(hash, "player:", 7) == 0);
         char label[256];
         char colorTag[32] = "{gold}";
-        if (display[0])
+        if (!isPlayerRelay)
         {
-            Filters_GetWebNameColor(display, colorTag, sizeof(colorTag));
-            Format(label, sizeof(label), "%s[%s]{default}", colorTag, display);
+            if (display[0])
+            {
+                Filters_GetWebNameColor(display, colorTag, sizeof(colorTag));
+                Format(label, sizeof(label), "%s[%s]{default}", colorTag, display);
+            }
+            else if (StrEqual(hash, "system"))
+            {
+                Format(label, sizeof(label), "{gold}[Server]{default}");
+            }
+            else
+            {
+                Filters_GetWebNameColor(hash, colorTag, sizeof(colorTag));
+                Format(label, sizeof(label), "%s[Web Player # %s]{default}", colorTag, hash);
+            }
         }
-        else if (StrEqual(hash, "system"))
+        char sourceIp[64];
+        results.FetchString(4, sourceIp, sizeof(sourceIp));
+        int sourcePort = 0;
+        int fieldCount = results.FieldCount;
+        if (fieldCount > 5)
         {
-            Format(label, sizeof(label), "{gold}[Server]{default}");
+            sourcePort = results.FetchInt(5);
+        }
+        bool webchatOnly = false;
+        if (fieldCount > 6)
+        {
+            webchatOnly = results.FetchInt(6) != 0;
+        }
+        // alert flag and server_ip/server_port are reserved for future use
+        if (fieldCount > 10 && hostNeedle[0])
+        {
+            char deliveredTo[256];
+            results.FetchString(10, deliveredTo, sizeof(deliveredTo));
+            if (StrContains(deliveredTo, hostNeedle, false) != -1)
+            {
+                Filters_LogDebug("Skipping chat id %d; already delivered per schema", id);
+                Filters_MarkOutboxDelivered(id);
+                continue;
+            }
+        }
+        bool fromLocalServer = Filters_IsLocalHostStamp(sourceIp, sourcePort);
+
+        bool suppressChatBroadcast = webchatOnly || StrEqual(hash, "system") || fromLocalServer;
+        if (isPlayerRelay)
+        {
+            if (!suppressChatBroadcast)
+            {
+                CPrintToChatAll("%s", msg);
+            }
+            if (!fromLocalServer && !webchatOnly)
+            {
+                PrintToServer("%s", msg);
+            }
         }
         else
         {
-            Filters_GetWebNameColor(hash, colorTag, sizeof(colorTag));
-            Format(label, sizeof(label), "%s[Web Player # %s]{default}", colorTag, hash);
+            char out[640];
+            Format(out, sizeof(out), "%s %s", label, msg);
+            if (!suppressChatBroadcast)
+            {
+                CPrintToChatAll("%s", out);
+            }
+            if (!fromLocalServer && !webchatOnly)
+            {
+                PrintToServer("%s", out);
+            }
         }
-        char out[640];
-        Format(out, sizeof(out), "%s %s", label, msg);
-        bool suppressChatBroadcast = StrEqual(hash, "system");
-        if (!suppressChatBroadcast)
+        if (fromLocalServer)
         {
-            CPrintToChatAll("%s", out);
+            Filters_LogDebug("Suppressed relay of local chat id %d (%s:%d)", id, sourceIp, sourcePort);
         }
-        PrintToServer("%s", out);
-        Filters_LogDebug("Relayed chat id %d hash %s name %s msg %s", id, hash, display, msg);
-        ids[count++] = id;
+        else if (webchatOnly)
+        {
+            Filters_LogDebug("Suppressed relay of webchat-only chat id %d", id);
+        }
+        Filters_LogDebug("Relayed chat id %d hash %s name %s msg %s (from %s:%d)", id, hash, display, msg, sourceIp, sourcePort);
+        Filters_MarkOutboxDelivered(id);
     }
-    if (count <= 0) return;
-    // Build delete query
-    char del[512];
-    strcopy(del, sizeof(del), "DELETE FROM whaletracker_chat_outbox WHERE id IN (");
-    char num[16];
-    for (int i = 0; i < count; i++)
+    Filters_MaybeCleanupOutbox();
+}
+
+static void Filters_MarkOutboxDelivered(int rowId)
+{
+    if (rowId <= 0 || !g_bDbReady || g_hFiltersDb == null)
     {
-        if (i > 0) StrCat(del, sizeof(del), ",");
-        IntToString(ids[i], num, sizeof(num));
-        StrCat(del, sizeof(del), num);
+        return;
     }
-    StrCat(del, sizeof(del), ")");
-    g_hFiltersDb.Query(Filters_SimpleSqlCallback, del);
-    Filters_LogDebug("Acknowledged %d outbox messages", count);
+    char stamp[96];
+    Filters_GetHostStamp(stamp, sizeof(stamp));
+    if (!stamp[0])
+    {
+        return;
+    }
+    char escapedStamp[192];
+    SQL_EscapeString(g_hFiltersDb, stamp, escapedStamp, sizeof(escapedStamp));
+    char query[512];
+    Format(query, sizeof(query), "UPDATE whaletracker_chat_outbox SET delivered_to = CASE WHEN delivered_to IS NULL OR delivered_to = '' THEN '|%s|' WHEN LOCATE('|%s|', delivered_to) = 0 THEN CONCAT(delivered_to, '|%s|') ELSE delivered_to END WHERE id = %d", escapedStamp, escapedStamp, escapedStamp, rowId);
+    g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
+}
+
+static void Filters_MaybeCleanupOutbox()
+{
+    if (!g_bDbReady || g_hFiltersDb == null)
+    {
+        return;
+    }
+    int now = GetTime();
+    if (g_iLastOutboxCleanup != 0 && now - g_iLastOutboxCleanup < FILTERS_OUTBOX_CLEANUP_INTERVAL)
+    {
+        return;
+    }
+    g_iLastOutboxCleanup = now;
+    int cutoff = now - FILTERS_OUTBOX_RETENTION_SECONDS;
+    if (cutoff <= 0)
+    {
+        return;
+    }
+    char query[128];
+    Format(query, sizeof(query),
+        "DELETE FROM whaletracker_chat_outbox WHERE created_at < %d",
+        cutoff);
+    g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
+}
+
+static void Filters_QueueOutboxMessage(int timestamp, const char[] iphash, const char[] displayName, const char[] message, bool webchatOnly, bool alertFlag)
+{
+    if (!g_bDbReady || g_hFiltersDb == null)
+    {
+        return;
+    }
+
+    char escapedMsg[512];
+    SQL_EscapeString(g_hFiltersDb, message, escapedMsg, sizeof(escapedMsg));
+    char escapedHash[128];
+    SQL_EscapeString(g_hFiltersDb, iphash, escapedHash, sizeof(escapedHash));
+    char escapedDisplay[256];
+    SQL_EscapeString(g_hFiltersDb, displayName, escapedDisplay, sizeof(escapedDisplay));
+    int webFlag = webchatOnly ? 1 : 0;
+    int alert = alertFlag ? 1 : 0;
+
+    char query[1024];
+    if (g_bOutboxStampReady)
+    {
+        char localIp[64];
+        int localPort;
+        Filters_GetLocalHostStamp(localIp, sizeof(localIp), localPort);
+        char escapedIp[128];
+        SQL_EscapeString(g_hFiltersDb, localIp, escapedIp, sizeof(escapedIp));
+        Format(query, sizeof(query),
+            "INSERT INTO whaletracker_chat_outbox (created_at, iphash, display_name, message, host_ip, host_port, webchatonly, alert) VALUES (%d, '%s', '%s', '%s', '%s', %d, %d, %d)",
+            timestamp,
+            escapedHash,
+            escapedDisplay,
+            escapedMsg,
+            escapedIp,
+            localPort,
+            webFlag,
+            alert);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "INSERT INTO whaletracker_chat_outbox (created_at, iphash, display_name, message, webchatonly, alert) VALUES (%d, '%s', '%s', '%s', %d, %d)",
+            timestamp,
+            escapedHash,
+            escapedDisplay,
+            escapedMsg,
+            webFlag,
+            alert);
+    }
+
+    g_hFiltersDb.Query(Filters_OutboxInsertCallback, query);
+}
+
+static void Filters_RelayChatToServers(int client, const char[] message)
+{
+    if (!g_bDbReady || g_hFiltersDb == null || !g_bOutboxStampReady)
+    {
+        return;
+    }
+
+    char hash[64];
+    if (client > 0 && IsClientInGame(client))
+    {
+        char steamId[32];
+        if (GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+        {
+            Format(hash, sizeof(hash), "player:%s", steamId);
+        }
+        else
+        {
+            Format(hash, sizeof(hash), "player:uid%d", GetClientUserId(client));
+        }
+    }
+    else
+    {
+        strcopy(hash, sizeof(hash), "player:unknown");
+    }
+
+    char displayName[128];
+    if (client > 0 && IsClientInGame(client))
+    {
+        GetClientName(client, displayName, sizeof(displayName));
+    }
+    else
+    {
+        strcopy(displayName, sizeof(displayName), "");
+    }
+
+    Filters_QueueOutboxMessage(GetTime(), hash, displayName, message, false, true);
 }
 
 void Filters_LogChatMessage(int client, const char[] message)
@@ -325,17 +734,18 @@ void Filters_LogChatMessage(int client, const char[] message)
     if (hasSteam)
     {
         Format(query, sizeof(query),
-            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message) VALUES (%d, '%s', '%s', NULL, '%s')",
+            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, '%s', '%s', NULL, '%s', 1)",
             GetTime(), steamId, escapedName, escapedMsg);
     }
     else
     {
         Format(query, sizeof(query),
-            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message) VALUES (%d, NULL, '%s', NULL, '%s')",
+            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, NULL, '%s', NULL, '%s', 1)",
             GetTime(), escapedName, escapedMsg);
     }
     g_hFiltersDb.Query(Filters_InsertChatCallback, query);
     Filters_LogDebug("Logged chat from %s: %s", hasSteam ? steamId : "unknown", message);
+    Filters_RelayChatToServers(client, message);
 }
 
 public void Filters_InsertChatCallback(Database db, DBResultSet results, const char[] error, any data)
@@ -348,7 +758,7 @@ public void Filters_InsertChatCallback(Database db, DBResultSet results, const c
     Filters_LogDebug("Chat insert succeeded");
 }
 
-void Filters_InsertSystemMessage(const char[] format, any ...)
+void Filters_InsertSystemMessage(bool webchatOnly, bool alertFlag, const char[] format, any ...)
 {
     if (!g_bDbReady)
     {
@@ -357,24 +767,39 @@ void Filters_InsertSystemMessage(const char[] format, any ...)
     }
 
     char message[256];
-    VFormat(message, sizeof(message), format, 2);
+    VFormat(message, sizeof(message), format, 4);
 
     int timestamp = GetTime();
     char escapedMsg[512];
     SQL_EscapeString(g_hFiltersDb, message, escapedMsg, sizeof(escapedMsg));
+    char localIp[64];
+    int localPort;
+    Filters_GetLocalHostStamp(localIp, sizeof(localIp), localPort);
+    char escapedIp[128];
+    SQL_EscapeString(g_hFiltersDb, localIp, escapedIp, sizeof(escapedIp));
+
+    // Broadcast immediately to the local server unless webchat-only.
+    if (!webchatOnly)
+    {
+        CPrintToChatAll("%s", message);
+        PrintToServer("%s", message);
+        Filters_LogDebug("Local system message broadcast: %s", message);
+    }
+    else
+    {
+        Filters_LogDebug("Webchat-only system message queued without local broadcast: %s", message);
+    }
 
     char query[1024];
+    int alert = alertFlag ? 1 : 0;
     Format(query, sizeof(query),
-        "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message) VALUES (%d, NULL, '[SERVER]', 'system', '%s')",
+        "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, NULL, '[SERVER]', 'system', '%s', %d)",
         timestamp,
-        escapedMsg);
+        escapedMsg,
+        alert);
     g_hFiltersDb.Query(Filters_InsertChatCallback, query);
 
-    Format(query, sizeof(query),
-        "INSERT INTO whaletracker_chat_outbox (created_at, iphash, message) VALUES (%d, 'system', '%s')",
-        timestamp,
-        escapedMsg);
-    g_hFiltersDb.Query(Filters_OutboxInsertCallback, query);
+    Filters_QueueOutboxMessage(timestamp, "system", "", message, webchatOnly, alertFlag);
     Filters_LogDebug("Queued system message: %s", message);
 }
 
@@ -416,11 +841,11 @@ public Action Timer_ProcessConnectQueue(Handle timer)
 
         if (event.connected)
         {
-            Filters_InsertSystemMessage("{gold}[Server]{default}: {cornflowerblue}%s{default} connected to the server.", event.name);
+            Filters_AnnouncePlayerJoin(event.name);
         }
         else
         {
-            Filters_InsertSystemMessage("{gold}[Server]{default}: {cornflowerblue}%s{default} disconnected from the server.", event.name);
+            Filters_AnnouncePlayerLeave(event.name);
         }
     }
 
@@ -472,7 +897,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
     }
 
     ChatContext context;
-   BuildChatContext(client, sArgs, context);
+    BuildChatContext(client, sArgs, context);
 
     char nameColorTag[40];
     BuildNameColorTag(client, nameColorTag, sizeof(nameColorTag));
@@ -542,7 +967,7 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
     char commandToken[16];
     int nextIndex = BreakString(buffer, commandToken, sizeof(commandToken));
 
-    if (!StrEqual(commandToken, "!name", false) && !StrEqual(commandToken, "/name", false))
+    if (!StrEqual(commandToken, "!name", false) && !StrEqual(commandToken, "/name", false) && !StrEqual(commandToken, "!color", false) && !StrEqual(commandToken, "/color", false))
     {
         return false;
     }
@@ -757,7 +1182,7 @@ public Action Command_WebSay(int client, int args)
     char raw[256];
     GetCmdArgString(raw, sizeof(raw));
     TrimString(raw);
-    if (!raw[0])
+    if (!raw[0] || GetConVarInt(g_hChatFrontend) < 1)
     {
         return Plugin_Handled;
     }
@@ -802,7 +1227,7 @@ public Action Command_WebSay(int client, int args)
         SQL_EscapeString(g_hFiltersDb, msgPart, escapedMsg, sizeof(escapedMsg));
         char query[1024];
         Format(query, sizeof(query),
-            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message) VALUES (%d, NULL, NULL, '%s', '%s')",
+            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, NULL, NULL, '%s', '%s', 1)",
             GetTime(), hash, escapedMsg);
         g_hFiltersDb.Query(Filters_InsertChatCallback, query);
     }
@@ -855,6 +1280,7 @@ void LoadFilterConfig()
     // Reset counts
     g_FilterCount = 0;
     g_BlacklistCount = 0;
+    g_Blacklist50Count = 0;
     g_ForcedStatusCount = 0;
     g_AllowedCommandsCount = 0;
 
@@ -920,6 +1346,33 @@ void LoadFilterConfig()
             }
             while (kv.GotoNextKey(false));
             
+            kv.GoBack();
+        }
+        kv.GoBack();
+    }
+
+    // Load blacklist_words_50 section
+    if (kv.JumpToKey("blacklist_words_50"))
+    {
+        if (kv.GotoFirstSubKey(false))
+        {
+            do
+            {
+                if (g_Blacklist50Count >= MAX_BLACKLIST)
+                {
+                    LogError("Maximum blacklist_50 limit reached (%d)", MAX_BLACKLIST);
+                    break;
+                }
+
+                char word[MAX_WORD_LENGTH];
+                kv.GetSectionName(word, sizeof(word));
+
+                strcopy(g_BlacklistWords50[g_Blacklist50Count], MAX_WORD_LENGTH, word);
+
+                g_Blacklist50Count++;
+            }
+            while (kv.GotoNextKey(false));
+
             kv.GoBack();
         }
         kv.GoBack();
@@ -1019,22 +1472,24 @@ void LoadFilterConfig()
     
     delete kv;
     
-    PrintToServer("[Word Filter] Loaded %d filter words, %d blacklist words, %d forced status entries, and %d commands", 
-                  g_FilterCount, g_BlacklistCount, g_ForcedStatusCount, g_AllowedCommandsCount);
+    PrintToServer("[Word Filter] Loaded %d filter words, %d blacklist words, %d blacklist_50 words, %d forced status entries, and %d commands",
+                  g_FilterCount, g_BlacklistCount, g_Blacklist50Count, g_ForcedStatusCount, g_AllowedCommandsCount);
 }
 
 // Example usage function - filters a string
 public void FilterString(char[] input, int maxlen)
 {
+    bool caseSensitive = g_hFiltersCaseSensitive == null ? true : g_hFiltersCaseSensitive.BoolValue;
+
     // Apply word filters
     for (int i = 0; i < g_FilterCount; i++)
     {
-        ReplaceString(input, maxlen, g_FilterWords[i], g_ReplacementWords[i], false);
+        ReplaceString(input, maxlen, g_FilterWords[i], g_ReplacementWords[i], caseSensitive);
     }
 }
 
-// Example usage function - checks if string contains blacklisted word
-public bool ContainsBlacklistedWord(const char[] input)
+    // Example usage function - checks if string contains blacklisted word
+    public bool ContainsBlacklistedWord(const char[] input)
 {
     char lowerInput[256];
     strcopy(lowerInput, sizeof(lowerInput), input);
@@ -1110,6 +1565,11 @@ void CreateDefaultConfig(const char[] path)
     file.WriteLine("        \"blockedword2\"    \"\"");
     file.WriteLine("        \"blockedword3\"    \"\"");
     file.WriteLine("    }");
+    file.WriteLine("    \"blacklist_words_50\"");
+    file.WriteLine("    {");
+    file.WriteLine("        \"softblocked1\"    \"\"");
+    file.WriteLine("        \"softblocked2\"    \"\"");
+    file.WriteLine("    }");
     file.WriteLine("    \"force_status\"");
     file.WriteLine("    {");
     file.WriteLine("        \"STEAM_0:0:12345678\"    \"whitelist\"");
@@ -1119,6 +1579,7 @@ void CreateDefaultConfig(const char[] path)
     file.WriteLine("    \"commands\"");
     file.WriteLine("    {");
     file.WriteLine("        \"rtv\"    \"\"");
+    file.WriteLine("        \"unrtv\"    \"\"");
     file.WriteLine("        \"nominate\"    \"\"");
     file.WriteLine("        \"nextmap\"    \"\"");
     file.WriteLine("        \"motd\"    \"\"");
@@ -1640,7 +2101,17 @@ bool CheckCommands(const char[] sArgs)
 
 bool CheckBlacklistedTerms(const char[] sArgs)
 {
-    for (int i = 0; i < MAX_BLACKLIST; i++)
+    if (g_hFiltersEnabled != null && !g_hFiltersEnabled.BoolValue)
+    {
+        return false;
+    }
+
+    if (g_hBlacklistMinLen != null && strlen(sArgs) < g_hBlacklistMinLen.IntValue)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < g_BlacklistCount; i++)
     {
         // skip empty entries
         if (g_BlacklistWords[i][0] == '\0')
@@ -1652,5 +2123,58 @@ bool CheckBlacklistedTerms(const char[] sArgs)
             return true;
         }
     }
+
+    for (int i = 0; i < g_Blacklist50Count; i++)
+    {
+        if (g_BlacklistWords50[i][0] == '\0')
+            continue;
+
+        if (StrContains(sArgs, g_BlacklistWords50[i], false) != -1)
+        {
+            if (GetRandomInt(0, 1) == 1)
+            {
+                PrintToServer("Blacklisted term (50%%): %s", g_BlacklistWords50[i]);
+                return true;
+            }
+            return false;
+        }
+    }
+
     return false;
+}
+static void Filters_AnnouncePlayerJoin(const char[] name)
+{
+    char serverName[128];
+    Filters_GetServerName(serverName, sizeof(serverName));
+    if (serverName[0])
+    {
+        Filters_InsertSystemMessage(true, false, "{gold}[Server]{default}: {cornflowerblue}%s{default} connected to {gold}[%s]{default}.", name, serverName);
+    }
+    else
+    {
+        Filters_InsertSystemMessage(true, false, "{gold}[Server]{default}: {cornflowerblue}%s{default} connected to the server.", name);
+    }
+}
+
+static void Filters_AnnouncePlayerLeave(const char[] name)
+{
+    char serverName[128];
+    Filters_GetServerName(serverName, sizeof(serverName));
+    if (serverName[0])
+    {
+        Filters_InsertSystemMessage(true, false, "{gold}[Server]{default}: {cornflowerblue}%s{default} disconnected from {gold}[%s]{default}.", name, serverName);
+    }
+    else
+    {
+        Filters_InsertSystemMessage(true, false, "{gold}[Server]{default}: {cornflowerblue}%s{default} disconnected from the server.", name);
+    }
+}
+
+static void Filters_GetServerName(char[] buffer, int maxlen)
+{
+    if (!g_sServerName[0])
+    {
+        RefreshServerHostname();
+    }
+    strcopy(buffer, maxlen, g_sServerName);
 }

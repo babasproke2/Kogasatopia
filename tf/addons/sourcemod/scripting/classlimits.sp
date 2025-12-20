@@ -89,9 +89,9 @@ public void OnPluginStart()
     HookEvent("player_changeclass", Event_PlayerClass);
     HookEvent("player_spawn",       Event_PlayerSpawn);
     HookEvent("player_team",        Event_PlayerTeam);
-    HookEvent("player_say",         Event_PlayerSay, EventHookMode_PostNoCopy);
+    HookEvent("player_say",         Event_PlayerSay, EventHookMode_Post);
     RegConsoleCmd("sm_classlimits", Command_ShowClassLimits, "Show current class limits.");
-
+    RegConsoleCmd("sm_cl", Command_ShowClassLimits, "Show current class limits.");
 }
 
 public void OnMapStart()
@@ -112,7 +112,13 @@ public void OnClientPutInServer(int client)
 
 public void Event_PlayerSay(Event event, const char[] name, bool dontBroadcast)
 {
-    int client = GetClientOfUserId(event.GetInt("userid"));
+    int userId = event.GetInt("userid", 0);
+    if (!userId)
+    {
+        return;
+    }
+
+    int client = GetClientOfUserId(userId);
     if (!IsClientInGame(client))
     {
         return;

@@ -5,6 +5,7 @@
 
 #define MAPSDB_EXEC_FORMAT "exec mapsdb/%s.cfg"
 #define MAPSDB_DEFAULT_CFG "default"
+#define MAPSDB_DEFAULT_CFG "secrets"
 
 char g_sCurrentMap[PLATFORM_MAX_PATH];
 char g_sCurrentGamemode[32];
@@ -106,6 +107,13 @@ public Action Timer_RunGamemodeConfig(Handle timer)
 public Action Timer_RunMapConfig(Handle timer)
 {
     ExecMapsDbConfig(g_sCurrentMap);
+    CreateTimer(1.0, Timer_RunSecretsConfig, _, TIMER_FLAG_NO_MAPCHANGE);
+    return Plugin_Stop;
+}
+
+public Action Timer_RunSecretsConfig(Handle timer)
+{
+    ExecMapsDbConfig(MAPSDB_SECRET_CFG);
     return Plugin_Stop;
 }
 

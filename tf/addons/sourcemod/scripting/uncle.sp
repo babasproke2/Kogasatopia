@@ -15,6 +15,7 @@ static const char g_sUncleNames[][] =
 
 ConVar g_hHostname = null;
 ConVar g_hDynamic = null;
+ConVar g_hActiveCvar = null;
 
 Handle g_hUncleTimer = null;
 int g_iUncleIndex = 0;
@@ -35,6 +36,11 @@ public void OnPluginStart()
     g_hHostname = FindConVar("hostname");
     g_hDynamic = CreateConVar("sm_uncle_dynamic", "0", "Enable dynamic Uncletopia hostname cycling when player count is between 4 and 23.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
     g_hDynamic.AddChangeHook(ConVarChanged_Dynamic);
+    g_hActiveCvar = CreateConVar("sm_uncle_active", "0", "Whether the Uncletopia hostname cycle is active.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    if (g_hActiveCvar != null)
+    {
+        g_hActiveCvar.SetBool(false);
+    }
 
     RegAdminCmd("sm_uncle", Command_Uncle, ADMFLAG_GENERIC, "Toggle Uncletopia hostname cycling and store/restore original hostname.");
 }
@@ -56,6 +62,12 @@ public void OnClientDisconnect(int client)
 {
     if (IsFakeClient(client))
         return;
+
+    if (GetHumanPlayerCount() == 0 && g_hUncleTimer != null)
+    {
+        StopUncleCycle(true);
+        return;
+    }
 
     MaybeStartDynamic();
 }
@@ -112,6 +124,10 @@ void StartUncleCycle()
     g_iUncleIndex = 0;
     ApplyNextHostname();
     g_hUncleTimer = CreateTimer(10.0, Timer_UncleCycle, _, TIMER_REPEAT);
+    if (g_hActiveCvar != null)
+    {
+        g_hActiveCvar.SetBool(true);
+    }
 }
 
 void StopUncleCycle(bool revert)
@@ -126,6 +142,11 @@ void StopUncleCycle(bool revert)
     {
         SetConVarString(g_hHostname, g_sOriginalHostname);
         ServerCommand("sv_visiblemaxplayers 28");
+    }
+
+    if (g_hActiveCvar != null)
+    {
+        g_hActiveCvar.SetBool(false);
     }
 }
 
@@ -142,6 +163,22 @@ void ApplyNextHostname()
         return;
     }
 
+    int playerCount = GetClientCount(false);
+    if (playerCount > 23)
+    {
+        if (!g_bOriginalSet)
+        {
+            g_hHostname.GetString(g_sOriginalHostname, sizeof(g_sOriginalHostname));
+            g_bOriginalSet = true;
+        }
+        if (g_bOriginalSet)
+        {
+            SetConVarString(g_hHostname, g_sOriginalHostname);
+        }
+        ServerCommand("sv_visiblemaxplayers 28");
+        return;
+    }
+
     SetConVarString(g_hHostname, g_sUncleNames[g_iUncleIndex]);
     ServerCommand("sv_visiblemaxplayers 24");
 
@@ -155,15 +192,7 @@ void MaybeStartDynamic()
         return;
     }
 
-    int players = 0;
-    for (int i = 1; i <= MaxClients; i++)
-    {
-        if (IsClientInGame(i) && !IsFakeClient(i))
-        {
-            players++;
-        }
-    }
-
+    int players = GetHumanPlayerCount();
     bool withinRange = (players > 3 && players < 24);
     if (withinRange && g_hUncleTimer == null)
     {
@@ -173,4 +202,17 @@ void MaybeStartDynamic()
     {
         StopUncleCycle(true);
     }
+}
+
+int GetHumanPlayerCount()
+{
+    int players = 0;
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (IsClientInGame(i) && !IsFakeClient(i))
+        {
+            players++;
+        }
+    }
+    return players;
 }

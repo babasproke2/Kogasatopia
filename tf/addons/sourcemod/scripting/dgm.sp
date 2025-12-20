@@ -10,7 +10,6 @@
 
 #define PLUGIN_VERSION "4.3"
 
-ConVar g_cvEnabled;
 ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
 ConVar g_cvThreshold;
@@ -42,12 +41,10 @@ public Plugin myinfo = {
 
 public void OnPluginStart()
 {
-    // Disable respawn times with this plugin?
-    g_cvEnabled = CreateConVar("disable_respawn_times", "0", "Override respawn times", _, true, 0.0, true, 1.0);
     // The respawn time
     g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 30.0);
     // See description
-    g_cvThreshold = CreateConVar("sm_highpop_threshhold", "12.0", "Threshhold for executing the highpop config", _, true, 0.0, true, 100.0);
+    g_cvThreshold = CreateConVar("sm_highpop_threshhold", "18.0", "Threshhold for executing the highpop config", _, true, 0.0, true, 100.0);
     // For micromanagement, if this convar isn't 0, it'll use the given time
     g_cvTimeOverride = CreateConVar("respawn_otime", "0", "Override respawn time with this", _, true, 0.0, true, 30.0);
     // Respawn times for individual teams (beta)
@@ -167,7 +164,6 @@ public Action Command_Stats(int client, int args)
     float timeOverride = GetConVarFloat(g_cvTimeOverride);
     float redTime = GetConVarFloat(g_cvRedTime);
     float bluTime = GetConVarFloat(g_cvBluTime);
-    int enabledRespawnOverride = GetConVarInt(g_cvEnabled);
     int asymCapRespawn = GetConVarInt(g_cvAsymCapRespawn);
 
     // Output function (chooses chat or console)
@@ -177,8 +173,8 @@ public Action Command_Stats(int client, int args)
         PrintToServer("Map: %s | Server: %s | Max Players: %d", map, hostname, visMax);
         PrintToServer("  respawn_time: %.2f", respawnTime);
         PrintToServer("  red: %.2f | blu: %.2f | otime:%.2f", redTime, bluTime, timeOverride);
-        PrintToServer("  disable_respawn_times: %d | respawn_red_on_cap: %d",
-                      enabledRespawnOverride, asymCapRespawn);
+        PrintToServer("  respawn_red_on_cap: %d",
+                      asymCapRespawn);
     }
     else
     {
@@ -190,8 +186,8 @@ public Action Command_Stats(int client, int args)
 
         PrintToChat(client, "\x04[Respawn]\x01 red: \x04%.2f\x01 | blu: \x04%.2f", redTime, bluTime);
 
-        PrintToChat(client, "\x04[Respawn]\x01 disable_respawn_times: \x04%d\x01 | respawn_red_on_cap: \x04%d",
-                    enabledRespawnOverride, asymCapRespawn);
+        PrintToChat(client, "\x04[Respawn]\x01 respawn_red_on_cap: \x04%d",
+                    asymCapRespawn);
     }
 
     return Plugin_Handled;
@@ -200,8 +196,7 @@ public Action Command_Stats(int client, int args)
 public Action Command_CvarHelp(int client, int args)
 {
     char lines[][] = {
-        "disable_respawn_times: 0/1 - If 1, plugin-controlled respawn timers are enabled",
-        "respawn_time: float - Default respawn delay (seconds) when not overridden",
+        "respawn_time: float - Default respawn delay (seconds). Set to 30 to disable plugin handling.",
         "sm_highpop_threshhold: int - Player count threshold to execute high-pop configs",
         "respawn_otime: float - If >0, forces this respawn delay for all players",
         "respawn_redtime: float - Respawn time (seconds) specifically for Red team (beta)",
@@ -249,9 +244,14 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
             SetConVarInt(g_cvMpDisableRespawnTimes, 0);
             return;
         }
-        if (!GetConVarInt(g_cvEnabled)) return;
         int client = GetClientOfUserId(GetEventInt(event, "userid"));
         if (!(IsValidClient(client))) return;
+
+        float baseRespawn = GetConVarFloat(g_cvRespawnTime);
+        if (FloatCompare(baseRespawn, 30.0) == 0)
+        {
+            return;
+        }
 
         float override = GetConVarFloat(g_cvTimeOverride);
         if (override > 0)
@@ -260,7 +260,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
             return;
         }
 
-        float time = GetConVarFloat(g_cvRespawnTime);
+        float time = baseRespawn;
         int team = GetClientTeam(client);
         float redTime = GetConVarFloat(g_cvRedTime);
         float bluTime = GetConVarFloat(g_cvBluTime);

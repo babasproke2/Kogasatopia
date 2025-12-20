@@ -37,6 +37,7 @@ static const char g_ScoutCustom[][] = {
 static const char g_SoldierReverts[][] = {
     "{default}Air Strike:{green} +15% reload speed\n",
     "{default}Liberty Launcher:{green} +10% firing speed\n",
+    "{default}The Gunboats:{green} Self-damage protection reverted to +75%\n",
     "{default}Righteous Bison:{green} Original hitbox size, ignores bullet resistance, ignites friendly Huntsman arrows\n",
     "{default}Base Jumper:{chartreuse} Re-deploy, float upwards while on fire\n",
     "{default}Equalizer:{green} -20% damage from ranged sources while active\n",
@@ -96,7 +97,7 @@ static const char g_HeavyCustom[][] = {
 };
 
 static const char g_EngineerReverts[][] = {
-    "\x01Pomson:{green} Original hitbox size, penetrates targets, ignores bullet resists, lights up friendly Huntsman arrows\n",
+    "\x01Pomson:{green} Original hitbox size, penetrates targets, ignores bullet resists, lights up friendly Huntsman arrows, {red}-75% cloak/uber drain\n",
     "\x01The Wrangler:{red} Shield resistance 66% -> 25%\n",
     "\x01The Short Circuit:{chartreuse} Damage dealt with primary fire is returned as metal,{red} 75% less metal from carts on wearer\n",
     "\x01Southern Hospitality:{green} +10% damage, 15 metal regenerated every 5 seconds on wearer\n"

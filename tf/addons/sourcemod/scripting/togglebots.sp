@@ -30,6 +30,10 @@ public void OnPluginStart()
 
     // Ensure both files exist
     BotConfigFiles(botsCfg, noBotsCfg);
+
+    HookEvent("player_connect", Event_PlayerConnect, EventHookMode_Pre);
+    HookEvent("player_connect_client", Event_PlayerConnectClient, EventHookMode_Pre);
+    HookEvent("player_changename", Event_PlayerChangeName, EventHookMode_Pre);
 }
 
 // Called whenever sm_tf_bot_quota changes
@@ -66,6 +70,54 @@ public Action Command_BotToggle(int client, int args)
         PrintToChat(client, "[Bots] Bots enabled");
     }
     return Plugin_Handled;
+}
+
+public Action Event_PlayerConnect(Event event, const char[] name, bool dontBroadcast)
+{
+    bool isBot = GetEventBool(event, "bot");
+    int client = GetClientOfUserId(GetEventInt(event, "userid"));
+    if (!isBot && client > 0 && IsClientInGame(client))
+    {
+        isBot = IsFakeClient(client);
+    }
+
+    if (isBot)
+    {
+        SetEventBroadcast(event, true);
+        return Plugin_Handled;
+    }
+
+    return Plugin_Continue;
+}
+
+public Action Event_PlayerConnectClient(Event event, const char[] name, bool dontBroadcast)
+{
+    bool isBot = GetEventBool(event, "bot");
+    int client = GetClientOfUserId(GetEventInt(event, "userid"));
+    if (!isBot && client > 0 && IsClientInGame(client))
+    {
+        isBot = IsFakeClient(client);
+    }
+
+    if (isBot)
+    {
+        SetEventBroadcast(event, true);
+        return Plugin_Handled;
+    }
+
+    return Plugin_Continue;
+}
+
+public Action Event_PlayerChangeName(Event event, const char[] name, bool dontBroadcast)
+{
+    int client = GetClientOfUserId(GetEventInt(event, "userid"));
+    if (client > 0 && IsClientInGame(client) && IsFakeClient(client))
+    {
+        SetEventBroadcast(event, true);
+        return Plugin_Handled;
+    }
+
+    return Plugin_Continue;
 }
 
 void BotConfigFiles(const char[] botsCfg, const char[] noBotsCfg)

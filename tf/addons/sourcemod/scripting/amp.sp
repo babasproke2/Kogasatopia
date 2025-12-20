@@ -164,6 +164,7 @@ public OnPluginStart()
 	RegConsoleCmd("sm_amphelp", HelpPanel, "Show info about Amplifier");
 	RegConsoleCmd("sm_ah", HelpPanel, "Show info about Amplifier");
 	RegConsoleCmd("sm_ph", HelpPanel, "Show info about Amplifier");
+	RegConsoleCmd("sm_killsentries", Command_KillSentries, "Destroy all sentry guns");
 
 	g_hPadCookie = FindClientCookie("engipads_toggle");
 
@@ -854,20 +855,24 @@ public Action:BuildingCheckStage2(Handle hTimer, any:ref)
 	
 	AmplifierOn[ent] = true;
 	new String:modelname[128];
-	char sHealth[16];
-	int health = 0;
-	if (AmplifierMini[ent])
-	{
-		health = AMPLIFIER_MINI_HEALTH;
-	} else health = AMPLIFIER_HEALTH; // Had issues with this due to how sourcemod handles each frame I assume
-	Format(sHealth, sizeof(sHealth), "%d", health);
 	Format(modelname, 128, "%s.mdl", AmplifierModel);
 	SetEntProp(ent, Prop_Send, "m_iUpgradeLevel", 1);
 	SetEntityModel(ent, modelname);
 
-	SetEntProp(ent, Prop_Send, "m_iMaxHealth", health);
-	SetVariantString(sHealth);
-	AcceptEntityInput(ent, "SetHealth");
+	if (AmplifierMini[ent])
+	{
+		SetEntProp(ent, Prop_Send, "m_iMaxHealth", AMPLIFIER_MINI_HEALTH);
+		char sHealth[16];
+		IntToString(AMPLIFIER_MINI_HEALTH, sHealth, sizeof(sHealth));
+		SetVariantString(sHealth);
+		AcceptEntityInput(ent, "SetHealth");
+	}
+	else
+	{
+		SetEntProp(ent, Prop_Send, "m_iMaxHealth", 216);
+		SetVariantString("-66");
+		AcceptEntityInput(ent, "RemoveHealth");
+	}
 	
 	new String:buildingClass[64];
 	GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
@@ -891,22 +896,24 @@ CheckSapper(ent)
 public Action:SapperCheckStage1(Handle:hTimer, any:ref)
 {
 	new ent = EntRefToEntIndex(ref);
-	if (ent <= 0 || !IsValidEntity(ent)) return Plugin_Continue;
-	
-	new String:classname[64];
-	GetEdictClassname(ent, classname, sizeof(classname));
-	if (strcmp(classname, "obj_attachment_sapper")) return Plugin_Continue;
-	
-	new maxEntities = GetMaxEntities();
-	for (new i = 1; i < maxEntities; i++)
+	if (ent > 0 && IsValidEntity(ent))
 	{
-		new ampref = BuildingRef[i];
-		new ampent = EntRefToEntIndex(ampref);
-		if (ampent > 0 && GetEntProp(ampent, Prop_Send, "m_bHasSapper") == 1 && !AmplifierSapped[ampent])
+		new String:classname[64];
+		GetEdictClassname(ent, classname, sizeof(classname));
+		if (!strcmp(classname, "obj_attachment_sapper"))
 		{
-			AmplifierSapped[ampent] = true;
-			CreateTimer(0.5, SapperCheckStage2, ampref, TIMER_REPEAT);
-			break;
+			new maxEntities = GetMaxEntities();
+			for (new i = 1; i < maxEntities; i++)
+			{
+				new ampref = BuildingRef[i];
+				new ampent = EntRefToEntIndex(ampref);
+				if (ampent > 0 && GetEntProp(ampent, Prop_Send, "m_bHasSapper") == 1 && !AmplifierSapped[ampent])
+				{
+					AmplifierSapped[ampent] = true;
+					CreateTimer(0.5, SapperCheckStage2, ampref, TIMER_REPEAT);
+					break;
+				}
+			}
 		}
 	}
 	return Plugin_Continue;
@@ -1223,6 +1230,40 @@ public Action Timer_RemoveEntity(Handle timer, int ref) {
         RemoveEntity(entity);
     }
     return Plugin_Stop;
+}
+
+public void killAllSentries()
+{
+    int maxEnts = GetMaxEntities();
+    char classname[64];
+    for (int ent = MaxClients + 1; ent < maxEnts; ent++)
+    {
+        if (!IsValidEntity(ent))
+            continue;
+
+        GetEdictClassname(ent, classname, sizeof(classname));
+        bool isSentry = !strcmp(classname, "obj_sentrygun");
+        if (isSentry)
+        {
+            AcceptEntityInput(ent, "Kill");
+        }
+    }
+}
+
+public Action Command_KillSentries(int client, int args)
+{
+    killAllSentries();
+
+    if (client > 0 && IsClientInGame(client))
+    {
+        CPrintToChat(client, "{gold}[Amplifier]{default} All sentries have been destroyed.");
+    }
+    else
+    {
+        PrintToServer("[Amplifier] All sentries have been destroyed.");
+    }
+
+    return Plugin_Handled;
 }
 
 // Ray Trace

@@ -3,6 +3,7 @@
 #include <tf2>
 #include <tf2_stocks>
 #include <sdktools>
+#include <morecolors>
 
 #define PLUGIN_VERSION			"1.0"
 
@@ -17,7 +18,8 @@ public Plugin:myinfo =
 
 public OnPluginStart()
 {
-	HookEvent("player_changename", OnPlayerSpawn, EventHookMode_Post);
+	HookEvent("player_spawn", OnPlayerSpawn, EventHookMode_Post);
+	HookEvent("player_changename", Event_OnNameChange, EventHookMode_Pre);
 }
 
 public OnPlayerSpawn(Handle:hEvent, const String:strEventName[], bool:bDontBroadcast)
@@ -56,4 +58,30 @@ public OnPlayerSpawn(Handle:hEvent, const String:strEventName[], bool:bDontBroad
                         }
 		}
 	}
+}
+
+public Action:Event_OnNameChange(Handle:event, const String:name[], bool:dontBroadcast)
+{
+	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	if (client <= 0 || !IsClientInGame(client) || !IsFakeClient(client))
+	{
+		return Plugin_Continue;
+	}
+
+	// Block the default broadcast
+	SetEventBroadcast(event, true);
+
+	char newName[MAX_NAME_LENGTH];
+	GetEventString(event, "newname", newName, sizeof(newName));
+
+	for (int i = 1; i <= MaxClients; i++)
+	{
+		if (!IsClientInGame(i))
+		{
+			continue;
+		}
+		CPrintToChatEx(i, client, "{greenyellow}[Bots]{default} {teamcolor}%s{default} has joined the game", newName);
+	}
+
+	return Plugin_Handled;
 }

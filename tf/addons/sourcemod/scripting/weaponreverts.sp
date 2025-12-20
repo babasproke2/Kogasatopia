@@ -1093,7 +1093,7 @@ public Action OnTakeDamageAlive(
 				break;
 			}
 		}
-		
+
 		if (shift_array)
 		{
 			// Shift mark victim array by one
@@ -1305,6 +1305,8 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			case 588: //The Pomson 6000
 			{
 				TF2Attrib_SetByName(entity, "energy weapon penetration", 1.00); // Penetrate targets
+				TF2Attrib_SetByName(entity, "subtract victim medigun charge on hit", 5.00);
+				TF2Attrib_SetByName(entity, "subtract victim cloak on hit", 5.00);
 			}
 			case 405, 608: //Demoman boots
 			{
