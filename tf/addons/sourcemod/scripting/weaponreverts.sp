@@ -1116,6 +1116,12 @@ public Action OnTakeDamageAlive(
 		TF2_AddCondition(victim, TFCond_MarkedForDeath, 15.0, attacker);
 	}
 
+	if (damage_custom == TF_CUSTOM_CANNONBALL_PUSH)
+	{
+		// This should prevent loose cannon causing a stun
+		TF2_AddCondition(victim, TFCond_KnockedIntoAir, 0.001);
+	}
+
 	return Plugin_Continue;
 }
 
