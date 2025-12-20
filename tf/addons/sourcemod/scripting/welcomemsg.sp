@@ -28,6 +28,7 @@ static const char g_ScoutReverts[][] = {
 
 static const char g_ScoutCustom[][] = {
     "\x01 [Primary] Original Baby Face: {green}+40% accuracy, 6 clip size,\x07FF0000 -30% damage, -35% base movement speed, boost resets on any jump\n",
+    "\x01 [Primary] Vanilla Baby Face\n",
     "\x01 [Secondary] Lightning Pistol: {chartreuse}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
     "\x01 [Secondary] Sproke (Redbull on Blu): {green}Ammo becomes magazine for 12 seconds, {red}ammo is set to 0 when effect ends,{default} FaN/Popper receive +25% reload speed instead",
     "\x01[Secondary] Conagher's Bull: Drain 25 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 60% tighter spread\n"
@@ -78,7 +79,8 @@ static const char g_DemoReverts[][] = {
 static const char g_DemoCustom[][] = {
     "\x01[Primary] Grenade Launcher (straight grenades)\n",
     "\x01[Primary] Demoman Gunboats\n",
-    "\x01[Secondary] Demoman Banana: {green}Throw and eat to heal yourself!\n"
+    "\x01[Secondary] Demoman Banana: {green}Throw and eat to heal yourself!\n",
+    "\x01[Melee] Old Claidheamh Mòr: -15 max health, no damage vuln."
 };
 
 static const char g_HeavyReverts[][] = {

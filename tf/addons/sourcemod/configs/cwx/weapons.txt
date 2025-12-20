@@ -6,11 +6,11 @@
 {
         "accuratebfb"
         {
-                "inherits"    "Baby Face's Blaster"
-                "name"                  "Original Baby Face"
+                "inherits"                      "Baby Face's Blaster"
+                "name"                          "Original Baby Face"
                 "used_by_classes"
                 {
-                    "scout" "primary"
+                        "scout" "primary"
                 }
                 "attributes_game"
                 {
@@ -24,6 +24,15 @@
                 "attributes_custom"
                 {
                         "original babyface attributes"  "1.0"
+                }
+        }
+        "vanillabfb"
+        {
+                "inherits"                      "Baby Face's Blaster"
+                "name"                          "Vanilla Baby Face"
+                "used_by_classes"
+                {
+                    "scout" "primary"
                 }
         }
         "pyroshotgun1"
