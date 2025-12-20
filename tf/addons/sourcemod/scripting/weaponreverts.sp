@@ -44,6 +44,8 @@
 #define TF2_JUMP_STICKY 3
 
 #define FAN_O_WAR_MAX_MARK_COUNT 3
+#define BONK_MARK_FOR_DEATH_MIN 2.0
+#define BONK_MARK_FOR_DEATH_MAX 5.0
 
 tf2_player tf2_players[MAXPLAYERS + 1];
 
@@ -1080,7 +1082,19 @@ public Action OnTakeDamageAlive(
 	
 	if (TF2CustAttr_GetInt(weapon, "mark for death multiple") != 0)
 	{
-		if (tf2_players[attacker].markVictims[0] != victim)
+		bool shift_array = true;
+
+		// Do not shift the mark victim array if the current victim is present there already
+		for (int i = 0; i < FAN_O_WAR_MAX_MARK_COUNT; i++)
+		{
+			if (tf2_players[attacker].markVictims[i] == victim)
+			{
+				shift_array = false;
+				break;
+			}
+		}
+		
+		if (shift_array)
 		{
 			// Shift mark victim array by one
 			for (int i = FAN_O_WAR_MAX_MARK_COUNT; i > 0; i--)
@@ -1177,7 +1191,7 @@ public TF2_OnConditionAdded(int client, TFCond condition)
 	) {
 		// bonk mark for death
 		int stun_amt = GetEntProp(client, Prop_Send, "m_iMovementStunAmount");
-		float mark_dur = ValveRemapVal(float(stun_amt), 64.0, 127.0, 2.0, 5.0);
+		float mark_dur = ValveRemapVal(float(stun_amt), 63.0, 127.0, BONK_MARK_FOR_DEATH_MIN, BONK_MARK_FOR_DEATH_MAX);
 		TF2_AddCondition(client, TFCond_MarkedForDeathSilent, mark_dur);
 
 		// remove the slowdown
