@@ -111,18 +111,16 @@
                 }
                 "attributes_game"
                 {
-                        "damage penalty"                             "1.00"
-                        "bullets per shot bonus"                            "1.00"
-                        //"single wep deploy time decreased"                           "1.00"
-                        "mult_spread_scales_consecutive"                            "0.0"
-                        "mult_spread_scales_consecutive"                           "0.0"
-                        "Reload time decreased"                            "0.50"
-                        "fire rate bonus HIDDEN"                            "0.70"
-                        "clip size penalty HIDDEN"                            "0.66"
-                        "fire rate bonus with reduced health"                            "0.50"
-                        "panic_attack"                            "1.00"
-                        "panic_attack_negative"                            "2.5"
-                        "auto fires full clip penalty"                            "1.00"
+                        "damage penalty"                        "1.00"
+                        "bullets per shot bonus"                "1.00"
+                        "mult_spread_scales_consecutive"        "0.0"
+                        "Reload time decreased"                 "0.50"
+                        "fire rate bonus HIDDEN"                "0.70"
+                        "clip size penalty HIDDEN"              "0.66"
+                        "fire rate bonus with reduced health"   "0.50"
+                        "panic_attack"                          "1.00"
+                        "panic_attack_negative"                 "2.5"
+                        "auto fires full clip penalty"          "1.00"
                 }
         }
         "straightdemo"
@@ -421,4 +419,19 @@
 			"demoman"	"secondary"
 		}
 	}
+        "oldclaid"
+        {
+                "name"          "Old Claidheamh Mòr"
+                "inherits"      "The Claidheamohmor"
+                "used_by_classes"
+                {
+                        "demoman"       "melee"
+                }
+                "attributes_game"
+                {
+                        "max health additive penalty"   "-15"
+                        "provide on active"             "0"
+                        "dmg taken increased"           "1.00"
+                }
+        }
 }
