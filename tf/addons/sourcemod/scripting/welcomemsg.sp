@@ -190,7 +190,7 @@ static const char g_WelcomeMsg[][] = {
     "{peachpuff}Welcome to {unique}The Youkai Pound{peachpuff} %N!",
     "{peachpuff}This server improves the stats of some weapons;",
     "{peachpuff}Read more with {lightskyblue}!info{peachpuff} or see our group at {unique}!steam",
-    "{unique}New feature: check out the new saysounds system with {chartreuse}!opt"
+    "{unique}New feature: {default}hugs & rapes are now fully operational, try the {gold}Scout Uma Musume hat with !hats{default}, and {mediumseagreen}Merry Christmas!"
 };
 
 static const char g_UncleWelcomeMsg[][] = {

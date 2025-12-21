@@ -43,6 +43,7 @@ ConVar g_hChatDebug = null;
 ConVar g_hFiltersCaseSensitive = null;
 ConVar g_hFiltersEnabled = null;
 ConVar g_hBlacklistMinLen = null;
+ConVar g_hFiltersChristmas = null;
 
 // Global arrays for word filtering
 char g_FilterWords[MAX_FILTERS][MAX_WORD_LENGTH];
@@ -265,6 +266,7 @@ public void OnPluginStart()
     g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Enable/Disable db functions");
     g_hFiltersEnabled = CreateConVar("filters_filters", "1", "If 0, blacklist word matching is disabled.");
     g_hBlacklistMinLen = CreateConVar("filters_blacklist_minlen", "8", "Minimum message length to check blacklist words.");
+    g_hFiltersChristmas = CreateConVar("filters_christmas", "0", "If 1, red chat is {axis} and blue chat is {green}.");
     g_hFiltersCaseSensitive = CreateConVar(
         "filters_case_sensitive",
         "1",
@@ -902,8 +904,11 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
     char nameColorTag[40];
     BuildNameColorTag(client, nameColorTag, sizeof(nameColorTag));
 
+    char messageColorTag[16];
+    BuildMessageColorTag(client, messageColorTag, sizeof(messageColorTag));
+
     char output[256];
-    Format(output, sizeof(output), "{default}%s%s%N{default}: %s", dead, nameColorTag, client, sArgs);
+    Format(output, sizeof(output), "%s%s%s%N%s: %s", messageColorTag, dead, nameColorTag, client, messageColorTag, sArgs);
 
     ApplyFiltersIfNeeded(output, sizeof(output), context);
 
@@ -1050,8 +1055,11 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
     char colorTag[40];
     BuildNameColorTag(client, colorTag, sizeof(colorTag));
 
+    char messageColorTag[16];
+    BuildMessageColorTag(client, messageColorTag, sizeof(messageColorTag));
+
     char output[256];
-    Format(output, sizeof(output), "{default}%s%s %s%N{default}: %s", deadPrefix, tag, colorTag, client, sArgs);
+    Format(output, sizeof(output), "%s%s%s %s%N%s: %s", messageColorTag, deadPrefix, tag, colorTag, client, messageColorTag, sArgs);
     CPrintToChatTeam(GetClientTeam(client), output);
     PrintToServer("%s", output);
     return true;
@@ -1085,6 +1093,26 @@ void BuildNameColorTag(int client, char[] colorTag, int length)
     {
         strcopy(colorTag, length, "{teamcolor}");
     }
+}
+
+void BuildMessageColorTag(int client, char[] colorTag, int length)
+{
+    if (g_hFiltersChristmas != null && g_hFiltersChristmas.BoolValue)
+    {
+        int team = GetClientTeam(client);
+        if (team == 3)
+        {
+            strcopy(colorTag, length, "{green}");
+            return;
+        }
+        if (team == 2)
+        {
+            strcopy(colorTag, length, "{axis}");
+            return;
+        }
+    }
+
+    strcopy(colorTag, length, "{default}");
 }
 
 void ApplyFiltersIfNeeded(char[] message, int maxlen, const ChatContext context)

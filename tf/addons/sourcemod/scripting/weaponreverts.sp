@@ -11,14 +11,14 @@
 #include <dhooks>
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
-#define ACC_MAX_DIST        768.0
-#define ACC_THRESH_NEAR       38.0
-#define ACC_THRESH_FAR        10.0
-#define ACC_STREAK_TARGET      2
+#define ACC_MAX_DIST		768.0
+#define ACC_THRESH_NEAR		  38.0
+#define ACC_THRESH_FAR		  10.0
+#define ACC_STREAK_TARGET	   2
 
-#define ACC_EXPLODE_DAMAGE   50.0
-#define ACC_EXPLODE_RADIUS   180.0
-#define ACC_EXPLODE_SOUND   "ambient/fire/gascan_ignite1.wav"
+#define ACC_EXPLODE_DAMAGE	 50.0
+#define ACC_EXPLODE_RADIUS	 180.0
+#define ACC_EXPLODE_SOUND	"ambient/fire/gascan_ignite1.wav"
 #define ACC_NOTIFY_SOUND "vo/taunts/pyro/pyro_taunt_rps_exert_21.mp3"
 #define ACC_NOTIFY_2 "vo/taunts/pyro/pyro_taunt_rps_exert_23.mp3"
 #define SOUND_ARROW_HEAL "weapons/fx/rics/arrow_impact_crossbow_heal.wav"
@@ -29,14 +29,14 @@
 #define ATTR_SECONDARY_AMMO_REFILL "secondary damage ammo refill"
 #define ATTR_SECONDARY_REFILL_SOUND "tools/ifm/beep.wav"
 
-#define SPROKE_ATTR_NAME        "sproke attribute"
+#define SPROKE_ATTR_NAME		"sproke attribute"
 #define SPROKE_PRIMARY_ATTR		"mod max primary clip override"
 #define SPROKE_ALT_ATTR		"Reload time decreased"
-#define SPROKE_PRIMARY_FACTOR     -1.0
-#define SPROKE_ALT_FACTOR     0.75
-#define SPROKE_PARTICLE_RED      "soldierbuff_red_buffed"
-#define SPROKE_PARTICLE_BLUE     "soldierbuff_blue_buffed"
-#define BURP_SOUND      "vo/burp02.mp3"
+#define SPROKE_PRIMARY_FACTOR	  -1.0
+#define SPROKE_ALT_FACTOR	  0.75
+#define SPROKE_PARTICLE_RED		 "soldierbuff_red_buffed"
+#define SPROKE_PARTICLE_BLUE	 "soldierbuff_blue_buffed"
+#define BURP_SOUND		"vo/burp02.mp3"
 
 #define TF2_JUMP_NONE 0
 #define TF2_JUMP_ROCKET_START 1
@@ -102,10 +102,10 @@ public Plugin myinfo =
 
 stock void ResetClientArrays(int client)
 {
-    if (client <= 0 || client > MaxClients) return;
-    tf2_players[client].lastAfterburnDamage = 0;
-    tf2_players[client].scytheWeapon = 0;
-    tf2_players[client].shockCharge = 30;
+	if (client <= 0 || client > MaxClients) return;
+	tf2_players[client].lastAfterburnDamage = 0;
+	tf2_players[client].scytheWeapon = 0;
+	tf2_players[client].shockCharge = 30;
 	tf2_players[client].healCount = 0;
 	tf2_players[client].lastUber = 0.0;
 	tf2_players[client].engiMetal = 0;
@@ -113,12 +113,12 @@ stock void ResetClientArrays(int client)
 	tf2_players[client].secondaryDamageProgress = 0.0;
 	tf2_players[client].jump_status = TF2_JUMP_NONE;
 	tf2_players[client].holdingJump = false;
-    if (tf2_players[client].sprokeTimer != null)
-    {
-        KillTimer(tf2_players[client].sprokeTimer);
-        tf2_players[client].sprokeTimer = null;
-    }
-    Sproke_ClearEffect(client, true, false);
+	if (tf2_players[client].sprokeTimer != null)
+	{
+		KillTimer(tf2_players[client].sprokeTimer);
+		tf2_players[client].sprokeTimer = null;
+	}
+	Sproke_ClearEffect(client, true, false);
 	for (int i = 0; i <= FAN_O_WAR_MAX_MARK_COUNT; i++)
 	{
 		tf2_players[client].markVictims[i] = -1;
@@ -165,10 +165,10 @@ public void OnPluginStart() {
 
 		// Blast jumping hooks
 
-		HookEvent("rocket_jump", 				Event_TF2RocketJump);
-		HookEvent("rocket_jump_landed", 	 	Event_TF2JumpLanded);
-		HookEvent("sticky_jump", 				Event_TF2StickyJump);
-		HookEvent("sticky_jump_landed", 	 	Event_TF2JumpLanded);
+		HookEvent("rocket_jump",				Event_TF2RocketJump);
+		HookEvent("rocket_jump_landed",			Event_TF2JumpLanded);
+		HookEvent("sticky_jump",				Event_TF2StickyJump);
+		HookEvent("sticky_jump_landed",			Event_TF2JumpLanded);
 
 		GameData conf;
 		conf = new GameData("weaponreverts");
@@ -178,7 +178,7 @@ public void OnPluginStart() {
 		StartPrepSDKCall(SDKCall_Entity);
 		PrepSDKCall_SetFromConf(conf, SDKConf_Virtual, "CTFWeaponBase::GetMaxClip1()");
 		PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
-    	g_SDKGetMaxClip1 = EndPrepSDKCall();
+		g_SDKGetMaxClip1 = EndPrepSDKCall();
 
 		if (g_SDKGetMaxClip1 == null)
 		{
@@ -313,12 +313,12 @@ public void OnGameFrame()
 
 static bool Accuracy_IsValidClient(int client)
 {
-    return (client > 0 && client <= MaxClients && IsClientInGame(client));
+	return (client > 0 && client <= MaxClients && IsClientInGame(client));
 }
 
 static bool Accuracy_IsValidShotgun(int weapon)
 {
-    return (weapon != -1 && IsValidEntity(weapon) && TF2CustAttr_GetInt(weapon, "flame shotgun attributes") != 0);
+	return (weapon != -1 && IsValidEntity(weapon) && TF2CustAttr_GetInt(weapon, "flame shotgun attributes") != 0);
 }
 
 static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float &damage, int &damagetype)
@@ -386,11 +386,11 @@ public void Event_PlayerBuiltObject(Event event, const char[] name, bool dontBro
 
 static float Accuracy_RequiredDamageForDistance(float dist)
 {
-    if (dist < 0.0) dist = 0.0;
-    if (dist > ACC_MAX_DIST) dist = ACC_MAX_DIST;
+	if (dist < 0.0) dist = 0.0;
+	if (dist > ACC_MAX_DIST) dist = ACC_MAX_DIST;
 
-    float t = dist / ACC_MAX_DIST;
-    return ACC_THRESH_NEAR + (ACC_THRESH_FAR - ACC_THRESH_NEAR) * t;
+	float t = dist / ACC_MAX_DIST;
+	return ACC_THRESH_NEAR + (ACC_THRESH_FAR - ACC_THRESH_NEAR) * t;
 }
 
 static bool Accuracy_IsAccurateHit(float damage, float dist)
@@ -400,140 +400,144 @@ static bool Accuracy_IsAccurateHit(float damage, float dist)
 
 static void Accuracy_Explode(int attacker, int victim, float position[3], float damage, float radius)
 {
-    int bomb = CreateEntityByName("tf_generic_bomb");
-    if (bomb == -1)
-        return;
+	int bomb = CreateEntityByName("tf_generic_bomb");
+	if (bomb == -1)
+		return;
 
-    DispatchKeyValueVector(bomb, "origin", position);
-    DispatchKeyValueFloat(bomb, "damage", damage);
-    DispatchKeyValueFloat(bomb, "radius", radius);
-    DispatchKeyValue(bomb, "health", "1");
-    DispatchSpawn(bomb);
+	DispatchKeyValueVector(bomb, "origin", position);
+	DispatchKeyValueFloat(bomb, "damage", damage);
+	DispatchKeyValueFloat(bomb, "radius", radius);
+	DispatchKeyValue(bomb, "health", "1");
+	DispatchSpawn(bomb);
 
-    EmitAmbientSound(ACC_EXPLODE_SOUND, position, victim, SNDLEVEL_NORMAL);
+	EmitAmbientSound(ACC_EXPLODE_SOUND, position, victim, SNDLEVEL_NORMAL);
 
-    int particle = CreateEntityByName("info_particle_system");
-    if (particle != -1)
-    {
-        float particlePos[3];
-        particlePos = position;
-        particlePos[2] += Accuracy_GetClassSubtractionValue(attacker);
-        TeleportEntity(particle, particlePos, NULL_VECTOR, NULL_VECTOR);
-        DispatchKeyValue(particle, "effect_name", "mvm_cash_explosion");
-        DispatchKeyValue(particle, "start_active", "0");
-        DispatchSpawn(particle);
-        ActivateEntity(particle);
-        AcceptEntityInput(particle, "Start");
-        CreateTimer(1.0, Accuracy_Timer_RemoveEntity, EntIndexToEntRef(particle), TIMER_FLAG_NO_MAPCHANGE);
-    }
+	int particle = CreateEntityByName("info_particle_system");
+	if (particle != -1)
+	{
+		float particlePos[3];
+		particlePos = position;
+		particlePos[2] += Accuracy_GetClassSubtractionValue(attacker);
+		TeleportEntity(particle, particlePos, NULL_VECTOR, NULL_VECTOR);
+		DispatchKeyValue(particle, "effect_name", "mvm_cash_explosion");
+		DispatchKeyValue(particle, "start_active", "0");
+		DispatchSpawn(particle);
+		ActivateEntity(particle);
+		AcceptEntityInput(particle, "Start");
+		CreateTimer(1.0, Accuracy_Timer_RemoveEntity, EntIndexToEntRef(particle), TIMER_FLAG_NO_MAPCHANGE);
+	}
 
-    int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
-    SDKHooks_TakeDamage(bomb, attacker, attacker, 9001.0, DMG_BULLET, weapon);
+	int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
+	SDKHooks_TakeDamage(bomb, attacker, attacker, 9001.0, DMG_BULLET, weapon);
 
-    int targetTeam = GetClientTeam(victim);
-    if (targetTeam > 1)
-    {
-        for (int i = 1; i <= MaxClients; i++)
-        {
-            if (!Accuracy_IsValidClient(i) || !IsPlayerAlive(i))
-                continue;
-            if (GetClientTeam(i) != targetTeam)
-                continue;
+	int targetTeam = GetClientTeam(victim);
+	if (targetTeam > 1)
+	{
+		for (int i = 1; i <= MaxClients; i++)
+		{
+			if (!Accuracy_IsValidClient(i) || !IsPlayerAlive(i))
+				continue;
+			if (GetClientTeam(i) != targetTeam)
+				continue;
 
-            float clientPos[3];
-            GetClientAbsOrigin(i, clientPos);
-            if (GetVectorDistance(position, clientPos) <= radius)
-            {
-                TF2_IgnitePlayer(i, attacker, 2.0);
-            }
-        }
-    }
+			float clientPos[3];
+			GetClientAbsOrigin(i, clientPos);
+			if (GetVectorDistance(position, clientPos) <= radius)
+			{
+				TF2_IgnitePlayer(i, attacker, 2.0);
+			}
+		}
+	}
 }
 
 public Action Accuracy_Timer_RemoveEntity(Handle timer, int ref)
 {
-    int entity = EntRefToEntIndex(ref);
-    if (entity != INVALID_ENT_REFERENCE)
-    {
-        RemoveEntity(entity);
-    }
-    return Plugin_Stop;
+	int entity = EntRefToEntIndex(ref);
+	if (entity != INVALID_ENT_REFERENCE)
+	{
+		RemoveEntity(entity);
+	}
+	return Plugin_Stop;
 }
 
 public Action Accuracy_Timer_RemoveChargeCount(Handle timer, int client)
 {
-    if (!Accuracy_IsValidClient(client))
-        return Plugin_Stop;
+	if (!Accuracy_IsValidClient(client))
+		return Plugin_Stop;
 
 	if (tf2_players[client].accuracyStreak > 0)
 		tf2_players[client].accuracyStreak -= 1;
 
-    return Plugin_Stop;
+	return Plugin_Stop;
 }
 
 public void Accuracy_OnTakeDamagePost(int victim, int attacker, int inflictor, float damage,
-                                      int damagetype, int weapon, const float damageForce[3],
-                                      const float damagePosition[3])
+									  int damagetype, int weapon, const float damageForce[3],
+									  const float damagePosition[3])
 {
-    if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
-        return;
-    if (!Accuracy_IsValidShotgun(weapon))
-        return;
+	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
+		return;
+	if (!Accuracy_IsValidShotgun(weapon))
+		return;
 
-    float eye[3], pos[3];
-    GetClientEyePosition(attacker, eye);
-    GetClientAbsOrigin(victim, pos);
+	float eye[3], pos[3];
+	GetClientEyePosition(attacker, eye);
+	GetClientAbsOrigin(victim, pos);
 	pos[2] += Accuracy_GetClassSubtractionValue(victim);
 
-    float dist = GetVectorDistance(eye, pos);
+	float dist = GetVectorDistance(eye, pos);
 	if (dist > ACC_MAX_DIST) return;
 
-    bool accurate = Accuracy_IsAccurateHit(damage, dist);
-    int remainingHealth = IsPlayerAlive(victim) ? GetClientHealth(victim) : 0;
-    if (remainingHealth > 0 && remainingHealth <= RoundToCeil(damage))
-        remainingHealth = 0; // treat as lethal if the incoming damage equals remaining HP
-    bool lethal = (remainingHealth <= 0);
+	bool accurate = Accuracy_IsAccurateHit(damage, dist);
+	int remainingHealth = IsPlayerAlive(victim) ? GetClientHealth(victim) : 0;
+	if (remainingHealth > 0 && remainingHealth <= RoundToCeil(damage))
+		remainingHealth = 0; // treat as lethal if the incoming damage equals remaining HP
+	bool lethal = (remainingHealth <= 0);
 
-    if (accurate || lethal)
-    {
-        if (lethal)
-        {
+	if (accurate || lethal)
+	{
+		if (lethal)
+		{
 			tf2_players[victim].accuracyStreak = ACC_STREAK_TARGET;
-        }
-        else
-        {
+		}
+		else
+		{
 			tf2_players[victim].accuracyStreak++;
-        }
-        CreateTimer(4.0, Accuracy_Timer_RemoveChargeCount, victim, TIMER_FLAG_NO_MAPCHANGE);
-	if (tf2_players[victim].accuracyStreak >= ACC_STREAK_TARGET || lethal)
-        {
-            float boomPos[3];
-            GetClientAbsOrigin(victim, boomPos);
-            boomPos[2] -= Accuracy_GetClassSubtractionValue(victim);
+		}
+		CreateTimer(4.0, Accuracy_Timer_RemoveChargeCount, victim, TIMER_FLAG_NO_MAPCHANGE);
+		if (tf2_players[victim].accuracyStreak >= ACC_STREAK_TARGET || lethal)
+		{
+			float boomPos[3];
+			GetClientAbsOrigin(victim, boomPos);
+			boomPos[2] -= Accuracy_GetClassSubtractionValue(victim);
 
-            TF2_IgnitePlayer(victim, attacker, 4.0);
-            Accuracy_Explode(attacker, victim, boomPos, ACC_EXPLODE_DAMAGE, ACC_EXPLODE_RADIUS);
+			TF2_IgnitePlayer(victim, attacker, 4.0);
+			Accuracy_Explode(attacker, victim, boomPos, ACC_EXPLODE_DAMAGE, ACC_EXPLODE_RADIUS);
 			EmitAmbientSound(ACC_NOTIFY_2, eye, attacker, SNDLEVEL_NORMAL);
 
 			tf2_players[victim].accuracyStreak = 0;
-        } else EmitAmbientSound(ACC_NOTIFY_SOUND, eye, attacker, SNDLEVEL_NORMAL);
-    }
+		}
+		else
+		{
+			EmitAmbientSound(ACC_NOTIFY_SOUND, eye, attacker, SNDLEVEL_NORMAL);
+		}
+	}
 }
 
 static int Accuracy_GetClassSubtractionValue(int client)
 {
-    TFClassType cls = TF2_GetPlayerClass(client);
-    switch (cls)
-    {
-        case TFClass_Scout:
-            return 65;
-        case TFClass_Soldier, TFClass_Pyro, TFClass_DemoMan, TFClass_Engineer:
-            return 68;
-        case TFClass_Heavy, TFClass_Medic, TFClass_Sniper, TFClass_Spy:
-            return 75;
-        default:
-            return 0;
-    }
+	TFClassType cls = TF2_GetPlayerClass(client);
+	switch (cls)
+	{
+		case TFClass_Scout:
+			return 65;
+		case TFClass_Soldier, TFClass_Pyro, TFClass_DemoMan, TFClass_Engineer:
+			return 68;
+		case TFClass_Heavy, TFClass_Medic, TFClass_Sniper, TFClass_Spy:
+			return 75;
+		default:
+			return 0;
+	}
 }
 
 public Event_TF2RocketJump(Handle:event, const String:name[], bool:dontBroadcast)
@@ -561,14 +565,16 @@ public Event_TF2StickyJump(Handle:event, const String:name[], bool:dontBroadcast
 public Event_TF2JumpLanded(Handle:event, const String:name[], bool:dontBroadcast)
 {
 	new client = GetClientOfUserId(GetEventInt(event, "userid"));
-	if (client > 0) {
+	if (client > 0)
+	{
 		tf2_players[client].jump_status = TF2_JUMP_NONE;
 	}
 }
 
-public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast) {
-    int userId = event.GetInt("userid");
-    int client = GetClientOfUserId(userId);
+public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
+{
+	int userId = event.GetInt("userid");
+	int client = GetClientOfUserId(userId);
 
 	if (tf2_players[client].sprokeTimer != null)
 	{
@@ -578,7 +584,10 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 
 	int attackerId = event.GetInt("attacker");
 	int attacker = GetClientOfUserId(attackerId);
-	if (attacker == 0 || client == 0) return Plugin_Continue;
+	if (attacker == 0 || client == 0)
+	{
+		return Plugin_Continue;
+	}
 
 	if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
 	{
@@ -600,21 +609,27 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 		}
 	}
 
-	if (tf2_players[client].shockCharge != 30) 
-	tf2_players[client].shockCharge = 30;
-	if (TF2_GetPlayerClass(client) == TFClassType:TFClass_Medic) {
-		if (GetEntProp(GetPlayerWeaponSlot(client, 2), Prop_Send, "m_iItemDefinitionIndex") == 173) {
+	if (tf2_players[client].shockCharge != 30)
+	{
+		tf2_players[client].shockCharge = 30;
+	}
+	if (TF2_GetPlayerClass(client) == TFClassType:TFClass_Medic)
+	{
+		if (GetEntProp(GetPlayerWeaponSlot(client, 2), Prop_Send, "m_iItemDefinitionIndex") == 173)
+		{
 			tf2_players[client].lastUber = GetEntPropFloat(GetPlayerWeaponSlot(client, 1), Prop_Send, "m_flChargeLevel");
 		}
 	}
-	if (tf2_players[attacker].scytheWeapon != 0 && (TF2_IsPlayerInCondition(client, TFCond_OnFire))) {
+	if (tf2_players[attacker].scytheWeapon != 0 && TF2_IsPlayerInCondition(client, TFCond_OnFire))
+	{
 		tf2_players[attacker].healCount += 4;
 		return Plugin_Changed;
 	}
 	return Plugin_Continue;
 }
 
-public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast) {
+public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
+{
 	int userId = event.GetInt("userid");
 	int client = GetClientOfUserId(userId);
 
@@ -641,35 +656,37 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 
 public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 {
-    int userId = event.GetInt("userid");
-    int client = GetClientOfUserId(userId);
-    if (client <= 0 || !IsClientInGame(client))
-        return Plugin_Continue;
+	int userId = event.GetInt("userid");
+	int client = GetClientOfUserId(userId);
+	if (client <= 0 || !IsClientInGame(client))
+		return Plugin_Continue;
 
-    int medigun = GetPlayerWeaponSlot(client, 1);
-    int melee = GetPlayerWeaponSlot(client, 2);
+	int medigun = GetPlayerWeaponSlot(client, 1);
+	int melee = GetPlayerWeaponSlot(client, 2);
 
-    // Validate weapon entities before using them
-    if (medigun == -1 || melee == -1)
-        return Plugin_Continue;
+	// Validate weapon entities before using them
+	if (medigun == -1 || melee == -1)
+		return Plugin_Continue;
 
-    // Check if melee weapon index is 173
-    if (GetEntProp(melee, Prop_Send, "m_iItemDefinitionIndex") == 173)
-    {
-        float charge = GetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel");
+	// Check if melee weapon index is 173
+	if (GetEntProp(melee, Prop_Send, "m_iItemDefinitionIndex") == 173)
+	{
+		float charge = GetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel");
 
-        if (charge < 0.2)
-        {
-		if (tf2_players[client].lastUber > 0.2)
-			tf2_players[client].lastUber = 0.2;
+		if (charge < 0.2)
+		{
+			if (tf2_players[client].lastUber > 0.2)
+			{
+				tf2_players[client].lastUber = 0.2;
+			}
 
-		SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", tf2_players[client].lastUber);
-		tf2_players[client].lastUber = 0.0;
-            return Plugin_Changed;
-        }
-    }
+			SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", tf2_players[client].lastUber);
+			tf2_players[client].lastUber = 0.0;
+			return Plugin_Changed;
+		}
+	}
 
-    return Plugin_Continue;
+	return Plugin_Continue;
 }
 
 #define FSOLID_USE_TRIGGER_BOUNDS 0x80
@@ -702,36 +719,36 @@ Action OnEnergyRingTouch(int entity, int other) {
 }
 
 public Action TF2_CalcIsAttackCritical(client, weapon, String:weaponname[], &bool:result) {
-    if (!IsClientInGame(client) || !IsValidEntity(weapon))
-        return Plugin_Continue;
+	if (!IsClientInGame(client) || !IsValidEntity(weapon))
+		return Plugin_Continue;
 
-    if (GetEntityFlags(client) & FL_ONGROUND)
-        return Plugin_Continue;
+	if (GetEntityFlags(client) & FL_ONGROUND)
+		return Plugin_Continue;
 
-    if (TF2CustAttr_GetInt(weapon, "twin barrel attributes") == 0)
-        return Plugin_Continue;
+	if (TF2CustAttr_GetInt(weapon, "twin barrel attributes") == 0)
+		return Plugin_Continue;
 
 	if (GetClip(weapon) != 2)
 		return Plugin_Continue;
 
-    float velocity[3], angles[3];
-    GetEntPropVector(client, Prop_Data, "m_vecVelocity", velocity);
-    GetClientEyeAngles(client, angles);
+	float velocity[3], angles[3];
+	GetEntPropVector(client, Prop_Data, "m_vecVelocity", velocity);
+	GetClientEyeAngles(client, angles);
 
-    float pitch = DegToRad(-angles[0]);
-    float yaw = DegToRad(angles[1]);
-    float push = 280.0 * Cosine(pitch);
+	float pitch = DegToRad(-angles[0]);
+	float yaw = DegToRad(angles[1]);
+	float push = 280.0 * Cosine(pitch);
 
-    velocity[0] -= push * Cosine(yaw);
-    velocity[1] -= push * Sine(yaw);
-    velocity[2] -= 280.0 * Sine(pitch);
+	velocity[0] -= push * Cosine(yaw);
+	velocity[1] -= push * Sine(yaw);
+	velocity[2] -= 280.0 * Sine(pitch);
 
 	int health = GetClientHealth(client);
 	float rounded = float(RoundFloat(float(health) * 0.10));
 	SDKHooks_TakeDamage(client, client, client, rounded, DMG_CLUB, 0);
 
-    TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
-    return Plugin_Changed;
+	TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
+	return Plugin_Changed;
 }
 
 // Attribute timer
@@ -739,20 +756,26 @@ public Action Timer_HealTimer(Handle timer)
 {
 	for (int client = 1; client <= MaxClients; client++)
 	{
-		if (!IsClientInGame(client)) continue;
-		
-			// Handle afterburn heal
-		if (tf2_players[client].healCount > 0 && IsPlayerAlive(client) && 
-			GetClientHealth(client) < TF2_GetPlayerMaxHealth(client) && 
-			CheckScythe(client) == 2) {
+		if (!IsClientInGame(client))
+		{
+			continue;
+		}
+
+		// Handle afterburn heal
+		if (tf2_players[client].healCount > 0 && IsPlayerAlive(client) &&
+			GetClientHealth(client) < TF2_GetPlayerMaxHealth(client) &&
+			CheckScythe(client) == 2)
+		{
 			tf2_players[client].healCount--;
-				AddPlayerHealth(client, tf2_players[client].lastAfterburnDamage, 1.0, false, true);
-				EmitSoundToClient(client, SOUND_DISPENSER_METAL);
-			}
-			// Handle shock charge refill
-		else if (tf2_players[client].shockCharge < 30) {
+			AddPlayerHealth(client, tf2_players[client].lastAfterburnDamage, 1.0, false, true);
+			EmitSoundToClient(client, SOUND_DISPENSER_METAL);
+		}
+		// Handle shock charge refill
+		else if (tf2_players[client].shockCharge < 30)
+		{
 			tf2_players[client].shockCharge++;
-			if (tf2_players[client].shockCharge % 2 == 0 || tf2_players[client].shockCharge == 1) {
+			if (tf2_players[client].shockCharge % 2 == 0 || tf2_players[client].shockCharge == 1)
+			{
 				PrintHintText(client, "Shock Charge: %i%%%", (tf2_players[client].shockCharge * 100 / 30));
 			}
 		}
@@ -763,45 +786,51 @@ public Action Timer_HealTimer(Handle timer)
 // Damage distance multiplier attribute, now unused since we're giving Pom/Bison a larger hitbox
 /*float GetDistanceMultiplier(float posVic[3], float posAtt[3])
 {
-    float distance = GetVectorDistance(posVic, posAtt);
+	float distance = GetVectorDistance(posVic, posAtt);
 
-    // Distance-based rampup
-    // Example: base at 300 units, scales linearly, capped at +100% (2.0) or adjust as needed
-    float rampup = (distance - 300.0) * 0.001; // scaling factor
-    rampup = clamp(rampup, 0.0, 1.0);          // cap at +100%
+	// Distance-based rampup
+	// Example: base at 300 units, scales linearly, capped at +100% (2.0) or adjust as needed
+	float rampup = (distance - 300.0) * 0.001; // scaling factor
+	rampup = clamp(rampup, 0.0, 1.0);		   // cap at +100%
 
-    float calculated = 1.0 + rampup;           // final multiplier
+	float calculated = 1.0 + rampup;		   // final multiplier
 
-    return calculated;
+	return calculated;
 }*/
 
 // Holster reload code, hard coded for clip size 40 and 2, can be rewritten as an attribute in the future
 public Action OnWeaponSwitch(client, weapon)
-{	
-	if (!GetConVarInt(g_sEnabled)) return Plugin_Continue;
+{
+	if (!GetConVarInt(g_sEnabled))
+	{
+		return Plugin_Continue;
+	}
 	// only do anything if the player is a medic or pyro
 	TFClassType playerClass = TF2_GetPlayerClass(client);
-        if (playerClass == TFClassType:TFClass_Medic)
-        {
-			char classname[64];
-			GetEntityClassname(weapon, classname, sizeof(classname));
-			if (StrEqual(classname, "tf_weapon_syringegun_medic", false))
-            {
-                int clip = GetClip(weapon);
-                int reserve = GetAmmo_Weapon(weapon);
-                int missing = 40 - clip;
+	if (playerClass == TFClassType:TFClass_Medic)
+	{
+		char classname[64];
+		GetEntityClassname(weapon, classname, sizeof(classname));
+		if (StrEqual(classname, "tf_weapon_syringegun_medic", false))
+		{
+			int clip = GetClip(weapon);
+			int reserve = GetAmmo_Weapon(weapon);
+			int missing = 40 - clip;
 
-                int toReload = (missing < reserve) ? missing : reserve;
+			int toReload = (missing < reserve) ? missing : reserve;
 
-                if (toReload > 0)
-                {
-                    SetClip_Weapon(weapon, clip + toReload);
-                    SetAmmo_Weapon(weapon, reserve - toReload);
-                    return Plugin_Changed;
-                }
-	    }
-	} else if (playerClass == TFClassType:TFClass_Pyro) {
-		if ((weapon != -1) && (TF2CustAttr_GetInt(weapon, "twin barrel attributes") != 0))  {
+			if (toReload > 0)
+			{
+				SetClip_Weapon(weapon, clip + toReload);
+				SetAmmo_Weapon(weapon, reserve - toReload);
+				return Plugin_Changed;
+			}
+		}
+	}
+	else if (playerClass == TFClassType:TFClass_Pyro)
+	{
+		if ((weapon != -1) && (TF2CustAttr_GetInt(weapon, "twin barrel attributes") != 0))
+		{
 			int clip = GetClip(weapon);
 			int reserve = GetAmmo_Weapon(weapon);
 			int missing = 2 - clip;
@@ -882,11 +911,11 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	{
 		SecondaryDamageRefill_OnDamage(attacker, weapon, damage);
 
-        int duelAttr = TF2CustAttr_GetInt(weapon, "duel declared");
-        if (duelAttr != 0)
-        {
-            int victimWeapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
-            if (IsValidEntity(victimWeapon) && TF2CustAttr_GetInt(victimWeapon, "duel declared") != 0)
+		int duelAttr = TF2CustAttr_GetInt(weapon, "duel declared");
+		if (duelAttr != 0)
+		{
+			int victimWeapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
+			if (IsValidEntity(victimWeapon) && TF2CustAttr_GetInt(victimWeapon, "duel declared") != 0)
 			{
 				if (GetClip(weapon) == 6)
 				{
@@ -899,7 +928,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	}
 
 	new wepindex = (IsValidEntity(weapon) && weapon > MaxClients ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
-	if (wepindex == 442 || wepindex == 588)  // Pomson, bison
+	if (wepindex == 442 || wepindex == 588)	 // Pomson, bison
 	{
 		float mult = 1.0;
 		if (wepindex == 442)
@@ -980,7 +1009,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 		vecAngles[0] = DegToRad(-1.0 * vecAngles[0]);
 		vecAngles[1] = DegToRad(vecAngles[1]);
 
-                if (damage >= 40.0) vecVelocity[2] = 251.0;
+				if (damage >= 40.0) vecVelocity[2] = 251.0;
 
 		TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, vecVelocity);
 		return Plugin_Changed;
@@ -1249,13 +1278,13 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "health from packs increased", 1.40); // Add the backscratcher
 			}
-	    	case 355: //Fan-o-War
-	        {
-	            TF2Attrib_SetByName(entity, "switch from wep deploy time decreased", 0.80);
-	            TF2Attrib_SetByName(entity, "single wep deploy time decreased", 0.80);
+			case 355: //Fan-o-War
+			{
+				TF2Attrib_SetByName(entity, "switch from wep deploy time decreased", 0.80);
+				TF2Attrib_SetByName(entity, "single wep deploy time decreased", 0.80);
 				TF2Attrib_SetByName(entity, "mark for death", 0.0); // Remove this and handle it ourselves
 				TF2CustAttr_SetInt(entity, "mark for death multiple", 1);
-	        }
+			}
 			case 772: //Baby Face's Blaster index
 			{
 				TF2Attrib_SetByName(entity, "lose hype on take damage", 0.0); // Removed
@@ -1298,10 +1327,10 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "Blast radius decreased", 1.00); // Set explosion radius debuff to 0
 			}
-	    	case 128: //The Equalizer
-	        {
-	            TF2Attrib_SetByName(entity, "dmg from ranged reduced", 0.80); // Less damage from ranged while held
-	        }
+			case 128: //The Equalizer
+			{
+				TF2Attrib_SetByName(entity, "dmg from ranged reduced", 0.80); // Less damage from ranged while held
+			}
 			case 588: //The Pomson 6000
 			{
 				TF2Attrib_SetByName(entity, "energy weapon penetration", 1.00); // Penetrate targets
@@ -1368,12 +1397,12 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2CustAttr_SetFloat(entity, "mult metal from carts", 0.25); // Reduced metal from carts
 			}
 			// Nerf section ends here
-            case 609: //Scottish Handshake
-            {
-                TF2Attrib_SetByName(entity, "fire rate penalty", 1.20);
-                TF2Attrib_SetByName(entity, "crit mod disabled", 0.00);
+			case 609: //Scottish Handshake
+			{
+				TF2Attrib_SetByName(entity, "fire rate penalty", 1.20);
+				TF2Attrib_SetByName(entity, "crit mod disabled", 0.00);
 				TF2Attrib_SetByName(entity, "mod crit while airborne", 1.00);
-            }
+			}
 			/*case 442: //The Righteous Bison
 			{
 				TF2Attrib_SetByName(entity, "fire rate bonus", 0.55); // Increase firing rate by 45%
@@ -1449,17 +1478,17 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2Attrib_SetByName(entity, "metal regen", 15.00); // This activates every 5 seconds, so let's use 15
 				TF2Attrib_SetByName(entity, "damage bonus", 1.10);
 			}
-            case 56, 1092, 1005: // Bow & Arrows / Huntsman
-            {
+			case 56, 1092, 1005: // Bow & Arrows / Huntsman
+			{
 				TF2Attrib_SetByName(entity, "max health additive bonus", 15.00); // Self explanatory
 				TF2CustAttr_SetInt(entity, "wall climb enabled", 1);
-            }
+			}
 		}
 	}
 }
 
 bool ValidateAndNullCheck(MemoryPatch patch) {
-        return patch.Validate() && patch != null;
+		return patch.Validate() && patch != null;
 }
 
 static void DestroyPatch(MemoryPatch patch)
@@ -1473,7 +1502,7 @@ static void DestroyPatch(MemoryPatch patch)
 
 public float clamp(float a, float b, float c)
 {
-    return (a > c ? c : (a < b ? b : a));
+	return (a > c ? c : (a < b ? b : a));
 }
 
 static void StartHealTimer()

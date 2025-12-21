@@ -830,10 +830,9 @@ CheckBuilding(ent)
         CreateTimer(1.0, BuildingCheckStage1, EntIndexToEntRef(ent));
 
         // If force==2 (sentry) and this build was converted only because of force,
-        // let the builder know they can still place amplifiers during No Sentry November.
         if (forcedConversion && ForceAmplifier == 2)
         {
-            CPrintToChat(Client, "{orange}[Amplifier]{default} It's no sentry November; however, you can still place Amplifiers!");
+            CPrintToChat(Client, "{orange}[Amplifier]{default} Sentries have been vote-disabled on this map or gamemode; have an Amplifier instead!");
         }
     }
 }
