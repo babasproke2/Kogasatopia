@@ -340,7 +340,7 @@
 			"damage bonus"	"2.5"
 			"fire rate penalty"	"4.2"
 			"clip size penalty"	"0.5"
-			"hidden secondary max ammo penalty"	"0.15"
+			"hidden secondary max ammo penalty"	"0.5"
 			"reload time increased hidden"		"1.1"
 			"sniper fires tracer HIDDEN"		"1"
                         "weapon spread bonus"                           "0.4"

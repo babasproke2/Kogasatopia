@@ -11,11 +11,20 @@ static const char g_sUncleNames[][] =
     "Uncletopia | New York City | 1 | All Maps",
     "Uncletopia | New York City | 2 | All Maps+"
 };
+static const char g_sUncleChristmasNames[][] =
+{
+    "Uncletopia | Christmas Event | Chicago | 1",
+    "Uncletopia | Christmas Event | Chicago | 3",
+    "Uncletopia | Christmas Event | Chicago | 2",
+    "Uncletopia | Christmas Event | New York City | 1",
+    "Uncletopia | Christmas Event | New York City | 2"
+};
 #define UNCLE_NAME_COUNT 5
 
 ConVar g_hHostname = null;
 ConVar g_hDynamic = null;
 ConVar g_hActiveCvar = null;
+ConVar g_hChristmas = null;
 
 Handle g_hUncleTimer = null;
 int g_iUncleIndex = 0;
@@ -37,6 +46,7 @@ public void OnPluginStart()
     g_hDynamic = CreateConVar("sm_uncle_dynamic", "0", "Enable dynamic Uncletopia hostname cycling when player count is between 4 and 23.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
     g_hDynamic.AddChangeHook(ConVarChanged_Dynamic);
     g_hActiveCvar = CreateConVar("sm_uncle_active", "0", "Whether the Uncletopia hostname cycle is active.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+    g_hChristmas = CreateConVar("uncle_christmas", "0", "Use Christmas event hostnames when cycling.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
     if (g_hActiveCvar != null)
     {
         g_hActiveCvar.SetBool(false);
@@ -179,7 +189,14 @@ void ApplyNextHostname()
         return;
     }
 
-    SetConVarString(g_hHostname, g_sUncleNames[g_iUncleIndex]);
+    if (g_hChristmas != null && g_hChristmas.BoolValue)
+    {
+        SetConVarString(g_hHostname, g_sUncleChristmasNames[g_iUncleIndex]);
+    }
+    else
+    {
+        SetConVarString(g_hHostname, g_sUncleNames[g_iUncleIndex]);
+    }
     ServerCommand("sv_visiblemaxplayers 24");
 
     g_iUncleIndex = (g_iUncleIndex + 1) % UNCLE_NAME_COUNT;

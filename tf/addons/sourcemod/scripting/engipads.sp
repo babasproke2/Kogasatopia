@@ -87,6 +87,7 @@ static int g_iObjectParticle[2048];
 static int g_iPlayerDamageTaken[MAXPLAYERS + 1];
 static float g_flPlayerBoostEndTime[MAXPLAYERS + 1];
 static PadCond g_fPadCondFlags[MAXPLAYERS + 1];
+static float g_flPadRechargeEnd[2048];
 
 static char g_szOffsetStartProp[64];
 static int g_iOffsetMatchingTeleporter = -1;
@@ -372,6 +373,7 @@ public void ObjectDestroyed(Event event, const char[] name, bool dontBroadcast)
 	if (IsValidEntity(iObjParti))
 		AcceptEntityInput(iObjParti, "Kill");
 	g_iObjectParticle[iObj] = -1;
+	g_flPadRechargeEnd[iObj] = 0.0;
 	
 	#if defined DEBUG
 	PrintToChatAll("%i Destroyed!", iObj);
@@ -513,6 +515,16 @@ void OnPadThink(int iPad)
 		return;
 	}
 	
+	float flNow = GetGameTime();
+	if (g_flPadRechargeEnd[iPad] > 0.0)
+	{
+		SetEntPropFloat(iPad, Prop_Send, "m_flRechargeTime", g_flPadRechargeEnd[iPad]);
+		if (flNow >= g_flPadRechargeEnd[iPad])
+		{
+			g_flPadRechargeEnd[iPad] = 0.0;
+		}
+	}
+
 	if (TF2_GetBuildingState(iPad) > TELEPORTER_STATE_BUILDING && TF2_GetBuildingState(iPad) < TELEPORTER_STATE_UPGRADING)
 	{
 		if (TF2_GetBuildingState(iPad) != TELEPORTER_STATE_READY && GetEntPropFloat(iPad, Prop_Send, "m_flRechargeTime") <= GetGameTime())
@@ -573,7 +585,9 @@ public Action OnPadTouch(int iPad, int iToucher)
 					
 					TF2_SetBuildingState(iPad, TELEPORTER_STATE_RECEIVING_RELEASE);
 					
-					SetEntPropFloat(iPad, Prop_Send, "m_flRechargeTime", GetGameTime() + cvarPads[BoostCooldown].FloatValue);
+					float flCooldown = cvarPads[BoostCooldown].FloatValue;
+					g_flPadRechargeEnd[iPad] = GetGameTime() + flCooldown;
+					SetEntPropFloat(iPad, Prop_Send, "m_flRechargeTime", g_flPadRechargeEnd[iPad]);
 					
 					AcceptEntityInput(EntRefToEntIndex(g_iObjectParticle[iPad]), "Stop");
 					
@@ -596,7 +610,9 @@ public Action OnPadTouch(int iPad, int iToucher)
 					
 					TF2_SetBuildingState(iPad, TELEPORTER_STATE_RECEIVING_RELEASE);
 					
-					SetEntPropFloat(iPad, Prop_Send, "m_flRechargeTime", GetGameTime() + cvarPads[JumpCooldown].FloatValue);
+					float flCooldown = cvarPads[JumpCooldown].FloatValue;
+					g_flPadRechargeEnd[iPad] = GetGameTime() + flCooldown;
+					SetEntPropFloat(iPad, Prop_Send, "m_flRechargeTime", g_flPadRechargeEnd[iPad]);
 					
 					AcceptEntityInput(EntRefToEntIndex(g_iObjectParticle[iPad]), "Stop");
 					
@@ -785,6 +801,7 @@ public void TF2_OnConditionRemoved(int iClient, TFCond iCond)
 void ConvertTeleporterToPad(int iEnt, int iPadType, bool bAddHealth)
 {
 	g_iPadType[iEnt] = iPadType;
+	g_flPadRechargeEnd[iEnt] = 0.0;
 	
 	// SetEntityModel(iEnt, "MODEL_PAD");	//Coming soon™, maybe...
 	
@@ -813,6 +830,7 @@ void ConvertTeleporterToPad(int iEnt, int iPadType, bool bAddHealth)
 void ConvertPadToTeleporter(int iEnt)
 {
 	g_iPadType[iEnt] = PadType_None;
+	g_flPadRechargeEnd[iEnt] = 0.0;
 	
 	SetEntProp(iEnt, Prop_Send, "m_iHighestUpgradeLevel", 1);
 	SetEntProp(iEnt, Prop_Send, "m_iUpgradeLevel", 1);

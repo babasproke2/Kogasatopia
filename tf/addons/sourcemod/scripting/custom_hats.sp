@@ -6,10 +6,10 @@
 #include <sdktools>
 #include <tf2_stocks>
 #include <tf2attributes>
+#include <tf2items>
 
 #define CONFIG_FILE "configs/custom_hats.cfg"
 #define DEFAULT_SCOUT_MODEL "models/uma_musume/player/items/scout/mercenary_derby.mdl"
-#define DEFAULT_SCOUT_DEFINDEX 451
 #if !defined EF_BONEMERGE
 #define EF_BONEMERGE 0x0010
 #endif
@@ -22,19 +22,33 @@ bool g_bScoutHatEnabled = false;
 bool g_bHatWanted[MAXPLAYERS + 1];
 int g_iHatRef[MAXPLAYERS + 1];
 int g_iHideHatRef[MAXPLAYERS + 1];
-Handle g_hHatCookie = INVALID_HANDLE;
-Handle g_hHatPaintCookie = INVALID_HANDLE;
+char g_szHatIdChoice[MAXPLAYERS + 1][64];
+bool g_bHatApplyPending[MAXPLAYERS + 1];
+bool g_bHatStateLoaded[MAXPLAYERS + 1];
+bool g_bHatStatePending[MAXPLAYERS + 1];
+Handle g_hHatStateCookie = INVALID_HANDLE;
 Handle g_hWearableEquip = INVALID_HANDLE;
-int g_iHatDefIndex = 0;
 int g_iHatQuality = 6;
 int g_iHatLevel = 10;
 int g_iHatPaint = 0;
 int g_iHatStyle = 0;
+int g_iHatDefIndexByClass[10];
+int g_iHideHatDefIndexByClass[10];
+int g_iHatClassMask = 0;
 int g_iHatPaintChoice[MAXPLAYERS + 1];
 
 static const char g_HatId[] = "mercenary_derby";
 static const char g_HatName[] = "mercenary_derby";
-static const int g_HideHatDefIndex = 111;
+static const int CLASSMASK_ALL = (1 << 9) - 1;
+static const int CLASSMASK_SCOUT = (1 << 0);
+static const int CLASSMASK_SOLDIER = (1 << 1);
+static const int CLASSMASK_PYRO = (1 << 2);
+static const int CLASSMASK_DEMO = (1 << 3);
+static const int CLASSMASK_HEAVY = (1 << 4);
+static const int CLASSMASK_ENGINEER = (1 << 5);
+static const int CLASSMASK_MEDIC = (1 << 6);
+static const int CLASSMASK_SNIPER = (1 << 7);
+static const int CLASSMASK_SPY = (1 << 8);
 
 static const char g_PaintNames[][48] =
 {
@@ -83,8 +97,7 @@ public void OnPluginStart()
 {
 	HookEvent("post_inventory_application", Event_PostInventory, EventHookMode_Post);
 	RegConsoleCmd("sm_hats", Command_Hats, "Open the custom hats menu");
-	g_hHatCookie = RegClientCookie("custom_hat_mercenary_derby", "Custom hat selection", CookieAccess_Protected);
-	g_hHatPaintCookie = RegClientCookie("custom_hat_mercenary_derby_paint", "Custom hat paint", CookieAccess_Protected);
+	g_hHatStateCookie = RegClientCookie("custom_hats_state", "Custom hats state (enabled|id|paint)", CookieAccess_Public);
 
 	GameData hTF2 = new GameData("sm-tf2.games");
 	if (hTF2 == null)
@@ -109,6 +122,10 @@ public void OnPluginStart()
 		g_iHatRef[i] = INVALID_ENT_REFERENCE;
 		g_iHideHatRef[i] = INVALID_ENT_REFERENCE;
 		g_bHatWanted[i] = false;
+		g_szHatIdChoice[i][0] = '\0';
+		g_bHatApplyPending[i] = false;
+		g_bHatStateLoaded[i] = false;
+		g_bHatStatePending[i] = false;
 		g_iHatPaintChoice[i] = 0;
 	}
 
@@ -138,39 +155,50 @@ public void OnClientPutInServer(int client)
 	}
 	g_iHatRef[client] = INVALID_ENT_REFERENCE;
 	g_iHideHatRef[client] = INVALID_ENT_REFERENCE;
-	g_bHatWanted[client] = false;
-	g_iHatPaintChoice[client] = g_iHatPaint;
+	g_bHatApplyPending[client] = false;
 }
 
-public void OnClientCookiesCached(int client)
+public void OnClientConnected(int client)
 {
-	if (!IsValidClient(client) || g_hHatCookie == INVALID_HANDLE)
+	if (client <= 0 || client > MaxClients)
 	{
 		return;
 	}
 
-	char value[8];
-	GetClientCookie(client, g_hHatCookie, value, sizeof(value));
-	g_bHatWanted[client] = (value[0] != '\0' && StringToInt(value) != 0);
+	g_bHatWanted[client] = false;
+	strcopy(g_szHatIdChoice[client], sizeof(g_szHatIdChoice[]), g_HatId);
+	g_iHatPaintChoice[client] = g_iHatPaint;
+	g_bHatStateLoaded[client] = false;
+	g_bHatStatePending[client] = false;
+}
 
-	if (g_hHatPaintCookie != INVALID_HANDLE)
+public void OnClientCookiesCached(int client)
+{
+	if (!IsValidClient(client))
 	{
-		char paintValue[8];
-		GetClientCookie(client, g_hHatPaintCookie, paintValue, sizeof(paintValue));
-		if (paintValue[0] != '\0')
-		{
-			g_iHatPaintChoice[client] = StringToInt(paintValue);
-		}
-		else
-		{
-			g_iHatPaintChoice[client] = g_iHatPaint;
-		}
+		return;
 	}
+
+	if (g_bHatStatePending[client])
+	{
+		SaveHatStateCookie(client);
+		g_bHatStateLoaded[client] = true;
+		g_bHatStatePending[client] = false;
+		return;
+	}
+
+	LoadHatStateCookie(client);
+	g_bHatStateLoaded[client] = true;
 }
 
 public void OnClientDisconnect(int client)
 {
 	RemoveHat(client);
+	g_bHatWanted[client] = false;
+	g_szHatIdChoice[client][0] = '\0';
+	g_iHatPaintChoice[client] = g_iHatPaint;
+	g_bHatStateLoaded[client] = false;
+	g_bHatStatePending[client] = false;
 }
 
 public Action Command_Hats(int client, int args)
@@ -190,6 +218,26 @@ public Action Command_Hats(int client, int args)
 	return Plugin_Handled;
 }
 
+public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemDefinitionIndex, int itemLevel, int itemQuality, int entityIndex)
+{
+	if (!IsValidClient(client) || g_bHatApplyPending[client])
+	{
+		return 0;
+	}
+	if (!g_bHatStateLoaded[client] && AreClientCookiesCached(client))
+	{
+		LoadHatStateCookie(client);
+		g_bHatStateLoaded[client] = true;
+	}
+	if (!g_bScoutHatEnabled || !g_ScoutHatModel[0])
+	{
+		return 0;
+	}
+
+	g_bHatApplyPending[client] = true;
+	return 0;
+}
+
 public void Event_PostInventory(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
@@ -197,7 +245,16 @@ public void Event_PostInventory(Event event, const char[] name, bool dontBroadca
 	{
 		return;
 	}
-
+	if (!g_bHatStateLoaded[client] && AreClientCookiesCached(client))
+	{
+		LoadHatStateCookie(client);
+		g_bHatStateLoaded[client] = true;
+	}
+	if (!g_bHatApplyPending[client] && !g_bHatWanted[client])
+	{
+		return;
+	}
+	g_bHatApplyPending[client] = false;
 	RequestFrame(ApplyHatFrame, GetClientUserId(client));
 }
 
@@ -208,7 +265,6 @@ public void ApplyHatFrame(any userid)
 	{
 		return;
 	}
-
 	UpdateHatForClient(client);
 }
 
@@ -220,7 +276,12 @@ void UpdateHatForClient(int client)
 		return;
 	}
 
-	if (GetClientTeam(client) <= 1 || TF2_GetPlayerClass(client) != TFClass_Scout)
+	if (GetClientTeam(client) <= 1 || !IsClassAllowedForHat(TF2_GetPlayerClass(client)))
+	{
+		return;
+	}
+
+	if (!StrEqual(g_szHatIdChoice[client], g_HatId, false))
 	{
 		RemoveHat(client);
 		return;
@@ -242,6 +303,9 @@ public int MenuHandler_Hats(Menu menu, MenuAction action, int client, int item)
 {
 	if (action == MenuAction_Select)
 	{
+		char itemId[64];
+		menu.GetItem(item, itemId, sizeof(itemId));
+		strcopy(g_szHatIdChoice[client], sizeof(g_szHatIdChoice[]), itemId);
 		ShowHatToggleMenu(client);
 	}
 	else if (action == MenuAction_End)
@@ -270,11 +334,11 @@ public int MenuHandler_HatToggle(Menu menu, MenuAction action, int client, int i
 		menu.GetItem(item, info, sizeof(info));
 		bool enable = StrEqual(info, "enable");
 		g_bHatWanted[client] = enable;
-
-		if (g_hHatCookie != INVALID_HANDLE)
+		if (!g_szHatIdChoice[client][0])
 		{
-			SetClientCookie(client, g_hHatCookie, enable ? "1" : "0");
+			strcopy(g_szHatIdChoice[client], sizeof(g_szHatIdChoice[]), g_HatId);
 		}
+		SaveHatStateCookie(client);
 
 		if (enable)
 		{
@@ -316,13 +380,15 @@ public int MenuHandler_HatPaint(Menu menu, MenuAction action, int client, int it
 	{
 		char info[8];
 		menu.GetItem(item, info, sizeof(info));
-		int paint = StringToInt(info);
+		int paint = ClampPaintIndex(StringToInt(info));
 		g_iHatPaintChoice[client] = paint;
 
-		if (g_hHatPaintCookie != INVALID_HANDLE)
+		g_bHatWanted[client] = true;
+		if (!g_szHatIdChoice[client][0])
 		{
-			SetClientCookie(client, g_hHatPaintCookie, info);
+			strcopy(g_szHatIdChoice[client], sizeof(g_szHatIdChoice[]), g_HatId);
 		}
+		SaveHatStateCookie(client);
 
 		EquipScoutHat(client);
 		PrintToChat(client, "[Hats] %s applied.", g_PaintNames[paint]);
@@ -339,14 +405,24 @@ void EquipScoutHat(int client)
 {
 	RemoveHat(client);
 
-	int hideWearable = CreateWearableBase(client, g_HideHatDefIndex, g_iHatLevel, g_iHatQuality);
-	if (hideWearable != -1)
+	int classIndex = view_as<int>(TF2_GetPlayerClass(client));
+	int hideDefIndex = GetHideDefIndexForClass(classIndex);
+	if (hideDefIndex > 0)
 	{
-		g_iHideHatRef[client] = EntIndexToEntRef(hideWearable);
+		int hideWearable = CreateWearableBase(client, hideDefIndex, g_iHatLevel, g_iHatQuality);
+		if (hideWearable != -1)
+		{
+			g_iHideHatRef[client] = EntIndexToEntRef(hideWearable);
+		}
 	}
 
+	int hatDefIndex = GetHatDefIndexForClass(classIndex);
+	if (hatDefIndex <= 0)
+	{
+		return;
+	}
 	int paint = g_iHatPaintChoice[client];
-	int wearable = CreateHat(client, g_ScoutHatModel, g_iHatDefIndex, g_iHatLevel, g_iHatQuality, paint);
+	int wearable = CreateHat(client, g_ScoutHatModel, hatDefIndex, g_iHatLevel, g_iHatQuality, paint);
 	if (wearable != -1)
 	{
 		g_iHatRef[client] = EntIndexToEntRef(wearable);
@@ -427,6 +503,213 @@ int CreateHat(int client, const char[] modelPath, int itemIndex, int level, int 
 	return entity;
 }
 
+int ClampPaintIndex(int paint)
+{
+	if (paint < 0)
+	{
+		return 0;
+	}
+	int maxPaint = sizeof(g_PaintNames) - 1;
+	if (paint > maxPaint)
+	{
+		return maxPaint;
+	}
+	return paint;
+}
+
+int ParseClassMask(const char[] list)
+{
+	char buffer[128];
+	strcopy(buffer, sizeof(buffer), list);
+	TrimString(buffer);
+	ToLowercaseInPlace(buffer, sizeof(buffer));
+
+	if (!buffer[0])
+	{
+		return CLASSMASK_SCOUT;
+	}
+	if (StrEqual(buffer, "all"))
+	{
+		return CLASSMASK_ALL;
+	}
+
+	int mask = 0;
+	char parts[16][32];
+	int count = ExplodeString(buffer, ",", parts, sizeof(parts), sizeof(parts[]));
+	for (int i = 0; i < count; i++)
+	{
+		TrimString(parts[i]);
+		ToLowercaseInPlace(parts[i], sizeof(parts[i]));
+		if (!parts[i][0])
+		{
+			continue;
+		}
+		if (StrEqual(parts[i], "all"))
+		{
+			return CLASSMASK_ALL;
+		}
+		if (StrEqual(parts[i], "scout"))
+		{
+			mask |= CLASSMASK_SCOUT;
+		}
+		else if (StrEqual(parts[i], "soldier"))
+		{
+			mask |= CLASSMASK_SOLDIER;
+		}
+		else if (StrEqual(parts[i], "pyro"))
+		{
+			mask |= CLASSMASK_PYRO;
+		}
+		else if (StrEqual(parts[i], "demoman") || StrEqual(parts[i], "demo"))
+		{
+			mask |= CLASSMASK_DEMO;
+		}
+		else if (StrEqual(parts[i], "heavy"))
+		{
+			mask |= CLASSMASK_HEAVY;
+		}
+		else if (StrEqual(parts[i], "engineer"))
+		{
+			mask |= CLASSMASK_ENGINEER;
+		}
+		else if (StrEqual(parts[i], "medic"))
+		{
+			mask |= CLASSMASK_MEDIC;
+		}
+		else if (StrEqual(parts[i], "sniper"))
+		{
+			mask |= CLASSMASK_SNIPER;
+		}
+		else if (StrEqual(parts[i], "spy"))
+		{
+			mask |= CLASSMASK_SPY;
+		}
+	}
+
+	if (mask == 0)
+	{
+		mask = CLASSMASK_SCOUT;
+	}
+	return mask;
+}
+
+bool IsClassAllowedForHat(TFClassType class)
+{
+	int classIndex = view_as<int>(class);
+	if (classIndex < 1 || classIndex > 9)
+	{
+		return false;
+	}
+	int bit = 1 << (classIndex - 1);
+	return (g_iHatClassMask & bit) != 0;
+}
+
+void ToLowercaseInPlace(char[] str, int maxlen)
+{
+	for (int i = 0; i < maxlen && str[i] != '\0'; i++)
+	{
+		str[i] = CharToLower(str[i]);
+	}
+}
+
+void LoadClassOverrides(KeyValues kv, const char[] key, TFClassType class)
+{
+	if (!kv.JumpToKey(key))
+	{
+		return;
+	}
+
+	int classIndex = view_as<int>(class);
+	if (classIndex < 1 || classIndex > 9)
+	{
+		kv.GoBack();
+		return;
+	}
+
+	int defindex = kv.GetNum("defindex", 0);
+	int hideDefindex = kv.GetNum("hide_defindex", 0);
+	if (defindex > 0)
+	{
+		g_iHatDefIndexByClass[classIndex] = defindex;
+	}
+	if (hideDefindex > 0)
+	{
+		g_iHideHatDefIndexByClass[classIndex] = hideDefindex;
+	}
+	kv.GoBack();
+}
+
+int GetHatDefIndexForClass(int classIndex)
+{
+	if (classIndex < 1 || classIndex > 9)
+	{
+		return 0;
+	}
+	return g_iHatDefIndexByClass[classIndex];
+}
+
+int GetHideDefIndexForClass(int classIndex)
+{
+	if (classIndex < 1 || classIndex > 9)
+	{
+		return 0;
+	}
+	return g_iHideHatDefIndexByClass[classIndex];
+}
+
+void LoadHatStateCookie(int client)
+{
+	g_bHatWanted[client] = false;
+	strcopy(g_szHatIdChoice[client], sizeof(g_szHatIdChoice[]), g_HatId);
+	g_iHatPaintChoice[client] = g_iHatPaint;
+
+	if (g_hHatStateCookie == INVALID_HANDLE || !AreClientCookiesCached(client))
+	{
+		return;
+	}
+
+	char stateValue[128];
+	GetClientCookie(client, g_hHatStateCookie, stateValue, sizeof(stateValue));
+	if (!stateValue[0])
+	{
+		return;
+	}
+
+	char parts[3][64];
+	int count = ExplodeString(stateValue, "|", parts, sizeof(parts), sizeof(parts[]));
+	if (count > 0)
+	{
+		g_bHatWanted[client] = StringToInt(parts[0]) != 0;
+	}
+	if (count > 1 && parts[1][0] != '\0')
+	{
+		strcopy(g_szHatIdChoice[client], sizeof(g_szHatIdChoice[]), parts[1]);
+	}
+	if (count > 2)
+	{
+		g_iHatPaintChoice[client] = ClampPaintIndex(StringToInt(parts[2]));
+	}
+}
+
+void SaveHatStateCookie(int client)
+{
+	if (g_hHatStateCookie == INVALID_HANDLE || !IsValidClient(client))
+	{
+		return;
+	}
+
+	if (!AreClientCookiesCached(client))
+	{
+		g_bHatStatePending[client] = true;
+		return;
+	}
+
+	char state[128];
+	Format(state, sizeof(state), "%d|%s|%d", g_bHatWanted[client] ? 1 : 0, g_szHatIdChoice[client], g_iHatPaintChoice[client]);
+	SetClientCookie(client, g_hHatStateCookie, state);
+}
+
+
 void RemoveAllHats()
 {
 	for (int i = 1; i <= MaxClients; i++)
@@ -450,11 +733,16 @@ void LoadConfig()
 {
 	g_bScoutHatEnabled = false;
 	g_ScoutHatModel[0] = '\0';
-	g_iHatDefIndex = 0;
 	g_iHatQuality = 6;
 	g_iHatLevel = 10;
 	g_iHatPaint = 0;
 	g_iHatStyle = 0;
+	g_iHatClassMask = CLASSMASK_SCOUT;
+	for (int i = 0; i < sizeof(g_iHatDefIndexByClass); i++)
+	{
+		g_iHatDefIndexByClass[i] = 0;
+		g_iHideHatDefIndexByClass[i] = 0;
+	}
 
 	char path[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, path, sizeof(path), CONFIG_FILE);
@@ -474,15 +762,28 @@ void LoadConfig()
 
 	if (kv.JumpToKey("scout"))
 	{
+		char classes[128];
 		kv.GetString("model", g_ScoutHatModel, sizeof(g_ScoutHatModel), DEFAULT_SCOUT_MODEL);
 		g_bScoutHatEnabled = (kv.GetNum("enabled", 1) != 0) && g_ScoutHatModel[0];
-		g_iHatDefIndex = kv.GetNum("defindex", DEFAULT_SCOUT_DEFINDEX);
+		g_iHatDefIndexByClass[view_as<int>(TFClass_Scout)] = kv.GetNum("defindex", 451);
+		g_iHideHatDefIndexByClass[view_as<int>(TFClass_Scout)] = kv.GetNum("hide_defindex", 111);
 		g_iHatQuality = kv.GetNum("quality", 6);
 		g_iHatLevel = kv.GetNum("level", 10);
 		g_iHatPaint = kv.GetNum("paint", 0);
 		g_iHatStyle = kv.GetNum("style", 0);
+		kv.GetString("classes", classes, sizeof(classes), "scout");
+		g_iHatClassMask = ParseClassMask(classes);
 		kv.GoBack();
 	}
+
+	LoadClassOverrides(kv, "soldier", TFClass_Soldier);
+	LoadClassOverrides(kv, "pyro", TFClass_Pyro);
+	LoadClassOverrides(kv, "demoman", TFClass_DemoMan);
+	LoadClassOverrides(kv, "heavy", TFClass_Heavy);
+	LoadClassOverrides(kv, "engineer", TFClass_Engineer);
+	LoadClassOverrides(kv, "medic", TFClass_Medic);
+	LoadClassOverrides(kv, "sniper", TFClass_Sniper);
+	LoadClassOverrides(kv, "spy", TFClass_Spy);
 
 	delete kv;
 }
@@ -502,11 +803,13 @@ void CreateDefaultConfig(const char[] path)
 	file.WriteLine("    {");
 	file.WriteLine("        \"enabled\" \"1\"");
 	file.WriteLine("        \"model\" \"%s\"", DEFAULT_SCOUT_MODEL);
-	file.WriteLine("        \"defindex\" \"%d\"", DEFAULT_SCOUT_DEFINDEX);
+	file.WriteLine("        \"defindex\" \"451\"");
+	file.WriteLine("        \"hide_defindex\" \"111\"");
 	file.WriteLine("        \"quality\" \"6\"");
 	file.WriteLine("        \"level\" \"10\"");
 	file.WriteLine("        \"paint\" \"0\"");
 	file.WriteLine("        \"style\" \"0\"");
+	file.WriteLine("        \"classes\" \"all\"");
 	file.WriteLine("    }");
 	file.WriteLine("}");
 	delete file;

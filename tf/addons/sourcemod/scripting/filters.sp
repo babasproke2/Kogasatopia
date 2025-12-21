@@ -32,6 +32,7 @@ Handle g_hCookieFilterWhitelist;
 Handle g_hCookieBlacklist;
 Handle g_hCookieNameColor;
 Handle g_hChatFrontend;
+Handle g_hWebchatFrontend;
 
 // Per-client name color tokens (empty string means team color)
 char g_NameColors[MAXPLAYERS + 1][32];
@@ -264,6 +265,7 @@ public void OnPluginStart()
     g_sChatMode2 = CreateConVar("filtermode", "0", "Enable/Disable the quarantined filter mode");
     g_hChatDebug = CreateConVar("filters_chat_debug", "0", "Enable verbose debug logging for chat relay");
     g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Enable/Disable db functions");
+    g_hWebchatFrontend = CreateConVar("filters_webchat_frontend", "0", "0 disables frontend, 1 enables, 2 enables but suppresses webchat console prints.");
     g_hFiltersEnabled = CreateConVar("filters_filters", "1", "If 0, blacklist word matching is disabled.");
     g_hBlacklistMinLen = CreateConVar("filters_blacklist_minlen", "8", "Minimum message length to check blacklist words.");
     g_hFiltersChristmas = CreateConVar("filters_christmas", "0", "If 1, red chat is {axis} and blue chat is {green}.");
@@ -312,6 +314,19 @@ public void OnPluginStart()
             g_NameColors[i][0] = '\0';
         }
     }
+}
+
+static int Filters_GetFrontendMode()
+{
+    if (g_hWebchatFrontend != null && g_hWebchatFrontend.IntValue > 0)
+    {
+        return g_hWebchatFrontend.IntValue;
+    }
+    if (g_hChatFrontend != null)
+    {
+        return g_hChatFrontend.IntValue;
+    }
+    return 0;
 }
 
 public void OnConfigsExecuted()
