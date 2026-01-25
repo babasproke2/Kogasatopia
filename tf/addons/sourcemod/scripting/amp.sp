@@ -71,8 +71,8 @@ ConVar cvarEnableZap;
 int MetalPerPlayer = 5;
 int MetalMax = 200;
 TFCond DefaultCondition = TFCond_RuneHaste; // Formerly TFCond_Buffed
-float DefaultDistance = 225.0;
-float DefaultEffectLength = 6.0;
+float DefaultDistance = 400.0;
+float DefaultEffectLength = 5.0;
 int ForceAmplifier = 0; // 0=nothing, 1=dispenser, 2=sentry, 3=both
 int EnableExplosion = 65;
 int EnableZap = 0; // I prefer 20
@@ -144,13 +144,13 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 public OnPluginStart()
 {
 	CreateConVar("amplifier_version", PLUGIN_VERSION, "The Amplifier Version", FCVAR_REPLICATED|FCVAR_NOTIFY);
-	cvarEffectLength = CreateConVar("amplifier_effect_length", "2.5", "Length in seconds for the Amplifier condition to last", FCVAR_PLUGIN);
-	cvarDistance = CreateConVar("amplifier_distance", "240.0", "Distance the amplifier works.", FCVAR_PLUGIN);
+	cvarEffectLength = CreateConVar("amplifier_effect_length", "4.0", "Length in seconds for the Amplifier condition to last", FCVAR_PLUGIN);
+	cvarDistance = CreateConVar("amplifier_distance", "300.0", "Distance the amplifier works.", FCVAR_PLUGIN);
 	cvarMetalMax = CreateConVar("amplifier_max", "200.0", "Maximum amount of metal an amplifier can hold.", FCVAR_PLUGIN);
 	cvarMetal = CreateConVar("amplifier_metal", "5.0", "Amount of metal to use to apply a condition to a player (per second).", FCVAR_PLUGIN);
 	cvarForceAmplifier = CreateConVar("amplifier_force", "0", "Force amplifier mode: 0=nothing, 1=dispenser, 2=sentry, 3=both", FCVAR_PLUGIN, true, 0.0, true, 3.0);
 	cvarEnableExplosion = CreateConVar("amplifier_explode", "65", "Enable Amplifier death explosions? >0 for damage value.", FCVAR_PLUGIN, true, 0.0, true, 1.0);
-	cvarEnableZap = CreateConVar("amplifier_zap", "0", "Should Amplifier pulses harm the enemy team? 0 to disable, >0 for damage.", FCVAR_PLUGIN, true, 0.0, true, 50.0);
+	cvarEnableZap = CreateConVar("amplifier_zap", "20.0", "Should Amplifier pulses harm the enemy team? 0 to disable, >0 for damage.", FCVAR_PLUGIN, true, 0.0, true, 50.0);
 
 	HookEvent("player_builtobject", Event_Build);
     HookEvent("object_destroyed", Event_ObjectDestroyed);
@@ -369,8 +369,8 @@ public Action:HelpPanel(client, Args)
 	new Handle:panel = CreatePanel();
 	
 	SetPanelTitle(panel, "=== Amplifier Info ===");
-	DrawPanelText(panel, "Amplifiers can replace Sentries or Dispensers");
-	DrawPanelText(panel, "They consume metal to provide a 30% fire rate & reload speed bonus to teammates");
+	DrawPanelText(panel, "Amplifiers consume metal to provide a combat buff to nearby teammates for 5 seconds");
+	DrawPanelText(panel, "It applies the Concheror effect and a 25% bonus to reload speed.");
 	DrawPanelText(panel, "Hit with wrench to refill");
 	DrawPanelText(panel, "=== Jump/Speed Pad Info ===");
 	DrawPanelText(panel, "Teleporters can be converted to Jump or Speed pads");
@@ -943,6 +943,7 @@ stock void AddAmplifierEffect(int client)
         g_PlayerState[client].effectTimer = INVALID_HANDLE;
     }
     
+	TF2_AddCondition(client, TFCond_RegenBuffed, DefaultEffectLength);
     // Apply to first 3 slots
     for (int slot = 0; slot < 3; slot++)
     {
@@ -950,14 +951,14 @@ stock void AddAmplifierEffect(int client)
         if (weapon > MaxClients && IsValidEntity(weapon))
         {
 			float factor_firerate = 0.75;
-			float factor_reloadrate = 0.65;
+			float factor_reloadrate = 0.75;
             int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
 			if (defIndex == BEGGARS_BAZOOKA)
 			{
 				factor_firerate = 0.10;
 				factor_reloadrate = 1.0;
 			}
-            TF2Attrib_SetByName(weapon, ATTR_FIRE_RATE, factor_firerate);
+            //TF2Attrib_SetByName(weapon, ATTR_FIRE_RATE, factor_firerate);
 	        TF2Attrib_SetByName(weapon, ATTR_RELOAD_RATE, factor_reloadrate);
         }
     }
@@ -982,12 +983,12 @@ public Action Timer_RemoveAmplifierEffect(Handle timer, int userid)
                     int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
                     if (defIndex == BEGGARS_BAZOOKA)
                     {
-                        TF2Attrib_SetByName(weapon, ATTR_FIRE_RATE, 0.30);
+                        //TF2Attrib_SetByName(weapon, ATTR_FIRE_RATE, 0.30);
 						TF2Attrib_SetByName(weapon, ATTR_RELOAD_RATE, 1.30);
                     }
                     else
                     {
-                        TF2Attrib_RemoveByName(weapon, ATTR_FIRE_RATE);
+                        //TF2Attrib_RemoveByName(weapon, ATTR_FIRE_RATE);
                         TF2Attrib_RemoveByName(weapon, ATTR_RELOAD_RATE);
                     }
                 }

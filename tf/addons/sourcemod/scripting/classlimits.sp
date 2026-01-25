@@ -37,6 +37,7 @@ int g_iClass[MAXPLAYERS + 1];
 ConVar g_hEnabled;
 ConVar g_hFlags;
 ConVar g_hImmunity;
+ConVar g_hTopScore;
 ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[32] = "Default";
 
@@ -75,7 +76,8 @@ public void OnPluginStart()
     CreateConVar("classlimits_version", PL_VERSION, "Restrict classes in TF2.", FCVAR_NOTIFY);
     g_hEnabled  = CreateConVar("restrict_enabled",  "1",  "Enable or disable class limits.");
     g_hFlags    = CreateConVar("restrict_flags",    "z",  "Admin flags allowed to bypass class limits.");
-    g_hImmunity = CreateConVar("restrict_immunity", "1",  "Enable/disable admin immunity for class limits.");
+    g_hImmunity = CreateConVar("restrict_immunity", "0",  "Enable/disable admin immunity for class limits.");
+    g_hTopScore = CreateConVar("classlimits_topscore", "0", "Allow top team scorers to bypass class limits.", _, true, 0.0, true, 1.0);
 
     for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
     {
@@ -197,7 +199,7 @@ public void Event_PlayerClass(Event event, const char[] name, bool dontBroadcast
         iTeam   = GetClientTeam(iClient);
 
     int limit;
-    if (!(g_hImmunity.BoolValue && IsImmune(iClient)) && IsClassAtLimit(iTeam, iClass, limit))
+    if (!IsClassLimitImmune(iClient) && IsClassAtLimit(iTeam, iClass, limit))
     {
         //ShowVGUIPanel(iClient, iTeam == TF_TEAM_BLU ? "class_blue" : "class_red");
         EmitSoundToClient(iClient, g_sSounds[iClass]);
@@ -214,7 +216,7 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
     g_iClass[iClient] = view_as<int>(TF2_GetPlayerClass(iClient));
 
     int limit;
-    if (!(g_hImmunity.BoolValue && IsImmune(iClient)) && IsClassAtLimit(iTeam, g_iClass[iClient], limit))
+    if (!IsClassLimitImmune(iClient) && IsClassAtLimit(iTeam, g_iClass[iClient], limit))
     {
         //ShowVGUIPanel(iClient, iTeam == TF_TEAM_BLU ? "class_blue" : "class_red");
         NotifyClassRestricted(iClient, g_iClass[iClient], limit);
@@ -229,12 +231,121 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
         iTeam   = event.GetInt("team");
 
     int limit;
-    if (!(g_hImmunity.BoolValue && IsImmune(iClient)) && IsClassAtLimit(iTeam, g_iClass[iClient], limit))
+    if (!IsClassLimitImmune(iClient) && IsClassAtLimit(iTeam, g_iClass[iClient], limit))
     {
         //ShowVGUIPanel(iClient, iTeam == TF_TEAM_BLU ? "class_blue" : "class_red");
         EmitSoundToClient(iClient, g_sSounds[g_iClass[iClient]]);
         NotifyClassRestricted(iClient, g_iClass[iClient], limit);
     }
+}
+
+static int GetClientScore(int client)
+{
+    static int scorePropState = 0; // 0 unknown, 1 m_iScore, 2 m_iFrags, 3 none
+
+    if (scorePropState == 0 || (scorePropState == 1 && !HasEntProp(client, Prop_Send, "m_iScore"))
+        || (scorePropState == 2 && !HasEntProp(client, Prop_Send, "m_iFrags")))
+    {
+        if (HasEntProp(client, Prop_Send, "m_iScore"))
+        {
+            scorePropState = 1;
+        }
+        else if (HasEntProp(client, Prop_Send, "m_iFrags"))
+        {
+            scorePropState = 2;
+        }
+        else
+        {
+            scorePropState = 3;
+        }
+    }
+
+    if (scorePropState == 1)
+    {
+        return GetEntProp(client, Prop_Send, "m_iScore");
+    }
+
+    if (scorePropState == 2)
+    {
+        return GetEntProp(client, Prop_Send, "m_iFrags");
+    }
+
+    return 0;
+}
+
+static bool GetTeamTopScoreThreshold(int team, int &threshold)
+{
+    threshold = 0;
+
+    int topScores[3] = { -2147483647, -2147483647, -2147483647 };
+    int count = 0;
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i) || GetClientTeam(i) != team)
+        {
+            continue;
+        }
+
+        int score = GetClientScore(i);
+        count++;
+
+        if (score > topScores[0])
+        {
+            topScores[2] = topScores[1];
+            topScores[1] = topScores[0];
+            topScores[0] = score;
+        }
+        else if (score > topScores[1])
+        {
+            topScores[2] = topScores[1];
+            topScores[1] = score;
+        }
+        else if (score > topScores[2])
+        {
+            topScores[2] = score;
+        }
+    }
+
+    if (count == 0)
+    {
+        return false;
+    }
+
+    threshold = (count < 3) ? topScores[count - 1] : topScores[2];
+    return true;
+}
+
+static bool IsTopTeamScorer(int client)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return false;
+    }
+
+    int team = GetClientTeam(client);
+    if (team < TF_TEAM_RED)
+    {
+        return false;
+    }
+
+    int threshold;
+    if (!GetTeamTopScoreThreshold(team, threshold))
+    {
+        return false;
+    }
+
+    return GetClientScore(client) >= threshold;
+}
+
+static bool IsClassLimitImmune(int client)
+{
+    if (g_hTopScore.BoolValue && IsTopTeamScorer(client))
+    {
+        return true;
+    }
+
+    return g_hImmunity.BoolValue && IsImmune(client);
 }
 
 bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
@@ -272,9 +383,22 @@ bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
         return (limitOut == 0);
     }
 
+    int scoreThreshold = 0;
+    bool haveThreshold = g_hTopScore.BoolValue && GetTeamTopScoreThreshold(iTeam, scoreThreshold);
+
     for (int i = 1, iCount = 0; i <= MaxClients; i++)
     {
-        if (IsClientInGame(i) && GetClientTeam(i) == iTeam && view_as<int>(TF2_GetPlayerClass(i)) == iClass && ++iCount > limitOut)
+        if (!IsClientInGame(i) || GetClientTeam(i) != iTeam || view_as<int>(TF2_GetPlayerClass(i)) != iClass)
+        {
+            continue;
+        }
+
+        if (haveThreshold && GetClientScore(i) >= scoreThreshold)
+        {
+            continue;
+        }
+
+        if (++iCount > limitOut)
         {
             return true;
         }

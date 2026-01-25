@@ -3,6 +3,8 @@
 
 #include <sourcemod>
 #include <sdkhooks>
+#include <sdktools>
+#include <sdktools_gamerules>
 #include <tf2_stocks>
 #include <tf2>
 #include <controlpoints>
@@ -19,6 +21,7 @@ ConVar g_cvAutoAddTime;
 ConVar g_cvTimeOverride;
 ConVar g_cvRespawnTime;
 bool g_bSymmetrical;
+bool g_bRoundStartedOnce;
 
 ConVar g_cHostname;
 ConVar g_hVisibleMaxPlayers;
@@ -30,6 +33,15 @@ ConVar g_cvGameMode;
 
 // Add a ConVar to hook the value of mp_disable_respawn_times
 Handle g_cvMpDisableRespawnTimes = INVALID_HANDLE;
+Handle g_hSetupCheckTimer = INVALID_HANDLE;
+Handle g_hSetupMonitorTimer = INVALID_HANDLE;
+int g_iSetupCheckCount = 0;
+bool g_bSetupDetected = false;
+bool g_bSetupEnded = false;
+int g_iGameRulesEntity = -1;
+bool g_bGameRulesPropsCached = false;
+bool g_bHasInSetupProp = false;
+bool g_bHasSetupTimeEndProp = false;
 
 public Plugin myinfo = {
     name = "Gamemode Detector",
@@ -64,15 +76,41 @@ public void OnPluginStart()
     
     HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
     HookEvent("teamplay_round_start", Event_RoundActive);
+    HookEvent("teamplay_setup_finished", Event_SetupFinished);
     HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_Pre);
     HookEvent("teamplay_point_captured", Event_PointCaptured, EventHookMode_PostNoCopy);   
 
     RegAdminCmd("sm_respawn", Command_RespawnToggle, ADMFLAG_KICK, "Toggles respawn times");
     RegAdminCmd("sm_noset", Command_ResetSetup, ADMFLAG_KICK, "Set round setup time to 10 seconds");
+    RegConsoleCmd("sm_extend", Command_ExtendTimer, "Increase round timer by 10 seconds");
 
     g_cHostname = FindConVar("hostname");
     RegConsoleCmd("sm_st", Command_Stats, "Show player count, map and hostname");
     RegConsoleCmd("sm_manual", Command_CvarHelp, "Displays information about plugin ConVars.");
+}
+
+public void OnMapStart()
+{
+    if (g_hSetupCheckTimer != INVALID_HANDLE)
+    {
+        KillTimer(g_hSetupCheckTimer);
+        g_hSetupCheckTimer = INVALID_HANDLE;
+    }
+
+    if (g_hSetupMonitorTimer != INVALID_HANDLE)
+    {
+        KillTimer(g_hSetupMonitorTimer);
+        g_hSetupMonitorTimer = INVALID_HANDLE;
+    }
+
+    g_iSetupCheckCount = 0;
+    g_bSetupDetected = false;
+    g_bSetupEnded = false;
+    g_iGameRulesEntity = -1;
+    g_bGameRulesPropsCached = false;
+    g_bHasInSetupProp = false;
+    g_bHasSetupTimeEndProp = false;
+    DGM_StartSetupCheckTimer();
 }
 
 // I prefer the visual effect when TF2's mp_disable_respawn_times cvar is true but dislike that it can be exploited
@@ -88,12 +126,135 @@ public void ConVarChange_MpDisableRespawnTimes(ConVar convar, const char[] oldVa
     }
 }
 
+static int DGM_GetGameRulesEntity()
+{
+    if (g_iGameRulesEntity != -1 && IsValidEntity(g_iGameRulesEntity))
+    {
+        return g_iGameRulesEntity;
+    }
+
+    int ent = FindEntityByClassname(-1, "tf_gamerules");
+    if (ent == -1)
+    {
+        ent = FindEntityByClassname(-1, "game_rules_proxy");
+    }
+
+    if (ent != g_iGameRulesEntity)
+    {
+        g_iGameRulesEntity = ent;
+        g_bGameRulesPropsCached = false;
+        g_bHasInSetupProp = false;
+        g_bHasSetupTimeEndProp = false;
+    }
+
+    return g_iGameRulesEntity;
+}
+
+static void DGM_EnsureGameRulesProps()
+{
+    int ent = DGM_GetGameRulesEntity();
+    if (ent == -1 || g_bGameRulesPropsCached)
+    {
+        return;
+    }
+
+    g_bHasInSetupProp = HasEntProp(ent, Prop_Send, "m_bInSetup");
+    g_bHasSetupTimeEndProp = HasEntProp(ent, Prop_Send, "m_flSetupTimeEnd");
+    g_bGameRulesPropsCached = true;
+}
+
+static bool DGM_IsSetupActiveStart()
+{
+    if (GameRules_GetRoundState() == RoundState_Preround)
+    {
+        return true;
+    }
+
+    DGM_EnsureGameRulesProps();
+    if (g_bHasInSetupProp && GameRules_GetProp("m_bInSetup", 1) != 0)
+    {
+        return true;
+    }
+
+    if (g_bHasSetupTimeEndProp)
+    {
+        float setupEnd = GameRules_GetPropFloat("m_flSetupTimeEnd");
+        return setupEnd > 0.0 && setupEnd > GetGameTime();
+    }
+
+    return false;
+}
+
+static bool DGM_IsSetupActiveEnd()
+{
+    if (GameRules_GetRoundState() == RoundState_Preround)
+    {
+        return true;
+    }
+
+    DGM_EnsureGameRulesProps();
+    return g_bHasInSetupProp && GameRules_GetProp("m_bInSetup", 1) != 0;
+}
+
+static void DGM_StartSetupCheckTimer()
+{
+    if (g_bSetupDetected || g_hSetupCheckTimer != INVALID_HANDLE || g_hSetupMonitorTimer != INVALID_HANDLE)
+    {
+        return;
+    }
+
+    g_iSetupCheckCount = 0;
+    g_hSetupCheckTimer = CreateTimer(2.0, Timer_CheckSetupStart, _, TIMER_REPEAT);
+}
+
+public Action Timer_CheckSetupStart(Handle timer)
+{
+    g_iSetupCheckCount++;
+
+    if (DGM_IsSetupActiveStart())
+    {
+        PrintToChatAll("Setup detected, bhop enabled");
+        g_bSetupDetected = true;
+        ServerCommand("exec d_setup.cfg");
+        if (g_hSetupMonitorTimer == INVALID_HANDLE)
+        {
+            g_hSetupMonitorTimer = CreateTimer(2.0, Timer_MonitorSetupEnd, _, TIMER_REPEAT);
+        }
+        g_hSetupCheckTimer = INVALID_HANDLE;
+        return Plugin_Stop;
+    }
+
+    if (g_iSetupCheckCount >= 15)
+    {
+        g_hSetupCheckTimer = INVALID_HANDLE;
+        return Plugin_Stop;
+    }
+
+    return Plugin_Continue;
+}
+
+public Action Timer_MonitorSetupEnd(Handle timer)
+{
+    if (!DGM_IsSetupActiveEnd())
+    {
+        if (!g_bSetupEnded)
+        {
+            ServerCommand("exec d_endsetup.cfg");
+            g_bSetupEnded = true;
+        }
+        g_hSetupMonitorTimer = INVALID_HANDLE;
+        return Plugin_Stop;
+    }
+
+    return Plugin_Continue;
+}
+
 // We can be sure entities are loaded by this point
 public void OnConfigsExecuted()
 {
     DetectGameMode();
-    RequestFrame(AdjustByPlayerCount); // Good to have this third check for the start of a map
     g_InternalOverride = false; // Reset this on map change
+    g_bRoundStartedOnce = false;
 }
 
 // Fires when a control point is captured
@@ -121,12 +282,18 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
 
 public void OnClientPutInServer(int client)
 {
-    RequestFrame(AdjustByPlayerCount);
+    if (g_bRoundStartedOnce)
+    {
+        RequestFrame(AdjustByPlayerCount);
+    }
 }
 
 public void OnClientDisconnect(int client)
 {
-    RequestFrame(AdjustByPlayerCount);
+    if (g_bRoundStartedOnce)
+    {
+        RequestFrame(AdjustByPlayerCount);
+    }
 }
 
 // This command lets me see everything this plugin is doing at a given moment among other things
@@ -286,6 +453,13 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
     if (g_cvTimeOverride != null)    g_cvTimeOverride.RestoreDefault();
     g_InternalOverride = false; // This is set to true when a round is won, it changes back to false now
     g_PointCaptures = 0;
+    g_bSetupEnded = false;
+    DGM_StartSetupCheckTimer();
+    if (!g_bRoundStartedOnce)
+    {
+        g_bRoundStartedOnce = true;
+        RequestFrame(AdjustByPlayerCount);
+    }
     if (GetConVarInt(g_cvSetSetupTime) != 0)
     {
         SetSetupTime();
@@ -303,6 +477,21 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
 	}
 }
 
+public void Event_SetupFinished(Event event, const char[] name, bool dontBroadcast)
+{
+    if (!g_bSetupEnded)
+    {
+        ServerCommand("exec d_endsetup.cfg");
+        g_bSetupEnded = true;
+    }
+
+    if (g_hSetupMonitorTimer != INVALID_HANDLE)
+    {
+        KillTimer(g_hSetupMonitorTimer);
+        g_hSetupMonitorTimer = INVALID_HANDLE;
+    }
+}
+
 public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 {
     SetConVarInt(g_cvTimeOverride, 30);
@@ -311,6 +500,36 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 }
 
 public Action Command_ResetSetup(int client , int args)
+{
+    int timerEnt = FindEntityByClassname(-1, "team_round_timer");
+    if (timerEnt == -1)
+    {
+        if (client > 0) PrintToChat(client, "No team_round_timer entity found.");
+        else PrintToServer("[SM] No team_round_timer entity found.");
+        return Plugin_Handled;
+    }
+
+    int time = 10;
+    if (args > 0)
+    {
+        if (!GetCmdArgIntEx( 1, args))
+        {
+            ReplyToCommand(client, "Given time must be a number!" );
+            return Plugin_Continue;
+        }
+    }
+	char temp[ 4 ];
+	GetCmdArg( 1, temp, 4 );
+	time = StringToInt(temp) + 1;
+    SetVariantInt(time);
+    AcceptEntityInput(timerEnt, "SetTime");
+
+    if (client > 0) PrintToChatAll("Setup time reduced to %i seconds.", time);
+    PrintToServer("[SM] Setup time set to %i seconds.", time);
+    return Plugin_Handled;
+}
+
+public Action Command_ExtendTimer(int client , int args)
 {
     int timerEnt = FindEntityByClassname(-1, "team_round_timer");
     if (timerEnt == -1)
@@ -354,6 +573,10 @@ public void SetSetupTime()
 
 public void AdjustByPlayerCount(any data)
 {
+    if (!g_bRoundStartedOnce)
+    {
+        return;
+    }
     int playerCount = GetClientCount(true);
     int threshhold = GetConVarInt(g_cvThreshold);
     if (!g_bSymmetrical) {

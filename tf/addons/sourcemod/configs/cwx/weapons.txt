@@ -4,6 +4,142 @@
 // two or more forward slashes indicates a comment - you cannot use /* multiline comments */ here
 "Items"
 {
+        "nonomi_minigun"
+        {
+                "inherits"    "TF_WEAPON_MINIGUN"
+                "name"                  "Little Machine Gun V"
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/weapons/c_models/c_minigun/nonomi_minigun.mdl"
+                }
+        }
+        "hoshino_shotgun_scattergun"
+        {
+                "inherits"    "Upgradeable TF_WEAPON_SCATTERGUN"
+                "name"                  "Eye of Horus"
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
+                }
+        }
+        "hoshino_shotgun"
+        {
+                "inherits"    "TF_WEAPON_SHOTGUN_PRIMARY"
+                "name"                  "Eye of Horus"
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
+                }
+        }
+        "hoshino_shotgun_secondary"
+        {
+                "inherits"    "TF_WEAPON_SHOTGUN_SOLDIER"
+                "name"                  "Eye of Horus"
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
+                }
+        }
+        "hoshino_shotgun_secondary2"
+        {
+                "inherits"    "TF_WEAPON_SHOTGUN_HWG"
+                "name"                  "Eye of Horus"
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
+                }
+        }
+        "hoshino_shotgun_secondary3"
+        {
+                "inherits"    "TF_WEAPON_SHOTGUN_PYRO"
+                "name"                  "Eye of Horus"
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
+                }
+        }
+        "reimugohei"
+        {
+                "inherits"    "The Disciplinary Action"
+                "name"                  "Reimu's Gohei - Disc. Action"
+                "used_by_classes"
+                {
+                        "soldier" "melee"
+                }
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/touhou/reimu_gohei/reimu_gohei.mdl"
+                        "touhou death sound"  "1"
+                }
+        }
+        "reimugohei_mg"
+        {
+                "inherits"    "The Market Gardener"
+                "name"                  "Reimu's Gohei - Market Gardener"
+                "used_by_classes"
+                {
+                        "soldier" "melee"
+                }
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/touhou/reimu_gohei/reimu_gohei.mdl"
+                        "touhou death sound"  "1"
+                }
+        }
+        "reimugohei_all"
+        {
+                "inherits"    "Prinny Machete"
+                "name"                  "Reimu's Gohei"
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/touhou/reimu_gohei/reimu_gohei.mdl"
+                        "touhou death sound"  "1"
+                }
+        }
+        "reimugohei_spy"
+        {
+                "inherits"    "TF_WEAPON_KNIFE"
+                "name"                  "Reimu's Purification Rod"
+                "used_by_classes"
+                {
+                        "spy" "melee"
+                }
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/touhou/reimu_gohei/reimu_gohei.mdl"
+                        "touhou death sound"  "1"
+                }
+        }
+        "houraibranch"
+        {
+                "inherits"    "The Wrap Assassin"
+                "name"                  "Branch of Hourai"
+                "used_by_classes"
+                {
+                        "scout" "melee"
+                }
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/touhou/lunar_branch/lunar_branch.mdl"
+                        "touhou death sound"  "1"
+                }
+        }
+        "reisenpistol"
+        {
+                "inherits"    "The C.A.P.P.E.R"
+                "name"                  "Reisen's Bunny Pistol"
+                "used_by_classes"
+                {
+                        "scout" "secondary"
+                        "engineer"      "secondary"
+                        "sniper"      "secondary"
+                }
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/touhou/reisen_pistol/reisen_pistol.mdl"
+                        "touhou death sound"  "1"
+                }
+        }
         "accuratebfb"
         {
                 "inherits"                      "Baby Face's Blaster"
@@ -262,7 +398,7 @@
 		}
                 "attributes_custom"
                 {
-                    "clientmodel override"                                  "models/weapons/c_models/c_golfclub/c_golfclub.mdl"
+                    "clientmodel override"                                  "models/workshop/weapons/c_models/c_tf2c_scythe/c_tf2c_scythe.mdl"
 		    "harvester attributes"	"1.0"
                 }
         }

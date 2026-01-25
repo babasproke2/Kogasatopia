@@ -7,10 +7,11 @@
 #define CONFIG_FILE "configs/precachefiles.cfg"
 
 ArrayList g_ModelList;
-ArrayList g_ModelVariantList;
 ArrayList g_MaterialList;
 ArrayList g_SoundList;
 ArrayList g_GenericList;
+ConVar g_CvarAddDownloads;
+bool g_AddDownloads = true;
 
 public Plugin myinfo =
 {
@@ -24,16 +25,29 @@ public Plugin myinfo =
 public void OnPluginStart()
 {
     g_ModelList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
-    g_ModelVariantList = new ArrayList(ByteCountToCells(64));
     g_MaterialList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
     g_SoundList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
     g_GenericList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+
+    g_CvarAddDownloads = CreateConVar(
+        "sm_precachefiles_add_downloads",
+        "1",
+        "Add configured files to the download table (0 = precache only, 1 = precache + downloads).",
+        FCVAR_NONE,
+        true,
+        0.0,
+        true,
+        1.0
+    );
+    g_CvarAddDownloads.AddChangeHook(OnCvarChanged);
+    UpdateDownloadSetting();
 
     LoadPrecacheConfig();
 }
 
 public void OnConfigsExecuted()
 {
+    UpdateDownloadSetting();
     LoadPrecacheConfig();
 }
 
@@ -45,7 +59,6 @@ public void OnMapStart()
 static void LoadPrecacheConfig()
 {
     g_ModelList.Clear();
-    g_ModelVariantList.Clear();
     g_MaterialList.Clear();
     g_SoundList.Clear();
     g_GenericList.Clear();
@@ -80,26 +93,6 @@ static void LoadPrecacheConfig()
                 if (value[0])
                 {
                     g_ModelList.PushString(value);
-                }
-            }
-            while (kv.GotoNextKey(false));
-            kv.GoBack();
-        }
-        kv.GoBack();
-    }
-
-    if (kv.JumpToKey("model_variants"))
-    {
-        if (kv.GotoFirstSubKey(false))
-        {
-            do
-            {
-                char value[64];
-                kv.GetString(NULL_STRING, value, sizeof(value));
-                TrimString(value);
-                if (value[0])
-                {
-                    g_ModelVariantList.PushString(value);
                 }
             }
             while (kv.GotoNextKey(false));
@@ -181,30 +174,11 @@ static void AddConfiguredDownloads()
         if (!path[0])
             continue;
 
-        AddFileToDownloadsTable(path);
-        PrecacheModel(path, true);
-
-        if (g_ModelVariantList.Length > 0)
+        if (g_AddDownloads)
         {
-            char basePath[PLATFORM_MAX_PATH];
-            strcopy(basePath, sizeof(basePath), path);
-            int len = strlen(basePath);
-            if (len > 4)
-            {
-                basePath[len - 4] = '\0';
-
-                char variantName[64];
-                for (int j = 0; j < g_ModelVariantList.Length; j++)
-                {
-                    g_ModelVariantList.GetString(j, variantName, sizeof(variantName));
-                    if (!variantName[0])
-                        continue;
-
-                    Format(path, sizeof(path), "%s%s", basePath, variantName);
-                    AddFileToDownloadsTable(path);
-                }
-            }
+            AddFileToDownloadsTable(path);
         }
+        PrecacheModel(path, true);
     }
 
     for (int i = 0; i < g_MaterialList.Length; i++)
@@ -213,7 +187,10 @@ static void AddConfiguredDownloads()
         if (!path[0])
             continue;
 
-        AddFileToDownloadsTable(path);
+        if (g_AddDownloads)
+        {
+            AddFileToDownloadsTable(path);
+        }
     }
 
     for (int i = 0; i < g_SoundList.Length; i++)
@@ -222,7 +199,10 @@ static void AddConfiguredDownloads()
         if (!path[0])
             continue;
 
-        AddFileToDownloadsTable(path);
+        if (g_AddDownloads)
+        {
+            AddFileToDownloadsTable(path);
+        }
         PrecacheSound(path, true);
     }
 
@@ -232,6 +212,19 @@ static void AddConfiguredDownloads()
         if (!path[0])
             continue;
 
-        AddFileToDownloadsTable(path);
+        if (g_AddDownloads)
+        {
+            AddFileToDownloadsTable(path);
+        }
     }
+}
+
+static void UpdateDownloadSetting()
+{
+    g_AddDownloads = g_CvarAddDownloads.BoolValue;
+}
+
+public void OnCvarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    UpdateDownloadSetting();
 }

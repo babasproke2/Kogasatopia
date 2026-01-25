@@ -31,7 +31,8 @@ static const char g_ScoutCustom[][] = {
     "\x01 [Primary] Vanilla Baby Face\n",
     "\x01 [Secondary] Lightning Pistol: {chartreuse}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
     "\x01 [Secondary] Sproke (Redbull on Blu): {green}Ammo becomes magazine for 12 seconds, {red}ammo is set to 0 when effect ends,{default} FaN/Popper receive +25% reload speed instead",
-    "\x01[Secondary] Conagher's Bull: Drain 25 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 60% tighter spread\n"
+    "\x01[Secondary] Conagher's Bull: Drain 25 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 60% tighter spread\n",
+    "\x01[Melee] Reimu's Gohei - Stock Reskin\n"
 };
 
 static const char g_SoldierReverts[][] = {
@@ -46,8 +47,10 @@ static const char g_SoldierReverts[][] = {
 static const char g_SoldierCustom[][] = {
     "\x01[Secondary] The F.U.T.A.: {green}+30% blast jump damage resistance, +15% tighter spread,{red} -50% clip size\n",
     "\x01[Secondary] Old Panic Attack: {chartreuse}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
+    "\x01[Secondary] Hoshino's Shotgun - Stock Reskin\n",
     "\x01[Secondary] Soldier's Pistol\n",
     "\x01[Secondary] Soldier's M16: SMG, {red}50% less accurate, {green}dealing 20 damage refills your rocket launcher clip by 1\n",
+    "\x01[Melee] Reimu's Gohei - Stock, Whip and Market Gardener options\n"
 };
 
 static const char g_PyroReverts[][] = {
@@ -60,11 +63,13 @@ static const char g_PyroReverts[][] = {
 
 static const char g_PyroCustom[][] = {
     "\x01[Primary] Stock Shotgun\n",
-    "\x01[Secondary] Flame Shotgun: {green}Hitting a target accurately twice or killing them creates a fiery explosion,{red} -15% clip size, -30% damage penalty\n",
+    "\x01[Secondary] Hoshino's Shotgun - Stock Reskin\n",
+    "\x01[Secondary] Flame Shotgun: {green}Hitting a target accurately twice or killing them creates a fiery explosion, accurate shots cost no ammo,{red} -15% clip size, -30% damage penalty\n",
     "\x01[Secondary] TF2C Twin Barrel: {chartreuse}Holster reload, +20% bullets per shot, first shot is a recoil jump,{red} 10% wider spread, 15% slower draw speed\n",
     "\x01[Secondary] Old Panic Attack: {green}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
     "\x01[Secondary] The Family Business\n",
-    "\x01[Melee] TF2C Harvester: {chartreuse}Afterburn is returned as health while held,{red} enemies are extinguished on your death\n"
+    "\x01[Melee] TF2C Harvester: {chartreuse}Afterburn is returned as health while held,{red} enemies are extinguished on your death\n",
+    "\x01[Melee] Reimu's Gohei - Stock Reskin\n"
 };
 
 static const char g_DemoReverts[][] = {
@@ -81,7 +86,8 @@ static const char g_DemoCustom[][] = {
     "\x01[Primary] Grenade Launcher (straight grenades)\n",
     "\x01[Primary] Demoman Gunboats\n",
     "\x01[Secondary] Demoman Banana: {green}Throw and eat to heal yourself!\n",
-    "\x01[Melee] Old Claidheamh Mòr: -15 max health, no damage vuln."
+    "\x01[Melee] Old Claidheamh Mòr: -15 max health, no damage vuln.",
+    "\x01[Melee] Reimu's Gohei - Stock Reskin\n"
 };
 
 static const char g_HeavyReverts[][] = {
@@ -93,7 +99,10 @@ static const char g_HeavyReverts[][] = {
 };
 
 static const char g_HeavyCustom[][] = {
-    "\x01[Secondary] Old Panic Attack: {green}Hold fire to load up to 4 shells, fires faster as HP decreases\n"
+    "\x01[Primary] Nonomi's Minigun - Stock Reskin\n",
+    "\x01[Secondary] Old Panic Attack: {green}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
+    "\x01[Secondary] Hoshino's Shotgun - Stock Reskin\n",
+    "\x01[Melee] Reimu's Gohei - Stock Reskin\n"
 };
 
 static const char g_EngineerReverts[][] = {
@@ -105,12 +114,14 @@ static const char g_EngineerReverts[][] = {
 
 static const char g_EngineerCustom[][] = {
     "\x01[Primary] The Family Business\n",
+    "\x01[Primary] Hoshino's Shotgun - Stock Reskin\n",
     "\x01[Primary] Old Panic Attack: {chartreuse}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
     "\x01[Secondary] Conagher's Bull: Drain 25 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 80% tighter spread\n",
     "\x01[Secondary] Lightning Pistol: {green}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed\n",
     "\x01[Secondary] The Winger, Pretty Boy's Pocket Pistol\n",
     "\x01[PDA1] Boost/Jump pads (Or use !pads for convenience)\n",
-    "\x01[PDA2] Amplifier Dispenser Replacement (Or use !amp or !a)\n"
+    "\x01[PDA2] Amplifier Dispenser Replacement (Or use !amp or !a)\n",
+    "\x01[Melee] Reimu's Gohei - Stock Reskin\n",
 };
 
 static const char g_MedicReverts[][] = {
@@ -121,7 +132,8 @@ static const char g_MedicReverts[][] = {
 
 static const char g_MedicCustom[][] = {
     "\x01[Melee] TF2C Shock Therapy: {green}Hit allies to fully overheal them, {unique} enemies take charge as damage,{red} 30s recharge time, -15% healing on medigun\n",
-    "\x01[Melee] The Mantreads"
+    "\x01[Melee] The Mantreads",
+    "\x01[Melee] Reimu's Gohei - Ubersaw reskin\n"
 };
 
 static const char g_SniperReverts[][] = {
@@ -133,7 +145,8 @@ static const char g_SniperReverts[][] = {
 };
 
 static const char g_SniperCustom[][] = {
-    "\x01 No custom weapons detected for your class!"
+    "\x01[Secondary] Reisen's Bunny Pistol - Stock Reskin",
+    "\x01[Melee] Reimu's Gohei - Stock Reskin\n"
 };
 
 static const char g_SpyReverts[][] = {
@@ -146,6 +159,7 @@ static const char g_SpyReverts[][] = {
 static const char g_SpyCustom[][] = {
     "\x01[Secondary] Enforcer (Alt): {green}No fire rate penalty, +10% damage,{red} -25% damage while disguised, +0.5s time to cloak\n",
     "\x01[Secondary] Wall Climbing Kit: {chartreuse}enables wall climb,{red} -10 health on wearer\n",
+    "\x01[Melee] Reimu's Gohei - Stock Reskin\n",
     "{gold}This class has additional weapons; check !c2 to read the second page."
 };
 
@@ -188,9 +202,9 @@ public OnPluginStart()
 // Welcome message components
 static const char g_WelcomeMsg[][] = {
     "{peachpuff}Welcome to {unique}The Youkai Pound{peachpuff} %N!",
-    "{peachpuff}This server improves the stats of some weapons;",
+    "{peachpuff}This server has buffs for bad weapons and some new weapons;",
     "{peachpuff}Read more with {lightskyblue}!info{peachpuff} or see our group at {unique}!steam",
-    "{unique}New feature: {default}hugs & rapes are now fully operational, try the {gold}Scout Uma Musume hat with !hats{default}, and {mediumseagreen}Merry Christmas!"
+    "{unique}News: {default}Added Touhou & Blue Archive weapons to !cw, updated the {axis}Flame Shotgun{default} in !cw, check out {cornflowerblue}Cirno's Wings{default} with {gold}!hats"
 };
 
 static const char g_UncleWelcomeMsg[][] = {
@@ -270,7 +284,7 @@ public Action:Command_cmds(int client, int args)
 
 public Action:Command_Rules(int client, int args)
 {
-    char deez[128] = "{chartreuse}Server Rules: \n{unique} No Hacking/Friendlies \nNo Disgusting Sprays/NO FUTANARIS ALLOWED!!!";
+    char deez[256] = "{chartreuse}Server Rules:\n{unique}No Hacking/Friendlies/Gross Sprays\n{violet}For the love of God you're not allowed to make chat servers or funnel people into different games";
     CPrintToChat(client, "%s", deez);
     return Plugin_Handled;
 }
@@ -556,12 +570,26 @@ static bool ShowClassPanel(int client, TFClassType class, bool revert)
 
 public Action Command_InfoC(int client, int args)
 {
+    if (!client || !IsClientInGame(client))
+        return Plugin_Handled;
+    if (!IsWeaponRevertsLoaded())
+    {
+        CPrintToChat(client, "{green}[Info] {default}Weapon reverts/Custom weapons are currently not loaded; this is temporary.");
+        return Plugin_Handled;
+    }
     PrintClassInfo(client, false);
     return Plugin_Handled;
 }
 
 public Action Command_InfoReverts(int client, int args)
 {
+    if (!client || !IsClientInGame(client))
+        return Plugin_Handled;
+    if (!IsWeaponRevertsLoaded())
+    {
+        CPrintToChat(client, "{green}[Info] {default}Weapon reverts/Custom weapons are currently not loaded; this is temporary.");
+        return Plugin_Handled;
+    }
     PrintClassInfo(client, true);
     return Plugin_Handled;
 }
@@ -609,4 +637,10 @@ public Action Command_CustomPanel(int client, int args)
 public int PanelHandler(Menu menu, MenuAction action, int param1, int param2)
 {
     return 0;
+}
+
+bool IsWeaponRevertsLoaded()
+{
+    Handle plugin = FindPluginByFile("weaponreverts.smx");
+    return plugin != INVALID_HANDLE && GetPluginStatus(plugin) == Plugin_Running;
 }

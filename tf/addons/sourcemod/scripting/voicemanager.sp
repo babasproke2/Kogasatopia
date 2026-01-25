@@ -118,6 +118,7 @@ public void T_InitDatabase(Handle owner, Handle hndl, const char[] error, any da
 
     for (int client = 1; client <= MaxClients; client++)
     {
+        if (IsClientInGame(client))
         {
             OnClientPostAdminCheck(client);
             OnClientCookiesCached(client);
@@ -127,6 +128,11 @@ public void T_InitDatabase(Handle owner, Handle hndl, const char[] error, any da
 
 public void OnClientPostAdminCheck(int client)
 {
+    if (!IsClientInGame(client))
+    {
+        return;
+    }
+
     char szSteamID[STEAM_ID_BUF_SIZE];
     GetClientAuthId(client, AuthId_SteamID64, szSteamID, sizeof(szSteamID));
 
@@ -163,6 +169,11 @@ public void T_LoadAdjustments(Handle owner, Handle hndl, const char[] error, int
 
 public void OnClientCookiesCached(int client)
 {
+    if (!IsClientInGame(client))
+    {
+        return;
+    }
+
     char sCookieValue[12];
     GetClientCookie(client, g_Cookie_GlobalOverride, sCookieValue, sizeof(sCookieValue));
 

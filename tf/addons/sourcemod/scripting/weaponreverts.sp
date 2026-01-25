@@ -12,8 +12,8 @@
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
 #define ACC_MAX_DIST		768.0
-#define ACC_THRESH_NEAR		  38.0
-#define ACC_THRESH_FAR		  10.0
+#define ACC_THRESH_NEAR		  30.0
+#define ACC_THRESH_FAR		  8.0
 #define ACC_STREAK_TARGET	   2
 
 #define ACC_EXPLODE_DAMAGE	 50.0
@@ -72,6 +72,7 @@ enum struct tf2_player
 Handle g_SDKGetMaxClip1 = null;
 int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
+bool g_bAccuracyExploding[MAXPLAYERS + 1];
 
 #include <weaponreverts>
  
@@ -127,7 +128,7 @@ stock void ResetClientArrays(int client)
 
 public void OnPluginStart() {
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
-	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.75", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
+	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
 	if (GetConVarInt(g_sEnabled)) {
 		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
@@ -400,9 +401,17 @@ static bool Accuracy_IsAccurateHit(float damage, float dist)
 
 static void Accuracy_Explode(int attacker, int victim, float position[3], float damage, float radius)
 {
+	if (!Accuracy_IsValidClient(attacker) || g_bAccuracyExploding[attacker])
+		return;
+
+	g_bAccuracyExploding[attacker] = true;
+
 	int bomb = CreateEntityByName("tf_generic_bomb");
 	if (bomb == -1)
+	{
+		g_bAccuracyExploding[attacker] = false;
 		return;
+	}
 
 	DispatchKeyValueVector(bomb, "origin", position);
 	DispatchKeyValueFloat(bomb, "damage", damage);
@@ -448,6 +457,8 @@ static void Accuracy_Explode(int attacker, int victim, float position[3], float 
 			}
 		}
 	}
+
+	g_bAccuracyExploding[attacker] = false;
 }
 
 public Action Accuracy_Timer_RemoveEntity(Handle timer, int ref)
@@ -477,6 +488,8 @@ public void Accuracy_OnTakeDamagePost(int victim, int attacker, int inflictor, f
 {
 	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
 		return;
+	if (g_bAccuracyExploding[attacker])
+		return;
 	if (!Accuracy_IsValidShotgun(weapon))
 		return;
 
@@ -496,6 +509,19 @@ public void Accuracy_OnTakeDamagePost(int victim, int attacker, int inflictor, f
 
 	if (accurate || lethal)
 	{
+		if (accurate)
+		{
+			int maxClip = GetWeaponMaxClip(weapon);
+			if (maxClip > 0)
+			{
+				int clip = GetClip(weapon);
+				if (clip >= 0 && clip < maxClip)
+				{
+					SetClip_Weapon(weapon, clip + 1);
+				}
+			}
+		}
+
 		if (lethal)
 		{
 			tf2_players[victim].accuracyStreak = ACC_STREAK_TARGET;
@@ -1250,13 +1276,12 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 	if (GetConVarInt(g_sEnabled)) {
 		tf2_players[client].shockCharge = 30;
 
-		// I add the falling stomp to all players; this is an exception for someone who hates the SFX
 		char auth[32];
 		if (GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth)))
 		{
 			if (!(StrEqual(auth, "STEAM_0:1:101494818")))
 			{
-				TF2Attrib_SetByName(entity, "boots falling stomp", 1.00); // Add this property
+				TF2Attrib_SetByName(entity, "boots falling stomp", 1.00);
 			}
 		}
 
@@ -1334,8 +1359,8 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			case 588: //The Pomson 6000
 			{
 				TF2Attrib_SetByName(entity, "energy weapon penetration", 1.00); // Penetrate targets
-				TF2Attrib_SetByName(entity, "subtract victim medigun charge on hit", 5.00);
-				TF2Attrib_SetByName(entity, "subtract victim cloak on hit", 5.00);
+				TF2Attrib_SetByName(entity, "subtract victim medigun charge on hit", 1.00);
+				TF2Attrib_SetByName(entity, "subtract victim cloak on hit", 1.00);
 			}
 			case 405, 608: //Demoman boots
 			{

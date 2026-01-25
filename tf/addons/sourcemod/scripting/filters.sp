@@ -1,5 +1,6 @@
 #include <sourcemod>
 #include <sdktools>
+#include <sdktools_voice>
 #include <clientprefs>
 #include <basecomm>
 #include <morecolors>
@@ -15,6 +16,7 @@
 #define MAX_COMMANDS 64
 #define FILTERS_OUTBOX_CLEANUP_INTERVAL 120
 #define FILTERS_OUTBOX_RETENTION_SECONDS 3600
+#define FILTERS_IGNORED_STEAMID64 "76561199812613650" // [U:1:1852347922]
 
 // Player state structure
 enum struct PlayerState
@@ -25,6 +27,7 @@ enum struct PlayerState
 }
 
 PlayerState g_PlayerState[MAXPLAYERS + 1];
+bool g_VoiceBlocked[MAXPLAYERS + 1][MAXPLAYERS + 1];
 
 // Cookie handles
 Handle g_hCookieWhitelist;
@@ -32,7 +35,6 @@ Handle g_hCookieFilterWhitelist;
 Handle g_hCookieBlacklist;
 Handle g_hCookieNameColor;
 Handle g_hChatFrontend;
-Handle g_hWebchatFrontend;
 
 // Per-client name color tokens (empty string means team color)
 char g_NameColors[MAXPLAYERS + 1][32];
@@ -45,6 +47,7 @@ ConVar g_hFiltersCaseSensitive = null;
 ConVar g_hFiltersEnabled = null;
 ConVar g_hBlacklistMinLen = null;
 ConVar g_hFiltersChristmas = null;
+ConVar g_hFiltersTeamChat = null;
 
 // Global arrays for word filtering
 char g_FilterWords[MAX_FILTERS][MAX_WORD_LENGTH];
@@ -105,6 +108,17 @@ void Filters_LogDebug(const char[] fmt, any ...)
     char buffer[256];
     VFormat(buffer, sizeof(buffer), fmt, 2);
     LogMessage("[Filters][Chat] %s", buffer);
+}
+
+static bool Filters_IsIgnoredClient(int client)
+{
+    char steamId[32];
+    if (GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+    {
+        return StrEqual(steamId, FILTERS_IGNORED_STEAMID64, false);
+    }
+
+    return false;
 }
 
 static void RefreshHostAddress()
@@ -265,15 +279,16 @@ public void OnPluginStart()
     g_sChatMode2 = CreateConVar("filtermode", "0", "Enable/Disable the quarantined filter mode");
     g_hChatDebug = CreateConVar("filters_chat_debug", "0", "Enable verbose debug logging for chat relay");
     g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Enable/Disable db functions");
-    g_hWebchatFrontend = CreateConVar("filters_webchat_frontend", "0", "0 disables frontend, 1 enables, 2 enables but suppresses webchat console prints.");
-    g_hFiltersEnabled = CreateConVar("filters_filters", "1", "If 0, blacklist word matching is disabled.");
+    g_hFiltersEnabled = CreateConVar("filters", "0", "If 0, blacklist word matching is disabled.");
     g_hBlacklistMinLen = CreateConVar("filters_blacklist_minlen", "8", "Minimum message length to check blacklist words.");
     g_hFiltersChristmas = CreateConVar("filters_christmas", "0", "If 1, red chat is {axis} and blue chat is {green}.");
+    g_hFiltersTeamChat = CreateConVar("teamchat", "0", "If 1, normal chat is sent to the sender's team only.");
     g_hFiltersCaseSensitive = CreateConVar(
         "filters_case_sensitive",
         "1",
         "If 1, chat filters are case-sensitive (exact casing must match)"
     );
+    HookConVarChange(g_sChatMode2, Filters_OnFilterModeChanged);
     
     // Initialize cookies
     g_hCookieWhitelist = RegClientCookie("filter_whitelist", "Player is whitelisted from all filters", CookieAccess_Protected);
@@ -290,6 +305,9 @@ public void OnPluginStart()
     
     RegAdminCmd("sm_blacklist", Command_Blacklist, ADMFLAG_CHAT, "sm_blacklist <player> - Blacklists a player from sending messages");
     RegAdminCmd("sm_unblacklist", Command_UnBlacklist, ADMFLAG_CHAT, "sm_unblacklist <player> - Removes blacklist from a player");
+    RegAdminCmd("sm_whitelists", Command_ListWhitelists, ADMFLAG_CHAT, "sm_whitelists - Lists whitelisted players");
+    RegAdminCmd("sm_blacklists", Command_ListBlacklists, ADMFLAG_CHAT, "sm_blacklists - Lists blacklisted players");
+    RegAdminCmd("sm_filtershelp", Command_FiltersHelp, ADMFLAG_CHAT, "sm_filtershelp - Shows filters convar help");
 
     // Web chat relay
     RegConsoleCmd("sm_websay", Command_WebSay, "Relay a web chat message to all players");
@@ -298,7 +316,7 @@ public void OnPluginStart()
     Filters_SQLConnect();
     CreateTimer(2.0, Timer_PollOutbox, _, TIMER_REPEAT);
 
-    // Restore existing clients' custom colors after reloads
+    // Restore existing clients' state after reloads
     for (int i = 1; i <= MaxClients; i++)
     {
         if (!IsClientInGame(i))
@@ -307,26 +325,18 @@ public void OnPluginStart()
         }
         if (AreClientCookiesCached(i))
         {
-            LoadNameColorCookie(i);
+            ProcessCookies(i);
         }
         else
         {
+            g_PlayerState[i].isWhitelisted = false;
+            g_PlayerState[i].isFilterWhitelisted = false;
+            g_PlayerState[i].isBlacklisted = false;
             g_NameColors[i][0] = '\0';
         }
     }
-}
 
-static int Filters_GetFrontendMode()
-{
-    if (g_hWebchatFrontend != null && g_hWebchatFrontend.IntValue > 0)
-    {
-        return g_hWebchatFrontend.IntValue;
-    }
-    if (g_hChatFrontend != null)
-    {
-        return g_hChatFrontend.IntValue;
-    }
-    return 0;
+    Filters_UpdateVoiceOverrides();
 }
 
 public void OnConfigsExecuted()
@@ -727,6 +737,8 @@ void Filters_LogChatMessage(int client, const char[] message)
 {
     if (GetConVarInt(g_hChatFrontend) < 1)
         return;
+    if (Filters_IsIgnoredClient(client))
+        return;
     if (!g_bDbReady)
     {
         Filters_LogDebug("DB not ready; skipping chat log for client %d", client);
@@ -891,13 +903,23 @@ enum struct ChatContext
 
 public Action OnClientSayCommand(int client, const char[] command, const char[] sArgs)
 {
-    if (!client) 
+    if (!client)
         return Plugin_Continue;
 
     char dead[64];
     BuildDeathPrefix(client, dead, sizeof(dead));
 
     if (HandleNameColorCommand(client, sArgs))
+    {
+        return Plugin_Stop;
+    }
+
+    if (HandleFiltersHelpCommand(client, sArgs))
+    {
+        return Plugin_Stop;
+    }
+
+    if (HandleListStatusCommand(client, sArgs))
     {
         return Plugin_Stop;
     }
@@ -1057,6 +1079,187 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
     return true;
 }
 
+bool Filters_CanUseListCommand(int client)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return false;
+    }
+
+    return g_PlayerState[client].isWhitelisted;
+}
+
+bool Filters_CanUseHelpCommand(int client)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return false;
+    }
+
+    if (!g_PlayerState[client].isWhitelisted)
+    {
+        return false;
+    }
+
+    return CheckCommandAccess(client, "sm_filtershelp", ADMFLAG_CHAT, true);
+}
+
+void Filters_PrintHelp(int client)
+{
+    CPrintToChat(client, "{default}[Filters] nobroly - If 0, filter chat to one word.");
+    CPrintToChat(client, "{default}[Filters] filtermode - Enable/Disable the quarantined filter mode.");
+    CPrintToChat(client, "{default}[Filters] filters_chat_debug - Enable verbose debug logging for chat relay.");
+    CPrintToChat(client, "{default}[Filters] filters_chat_frontend - Enable/Disable db functions.");
+    CPrintToChat(client, "{default}[Filters] filters_filters - If 0, blacklist word matching is disabled.");
+    CPrintToChat(client, "{default}[Filters] filters_blacklist_minlen - Minimum message length to check blacklist words.");
+    CPrintToChat(client, "{default}[Filters] filters_christmas - If 1, red chat is {axis} and blue chat is {green}.");
+    CPrintToChat(client, "{default}[Filters] teamchat - If 1, normal chat is sent to the sender's team only.");
+    CPrintToChat(client, "{default}[Filters] filters_case_sensitive - If 1, chat filters are case-sensitive.");
+}
+
+bool HandleFiltersHelpCommand(int client, const char[] sArgs)
+{
+    if (!sArgs[0])
+    {
+        return false;
+    }
+
+    char buffer[256];
+    strcopy(buffer, sizeof(buffer), sArgs);
+    TrimString(buffer);
+
+    if (!buffer[0] || buffer[0] != '/')
+    {
+        return false;
+    }
+
+    char commandToken[32];
+    BreakString(buffer, commandToken, sizeof(commandToken));
+
+    if (!StrEqual(commandToken, "/filtershelp", false))
+    {
+        return false;
+    }
+
+    if (!Filters_CanUseHelpCommand(client))
+    {
+        CPrintToChat(client, "{default}[Filters] You do not have access to this command.");
+        return true;
+    }
+
+    Filters_PrintHelp(client);
+    return true;
+}
+
+void Filters_PrintStatusList(int client, bool listWhitelist)
+{
+    char label[16];
+    if (listWhitelist)
+    {
+        strcopy(label, sizeof(label), "Whitelisted");
+    }
+    else
+    {
+        strcopy(label, sizeof(label), "Blacklisted");
+    }
+
+    char header[96];
+    Format(header, sizeof(header), "{default}[Filters] %s: ", label);
+    int headerLen = strlen(header);
+
+    char line[256];
+    strcopy(line, sizeof(line), header);
+    int lineLen = headerLen;
+    int count = 0;
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i))
+        {
+            continue;
+        }
+
+        if (listWhitelist && !g_PlayerState[i].isWhitelisted)
+        {
+            continue;
+        }
+        if (!listWhitelist && !g_PlayerState[i].isBlacklisted)
+        {
+            continue;
+        }
+
+        char name[MAX_NAME_LENGTH];
+        GetClientName(i, name, sizeof(name));
+        int nameLen = strlen(name);
+        int extraLen = nameLen + (count > 0 && lineLen > headerLen ? 2 : 0);
+
+        if (lineLen + extraLen >= sizeof(line) - 1)
+        {
+            CPrintToChat(client, "%s", line);
+            strcopy(line, sizeof(line), header);
+            lineLen = headerLen;
+        }
+
+        char next[256];
+        if (lineLen == headerLen)
+        {
+            Format(next, sizeof(next), "%s%s", line, name);
+        }
+        else
+        {
+            Format(next, sizeof(next), "%s, %s", line, name);
+        }
+        strcopy(line, sizeof(line), next);
+        lineLen = strlen(line);
+        count++;
+    }
+
+    if (count == 0)
+    {
+        CPrintToChat(client, "{default}[Filters] %s: none", label);
+        return;
+    }
+
+    CPrintToChat(client, "%s", line);
+}
+
+bool HandleListStatusCommand(int client, const char[] sArgs)
+{
+    if (!sArgs[0])
+    {
+        return false;
+    }
+
+    char buffer[256];
+    strcopy(buffer, sizeof(buffer), sArgs);
+    TrimString(buffer);
+
+    if (!buffer[0] || buffer[0] != '/')
+    {
+        return false;
+    }
+
+    char commandToken[32];
+    BreakString(buffer, commandToken, sizeof(commandToken));
+
+    bool listWhitelist = StrEqual(commandToken, "/whitelists", false);
+    bool listBlacklist = StrEqual(commandToken, "/blacklists", false);
+
+    if (!listWhitelist && !listBlacklist)
+    {
+        return false;
+    }
+
+    if (!Filters_CanUseListCommand(client))
+    {
+        CPrintToChat(client, "{default}[Filters] You do not have access to this command.");
+        return true;
+    }
+
+    Filters_PrintStatusList(client, listWhitelist);
+    return true;
+}
+
 bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, const char[] deadPrefix)
 {
     if (!StrEqual(command, "say_team"))
@@ -1075,6 +1278,59 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
 
     char output[256];
     Format(output, sizeof(output), "%s%s%s %s%N%s: %s", messageColorTag, deadPrefix, tag, colorTag, client, messageColorTag, sArgs);
+    bool cordMode = GetConVarInt(g_sChatMode2) != 0;
+    if (cordMode)
+    {
+        if (g_PlayerState[client].isBlacklisted)
+        {
+            for (int i = 1; i <= MaxClients; i++)
+            {
+                if (IsClientInGame(i) && g_PlayerState[i].isBlacklisted)
+                {
+                    CPrintToChatEx(i, client, "%s", output);
+                }
+            }
+
+            SendToWhitelistedAdmins(client, output, "fm1:");
+            PrintToServer("x: %s", output);
+            return true;
+        }
+
+        int senderTeam = GetClientTeam(client);
+        char prefixed[256];
+        bool prefixedReady = false;
+
+        for (int i = 1; i <= MaxClients; i++)
+        {
+            if (!IsClientInGame(i))
+            {
+                continue;
+            }
+
+            bool isWhitelisted = g_PlayerState[i].isWhitelisted;
+            bool isBlacklisted = g_PlayerState[i].isBlacklisted;
+            if (GetClientTeam(i) == senderTeam)
+            {
+                if (!isBlacklisted || isWhitelisted)
+                {
+                    CPrintToChatEx(i, client, "%s", output);
+                }
+            }
+            else if (isWhitelisted)
+            {
+                if (!prefixedReady)
+                {
+                    Format(prefixed, sizeof(prefixed), "t: %s", output);
+                    prefixedReady = true;
+                }
+                CPrintToChatEx(i, client, "%s", prefixed);
+            }
+        }
+
+        PrintToServer("%s", output);
+        return true;
+    }
+
     CPrintToChatTeam(GetClientTeam(client), output);
     PrintToServer("%s", output);
     return true;
@@ -1117,17 +1373,85 @@ void BuildMessageColorTag(int client, char[] colorTag, int length)
         int team = GetClientTeam(client);
         if (team == 3)
         {
-            strcopy(colorTag, length, "{green}");
+            strcopy(colorTag, length, "{lightgreen}");
             return;
         }
         if (team == 2)
         {
-            strcopy(colorTag, length, "{axis}");
+            strcopy(colorTag, length, "{tomato}");
             return;
         }
     }
 
     strcopy(colorTag, length, "{default}");
+}
+
+void Filters_UpdateVoiceOverrides()
+{
+    bool cordMode = GetConVarInt(g_sChatMode2) != 0;
+
+    if (!cordMode)
+    {
+        for (int receiver = 1; receiver <= MaxClients; receiver++)
+        {
+            if (!IsClientInGame(receiver))
+            {
+                continue;
+            }
+
+            for (int sender = 1; sender <= MaxClients; sender++)
+            {
+                if (sender == receiver || !IsClientInGame(sender))
+                {
+                    continue;
+                }
+
+                if (g_VoiceBlocked[receiver][sender])
+                {
+                    SetListenOverride(receiver, sender, Listen_Default);
+                    g_VoiceBlocked[receiver][sender] = false;
+                }
+            }
+        }
+        return;
+    }
+
+    for (int sender = 1; sender <= MaxClients; sender++)
+    {
+        if (!IsClientInGame(sender))
+        {
+            continue;
+        }
+
+        bool senderBlacklisted = g_PlayerState[sender].isBlacklisted;
+        for (int receiver = 1; receiver <= MaxClients; receiver++)
+        {
+            if (receiver == sender || !IsClientInGame(receiver))
+            {
+                continue;
+            }
+
+            bool receiverBlacklisted = g_PlayerState[receiver].isBlacklisted;
+            bool receiverWhitelisted = g_PlayerState[receiver].isWhitelisted;
+            bool shouldBlock = receiverBlacklisted
+                ? !senderBlacklisted
+                : (senderBlacklisted && !receiverBlacklisted && !receiverWhitelisted);
+
+            if (shouldBlock)
+            {
+                if (!g_VoiceBlocked[receiver][sender])
+                {
+                    SetListenOverride(receiver, sender, Listen_No);
+                    g_VoiceBlocked[receiver][sender] = true;
+                }
+            }
+            else if (g_VoiceBlocked[receiver][sender])
+            {
+                SetListenOverride(receiver, sender, Listen_Default);
+                g_VoiceBlocked[receiver][sender] = false;
+            }
+        }
+    }
 }
 
 void ApplyFiltersIfNeeded(char[] message, int maxlen, const ChatContext context)
@@ -1155,14 +1479,14 @@ bool HandleCordModeBlacklistedChat(int client, const char[] message, const ChatC
         }
     }
 
-    SendToWhitelistedAdmins(client, message, "x:");
+    SendToWhitelistedAdmins(client, message, "fm1:");
     PrintToServer("x: %s", message);
     return true;
 }
 
 bool HandleRestrictedMessage(int client, const char[] message, const ChatContext context)
 {
-    if ((context.hasBlacklistedTerm && !context.isWhitelisted) || context.isGagged)
+    if (((context.hasBlacklistedTerm && !context.isWhitelisted) && !context.cordMode) || context.isGagged)
     {
         CPrintToChatEx(client, client, "%s", message);
         PrintToServer("x: %s", message);
@@ -1180,31 +1504,49 @@ bool HandleEnabledChat(int client, const char[] message, const ChatContext conte
         return false;
     }
 
+    bool teamChatOnly = g_hFiltersTeamChat != null && g_hFiltersTeamChat.BoolValue;
+
     if (!context.cordMode)
     {
-        CPrintToChatAllEx(client, "%s", message);
-    }
-    else
-    {
-        int randomChance = GetRandomInt(1, 20);
-        if (randomChance == 1)
+        if (teamChatOnly)
         {
-            CPrintToChatAll(message);
+            CPrintToChatTeam(GetClientTeam(client), message);
         }
         else
         {
-            for (int i = 1; i <= MaxClients; i++)
+            CPrintToChatAllEx(client, "%s", message);
+        }
+    }
+    else
+    {
+        /*int randomChance = GetRandomInt(1, 20);
+        if (randomChance == 1)
+        {
+            if (teamChatOnly)
             {
-                if (IsClientInGame(i) && !g_PlayerState[i].isBlacklisted)
-                {
-                    CPrintToChatEx(i, client, "%s", message);
-                }
+                CPrintToChatTeam(GetClientTeam(client), message);
+            }
+            else
+            {
+                CPrintToChatAllEx(client, "%s", message);
+            }
+        }*/
+        for (int i = 1; i <= MaxClients; i++)
+        {
+            if (IsClientInGame(i)
+                && !g_PlayerState[i].isBlacklisted
+                && (!teamChatOnly || GetClientTeam(i) == GetClientTeam(client)))
+            {
+                CPrintToChatEx(i, client, "%s", message);
             }
         }
     }
 
     PrintToServer("%s", message);
-    Filters_LogChatMessage(client, message);
+    if (!teamChatOnly)
+    {
+        Filters_LogChatMessage(client, message);
+    }
     return true;
 }
 
@@ -1743,12 +2085,19 @@ public void OnClientPostAdminCheck(int client)
     if (AreClientCookiesCached(client))
     {
         ProcessCookies(client);
+        Filters_UpdateVoiceOverrides();
     }
 }
 
 public void OnClientCookiesCached(int client)
 {
     ProcessCookies(client);
+    Filters_UpdateVoiceOverrides();
+}
+
+public void Filters_OnFilterModeChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    Filters_UpdateVoiceOverrides();
 }
 
 public void OnClientPutInServer(int client)
@@ -1762,6 +2111,11 @@ public void OnClientDisconnect(int client)
     g_PlayerState[client].isFilterWhitelisted = false;
     g_PlayerState[client].isBlacklisted = false;
     g_NameColors[client][0] = '\0';
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        g_VoiceBlocked[client][i] = false;
+        g_VoiceBlocked[i][client] = false;
+    }
     Filters_AnnouncePlayerEvent(client, false);
 }
 
@@ -1881,6 +2235,7 @@ void PerformWhitelist(int client, int target)
     g_PlayerState[target].isWhitelisted = true;
     SetClientCookie(target, g_hCookieWhitelist, "1");
     LogAction(client, target, "\"%L\" whitelisted \"%L\"", client, target);
+    Filters_UpdateVoiceOverrides();
 }
 
 void PerformUnWhitelist(int client, int target)
@@ -1888,6 +2243,7 @@ void PerformUnWhitelist(int client, int target)
     g_PlayerState[target].isWhitelisted = false;
     SetClientCookie(target, g_hCookieWhitelist, "0");
     LogAction(client, target, "\"%L\" removed whitelist from \"%L\"", client, target);
+    Filters_UpdateVoiceOverrides();
 }
 
 // ==================== FILTER WHITELIST COMMANDS ====================
@@ -2096,11 +2452,63 @@ public Action Command_UnBlacklist(int client, int args)
     return Plugin_Handled;
 }
 
+public Action Command_ListWhitelists(int client, int args)
+{
+    if (client <= 0)
+    {
+        return Plugin_Handled;
+    }
+
+    if (!Filters_CanUseListCommand(client))
+    {
+        CPrintToChat(client, "{default}[Filters] You do not have access to this command.");
+        return Plugin_Handled;
+    }
+
+    Filters_PrintStatusList(client, true);
+    return Plugin_Handled;
+}
+
+public Action Command_ListBlacklists(int client, int args)
+{
+    if (client <= 0)
+    {
+        return Plugin_Handled;
+    }
+
+    if (!Filters_CanUseListCommand(client))
+    {
+        CPrintToChat(client, "{default}[Filters] You do not have access to this command.");
+        return Plugin_Handled;
+    }
+
+    Filters_PrintStatusList(client, false);
+    return Plugin_Handled;
+}
+
+public Action Command_FiltersHelp(int client, int args)
+{
+    if (client <= 0)
+    {
+        return Plugin_Handled;
+    }
+
+    if (!Filters_CanUseHelpCommand(client))
+    {
+        CPrintToChat(client, "{default}[Filters] You do not have access to this command.");
+        return Plugin_Handled;
+    }
+
+    Filters_PrintHelp(client);
+    return Plugin_Handled;
+}
+
 void PerformBlacklist(int client, int target)
 {
     g_PlayerState[target].isBlacklisted = true;
     SetClientCookie(target, g_hCookieBlacklist, "1");
     LogAction(client, target, "\"%L\" blacklisted \"%L\"", client, target);
+    Filters_UpdateVoiceOverrides();
 }
 
 void PerformUnBlacklist(int client, int target)
@@ -2108,15 +2516,33 @@ void PerformUnBlacklist(int client, int target)
     g_PlayerState[target].isBlacklisted = false;
     SetClientCookie(target, g_hCookieBlacklist, "0");
     LogAction(client, target, "\"%L\" removed blacklist from \"%L\"", client, target);
+    Filters_UpdateVoiceOverrides();
 }
 
 void CPrintToChatTeam(int team, const char[] message)
 {
+    char prefixed[256];
+    bool prefixedReady = false;
+
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (IsClientInGame(client) && GetClientTeam(client) == team)
+        if (!IsClientInGame(client))
+        {
+            continue;
+        }
+
+        if (GetClientTeam(client) == team)
         {
             CPrintToChatEx(client, client, "%s", message);
+        }
+        else if (g_PlayerState[client].isWhitelisted)
+        {
+            if (!prefixedReady)
+            {
+                Format(prefixed, sizeof(prefixed), "t: %s", message);
+                prefixedReady = true;
+            }
+            CPrintToChatEx(client, client, "%s", prefixed);
         }
     }
 }

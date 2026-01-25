@@ -4,11 +4,16 @@
 #include <clientprefs>
 #include <sdktools_sound>
 #include <textparse>
+#include <tf_custom_attributes>
 
 #define CONFIG_FILE "configs/saysounds.cfg"
 #define MAX_COMMAND_NAME 64
 #define MAX_GROUP_NAME 32
 #define DEFAULT_GROUP "all"
+#define DEFAULT_DEATH_COMMAND "doh"
+#define TOUHOU_DEATH_SOUND_ATTR "touhou death sound"
+#define TOUHOU_DEATH_SOUND_PATH "touhou/pichuun.mp3"
+#define TOUHOU_DEATH_SOUND_FORCE_VOLUME 0.5
 
 public Plugin myinfo =
 {
@@ -46,6 +51,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 {
     RegPluginLibrary("saysounds");
     CreateNative("SaySounds_ShouldPlay", Native_ShouldPlay);
+    CreateNative("SaySounds_PlaySoundToOptedIn", Native_PlaySoundToOptedIn);
     return APLRes_Success;
 }
 
@@ -704,6 +710,41 @@ public int Native_ShouldPlay(Handle plugin, int numParams)
     return SaySounds_ShouldPlay(client);
 }
 
+public int Native_PlaySoundToOptedIn(Handle plugin, int numParams)
+{
+    char soundPath[PLATFORM_MAX_PATH];
+    GetNativeString(1, soundPath, sizeof(soundPath));
+    TrimString(soundPath);
+
+    if (!soundPath[0])
+    {
+        return 0;
+    }
+
+    char groupName[MAX_GROUP_NAME];
+    if (numParams >= 2)
+    {
+        GetNativeString(2, groupName, sizeof(groupName));
+        TrimString(groupName);
+        ToLowercaseInPlace(groupName, sizeof(groupName));
+    }
+    else
+    {
+        groupName[0] = '\0';
+    }
+
+    NormalizeSoundPath(soundPath, sizeof(soundPath));
+
+    if (!groupName[0])
+    {
+        strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
+    }
+
+    PrecacheSound(soundPath, true);
+    PlaySaySound(soundPath, groupName);
+    return 0;
+}
+
 public Action Command_SetVolume(int client, int args)
 {
     if (client <= 0 || !IsClientInGame(client))
@@ -1291,10 +1332,61 @@ void SaveKillSoundPreference(int client)
     SetClientCookie(client, g_hKillCookie, g_szKillSound[client]);
 }
 
+static bool HasTouhouDeathSoundWeapon(int attacker)
+{
+    if (attacker <= 0 || attacker > MaxClients || !IsClientInGame(attacker))
+    {
+        return false;
+    }
+
+    int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
+    if (weapon <= MaxClients || !IsValidEntity(weapon))
+    {
+        return false;
+    }
+
+    return TF2CustAttr_GetInt(weapon, TOUHOU_DEATH_SOUND_ATTR, 0) != 0;
+}
+
+static void PlayTouhouDeathSound(int attacker, int victim)
+{
+    PrecacheSound(TOUHOU_DEATH_SOUND_PATH, true);
+    PlaySaySound(TOUHOU_DEATH_SOUND_PATH, "");
+
+    if (g_hForce != null && g_hForce.BoolValue)
+    {
+        return;
+    }
+
+    if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
+    {
+        if (GetClientVolume(attacker) <= 0.0)
+        {
+            EmitSoundToClient(attacker, TOUHOU_DEATH_SOUND_PATH, attacker, SNDCHAN_AUTO,
+                SNDLEVEL_NORMAL, SND_NOFLAGS, TOUHOU_DEATH_SOUND_FORCE_VOLUME, SNDPITCH_NORMAL);
+        }
+    }
+
+    if (victim > 0 && victim <= MaxClients && IsClientInGame(victim) && victim != attacker)
+    {
+        if (GetClientVolume(victim) <= 0.0)
+        {
+            EmitSoundToClient(victim, TOUHOU_DEATH_SOUND_PATH, victim, SNDCHAN_AUTO,
+                SNDLEVEL_NORMAL, SND_NOFLAGS, TOUHOU_DEATH_SOUND_FORCE_VOLUME, SNDPITCH_NORMAL);
+        }
+    }
+}
+
 public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroadcast)
 {
     int victim = GetClientOfUserId(event.GetInt("userid"));
     int attacker = GetClientOfUserId(event.GetInt("attacker"));
+
+    if (attacker > 0 && attacker != victim && HasTouhouDeathSoundWeapon(attacker))
+    {
+        PlayTouhouDeathSound(attacker, victim);
+        return;
+    }
 
     char victimPath[PLATFORM_MAX_PATH];
     char attackerPath[PLATFORM_MAX_PATH];
@@ -1303,14 +1395,21 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
     bool haveVictim = false;
     bool haveAttacker = false;
 
-    if (victim > 0 && victim <= MaxClients && IsClientInGame(victim) && g_szDeathSound[victim][0])
-    {
-        haveVictim = GetCommandSoundData(g_szDeathSound[victim], victimPath, sizeof(victimPath), victimGroup, sizeof(victimGroup));
-    }
-
     if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker) && attacker != victim && g_szKillSound[attacker][0])
     {
         haveAttacker = GetCommandSoundData(g_szKillSound[attacker], attackerPath, sizeof(attackerPath), attackerGroup, sizeof(attackerGroup));
+    }
+
+    if (victim > 0 && victim <= MaxClients && IsClientInGame(victim))
+    {
+        if (g_szDeathSound[victim][0])
+        {
+            haveVictim = GetCommandSoundData(g_szDeathSound[victim], victimPath, sizeof(victimPath), victimGroup, sizeof(victimGroup));
+        }
+        else if (!haveAttacker)
+        {
+            haveVictim = GetCommandSoundData(DEFAULT_DEATH_COMMAND, victimPath, sizeof(victimPath), victimGroup, sizeof(victimGroup));
+        }
     }
 
     if (haveVictim && haveAttacker)

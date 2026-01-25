@@ -87,6 +87,7 @@ public Menu_Redirect(Handle:main, MenuAction:action, client, param2) {
 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 public LoadConfig() {
 	iCurrentServer = -1;
+	iMaxServers = 0;
 	//Could probably use steam tools or something and use this as a fall back method.
 	decl String:sHostIP[32];
 	decl String:sHostPort[8];
@@ -104,12 +105,17 @@ public LoadConfig() {
 public SMCResult:NewSection(Handle:smc, const String:name[], bool:opt_quotes) {}
 public SMCResult:EndSection(Handle:smc) {}  
 public SMCResult:KeyValue(Handle:smc, const String:key[], const String:value[], bool:key_quotes, bool:value_quotes) {
+	if (iMaxServers >= MAXSERVERS) {
+		LogError("[SupremeRedirect] Too many servers in redirect.cfg (max %d). Skipping %s", MAXSERVERS, key);
+		return SMCParse_Continue;
+	}
 	strcopy(szSever[iMaxServers], 32, key);
 	strcopy(szSvrIP[iMaxServers], 32, value);
 	if(StrEqual(value, szCurrentIP)) {
 		iCurrentServer = iMaxServers;
 	}
 	iMaxServers++;
+	return SMCParse_Continue;
 }
 public bool:IsRedirectMenuReady () {
 	return hServerMenu != INVALID_HANDLE;
