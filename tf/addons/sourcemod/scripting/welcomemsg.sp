@@ -106,7 +106,7 @@ static const char g_HeavyCustom[][] = {
 };
 
 static const char g_EngineerReverts[][] = {
-    "\x01Pomson:{green} Original hitbox size, penetrates targets, ignores bullet resists, lights up friendly Huntsman arrows, {red}-75% cloak/uber drain\n",
+    "\x01Pomson:{green} Original hitbox size, penetrates targets, ignores bullet resists, ignites friendly Huntsman arrows, {red}charge drains reduced to 5%\n",
     "\x01The Wrangler:{red} Shield resistance 66% -> 25%\n",
     "\x01The Short Circuit:{chartreuse} Damage dealt with primary fire is returned as metal,{red} 75% less metal from carts on wearer\n",
     "\x01Southern Hospitality:{green} +10% damage, 15 metal regenerated every 5 seconds on wearer\n"

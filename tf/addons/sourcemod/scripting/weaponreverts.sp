@@ -729,7 +729,6 @@ void OnEnergyRingSpawnPost(int entity) {
 }
 
 Action OnEnergyRingTouch(int entity, int other) {
-	// Pomson & Bison light up friendly Huntsman arrows
 	if (other >= 1 && other <= MaxClients) {
 		int weapon = GetEntPropEnt(other, Prop_Send, "m_hActiveWeapon");
 		if (IsValidEntity(weapon)) {
@@ -737,8 +736,16 @@ Action OnEnergyRingTouch(int entity, int other) {
 				HasEntProp(weapon, Prop_Send, "m_bArrowAlight") &&
 				GetEntProp(entity, Prop_Send, "m_iTeamNum") == GetEntProp(other, Prop_Send, "m_iTeamNum")
 			) {
+				// Pomson & Bison ignite friendly Huntsman arrows
 				SetEntProp(weapon, Prop_Send, "m_bArrowAlight", true);
 			}
+		}
+	} else if (other > MaxClients) {
+		char class[64];
+		GetEntityClassname(other, class, sizeof(class));
+		// Don't collide with projectiles
+		if (StrContains(class, "tf_projectile_") == 0) {
+			return Plugin_Handled;
 		}
 	}
 	return Plugin_Continue;
