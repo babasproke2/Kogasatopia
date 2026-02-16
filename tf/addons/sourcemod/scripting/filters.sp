@@ -1,10 +1,10 @@
 #include <sourcemod>
 #include <sdktools>
+#include <sdktools_functions>
 #include <sdktools_voice>
 #include <clientprefs>
 #include <basecomm>
 #include <morecolors>
-#include <SteamWorks>
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -17,6 +17,9 @@
 #define FILTERS_OUTBOX_CLEANUP_INTERVAL 120
 #define FILTERS_OUTBOX_RETENTION_SECONDS 3600
 #define FILTERS_IGNORED_STEAMID64 "76561199812613650" // [U:1:1852347922]
+#define REDLIST_RAPES_THRESHOLD 1
+#define PRENAME_MAX_PATTERN 64
+#define PRENAME_MAX_RENAME 64
 
 // Player state structure
 enum struct PlayerState
@@ -24,16 +27,43 @@ enum struct PlayerState
     bool isWhitelisted;        // Player bypasses all filters and blacklist
     bool isFilterWhitelisted;  // Player bypasses word filters only
     bool isBlacklisted;        // Player cannot send any messages
+    bool isredlisted;         // Player cannot hear blacklisted clients
+    int rapesGiven;
+    int whaleKills;
+    bool hugsStatsLoaded;
+    bool whaleStatsLoaded;
+    bool cookiesProcessed;
 }
 
 PlayerState g_PlayerState[MAXPLAYERS + 1];
 bool g_VoiceBlocked[MAXPLAYERS + 1][MAXPLAYERS + 1];
+int g_AutoRedlistKills[MAXPLAYERS + 1];
+int g_AutoRedlistRapes[MAXPLAYERS + 1];
+bool g_AutoRedlistGotKills[MAXPLAYERS + 1];
+bool g_AutoRedlistGotRapes[MAXPLAYERS + 1];
+
+native int Hugs_GetRapesGiven(int client);
+native bool Hugs_AreStatsLoaded(int client);
+native int WhaleTracker_GetCumulativeKills(int client);
+native bool WhaleTracker_AreStatsLoaded(int client);
+
+public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
+{
+    RegPluginLibrary("filters");
+    CreateNative("Filters_IsRedlisted", Native_Filters_IsRedlisted);
+    CreateNative("Filters_GetChatName", Native_Filters_GetChatName);
+    MarkNativeAsOptional("Hugs_GetRapesGiven");
+    MarkNativeAsOptional("Hugs_AreStatsLoaded");
+    MarkNativeAsOptional("WhaleTracker_GetCumulativeKills");
+    MarkNativeAsOptional("WhaleTracker_AreStatsLoaded");
+    return APLRes_Success;
+}
 
 // Cookie handles
 Handle g_hCookieWhitelist;
 Handle g_hCookieFilterWhitelist;
 Handle g_hCookieBlacklist;
-Handle g_hCookieNameColor;
+Handle g_hCookieredlist;
 Handle g_hChatFrontend;
 
 // Per-client name color tokens (empty string means team color)
@@ -48,6 +78,7 @@ ConVar g_hFiltersEnabled = null;
 ConVar g_hBlacklistMinLen = null;
 ConVar g_hFiltersChristmas = null;
 ConVar g_hFiltersTeamChat = null;
+ConVar g_hRedlistEnabled = null;
 
 // Global arrays for word filtering
 char g_FilterWords[MAX_FILTERS][MAX_WORD_LENGTH];
@@ -62,7 +93,7 @@ int g_Blacklist50Count = 0;
 
 // Global arrays for forced status
 char g_ForcedStatusSteamIDs[MAX_FORCED_STATUS][32];
-char g_ForcedStatusTypes[MAX_FORCED_STATUS][32]; // "whitelist", "blacklist", or "filter_whitelist"
+char g_ForcedStatusTypes[MAX_FORCED_STATUS][32]; // "whitelist", "blacklist", "redlist", or "filter_whitelist"
 int g_ForcedStatusCount = 0;
 
 // Global array for whitelisted/immunue commands
@@ -78,6 +109,11 @@ ArrayList g_ConnectQueue = null;
 Handle g_ConnectQueueTimer = null;
 char g_sServerName[128];
 ConVar g_hHostnameCvar = null;
+StringMap g_PrenameIdRules = null;
+StringMap g_PrenameOutputMap = null;
+char g_PrenameDebugLogPath[PLATFORM_MAX_PATH];
+bool g_PrenameDebugMigrate = false;
+bool g_PrenameRulesLoaded = false;
 
 enum struct ConnectEvent
 {
@@ -100,6 +136,11 @@ bool Filters_DebugEnabled()
     return g_hChatDebug != null && g_hChatDebug.BoolValue;
 }
 
+bool Filters_RedlistEnabled()
+{
+    return g_hRedlistEnabled != null && g_hRedlistEnabled.BoolValue;
+}
+
 void Filters_LogDebug(const char[] fmt, any ...)
 {
     if (!Filters_DebugEnabled())
@@ -108,6 +149,88 @@ void Filters_LogDebug(const char[] fmt, any ...)
     char buffer[256];
     VFormat(buffer, sizeof(buffer), fmt, 2);
     LogMessage("[Filters][Chat] %s", buffer);
+}
+
+static void Filters_ResetExternalStats(int client)
+{
+    if (client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+
+    g_PlayerState[client].rapesGiven = 0;
+    g_PlayerState[client].whaleKills = 0;
+    g_PlayerState[client].hugsStatsLoaded = false;
+    g_PlayerState[client].whaleStatsLoaded = false;
+
+    g_AutoRedlistKills[client] = 0;
+    g_AutoRedlistRapes[client] = 0;
+    g_AutoRedlistGotKills[client] = false;
+    g_AutoRedlistGotRapes[client] = false;
+}
+
+static bool Filters_TryGetRapesGiven(int client, int &value)
+{
+    if (GetFeatureStatus(FeatureType_Native, "Hugs_GetRapesGiven") != FeatureStatus_Available
+        || GetFeatureStatus(FeatureType_Native, "Hugs_AreStatsLoaded") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    if (!Hugs_AreStatsLoaded(client))
+    {
+        return false;
+    }
+
+    value = Hugs_GetRapesGiven(client);
+    return true;
+}
+
+static bool Filters_TryGetWhaleKills(int client, int &value)
+{
+    if (GetFeatureStatus(FeatureType_Native, "WhaleTracker_GetCumulativeKills") != FeatureStatus_Available
+        || GetFeatureStatus(FeatureType_Native, "WhaleTracker_AreStatsLoaded") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    if (!WhaleTracker_AreStatsLoaded(client))
+    {
+        return false;
+    }
+
+    value = WhaleTracker_GetCumulativeKills(client);
+    return true;
+}
+
+static void Filters_UpdateExternalStats(int client)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    {
+        return;
+    }
+
+    int value = 0;
+    if (Filters_TryGetRapesGiven(client, value))
+    {
+        g_PlayerState[client].rapesGiven = value;
+        g_PlayerState[client].hugsStatsLoaded = true;
+    }
+    else
+    {
+        g_PlayerState[client].hugsStatsLoaded = false;
+    }
+
+    if (Filters_TryGetWhaleKills(client, value))
+    {
+        g_PlayerState[client].whaleKills = value;
+        g_PlayerState[client].whaleStatsLoaded = true;
+    }
+    else
+    {
+        g_PlayerState[client].whaleStatsLoaded = false;
+    }
+
 }
 
 static bool Filters_IsIgnoredClient(int client)
@@ -179,15 +302,7 @@ static void RefreshServerHostname()
 
 static void RefreshPublicHostIp()
 {
-    int addr[4];
-    if (SteamWorks_GetPublicIP(addr))
-    {
-        Format(g_sPublicHostIp, sizeof(g_sPublicHostIp), "%d.%d.%d.%d", addr[0], addr[1], addr[2], addr[3]);
-    }
-    else
-    {
-        g_sPublicHostIp[0] = '\0';
-    }
+    strcopy(g_sPublicHostIp, sizeof(g_sPublicHostIp), "173.255.237.230");
 }
 
 static void Filters_GetPreferredHostIp(char[] buffer, int maxlen)
@@ -253,7 +368,7 @@ static void Filters_GetHostStamp(char[] buffer, int maxlen)
 
 public Plugin myinfo = 
 {
-    name = "Chat Manager",
+    name = "filters",
     author = "Hombre",
     description = "Chat Management + Filtered/Blacklisted Words + Web Communication Frontend",
     version = "1.0.0",
@@ -271,6 +386,15 @@ public void OnPluginStart()
     {
         g_ConnectQueue = new ArrayList(sizeof(ConnectEvent));
     }
+    if (g_PrenameIdRules == null)
+    {
+        g_PrenameIdRules = new StringMap();
+    }
+    if (g_PrenameOutputMap == null)
+    {
+        g_PrenameOutputMap = new StringMap();
+    }
+    BuildPath(Path_SM, g_PrenameDebugLogPath, sizeof(g_PrenameDebugLogPath), "logs/prename_migrate.log");
 
     LoadFilterConfig();
 
@@ -280,6 +404,7 @@ public void OnPluginStart()
     g_hChatDebug = CreateConVar("filters_chat_debug", "0", "Enable verbose debug logging for chat relay");
     g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Enable/Disable db functions");
     g_hFiltersEnabled = CreateConVar("filters", "0", "If 0, blacklist word matching is disabled.");
+    g_hRedlistEnabled = CreateConVar("redlist", "1", "Enable/Disable redlist features.", _, true, 0.0, true, 1.0);
     g_hBlacklistMinLen = CreateConVar("filters_blacklist_minlen", "8", "Minimum message length to check blacklist words.");
     g_hFiltersChristmas = CreateConVar("filters_christmas", "0", "If 1, red chat is {axis} and blue chat is {green}.");
     g_hFiltersTeamChat = CreateConVar("teamchat", "0", "If 1, normal chat is sent to the sender's team only.");
@@ -289,12 +414,13 @@ public void OnPluginStart()
         "If 1, chat filters are case-sensitive (exact casing must match)"
     );
     HookConVarChange(g_sChatMode2, Filters_OnFilterModeChanged);
+    HookConVarChange(g_hRedlistEnabled, Filters_OnRedlistChanged);
     
     // Initialize cookies
     g_hCookieWhitelist = RegClientCookie("filter_whitelist", "Player is whitelisted from all filters", CookieAccess_Protected);
     g_hCookieFilterWhitelist = RegClientCookie("filter_filterwhitelist", "Player is whitelisted from word filters only", CookieAccess_Protected);
     g_hCookieBlacklist = RegClientCookie("filter_blacklist", "Player is blacklisted from sending messages", CookieAccess_Protected);
-    g_hCookieNameColor = RegClientCookie("filter_namecolor", "Player's custom chat name color", CookieAccess_Protected);
+    g_hCookieredlist = RegClientCookie("filter_redlist", "Player cannot hear blacklisted clients", CookieAccess_Protected);
     
     // Register admin commands for managing player states
     RegAdminCmd("sm_whitelist", Command_Whitelist, ADMFLAG_CHAT, "sm_whitelist <player> - Whitelists a player from all filters");
@@ -307,7 +433,16 @@ public void OnPluginStart()
     RegAdminCmd("sm_unblacklist", Command_UnBlacklist, ADMFLAG_CHAT, "sm_unblacklist <player> - Removes blacklist from a player");
     RegAdminCmd("sm_whitelists", Command_ListWhitelists, ADMFLAG_CHAT, "sm_whitelists - Lists whitelisted players");
     RegAdminCmd("sm_blacklists", Command_ListBlacklists, ADMFLAG_CHAT, "sm_blacklists - Lists blacklisted players");
+    RegAdminCmd("sm_redlist", Command_redlist, ADMFLAG_CHAT, "sm_redlist <player> - redlist a player (can't hear blacklisted clients)");
+    RegAdminCmd("sm_unredlist", Command_Unredlist, ADMFLAG_CHAT, "sm_unredlist <player> - Removes redlist from a player");
+    RegAdminCmd("sm_redlists", Command_Listredlists, ADMFLAG_CHAT, "sm_redlists - Lists redlisted players");
     RegAdminCmd("sm_filtershelp", Command_FiltersHelp, ADMFLAG_CHAT, "sm_filtershelp - Shows filters convar help");
+    RegConsoleCmd("sm_filters_debug", Command_FiltersDebug, "Show debug stats for filters");
+    RegConsoleCmd("sm_colors", Command_Colors, "Show available chat colors");
+    RegConsoleCmd("sm_colours", Command_Colors, "Show available chat colours");
+    RegConsoleCmd("sm_prename", Command_Prename, "sm_prename <name_substring|steamid> <newname> (admins) or sm_prename <newname> (self)");
+    RegConsoleCmd("sm_reset", Command_PrenameReset, "sm_reset <name_substring|steamid> (admins) or sm_reset (self)");
+    RegAdminCmd("sm_migrate", Command_PrenameMigrate, ADMFLAG_SLAY, "sm_migrate - Migrates legacy name rules to SteamID rules for connected clients");
 
     // Web chat relay
     RegConsoleCmd("sm_websay", Command_WebSay, "Relay a web chat message to all players");
@@ -332,8 +467,12 @@ public void OnPluginStart()
             g_PlayerState[i].isWhitelisted = false;
             g_PlayerState[i].isFilterWhitelisted = false;
             g_PlayerState[i].isBlacklisted = false;
+            g_PlayerState[i].isredlisted = false;
             g_NameColors[i][0] = '\0';
         }
+
+        Filters_ResetExternalStats(i);
+        Filters_UpdateExternalStats(i);
     }
 
     Filters_UpdateVoiceOverrides();
@@ -343,6 +482,38 @@ public void OnConfigsExecuted()
 {
     RefreshHostAddress();
     RefreshServerHostname();
+}
+
+public void OnLibraryAdded(const char[] name)
+{
+    if (!StrEqual(name, "hugs", false) && !StrEqual(name, "whaletracker", false))
+    {
+        return;
+    }
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (IsClientInGame(i))
+        {
+            Filters_UpdateExternalStats(i);
+        }
+    }
+}
+
+public void OnLibraryRemoved(const char[] name)
+{
+    if (!StrEqual(name, "hugs", false) && !StrEqual(name, "whaletracker", false))
+    {
+        return;
+    }
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (IsClientInGame(i))
+        {
+            Filters_ResetExternalStats(i);
+        }
+    }
 }
 
 public void OnMapStart()
@@ -417,13 +588,17 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS alert TINYINT(1) NOT NULL DEFAULT 1 AFTER webchatonly",
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS server_ip VARCHAR(64) NULL AFTER webchatonly",
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS server_port INT NULL AFTER server_ip",
-        "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS delivered_to TEXT NULL AFTER server_port"
+        "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS delivered_to TEXT NULL AFTER server_port",
+        "CREATE TABLE IF NOT EXISTS prename_rules (pattern VARCHAR(64) PRIMARY KEY, newname VARCHAR(64) NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS filters_namecolors (steamid VARCHAR(32) PRIMARY KEY, color VARCHAR(32) NOT NULL DEFAULT '', updated_at INT NOT NULL DEFAULT 0)"
     };
 
     g_iPendingSchemaQueries = sizeof(schemaQueries);
     if (g_iPendingSchemaQueries <= 0)
     {
         g_bOutboxStampReady = true;
+        g_PrenameRulesLoaded = false;
+        Filters_PrenameLoadRules();
     }
     else
     {
@@ -460,6 +635,18 @@ public void Filters_SchemaQueryCallback(Database db, DBResultSet results, const 
     {
         g_bOutboxStampReady = true;
         Filters_LogDebug("Schema ready; host stamp support enabled");
+        for (int i = 1; i <= MaxClients; i++)
+        {
+            if (IsClientInGame(i) && !IsFakeClient(i))
+            {
+                LoadNameColorFromDb(i);
+            }
+        }
+        if (!g_PrenameRulesLoaded)
+        {
+            g_PrenameRulesLoaded = true;
+            Filters_PrenameLoadRules();
+        }
     }
 }
 
@@ -568,7 +755,7 @@ public void Filters_OutboxQueryCallback(Database db, DBResultSet results, const 
         {
             if (!suppressChatBroadcast)
             {
-                CPrintToChatAll("%s", msg);
+                Filters_PrintToChatAll(msg);
             }
             if (!fromLocalServer && !webchatOnly)
             {
@@ -581,7 +768,7 @@ public void Filters_OutboxQueryCallback(Database db, DBResultSet results, const 
             Format(out, sizeof(out), "%s %s", label, msg);
             if (!suppressChatBroadcast)
             {
-                CPrintToChatAll("%s", out);
+                Filters_PrintToChatAll(out);
             }
             if (!fromLocalServer && !webchatOnly)
             {
@@ -810,7 +997,7 @@ void Filters_InsertSystemMessage(bool webchatOnly, bool alertFlag, const char[] 
     // Broadcast immediately to the local server unless webchat-only.
     if (!webchatOnly)
     {
-        CPrintToChatAll("%s", message);
+        Filters_PrintToChatAll(message);
         PrintToServer("%s", message);
         Filters_LogDebug("Local system message broadcast: %s", message);
     }
@@ -901,6 +1088,13 @@ enum struct ChatContext
     bool isGagged;
 }
 
+enum FilterStatusList
+{
+    FilterStatus_Whitelist = 0,
+    FilterStatus_Blacklist,
+    FilterStatus_redlist
+};
+
 public Action OnClientSayCommand(int client, const char[] command, const char[] sArgs)
 {
     if (!client)
@@ -937,6 +1131,11 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 
     ChatContext context;
     BuildChatContext(client, sArgs, context);
+
+    if (context.hasBlacklistedTerm || context.isBlacklisted)
+    {
+        LogBlacklistedMessage(client, sArgs, context.hasBlacklistedTerm, context.isBlacklisted);
+    }
 
     char nameColorTag[40];
     BuildNameColorTag(client, nameColorTag, sizeof(nameColorTag));
@@ -977,6 +1176,27 @@ void BuildChatContext(int client, const char[] sArgs, ChatContext context)
     context.isFilterWhitelisted = g_PlayerState[client].isFilterWhitelisted;
     context.hasBlacklistedTerm = CheckBlacklistedTerms(sArgs);
     context.isGagged = BaseComm_IsClientGagged(client);
+}
+
+static void LogBlacklistedMessage(int client, const char[] message, bool hasBlacklistedTerm, bool isBlacklistedClient)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return;
+    }
+
+    char name[MAX_NAME_LENGTH];
+    GetClientName(client, name, sizeof(name));
+
+    char steamId[32];
+    if (!GetClientAuthId(client, AuthId_Steam2, steamId, sizeof(steamId)))
+    {
+        strcopy(steamId, sizeof(steamId), "unknown");
+    }
+
+    LogToFileEx("addons/sourcemod/logs/filters_blacklist.log",
+        "name=\"%s\" steamid=\"%s\" term=%d blacklisted=%d msg=\"%s\"",
+        name, steamId, hasBlacklistedTerm ? 1 : 0, isBlacklistedClient ? 1 : 0, message);
 }
 
 void BuildDeathPrefix(int client, char[] deadPrefix, int length)
@@ -1055,7 +1275,7 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
         }
 
         g_NameColors[client][0] = '\0';
-        SetClientCookie(client, g_hCookieNameColor, "");
+        SaveNameColorToDb(client, "");
         CPrintToChat(client, "{default}[Filters] Your name color has been reset to the {teamcolor}team color{default}.");
         return true;
     }
@@ -1073,7 +1293,7 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
     }
 
     strcopy(g_NameColors[client], sizeof(g_NameColors[]), colorName);
-    SetClientCookie(client, g_hCookieNameColor, colorName);
+    SaveNameColorToDb(client, colorName);
 
     CPrintToChat(client, "{default}[Filters] Your name color is now {%s}%s{default}.", colorName, colorName);
     return true;
@@ -1151,16 +1371,15 @@ bool HandleFiltersHelpCommand(int client, const char[] sArgs)
     return true;
 }
 
-void Filters_PrintStatusList(int client, bool listWhitelist)
+void Filters_PrintStatusList(int client, FilterStatusList status)
 {
     char label[16];
-    if (listWhitelist)
+    switch (status)
     {
-        strcopy(label, sizeof(label), "Whitelisted");
-    }
-    else
-    {
-        strcopy(label, sizeof(label), "Blacklisted");
+        case FilterStatus_Whitelist: strcopy(label, sizeof(label), "Whitelisted");
+        case FilterStatus_Blacklist: strcopy(label, sizeof(label), "Blacklisted");
+        case FilterStatus_redlist: strcopy(label, sizeof(label), "redlisted");
+        default: strcopy(label, sizeof(label), "Players");
     }
 
     char header[96];
@@ -1179,11 +1398,15 @@ void Filters_PrintStatusList(int client, bool listWhitelist)
             continue;
         }
 
-        if (listWhitelist && !g_PlayerState[i].isWhitelisted)
+        if (status == FilterStatus_Whitelist && !g_PlayerState[i].isWhitelisted)
         {
             continue;
         }
-        if (!listWhitelist && !g_PlayerState[i].isBlacklisted)
+        if (status == FilterStatus_Blacklist && !g_PlayerState[i].isBlacklisted)
+        {
+            continue;
+        }
+        if (status == FilterStatus_redlist && !g_PlayerState[i].isredlisted)
         {
             continue;
         }
@@ -1244,8 +1467,9 @@ bool HandleListStatusCommand(int client, const char[] sArgs)
 
     bool listWhitelist = StrEqual(commandToken, "/whitelists", false);
     bool listBlacklist = StrEqual(commandToken, "/blacklists", false);
+    bool listredlist = StrEqual(commandToken, "/redlists", false);
 
-    if (!listWhitelist && !listBlacklist)
+    if (!listWhitelist && !listBlacklist && !listredlist)
     {
         return false;
     }
@@ -1256,7 +1480,18 @@ bool HandleListStatusCommand(int client, const char[] sArgs)
         return true;
     }
 
-    Filters_PrintStatusList(client, listWhitelist);
+    if (listWhitelist)
+    {
+        Filters_PrintStatusList(client, FilterStatus_Whitelist);
+    }
+    else if (listBlacklist)
+    {
+        Filters_PrintStatusList(client, FilterStatus_Blacklist);
+    }
+    else
+    {
+        Filters_PrintStatusList(client, FilterStatus_redlist);
+    }
     return true;
 }
 
@@ -1285,13 +1520,13 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
         {
             for (int i = 1; i <= MaxClients; i++)
             {
-                if (IsClientInGame(i) && g_PlayerState[i].isBlacklisted)
+                if (IsClientInGame(i) && g_PlayerState[i].isBlacklisted && Filters_ShouldReceiveChat(i, client))
                 {
-                    CPrintToChatEx(i, client, "%s", output);
+                    Filters_SendChatToReceiver(i, client, output);
                 }
             }
 
-            SendToWhitelistedAdmins(client, output, "fm1:");
+            SendToWhitelistedAdminsBlacklisted(client, output, "fm1:");
             PrintToServer("x: %s", output);
             return true;
         }
@@ -1306,6 +1541,10 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
             {
                 continue;
             }
+            if (!Filters_ShouldReceiveChat(i, client))
+            {
+                continue;
+            }
 
             bool isWhitelisted = g_PlayerState[i].isWhitelisted;
             bool isBlacklisted = g_PlayerState[i].isBlacklisted;
@@ -1313,7 +1552,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
             {
                 if (!isBlacklisted || isWhitelisted)
                 {
-                    CPrintToChatEx(i, client, "%s", output);
+                    Filters_SendChatToReceiver(i, client, output);
                 }
             }
             else if (isWhitelisted)
@@ -1323,7 +1562,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
                     Format(prefixed, sizeof(prefixed), "t: %s", output);
                     prefixedReady = true;
                 }
-                CPrintToChatEx(i, client, "%s", prefixed);
+                Filters_SendChatToReceiver(i, client, prefixed);
             }
         }
 
@@ -1331,7 +1570,38 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
         return true;
     }
 
-    CPrintToChatTeam(GetClientTeam(client), output);
+    if (g_PlayerState[client].isBlacklisted)
+    {
+        int senderTeam = GetClientTeam(client);
+        char prefixed[256];
+        bool prefixedReady = false;
+
+        for (int i = 1; i <= MaxClients; i++)
+        {
+            if (!IsClientInGame(i) || !Filters_ShouldReceiveChat(i, client))
+            {
+                continue;
+            }
+
+            if (GetClientTeam(i) == senderTeam)
+            {
+                Filters_SendChatToReceiver(i, client, output);
+            }
+            else if (g_PlayerState[i].isWhitelisted)
+            {
+                if (!prefixedReady)
+                {
+                    Format(prefixed, sizeof(prefixed), "t: %s", output);
+                    prefixedReady = true;
+                }
+                Filters_SendChatToReceiver(i, client, prefixed);
+            }
+        }
+    }
+    else
+    {
+        CPrintToChatTeam(GetClientTeam(client), client, output);
+    }
     PrintToServer("%s", output);
     return true;
 }
@@ -1386,36 +1656,77 @@ void BuildMessageColorTag(int client, char[] colorTag, int length)
     strcopy(colorTag, length, "{default}");
 }
 
-void Filters_UpdateVoiceOverrides()
+static bool Filters_ShouldReceiveChat(int receiver, int sender)
 {
-    bool cordMode = GetConVarInt(g_sChatMode2) != 0;
-
-    if (!cordMode)
+    if (receiver <= 0 || !IsClientInGame(receiver))
     {
-        for (int receiver = 1; receiver <= MaxClients; receiver++)
+        return false;
+    }
+
+    if (!Filters_RedlistEnabled())
+    {
+        return true;
+    }
+
+    if (!g_PlayerState[receiver].isredlisted)
+    {
+        return true;
+    }
+
+    return (sender > 0 && sender <= MaxClients && g_PlayerState[sender].isredlisted);
+}
+
+static void Filters_PrintToChatAll(const char[] message)
+{
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!Filters_ShouldReceiveChat(i, 0))
         {
-            if (!IsClientInGame(receiver))
-            {
-                continue;
-            }
+            continue;
+        }
+        CPrintToChat(i, "%s", message);
+    }
+}
 
-            for (int sender = 1; sender <= MaxClients; sender++)
-            {
-                if (sender == receiver || !IsClientInGame(sender))
-                {
-                    continue;
-                }
+static void Filters_SendChatToReceiver(int receiver, int sender, const char[] message)
+{
+    if (receiver <= 0 || !IsClientInGame(receiver))
+    {
+        return;
+    }
 
-                if (g_VoiceBlocked[receiver][sender])
-                {
-                    SetListenOverride(receiver, sender, Listen_Default);
-                    g_VoiceBlocked[receiver][sender] = false;
-                }
-            }
+    if (Filters_RedlistEnabled()
+        && sender > 0
+        && sender <= MaxClients
+        && g_PlayerState[sender].isredlisted
+        && !g_PlayerState[receiver].isredlisted)
+    {
+        if (g_PlayerState[receiver].isWhitelisted)
+        {
+            CPrintToChatEx(receiver, sender, "{axis}[Fake] %s", message);
         }
         return;
     }
 
+    CPrintToChatEx(receiver, sender, "%s", message);
+}
+
+static void Filters_PrintToChatAllEx(int sender, const char[] message)
+{
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!Filters_ShouldReceiveChat(i, sender))
+        {
+            continue;
+        }
+        Filters_SendChatToReceiver(i, sender, message);
+    }
+}
+
+void Filters_UpdateVoiceOverrides()
+{
+    bool cordMode = GetConVarInt(g_sChatMode2) != 0;
+    bool redlistEnabled = Filters_RedlistEnabled();
     for (int sender = 1; sender <= MaxClients; sender++)
     {
         if (!IsClientInGame(sender))
@@ -1431,11 +1742,19 @@ void Filters_UpdateVoiceOverrides()
                 continue;
             }
 
-            bool receiverBlacklisted = g_PlayerState[receiver].isBlacklisted;
-            bool receiverWhitelisted = g_PlayerState[receiver].isWhitelisted;
-            bool shouldBlock = receiverBlacklisted
-                ? !senderBlacklisted
-                : (senderBlacklisted && !receiverBlacklisted && !receiverWhitelisted);
+            bool shouldBlock = false;
+            if (redlistEnabled && g_PlayerState[receiver].isredlisted)
+            {
+                shouldBlock = !g_PlayerState[sender].isredlisted;
+            }
+            else if (cordMode)
+            {
+                bool receiverBlacklisted = g_PlayerState[receiver].isBlacklisted;
+                bool receiverWhitelisted = g_PlayerState[receiver].isWhitelisted;
+                shouldBlock = receiverBlacklisted
+                    ? !senderBlacklisted
+                    : (senderBlacklisted && !receiverBlacklisted && !receiverWhitelisted);
+            }
 
             if (shouldBlock)
             {
@@ -1473,13 +1792,13 @@ bool HandleCordModeBlacklistedChat(int client, const char[] message, const ChatC
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (IsClientInGame(i) && g_PlayerState[i].isBlacklisted)
+        if (IsClientInGame(i) && g_PlayerState[i].isBlacklisted && Filters_ShouldReceiveChat(i, client))
         {
-            CPrintToChatEx(i, client, "%s", message);
+            Filters_SendChatToReceiver(i, client, message);
         }
     }
 
-    SendToWhitelistedAdmins(client, message, "fm1:");
+    SendToWhitelistedAdminsBlacklisted(client, message, "fm1:");
     PrintToServer("x: %s", message);
     return true;
 }
@@ -1508,13 +1827,46 @@ bool HandleEnabledChat(int client, const char[] message, const ChatContext conte
 
     if (!context.cordMode)
     {
-        if (teamChatOnly)
+        if (context.isBlacklisted)
         {
-            CPrintToChatTeam(GetClientTeam(client), message);
+            int senderTeam = GetClientTeam(client);
+            char prefixed[256];
+            bool prefixedReady = false;
+            for (int i = 1; i <= MaxClients; i++)
+            {
+                if (!IsClientInGame(i) || !Filters_ShouldReceiveChat(i, client))
+                {
+                    continue;
+                }
+
+                if (!teamChatOnly)
+                {
+                    Filters_SendChatToReceiver(i, client, message);
+                    continue;
+                }
+
+                if (GetClientTeam(i) == senderTeam)
+                {
+                    Filters_SendChatToReceiver(i, client, message);
+                }
+                else if (g_PlayerState[i].isWhitelisted)
+                {
+                    if (!prefixedReady)
+                    {
+                        Format(prefixed, sizeof(prefixed), "t: %s", message);
+                        prefixedReady = true;
+                    }
+                    Filters_SendChatToReceiver(i, client, prefixed);
+                }
+            }
+        }
+        else if (teamChatOnly)
+        {
+            CPrintToChatTeam(GetClientTeam(client), client, message);
         }
         else
         {
-            CPrintToChatAllEx(client, "%s", message);
+            Filters_PrintToChatAllEx(client, message);
         }
     }
     else
@@ -1533,11 +1885,18 @@ bool HandleEnabledChat(int client, const char[] message, const ChatContext conte
         }*/
         for (int i = 1; i <= MaxClients; i++)
         {
-            if (IsClientInGame(i)
-                && !g_PlayerState[i].isBlacklisted
+            if (!IsClientInGame(i))
+            {
+                continue;
+            }
+            if (!Filters_ShouldReceiveChat(i, client))
+            {
+                continue;
+            }
+            if (!g_PlayerState[i].isBlacklisted
                 && (!teamChatOnly || GetClientTeam(i) == GetClientTeam(client)))
             {
-                CPrintToChatEx(i, client, "%s", message);
+                Filters_SendChatToReceiver(i, client, message);
             }
         }
     }
@@ -1556,8 +1915,8 @@ void SendFallbackMessage(int client)
     BuildNameColorTag(client, colorTag, sizeof(colorTag));
 
     char output[256];
-    Format(output, sizeof(output), "%s%N{default}: {greenyellow}BROLY", colorTag, client);
-    CPrintToChatAllEx(client, "%s", output);
+    Format(output, sizeof(output), "%s%N{default}: {gold}nigger", colorTag, client);
+    Filters_PrintToChatAllEx(client, output);
     Filters_LogChatMessage(client, output);
 }
 
@@ -1603,7 +1962,7 @@ public Action Command_WebSay(int client, int args)
     Format(label, sizeof(label), "%s[%s]{default}", colorTag, hash);
     char out[256];
     Format(out, sizeof(out), "%s %s", label, msgPart);
-    CPrintToChatAll("%s", out);
+    Filters_PrintToChatAll(out);
     Filters_LogDebug("sm_websay broadcast hash %s message %s", hash, msgPart);
     // Log web message
     if (g_bDbReady)
@@ -1634,9 +1993,34 @@ void SendToWhitelistedAdmins(int sender, const char[] message, const char[] pref
         if (g_PlayerState[i].isWhitelisted)
         {
             if (prefix[0] != '\0')
-                CPrintToChatEx(i, sender, "%s %s", prefix, message);
+            {
+                char out[512];
+                Format(out, sizeof(out), "%s %s", prefix, message);
+                Filters_SendChatToReceiver(i, sender, out);
+            }
             else
-                CPrintToChatEx(i, sender, "%s", message);
+                Filters_SendChatToReceiver(i, sender, message);
+        }
+    }
+}
+
+void SendToWhitelistedAdminsBlacklisted(int sender, const char[] message, const char[] prefix = "")
+{
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i))
+            continue;
+
+        if (g_PlayerState[i].isWhitelisted)
+        {
+            if (prefix[0] != '\0')
+            {
+                char out[512];
+                Format(out, sizeof(out), "%s %s", prefix, message);
+                Filters_SendChatToReceiver(i, sender, out);
+            }
+            else
+                Filters_SendChatToReceiver(i, sender, message);
         }
     }
 }
@@ -1783,7 +2167,7 @@ void LoadFilterConfig()
                 kv.GetString(NULL_STRING, status, sizeof(status));
                 
                 // Validate status type
-                if (StrEqual(status, "whitelist") || StrEqual(status, "blacklist") || StrEqual(status, "filter_whitelist"))
+                if (StrEqual(status, "whitelist") || StrEqual(status, "blacklist") || StrEqual(status, "redlist") || StrEqual(status, "filter_whitelist"))
                 {
                     strcopy(g_ForcedStatusSteamIDs[g_ForcedStatusCount], 32, steamid);
                     strcopy(g_ForcedStatusTypes[g_ForcedStatusCount], 32, status);
@@ -1959,6 +2343,7 @@ void CreateDefaultConfig(const char[] path)
     file.WriteLine("    {");
     file.WriteLine("        \"STEAM_0:0:12345678\"    \"whitelist\"");
     file.WriteLine("        \"STEAM_0:1:87654321\"    \"blacklist\"");
+    file.WriteLine("        \"STEAM_0:0:33445566\"    \"redlist\"");
     file.WriteLine("        \"STEAM_0:0:11223344\"    \"filter_whitelist\"");
     file.WriteLine("    }");
     file.WriteLine("    \"commands\"");
@@ -1976,43 +2361,110 @@ void CreateDefaultConfig(const char[] path)
     LogMessage("Default config file created: %s", path);
 }
 
-void LoadNameColorCookie(int client)
+void LoadNameColorFromDb(int client)
 {
-    if (g_hCookieNameColor == INVALID_HANDLE)
+    g_NameColors[client][0] = '\0';
+
+    if (!g_bDbReady || g_hFiltersDb == null || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    char steamId64[32];
+    if (!GetClientAuthId(client, AuthId_SteamID64, steamId64, sizeof(steamId64)))
+    {
+        return;
+    }
+
+    char escapedSteam[64];
+    SQL_EscapeString(g_hFiltersDb, steamId64, escapedSteam, sizeof(escapedSteam));
+
+    char query[256];
+    Format(query, sizeof(query), "SELECT color FROM filters_namecolors WHERE steamid = '%s' LIMIT 1", escapedSteam);
+    g_hFiltersDb.Query(Filters_LoadNameColorCallback, query, GetClientUserId(client));
+}
+
+void SaveNameColorToDb(int client, const char[] color)
+{
+    if (!g_bDbReady || g_hFiltersDb == null || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    char steamId64[32];
+    if (!GetClientAuthId(client, AuthId_SteamID64, steamId64, sizeof(steamId64)))
+    {
+        return;
+    }
+
+    char escapedSteam[64];
+    char escapedColor[64];
+    SQL_EscapeString(g_hFiltersDb, steamId64, escapedSteam, sizeof(escapedSteam));
+    SQL_EscapeString(g_hFiltersDb, color, escapedColor, sizeof(escapedColor));
+
+    char query[320];
+    Format(query, sizeof(query),
+        "REPLACE INTO filters_namecolors (steamid, color, updated_at) VALUES ('%s', '%s', %d)",
+        escapedSteam, escapedColor, GetTime());
+    g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
+}
+
+public void Filters_LoadNameColorCallback(Database db, DBResultSet results, const char[] error, any userId)
+{
+    int client = GetClientOfUserId(userId);
+    if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    if (error[0] != '\0')
+    {
+        LogError("[Filters] Failed to load name color: %s", error);
+        return;
+    }
+
+    if (results == null || !results.FetchRow())
     {
         g_NameColors[client][0] = '\0';
         return;
     }
 
-    char colorCookie[32];
-    GetClientCookie(client, g_hCookieNameColor, colorCookie, sizeof(colorCookie));
+    char dbColor[32];
+    results.FetchString(0, dbColor, sizeof(dbColor));
+    TrimString(dbColor);
+    ToLowercase(dbColor);
 
-    if (!colorCookie[0])
+    if (!dbColor[0])
     {
         g_NameColors[client][0] = '\0';
         return;
     }
 
-    ToLowercase(colorCookie);
-
-    if (!CColorExists(colorCookie))
+    if (!CColorExists(dbColor))
     {
         g_NameColors[client][0] = '\0';
-        PrintToServer("[FILTERS] %N had invalid name color '%s', resetting to team color", client, colorCookie);
-        SetClientCookie(client, g_hCookieNameColor, "");
+        PrintToServer("[FILTERS] %N had invalid DB name color '%s', resetting to team color", client, dbColor);
+        SaveNameColorToDb(client, "");
         return;
     }
 
-    strcopy(g_NameColors[client], sizeof(g_NameColors[]), colorCookie);
-    PrintToServer("[FILTERS] %N loaded custom name color '%s'", client, g_NameColors[client]);
+    strcopy(g_NameColors[client], sizeof(g_NameColors[]), dbColor);
+    PrintToServer("[FILTERS] %N loaded custom name color '%s' (db)", client, g_NameColors[client]);
 }
 
 // Process client cookies on connect/cache
 void ProcessCookies(int client)
 {
+    if (g_PlayerState[client].cookiesProcessed)
+    {
+        return;
+    }
+
+    g_PlayerState[client].cookiesProcessed = true;
+
     char cookie[32];
 
-    LoadNameColorCookie(client);
+    LoadNameColorFromDb(client);
     
     // Check if client has forced status from config
     char steamid[32];
@@ -2032,6 +2484,13 @@ void ProcessCookies(int client)
                 {
                     PrintToServer("[FILTERS] %N is force blacklisted (from config)", client);
                     g_PlayerState[client].isBlacklisted = true;
+                    return;
+                }
+                else if (StrEqual(g_ForcedStatusTypes[i], "redlist"))
+                {
+                    PrintToServer("[FILTERS] %N is force redlisted (from config)", client);
+                    g_PlayerState[client].isredlisted = true;
+                    SetClientCookie(client, g_hCookieredlist, "1");
                     return;
                 }
                 else if (StrEqual(g_ForcedStatusTypes[i], "filter_whitelist"))
@@ -2078,21 +2537,199 @@ void ProcessCookies(int client)
         g_PlayerState[client].isBlacklisted = false;
     }
 
+    GetClientCookie(client, g_hCookieredlist, cookie, sizeof(cookie));
+    if (StrEqual(cookie, "1"))
+    {
+        PrintToServer("[FILTERS] %N is redlisted", client);
+        g_PlayerState[client].isredlisted = true;
+    }
+    else
+    {
+        g_PlayerState[client].isredlisted = false;
+    }
+
+}
+
+static void Filters_StartAutoRedlistCheck(int client)
+{
+    if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    if (g_hFiltersDb == null || !g_bDbReady)
+    {
+        return;
+    }
+
+    char steamId64[32];
+    if (GetClientAuthId(client, AuthId_SteamID64, steamId64, sizeof(steamId64)))
+    {
+        char query[256];
+        Format(query, sizeof(query), "SELECT kills FROM whaletracker WHERE steamid = '%s' LIMIT 1", steamId64);
+        g_hFiltersDb.Query(Filters_AutoRedlistKillsCallback, query, GetClientUserId(client));
+    }
+
+    char steamId2[32];
+    if (GetClientAuthId(client, AuthId_Steam2, steamId2, sizeof(steamId2)))
+    {
+        char query[256];
+        Format(query, sizeof(query), "SELECT rapes_given FROM hugs_stats WHERE steamid = '%s' LIMIT 1", steamId2);
+        g_hFiltersDb.Query(Filters_AutoRedlistRapesCallback, query, GetClientUserId(client));
+    }
+}
+
+static bool Filters_IsForcedRedlist(int client)
+{
+    char steamid[32];
+    if (!GetClientAuthId(client, AuthId_Steam2, steamid, sizeof(steamid)))
+    {
+        return false;
+    }
+
+    for (int i = 0; i < g_ForcedStatusCount; i++)
+    {
+        if (StrEqual(steamid, g_ForcedStatusSteamIDs[i]) && StrEqual(g_ForcedStatusTypes[i], "redlist"))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool Filters_IsAdminClient(int client)
+{
+    if (client <= 0 || client > MaxClients)
+    {
+        return false;
+    }
+
+    return (GetUserFlagBits(client) != 0);
+}
+
+static void Filters_EvaluateAutoRedlist(int client)
+{
+    if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    if (g_PlayerState[client].isWhitelisted)
+    {
+        return;
+    }
+
+    if (Filters_IsAdminClient(client) && !Filters_IsForcedRedlist(client))
+    {
+        if (g_PlayerState[client].isredlisted)
+        {
+            PerformUnredlist(0, client);
+        }
+        return;
+    }
+
+    bool hasRapes = g_AutoRedlistGotRapes[client];
+
+    if (!hasRapes)
+    {
+        return;
+    }
+
+    int rapes = g_AutoRedlistRapes[client];
+    bool belowThreshold = rapes < REDLIST_RAPES_THRESHOLD;
+
+    if (!g_PlayerState[client].isredlisted)
+    {
+        if (belowThreshold)
+        {
+            Performredlist(0, client);
+        }
+        return;
+    }
+
+    if (!belowThreshold && !Filters_IsForcedRedlist(client))
+    {
+        PerformUnredlist(0, client);
+    }
+}
+
+public void Filters_AutoRedlistKillsCallback(Database db, DBResultSet results, const char[] error, any userId)
+{
+    if (error[0])
+    {
+        LogError("[Filters] Failed to query WhaleTracker kills: %s", error);
+        return;
+    }
+
+    int client = GetClientOfUserId(userId);
+    if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    int kills = 0;
+    if (results != null && results.FetchRow())
+    {
+        kills = results.FetchInt(0);
+    }
+
+    g_AutoRedlistKills[client] = kills;
+    g_AutoRedlistGotKills[client] = true;
+    Filters_EvaluateAutoRedlist(client);
+}
+
+public void Filters_AutoRedlistRapesCallback(Database db, DBResultSet results, const char[] error, any userId)
+{
+    if (error[0])
+    {
+        LogError("[Filters] Failed to query hugs rapes: %s", error);
+        return;
+    }
+
+    int client = GetClientOfUserId(userId);
+    if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    int rapes = 0;
+    if (results != null && results.FetchRow())
+    {
+        rapes = results.FetchInt(0);
+    }
+
+    g_AutoRedlistRapes[client] = rapes;
+    g_AutoRedlistGotRapes[client] = true;
+    Filters_EvaluateAutoRedlist(client);
 }
 
 public void OnClientPostAdminCheck(int client)
 {
-    if (AreClientCookiesCached(client))
+    if (AreClientCookiesCached(client) && !g_PlayerState[client].cookiesProcessed)
     {
         ProcessCookies(client);
         Filters_UpdateVoiceOverrides();
     }
+
+    if (!IsFakeClient(client))
+    {
+        Filters_StartAutoRedlistCheck(client);
+        LoadNameColorFromDb(client);
+    }
+
+    Filters_UpdateExternalStats(client);
 }
 
 public void OnClientCookiesCached(int client)
 {
-    ProcessCookies(client);
+    if (!g_PlayerState[client].cookiesProcessed)
+    {
+        ProcessCookies(client);
+    }
     Filters_UpdateVoiceOverrides();
+    Filters_UpdateExternalStats(client);
+    LoadNameColorFromDb(client);
 }
 
 public void Filters_OnFilterModeChanged(ConVar convar, const char[] oldValue, const char[] newValue)
@@ -2100,9 +2737,19 @@ public void Filters_OnFilterModeChanged(ConVar convar, const char[] oldValue, co
     Filters_UpdateVoiceOverrides();
 }
 
+public void Filters_OnRedlistChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    Filters_UpdateVoiceOverrides();
+}
+
 public void OnClientPutInServer(int client)
 {
     Filters_AnnouncePlayerEvent(client, true);
+    Filters_ResetExternalStats(client);
+    if (!IsFakeClient(client))
+    {
+        CreateTimer(1.0, Timer_PrenameApply, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+    }
 }
 
 public void OnClientDisconnect(int client)
@@ -2110,7 +2757,10 @@ public void OnClientDisconnect(int client)
     g_PlayerState[client].isWhitelisted = false;
     g_PlayerState[client].isFilterWhitelisted = false;
     g_PlayerState[client].isBlacklisted = false;
+    g_PlayerState[client].isredlisted = false;
+    g_PlayerState[client].cookiesProcessed = false;
     g_NameColors[client][0] = '\0';
+    Filters_ResetExternalStats(client);
     for (int i = 1; i <= MaxClients; i++)
     {
         g_VoiceBlocked[client][i] = false;
@@ -2132,6 +2782,51 @@ public void OnPluginEnd()
         delete g_hFiltersDb;
         g_hFiltersDb = null;
     }
+
+    if (g_PrenameIdRules != null)
+    {
+        delete g_PrenameIdRules;
+        g_PrenameIdRules = null;
+    }
+    if (g_PrenameOutputMap != null)
+    {
+        delete g_PrenameOutputMap;
+        g_PrenameOutputMap = null;
+    }
+}
+
+public any Native_Filters_IsRedlisted(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    {
+        return false;
+    }
+
+    return g_PlayerState[client].isredlisted;
+}
+
+public any Native_Filters_GetChatName(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    int maxlen = GetNativeCell(3);
+
+    char buffer[256];
+    buffer[0] = '\0';
+
+    if (client > 0 && client <= MaxClients && IsClientInGame(client))
+    {
+        char colorTag[32];
+        BuildNameColorTag(client, colorTag, sizeof(colorTag));
+
+        char name[MAX_NAME_LENGTH];
+        GetClientName(client, name, sizeof(name));
+
+        Format(buffer, sizeof(buffer), "%s%s{default}", colorTag, name);
+    }
+
+    SetNativeString(2, buffer, maxlen, true);
+    return 1;
 }
 
 // ==================== WHITELIST COMMANDS ====================
@@ -2140,7 +2835,7 @@ public Action Command_Whitelist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_whitelist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_whitelist <player>");
         return Plugin_Handled;
     }
     
@@ -2173,11 +2868,11 @@ public Action Command_Whitelist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Whitelisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Whitelisted %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Whitelisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Whitelisted %s", target_name);
     }
     
     return Plugin_Handled;
@@ -2187,7 +2882,7 @@ public Action Command_UnWhitelist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_unwhitelist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_unwhitelist <player>");
         return Plugin_Handled;
     }
     
@@ -2220,11 +2915,11 @@ public Action Command_UnWhitelist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Removed whitelist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed whitelist from %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Removed whitelist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed whitelist from %s", target_name);
     }
     
     return Plugin_Handled;
@@ -2252,7 +2947,7 @@ public Action Command_FilterWhitelist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_filterwhitelist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_filterwhitelist <player>");
         return Plugin_Handled;
     }
     
@@ -2285,11 +2980,11 @@ public Action Command_FilterWhitelist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Filter whitelisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Filter whitelisted %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Filter whitelisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Filter whitelisted %s", target_name);
     }
     
     return Plugin_Handled;
@@ -2299,7 +2994,7 @@ public Action Command_UnFilterWhitelist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_unfilterwhitelist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_unfilterwhitelist <player>");
         return Plugin_Handled;
     }
     
@@ -2332,11 +3027,11 @@ public Action Command_UnFilterWhitelist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Removed filter whitelist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed filter whitelist from %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Removed filter whitelist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed filter whitelist from %s", target_name);
     }
     
     return Plugin_Handled;
@@ -2362,7 +3057,7 @@ public Action Command_Blacklist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_blacklist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_blacklist <player>");
         return Plugin_Handled;
     }
     
@@ -2395,11 +3090,11 @@ public Action Command_Blacklist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Blacklisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Blacklisted %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Blacklisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Blacklisted %s", target_name);
     }
     
     return Plugin_Handled;
@@ -2409,7 +3104,7 @@ public Action Command_UnBlacklist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_unblacklist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_unblacklist <player>");
         return Plugin_Handled;
     }
     
@@ -2442,11 +3137,11 @@ public Action Command_UnBlacklist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Removed blacklist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed blacklist from %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Removed blacklist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed blacklist from %s", target_name);
     }
     
     return Plugin_Handled;
@@ -2465,7 +3160,7 @@ public Action Command_ListWhitelists(int client, int args)
         return Plugin_Handled;
     }
 
-    Filters_PrintStatusList(client, true);
+    Filters_PrintStatusList(client, FilterStatus_Whitelist);
     return Plugin_Handled;
 }
 
@@ -2482,7 +3177,24 @@ public Action Command_ListBlacklists(int client, int args)
         return Plugin_Handled;
     }
 
-    Filters_PrintStatusList(client, false);
+    Filters_PrintStatusList(client, FilterStatus_Blacklist);
+    return Plugin_Handled;
+}
+
+public Action Command_Listredlists(int client, int args)
+{
+    if (client <= 0)
+    {
+        return Plugin_Handled;
+    }
+
+    if (!Filters_CanUseListCommand(client))
+    {
+        CPrintToChat(client, "{default}[Filters] You do not have access to this command.");
+        return Plugin_Handled;
+    }
+
+    Filters_PrintStatusList(client, FilterStatus_redlist);
     return Plugin_Handled;
 }
 
@@ -2503,6 +3215,46 @@ public Action Command_FiltersHelp(int client, int args)
     return Plugin_Handled;
 }
 
+public Action Command_FiltersDebug(int client, int args)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return Plugin_Handled;
+    }
+
+    Filters_UpdateExternalStats(client);
+
+    int rapes = g_PlayerState[client].rapesGiven;
+    int kills = g_PlayerState[client].whaleKills;
+    char redlisted[4];
+    if (g_PlayerState[client].isredlisted)
+    {
+        strcopy(redlisted, sizeof(redlisted), "yes");
+    }
+    else
+    {
+        strcopy(redlisted, sizeof(redlisted), "no");
+    }
+    char over50[4];
+    if (kills > 50)
+    {
+        strcopy(over50, sizeof(over50), "yes");
+    }
+    else
+    {
+        strcopy(over50, sizeof(over50), "no");
+    }
+
+    CPrintToChat(client, "{default}[SM] Rapes sent: %d | WhaleTracker kills: %d | Kills > 50: %s | Redlisted: %s", rapes, kills, over50, redlisted);
+
+    if (!g_PlayerState[client].hugsStatsLoaded || !g_PlayerState[client].whaleStatsLoaded)
+    {
+        CPrintToChat(client, "{default}[SM] Stats are still loading; values may be 0.");
+    }
+
+    return Plugin_Handled;
+}
+
 void PerformBlacklist(int client, int target)
 {
     g_PlayerState[target].isBlacklisted = true;
@@ -2519,7 +3271,119 @@ void PerformUnBlacklist(int client, int target)
     Filters_UpdateVoiceOverrides();
 }
 
-void CPrintToChatTeam(int team, const char[] message)
+// ==================== redlist COMMANDS ====================
+
+public Action Command_redlist(int client, int args)
+{
+    if (args < 1)
+    {
+        ReplyToCommand(client, "[Kogasa] Usage: sm_redlist <player>");
+        return Plugin_Handled;
+    }
+
+    char arg[64];
+    GetCmdArg(1, arg, sizeof(arg));
+
+    char target_name[MAX_TARGET_LENGTH];
+    int target_list[MAXPLAYERS], target_count;
+    bool tn_is_ml;
+
+    if ((target_count = ProcessTargetString(
+            arg,
+            client,
+            target_list,
+            MAXPLAYERS,
+            0,
+            target_name,
+            sizeof(target_name),
+            tn_is_ml)) <= 0)
+    {
+        ReplyToTargetError(client, target_count);
+        return Plugin_Handled;
+    }
+
+    for (int i = 0; i < target_count; i++)
+    {
+        int target = target_list[i];
+        Performredlist(client, target);
+    }
+
+    if (tn_is_ml)
+    {
+        ShowActivity2(client, "[Kogasa] ", "redlisted %s", target_name);
+    }
+    else
+    {
+        ShowActivity2(client, "[Kogasa] ", "redlisted %s", target_name);
+    }
+
+    return Plugin_Handled;
+}
+
+public Action Command_Unredlist(int client, int args)
+{
+    if (args < 1)
+    {
+        ReplyToCommand(client, "[Kogasa] Usage: sm_unredlist <player>");
+        return Plugin_Handled;
+    }
+
+    char arg[64];
+    GetCmdArg(1, arg, sizeof(arg));
+
+    char target_name[MAX_TARGET_LENGTH];
+    int target_list[MAXPLAYERS], target_count;
+    bool tn_is_ml;
+
+    if ((target_count = ProcessTargetString(
+            arg,
+            client,
+            target_list,
+            MAXPLAYERS,
+            0,
+            target_name,
+            sizeof(target_name),
+            tn_is_ml)) <= 0)
+    {
+        ReplyToTargetError(client, target_count);
+        return Plugin_Handled;
+    }
+
+    for (int i = 0; i < target_count; i++)
+    {
+        int target = target_list[i];
+        PerformUnredlist(client, target);
+    }
+
+    if (tn_is_ml)
+    {
+        ShowActivity2(client, "[Kogasa] ", "Removed redlist from %s", target_name);
+    }
+    else
+    {
+        ShowActivity2(client, "[Kogasa] ", "Removed redlist from %s", target_name);
+    }
+
+    return Plugin_Handled;
+}
+
+void Performredlist(int client, int target)
+{
+    g_PlayerState[target].isredlisted = true;
+    SetClientCookie(target, g_hCookieredlist, "1");
+    LogAction(client, target, "\"%L\" redlisted \"%L\"", client, target);
+    Filters_UpdateVoiceOverrides();
+}
+
+void PerformUnredlist(int client, int target)
+{
+    g_PlayerState[target].isredlisted = false;
+    SetClientCookie(target, g_hCookieredlist, "0");
+    LogAction(client, target, "\"%L\" removed redlist from \"%L\"", client, target);
+    Filters_UpdateVoiceOverrides();
+}
+
+void CPrintToChatTeam(int team, int sender, const char[] message)
 {
     char prefixed[256];
     bool prefixedReady = false;
@@ -2530,10 +3394,14 @@ void CPrintToChatTeam(int team, const char[] message)
         {
             continue;
         }
+        if (!Filters_ShouldReceiveChat(client, sender))
+        {
+            continue;
+        }
 
         if (GetClientTeam(client) == team)
         {
-            CPrintToChatEx(client, client, "%s", message);
+            Filters_SendChatToReceiver(client, sender, message);
         }
         else if (g_PlayerState[client].isWhitelisted)
         {
@@ -2542,9 +3410,35 @@ void CPrintToChatTeam(int team, const char[] message)
                 Format(prefixed, sizeof(prefixed), "t: %s", message);
                 prefixedReady = true;
             }
-            CPrintToChatEx(client, client, "%s", prefixed);
+            Filters_SendChatToReceiver(client, sender, prefixed);
         }
     }
+}
+
+public Action Command_Colors(int client, int args)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return Plugin_Handled;
+    }
+
+    CPrintToChat(client, "{aliceblue}aliceblue, {antiquewhite}antiquewhite, {aqua}aqua, {aquamarine}aquamarine, {azure}azure, {beige}beige, {bisque}bisque, {black}black, {blanchedalmond}blanchedalmond, {blue}blue");
+    CPrintToChat(client, "{blueviolet}blueviolet, {brown}brown, {burlywood}burlywood, {cadetblue}cadetblue, {chartreuse}chartreuse, {chocolate}chocolate, {coral}coral, {cornflowerblue}cornflowerblue, {cornsilk}cornsilk, {crimson}crimson");
+    CPrintToChat(client, "{cyan}cyan, {darkblue}darkblue, {darkcyan}darkcyan, {darkgoldenrod}darkgoldenrod, {darkgray}darkgray, {darkgrey}darkgrey, {darkgreen}darkgreen, {darkkhaki}darkkhaki, {darkmagenta}darkmagenta, {darkolivegreen}darkolivegreen");
+    CPrintToChat(client, "{darkorange}darkorange, {darkorchid}darkorchid, {darkred}darkred, {darksalmon}darksalmon, {darkseagreen}darkseagreen, {darkslateblue}darkslateblue, {darkslategray}darkslategray, {darkslategrey}darkslategrey, {darkturquoise}darkturquoise, {darkviolet}darkviolet");
+    CPrintToChat(client, "{deeppink}deeppink, {deepskyblue}deepskyblue, {dimgray}dimgray, {dimgrey}dimgrey, {dodgerblue}dodgerblue, {firebrick}firebrick, {floralwhite}floralwhite, {forestgreen}forestgreen, {fuchsia}fuchsia, {gainsboro}gainsboro");
+    CPrintToChat(client, "{ghostwhite}ghostwhite, {gold}gold, {goldenrod}goldenrod, {gray}gray, {grey}grey, {green}green, {greenyellow}greenyellow, {honeydew}honeydew, {hotpink}hotpink, {indianred}indianred");
+    CPrintToChat(client, "{indigo}indigo, {ivory}ivory, {khaki}khaki, {lavender}lavender, {lavenderblush}lavenderblush, {lawngreen}lawngreen, {lemonchiffon}lemonchiffon, {lightblue}lightblue, {lightcoral}lightcoral, {lightcyan}lightcyan");
+    CPrintToChat(client, "{lightgoldenrodyellow}lightgoldenrodyellow, {lightgray}lightgray, {lightgrey}lightgrey, {lightgreen}lightgreen, {lightpink}lightpink, {lightsalmon}lightsalmon, {lightseagreen}lightseagreen, {lightskyblue}lightskyblue, {lightslategray}lightslategray, {lightslategrey}lightslategrey");
+    CPrintToChat(client, "{lightsteelblue}lightsteelblue, {lightyellow}lightyellow, {lime}lime, {limegreen}limegreen, {linen}linen, {magenta}magenta, {maroon}maroon, {mediumaquamarine}mediumaquamarine, {mediumblue}mediumblue, {mediumorchid}mediumorchid");
+    CPrintToChat(client, "{mediumpurple}mediumpurple, {mediumseagreen}mediumseagreen, {mediumslateblue}mediumslateblue, {mediumspringgreen}mediumspringgreen, {mediumturquoise}mediumturquoise, {mediumvioletred}mediumvioletred, {midnightblue}midnightblue, {mintcream}mintcream, {mistyrose}mistyrose, {moccasin}moccasin");
+    CPrintToChat(client, "{navajowhite}navajowhite, {navy}navy, {oldlace}oldlace, {olive}olive, {olivedrab}olivedrab, {orange}orange, {orangered}orangered, {orchid}orchid, {palegoldenrod}palegoldenrod, {palegreen}palegreen");
+    CPrintToChat(client, "{paleturquoise}paleturquoise, {palevioletred}palevioletred, {papayawhip}papayawhip, {peachpuff}peachpuff, {peru}peru, {pink}pink, {plum}plum, {powderblue}powderblue, {purple}purple, {red}red");
+    CPrintToChat(client, "{rosybrown}rosybrown, {royalblue}royalblue, {saddlebrown}saddlebrown, {salmon}salmon, {sandybrown}sandybrown, {seagreen}seagreen, {seashell}seashell, {sienna}sienna, {silver}silver, {skyblue}skyblue");
+    CPrintToChat(client, "{slateblue}slateblue, {slategray}slategray, {slategrey}slategrey, {snow}snow, {springgreen}springgreen, {steelblue}steelblue, {tan}tan, {teal}teal, {thistle}thistle, {tomato}tomato");
+    CPrintToChat(client, "{turquoise}turquoise, {violet}violet, {wheat}wheat, {white}white, {whitesmoke}whitesmoke, {yellow}yellow, {yellowgreen}yellowgreen");
+
+    return Plugin_Handled;
 }
 
 bool CheckCommands(const char[] sArgs)
@@ -2646,4 +3540,760 @@ static void Filters_GetServerName(char[] buffer, int maxlen)
         RefreshServerHostname();
     }
     strcopy(buffer, maxlen, g_sServerName);
+}
+
+// ==================== PRENAME (MERGED) ====================
+
+static void Filters_PrenameLoadRules()
+{
+    if (!g_bDbReady || g_hFiltersDb == null)
+    {
+        return;
+    }
+
+    g_hFiltersDb.Query(Filters_PrenameLoadRulesCallback, "SELECT pattern, newname FROM prename_rules");
+}
+
+public void Filters_PrenameLoadRulesCallback(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[Filters/Prename] Failed to load rules: %s", error);
+        return;
+    }
+
+    if (g_PrenameIdRules != null)
+    {
+        g_PrenameIdRules.Clear();
+    }
+    if (g_PrenameOutputMap != null)
+    {
+        g_PrenameOutputMap.Clear();
+    }
+
+    if (results == null)
+    {
+        return;
+    }
+
+    while (results.FetchRow())
+    {
+        char pattern[PRENAME_MAX_PATTERN];
+        char newname[PRENAME_MAX_RENAME];
+        results.FetchString(0, pattern, sizeof(pattern));
+        results.FetchString(1, newname, sizeof(newname));
+
+        if (Prename_IsIdString(pattern))
+        {
+            g_PrenameIdRules.SetString(pattern, newname);
+            continue;
+        }
+
+        char lowerNew[PRENAME_MAX_RENAME];
+        strcopy(lowerNew, sizeof(lowerNew), newname);
+        Prename_ToLowercaseInPlace(lowerNew, sizeof(lowerNew));
+        if (!g_PrenameOutputMap.ContainsKey(lowerNew))
+        {
+            g_PrenameOutputMap.SetString(lowerNew, newname);
+        }
+    }
+}
+
+public Action Timer_PrenameApply(Handle timer, any userId)
+{
+    int client = GetClientOfUserId(userId);
+    if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return Plugin_Stop;
+    }
+
+    Prename_Apply(client);
+    return Plugin_Stop;
+}
+
+static bool Prename_Apply(int client)
+{
+    if (!g_bDbReady || g_hFiltersDb == null || g_PrenameIdRules == null || g_PrenameOutputMap == null)
+    {
+        return false;
+    }
+
+    char currentName[MAX_NAME_LENGTH];
+    GetClientName(client, currentName, sizeof(currentName));
+
+    char lowerName[MAX_NAME_LENGTH];
+    strcopy(lowerName, sizeof(lowerName), currentName);
+    Prename_ToLowercaseInPlace(lowerName, sizeof(lowerName));
+
+    char steam2[32], steam64[32];
+    Prename_GetClientIds(client, steam2, sizeof(steam2), steam64, sizeof(steam64));
+
+    char rename[PRENAME_MAX_RENAME];
+    if (Prename_TryGetIdRule(steam64, steam2, rename, sizeof(rename)))
+    {
+        if (!StrEqual(currentName, rename, false))
+        {
+            SetClientName(client, rename);
+        }
+        return false;
+    }
+
+    char output[PRENAME_MAX_RENAME];
+    if (!Prename_TryGetOutputMatch(lowerName, output, sizeof(output)))
+    {
+        return false;
+    }
+
+    char migrateId[32];
+    Prename_GetPreferredClientId(steam64, steam2, migrateId, sizeof(migrateId));
+    if (migrateId[0] != '\0')
+    {
+        Prename_SaveRule(migrateId, output);
+        Prename_SetIdRuleCache(migrateId, output);
+    }
+
+    if (!StrEqual(currentName, output, false))
+    {
+        SetClientName(client, output);
+    }
+    return true;
+}
+
+public Action Command_Prename(int client, int args)
+{
+    bool isAdmin = (client <= 0) || CheckCommandAccess(client, "sm_prename_admin", ADMFLAG_SLAY, true);
+
+    if (!isAdmin)
+    {
+        if (client <= 0 || !IsClientInGame(client))
+        {
+            return Plugin_Handled;
+        }
+
+        if (args < 1)
+        {
+            ReplyToCommand(client, "[Kogasa] Usage: sm_prename <newname>");
+            return Plugin_Handled;
+        }
+
+        char selfName[PRENAME_MAX_RENAME];
+        GetCmdArg(1, selfName, sizeof(selfName));
+        TrimString(selfName);
+        if (!selfName[0])
+        {
+            ReplyToCommand(client, "[Kogasa] Usage: sm_prename <newname>");
+            return Plugin_Handled;
+        }
+
+        char steam2[32], steam64[32], steamId[32];
+        Prename_GetClientIds(client, steam2, sizeof(steam2), steam64, sizeof(steam64));
+        Prename_GetPreferredClientId(steam64, steam2, steamId, sizeof(steamId));
+        if (!steamId[0])
+        {
+            ReplyToCommand(client, "[Kogasa] Failed to resolve your SteamID.");
+            return Plugin_Handled;
+        }
+
+        Prename_SaveRule(steamId, selfName);
+        Prename_SetIdRuleCache(steamId, selfName);
+        SetClientName(client, selfName);
+        ReplyToCommand(client, "[Kogasa] Your prename was set to '%s'.", selfName);
+        return Plugin_Handled;
+    }
+
+    if (args < 2)
+    {
+        ReplyToCommand(client, "[Kogasa] Usage: sm_prename <name_substring|steamid> <newname>");
+        return Plugin_Handled;
+    }
+
+    char patternRaw[PRENAME_MAX_PATTERN];
+    char newname[PRENAME_MAX_RENAME];
+    GetCmdArg(1, patternRaw, sizeof(patternRaw));
+    GetCmdArg(2, newname, sizeof(newname));
+    TrimString(patternRaw);
+    TrimString(newname);
+
+    if (!patternRaw[0] || !newname[0])
+    {
+        ReplyToCommand(client, "[Kogasa] Usage: sm_prename <name_substring|steamid> <newname>");
+        return Plugin_Handled;
+    }
+
+    if (Prename_IsIdString(patternRaw))
+    {
+        Prename_SaveRule(patternRaw, newname);
+        Prename_SetIdRuleCache(patternRaw, newname);
+        ReplyToCommand(client, "[Kogasa] Prename rule saved: '%s' -> '%s'", patternRaw, newname);
+        return Plugin_Handled;
+    }
+
+    int matches = 0;
+    int target = 0;
+    char matchList[256];
+    matchList[0] = '\0';
+    char name[MAX_NAME_LENGTH];
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i) || IsFakeClient(i))
+        {
+            continue;
+        }
+
+        GetClientName(i, name, sizeof(name));
+        if (StrContains(name, patternRaw, false) == -1)
+        {
+            continue;
+        }
+
+        matches++;
+        if (target == 0)
+        {
+            target = i;
+        }
+
+        if (matchList[0] == '\0')
+        {
+            strcopy(matchList, sizeof(matchList), name);
+        }
+        else if (strlen(matchList) + strlen(name) + 2 < sizeof(matchList))
+        {
+            StrCat(matchList, sizeof(matchList), ", ");
+            StrCat(matchList, sizeof(matchList), name);
+        }
+    }
+
+    if (matches == 0)
+    {
+        ReplyToCommand(client, "[Kogasa] No client matches '%s'.", patternRaw);
+        return Plugin_Handled;
+    }
+
+    if (matches > 1)
+    {
+        ReplyToCommand(client, "[Kogasa] Multiple matches for '%s': %s", patternRaw, matchList);
+        return Plugin_Handled;
+    }
+
+    char steam2[32], steam64[32], steamId[32];
+    Prename_GetClientIds(target, steam2, sizeof(steam2), steam64, sizeof(steam64));
+    Prename_GetPreferredClientId(steam64, steam2, steamId, sizeof(steamId));
+
+    if (!steamId[0])
+    {
+        ReplyToCommand(client, "[Kogasa] Failed to resolve SteamID for %s.", matchList);
+        return Plugin_Handled;
+    }
+
+    Prename_SaveRule(steamId, newname);
+    Prename_SetIdRuleCache(steamId, newname);
+    SetClientName(target, newname);
+    ReplyToCommand(client, "[Kogasa] Prename rule saved: %s -> %s (%s)", matchList, newname, steamId);
+    return Plugin_Handled;
+}
+
+public Action Command_PrenameReset(int client, int args)
+{
+    bool isAdmin = (client <= 0) || CheckCommandAccess(client, "sm_prename_admin", ADMFLAG_SLAY, true);
+
+    if (!isAdmin)
+    {
+        if (client <= 0 || !IsClientInGame(client))
+        {
+            return Plugin_Handled;
+        }
+
+        char steam2[32], steam64[32], steamId[32];
+        Prename_GetClientIds(client, steam2, sizeof(steam2), steam64, sizeof(steam64));
+        Prename_GetPreferredClientId(steam64, steam2, steamId, sizeof(steamId));
+        if (!steamId[0])
+        {
+            ReplyToCommand(client, "[Kogasa] Failed to resolve your SteamID.");
+            return Plugin_Handled;
+        }
+
+        Prename_DeleteRule(steamId);
+        Prename_RemoveIdRuleCache(steamId);
+        ReplyToCommand(client, "[Kogasa] Your prename rule has been reset.");
+        return Plugin_Handled;
+    }
+
+    if (args < 1)
+    {
+        ReplyToCommand(client, "[Kogasa] Usage: sm_reset <name_substring|steamid>");
+        return Plugin_Handled;
+    }
+
+    char idRaw[PRENAME_MAX_PATTERN];
+    GetCmdArg(1, idRaw, sizeof(idRaw));
+    TrimString(idRaw);
+
+    if (!idRaw[0])
+    {
+        ReplyToCommand(client, "[Kogasa] Usage: sm_reset <name_substring|steamid>");
+        return Plugin_Handled;
+    }
+
+    char steam2[32], steam64[32];
+    if (Prename_IsIdString(idRaw))
+    {
+        if (StrContains(idRaw, "STEAM_", false) == 0)
+        {
+            int match = Prename_FindClientBySteam2(idRaw);
+            if (match > 0)
+            {
+                Prename_GetClientIds(match, steam2, sizeof(steam2), steam64, sizeof(steam64));
+                char resolvedId[32];
+                Prename_GetPreferredClientId(steam64, steam2, resolvedId, sizeof(resolvedId));
+                if (resolvedId[0])
+                {
+                    Prename_DeleteRule(resolvedId);
+                    Prename_RemoveIdRuleCache(resolvedId);
+                    ReplyToCommand(client, "[Kogasa] Prename rule removed for '%s'", resolvedId);
+                    return Plugin_Handled;
+                }
+            }
+        }
+
+        Prename_DeleteRule(idRaw);
+        Prename_RemoveIdRuleCache(idRaw);
+        ReplyToCommand(client, "[Kogasa] Prename rule removed for '%s'", idRaw);
+        return Plugin_Handled;
+    }
+
+    char targetName[MAX_NAME_LENGTH];
+    int target = Prename_FindSingleClientByName(client, idRaw, targetName, sizeof(targetName));
+    if (target <= 0)
+    {
+        return Plugin_Handled;
+    }
+
+    char steamId[32];
+    Prename_GetClientIds(target, steam2, sizeof(steam2), steam64, sizeof(steam64));
+    Prename_GetPreferredClientId(steam64, steam2, steamId, sizeof(steamId));
+    if (!steamId[0])
+    {
+        ReplyToCommand(client, "[Kogasa] Failed to resolve SteamID for %s.", targetName);
+        return Plugin_Handled;
+    }
+
+    Prename_DeleteRule(steamId);
+    Prename_RemoveIdRuleCache(steamId);
+    ReplyToCommand(client, "[Kogasa] Prename rule removed for %s (%s).", targetName, steamId);
+    return Plugin_Handled;
+}
+
+public Action Command_PrenameMigrate(int client, int args)
+{
+    int migrated = 0;
+    int processed = 0;
+
+    g_PrenameDebugMigrate = true;
+    Prename_DebugLog("---- migrate start ----");
+    Prename_DebugLog("db_ready=%d id_rules=%d output_rules=%d",
+        g_bDbReady ? 1 : 0,
+        Prename_GetStringMapCount(g_PrenameIdRules),
+        Prename_GetStringMapCount(g_PrenameOutputMap));
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i) || IsFakeClient(i))
+        {
+            continue;
+        }
+        processed++;
+        migrated += Prename_MigrateLegacyForClient(i);
+    }
+
+    Prename_DebugLog("---- migrate end migrated=%d processed=%d ----", migrated, processed);
+    g_PrenameDebugMigrate = false;
+
+    ReplyToCommand(client, "[Kogasa] Migrated %d rule(s) across %d client(s).", migrated, processed);
+    return Plugin_Handled;
+}
+
+static int Prename_MigrateLegacyForClient(int client)
+{
+    if (!g_bDbReady || g_hFiltersDb == null || g_PrenameIdRules == null || g_PrenameOutputMap == null)
+    {
+        Prename_DebugLog("client=%d skip db_ready=%d id_rules=%d output_rules=%d",
+            client,
+            g_bDbReady ? 1 : 0,
+            Prename_GetStringMapCount(g_PrenameIdRules),
+            Prename_GetStringMapCount(g_PrenameOutputMap));
+        return 0;
+    }
+
+    char currentName[MAX_NAME_LENGTH];
+    GetClientName(client, currentName, sizeof(currentName));
+
+    char lowerName[MAX_NAME_LENGTH];
+    strcopy(lowerName, sizeof(lowerName), currentName);
+    Prename_ToLowercaseInPlace(lowerName, sizeof(lowerName));
+
+    char steam2[32], steam64[32], migrateId[32];
+    Prename_GetClientIds(client, steam2, sizeof(steam2), steam64, sizeof(steam64));
+    Prename_GetPreferredClientId(steam64, steam2, migrateId, sizeof(migrateId));
+
+    if (!migrateId[0])
+    {
+        Prename_DebugLog("client=%d name=\"%s\" no_steamid", client, currentName);
+        return 0;
+    }
+
+    char existing[PRENAME_MAX_RENAME];
+    if (Prename_TryGetIdRule(steam64, steam2, existing, sizeof(existing)) && StrEqual(existing, currentName, false))
+    {
+        Prename_DebugLog("client=%d name=\"%s\" id=%s already_set", client, currentName, migrateId);
+        return 0;
+    }
+
+    char output[PRENAME_MAX_RENAME];
+    char matchKey[PRENAME_MAX_RENAME];
+    if (!Prename_FindBestOutputMatch(lowerName, output, sizeof(output), matchKey, sizeof(matchKey)))
+    {
+        Prename_DebugLog("client=%d name=\"%s\" id=%s no_output_match", client, currentName, migrateId);
+        return 0;
+    }
+
+    if (!StrEqual(output, currentName, false))
+    {
+        Prename_DebugLog("client=%d name=\"%s\" id=%s output=\"%s\" skipped_not_equal", client, currentName, migrateId, output);
+        return 0;
+    }
+
+    Prename_SaveRule(migrateId, currentName);
+    Prename_SetIdRuleCache(migrateId, currentName);
+    Prename_DebugLog("client=%d name=\"%s\" id=%s migrated=1", client, currentName, migrateId);
+    return 1;
+}
+
+static void Prename_SaveRule(const char[] pattern, const char[] newname)
+{
+    if (!g_bDbReady || g_hFiltersDb == null)
+    {
+        return;
+    }
+
+    char escapedPattern[PRENAME_MAX_PATTERN * 2];
+    char escapedNewname[PRENAME_MAX_RENAME * 2];
+    SQL_EscapeString(g_hFiltersDb, pattern, escapedPattern, sizeof(escapedPattern));
+    SQL_EscapeString(g_hFiltersDb, newname, escapedNewname, sizeof(escapedNewname));
+
+    char query[256];
+    Format(query, sizeof(query),
+        "REPLACE INTO prename_rules (pattern, newname) VALUES ('%s', '%s')",
+        escapedPattern, escapedNewname);
+    g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
+
+    if (Prename_IsIdString(pattern))
+    {
+        Prename_SyncPointsCacheValue(pattern, newname);
+    }
+}
+
+static void Prename_DeleteRule(const char[] pattern)
+{
+    if (!g_bDbReady || g_hFiltersDb == null)
+    {
+        return;
+    }
+
+    char escapedPattern[PRENAME_MAX_PATTERN * 2];
+    SQL_EscapeString(g_hFiltersDb, pattern, escapedPattern, sizeof(escapedPattern));
+
+    char query[256];
+    Format(query, sizeof(query), "DELETE FROM prename_rules WHERE pattern = '%s'", escapedPattern);
+    g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
+
+    if (Prename_IsIdString(pattern))
+    {
+        Prename_SyncPointsCacheValue(pattern, "");
+    }
+}
+
+static void Prename_SyncPointsCacheValue(const char[] steamId, const char[] prename)
+{
+    if (!g_bDbReady || g_hFiltersDb == null || !steamId[0])
+    {
+        return;
+    }
+
+    char escapedSteam[64];
+    char escapedPrename[PRENAME_MAX_RENAME * 2];
+    SQL_EscapeString(g_hFiltersDb, steamId, escapedSteam, sizeof(escapedSteam));
+    SQL_EscapeString(g_hFiltersDb, prename, escapedPrename, sizeof(escapedPrename));
+
+    char query[256];
+    Format(query, sizeof(query),
+        "UPDATE whaletracker_points_cache SET prename = '%s' WHERE steamid = '%s'",
+        escapedPrename, escapedSteam);
+    g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
+}
+
+static void Prename_SetIdRuleCache(const char[] steamid, const char[] newname)
+{
+    if (g_PrenameIdRules == null)
+    {
+        return;
+    }
+    g_PrenameIdRules.SetString(steamid, newname);
+}
+
+static void Prename_RemoveIdRuleCache(const char[] steamid)
+{
+    if (g_PrenameIdRules == null)
+    {
+        return;
+    }
+    g_PrenameIdRules.Remove(steamid);
+}
+
+static bool Prename_TryGetIdRule(const char[] steam64, const char[] steam2, char[] output, int maxlen)
+{
+    if (g_PrenameIdRules == null)
+    {
+        return false;
+    }
+
+    if (steam64[0] && g_PrenameIdRules.GetString(steam64, output, maxlen))
+    {
+        return true;
+    }
+
+    if (steam2[0] && g_PrenameIdRules.GetString(steam2, output, maxlen))
+    {
+        return true;
+    }
+
+    return false;
+}
+
+static bool Prename_TryGetOutputMatch(const char[] lowerName, char[] output, int maxlen)
+{
+    char key[PRENAME_MAX_RENAME];
+    return Prename_FindBestOutputMatch(lowerName, output, maxlen, key, sizeof(key));
+}
+
+static bool Prename_FindBestOutputMatch(const char[] lowerName, char[] output, int outMax, char[] keyOut, int keyMax)
+{
+    if (g_PrenameOutputMap == null)
+    {
+        return false;
+    }
+
+    StringMapSnapshot snap = g_PrenameOutputMap.Snapshot();
+    int count = snap.Length;
+    int bestLen = -1;
+    char key[PRENAME_MAX_RENAME];
+    char bestKey[PRENAME_MAX_RENAME];
+    bestKey[0] = '\0';
+
+    for (int i = 0; i < count; i++)
+    {
+        snap.GetKey(i, key, sizeof(key));
+        if (StrContains(lowerName, key) == -1)
+        {
+            continue;
+        }
+
+        int keyLen = strlen(key);
+        if (keyLen > bestLen)
+        {
+            bestLen = keyLen;
+            strcopy(bestKey, sizeof(bestKey), key);
+        }
+    }
+
+    delete snap;
+
+    if (bestKey[0] == '\0')
+    {
+        return false;
+    }
+
+    if (keyMax > 0)
+    {
+        strcopy(keyOut, keyMax, bestKey);
+    }
+
+    return g_PrenameOutputMap.GetString(bestKey, output, outMax);
+}
+
+static int Prename_FindSingleClientByName(int requester, const char[] patternRaw, char[] matchName, int matchMax)
+{
+    char pattern[PRENAME_MAX_PATTERN];
+    strcopy(pattern, sizeof(pattern), patternRaw);
+    Prename_ToLowercaseInPlace(pattern, sizeof(pattern));
+
+    int matches = 0;
+    int target = -1;
+    char matchList[256];
+    matchList[0] = '\0';
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i) || IsFakeClient(i))
+        {
+            continue;
+        }
+
+        char name[MAX_NAME_LENGTH];
+        GetClientName(i, name, sizeof(name));
+
+        char lowerName[MAX_NAME_LENGTH];
+        strcopy(lowerName, sizeof(lowerName), name);
+        Prename_ToLowercaseInPlace(lowerName, sizeof(lowerName));
+
+        if (StrContains(lowerName, pattern, false) == -1)
+        {
+            continue;
+        }
+
+        matches++;
+        target = i;
+        if (matchMax > 0)
+        {
+            strcopy(matchName, matchMax, name);
+        }
+
+        if (matches == 1)
+        {
+            strcopy(matchList, sizeof(matchList), name);
+        }
+        else if (strlen(matchList) + strlen(name) + 2 < sizeof(matchList))
+        {
+            StrCat(matchList, sizeof(matchList), ", ");
+            StrCat(matchList, sizeof(matchList), name);
+        }
+    }
+
+    if (matches == 0)
+    {
+        ReplyToCommand(requester, "[Kogasa] No client matches '%s'.", patternRaw);
+        return -1;
+    }
+
+    if (matches > 1)
+    {
+        ReplyToCommand(requester, "[Kogasa] Multiple matches for '%s': %s", patternRaw, matchList);
+        return -1;
+    }
+
+    return target;
+}
+
+static int Prename_FindClientBySteam2(const char[] steam2)
+{
+    if (!steam2[0])
+    {
+        return -1;
+    }
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i) || IsFakeClient(i))
+        {
+            continue;
+        }
+
+        char id[32];
+        GetClientAuthId(i, AuthId_Steam2, id, sizeof(id), true);
+        if (StrEqual(id, steam2, false))
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static void Prename_ToLowercaseInPlace(char[] text, int maxlen)
+{
+    int length = strlen(text);
+    if (length > maxlen - 1)
+    {
+        length = maxlen - 1;
+    }
+
+    for (int i = 0; i < length; i++)
+    {
+        text[i] = CharToLower(text[i]);
+    }
+}
+
+static void Prename_GetPreferredClientId(const char[] steam64, const char[] steam2, char[] output, int maxlen)
+{
+    output[0] = '\0';
+    if (steam64[0])
+    {
+        strcopy(output, maxlen, steam64);
+    }
+    else if (steam2[0])
+    {
+        strcopy(output, maxlen, steam2);
+    }
+}
+
+static void Prename_GetClientIds(int client, char[] steam2, int steam2Max, char[] steam64, int steam64Max)
+{
+    steam2[0] = '\0';
+    steam64[0] = '\0';
+    GetClientAuthId(client, AuthId_SteamID64, steam64, steam64Max, true);
+    GetClientAuthId(client, AuthId_Steam2, steam2, steam2Max, true);
+}
+
+static bool Prename_IsIdString(const char[] text)
+{
+    if (!text[0])
+    {
+        return false;
+    }
+
+    if (StrContains(text, "STEAM_", false) == 0)
+    {
+        return true;
+    }
+
+    int len = strlen(text);
+    if (len < 15)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < len; i++)
+    {
+        if (!IsCharNumeric(text[i]))
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static void Prename_DebugLog(const char[] fmt, any ...)
+{
+    if (!g_PrenameDebugMigrate)
+    {
+        return;
+    }
+
+    char buffer[512];
+    VFormat(buffer, sizeof(buffer), fmt, 2);
+    LogToFileEx(g_PrenameDebugLogPath, "%s", buffer);
+}
+
+static int Prename_GetStringMapCount(StringMap map)
+{
+    if (map == null)
+    {
+        return 0;
+    }
+
+    StringMapSnapshot snap = map.Snapshot();
+    int count = snap.Length;
+    delete snap;
+    return count;
 }

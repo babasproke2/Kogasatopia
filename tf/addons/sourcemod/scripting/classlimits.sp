@@ -1,6 +1,5 @@
 #include <sourcemod>
 #include <tf2_stocks>
-#include <controlpoints>
 #include <morecolors>
 #include <tf2>
 
@@ -26,7 +25,7 @@
 
 public Plugin myinfo =
 {
-    name        = "TF2 Class Limits",
+    name        = "classlimits",
     author      = "Tsunami (updated by Codex)",
     description = "Restrict classes evenly across teams in TF2.",
     version     = PL_VERSION,
@@ -38,6 +37,7 @@ ConVar g_hEnabled;
 ConVar g_hFlags;
 ConVar g_hImmunity;
 ConVar g_hTopScore;
+ConVar g_hGameMode;
 ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[32] = "Default";
 
@@ -78,6 +78,11 @@ public void OnPluginStart()
     g_hFlags    = CreateConVar("restrict_flags",    "z",  "Admin flags allowed to bypass class limits.");
     g_hImmunity = CreateConVar("restrict_immunity", "0",  "Enable/disable admin immunity for class limits.");
     g_hTopScore = CreateConVar("classlimits_topscore", "0", "Allow top team scorers to bypass class limits.", _, true, 0.0, true, 1.0);
+    g_hGameMode = FindConVar("sm_gamemode");
+    if (g_hGameMode == null)
+    {
+        g_hGameMode = CreateConVar("sm_gamemode", "unknown", "Stores the executed gamemode", FCVAR_NONE);
+    }
 
     for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
     {
@@ -500,21 +505,19 @@ void FormatClassLimitText(int classId, char[] buffer, int maxlen)
 
 void UpdateGameModeName()
 {
-    TF2_GameMode gameMode = TF2_DetectGameMode();
-
-    switch (gameMode)
+    if (g_hGameMode == null)
     {
-        case TF2_GameMode_Arena:      strcopy(g_sGameMode, sizeof(g_sGameMode), "Arena");
-        case TF2_GameMode_Medieval:   strcopy(g_sGameMode, sizeof(g_sGameMode), "Medieval");
-        case TF2_GameMode_PD:         strcopy(g_sGameMode, sizeof(g_sGameMode), "Player Destruction");
-        case TF2_GameMode_KOTH:       strcopy(g_sGameMode, sizeof(g_sGameMode), "King of the Hill");
-        case TF2_GameMode_PL:         strcopy(g_sGameMode, sizeof(g_sGameMode), "Payload");
-        case TF2_GameMode_PLR:        strcopy(g_sGameMode, sizeof(g_sGameMode), "Payload Race");
-        case TF2_GameMode_CTF:        strcopy(g_sGameMode, sizeof(g_sGameMode), "Capture the Flag");
-        case TF2_GameMode_5CP:        strcopy(g_sGameMode, sizeof(g_sGameMode), "Control Point");
-        case TF2_GameMode_ADCP:       strcopy(g_sGameMode, sizeof(g_sGameMode), "Attack/Defend CP");
-        case TF2_GameMode_TC:         strcopy(g_sGameMode, sizeof(g_sGameMode), "Territorial Control");
-        default:                      strcopy(g_sGameMode, sizeof(g_sGameMode), "Default");
+        g_hGameMode = FindConVar("sm_gamemode");
+    }
+
+    if (g_hGameMode != null)
+    {
+        g_hGameMode.GetString(g_sGameMode, sizeof(g_sGameMode));
+    }
+
+    if (!g_sGameMode[0])
+    {
+        strcopy(g_sGameMode, sizeof(g_sGameMode), "Default");
     }
 }
 

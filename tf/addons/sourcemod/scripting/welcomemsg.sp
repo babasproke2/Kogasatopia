@@ -7,11 +7,11 @@ ConVar g_hUncleCycleState;
 
 static const char g_Info[][] = {
     "{peachpuff}Some weapons have better stats; use {yellow}!r {peachpuff}to read about your class.\n",
-    "{peachpuff}We're also testing custom weapons; check {yellow}!c {peachpuff}to read and {yellow}!cw {peachpuff}to equip.\n",
+    "{peachpuff}We have new weapons; check {yellow}!c {peachpuff}to read and {yellow}!cw {peachpuff}to equip.\n",
     "{peachpuff}Use {yellow}!commands {peachpuff}to browse the rest of the server commands.\n",
     "{peachpuff}Random crits and bullet spread are disabled, respawn times are reduced\n",
     "{peachpuff}Some classes are limited on Payload/AD gamemodes;\n",
-    "{peachpuff}Google 'kogtf2' or visit our group with {yellow}!steam {peachpuff}to learn more and see when people are playing.\n"
+    "{peachpuff}Visit our group with {yellow}!steam {peachpuff}to learn more and see when people are playing.\n"
 };
 
 static const char g_ScoutReverts[][] = {
@@ -190,9 +190,10 @@ public OnPluginStart()
     RegConsoleCmd("sm_r", Command_InfoReverts, "Lists custom class weapon data to the client");
     RegConsoleCmd("sm_cmds", Command_cmds, "Lists highlighted server commands to the client");
     RegConsoleCmd("sm_commands", Command_cmds, "Lists highlighted server commands to the client");
-    RegConsoleCmd("sm_rules", Command_Rules, "Lists the rules to the client");
-    RegConsoleCmd("sm_steam", Command_Steam, "Prints the steam group URL to the client");
-    RegConsoleCmd("sm_chat", Command_chat, "Steam chat link");
+	RegConsoleCmd("sm_rules", Command_Rules, "Lists the rules to the client");
+	RegConsoleCmd("sm_steam", Command_Steam, "Prints the steam group URL to the client");
+	RegConsoleCmd("sm_chat", Command_chat, "Steam chat link");
+	RegConsoleCmd("sm_welcome", Command_Welcome, "Reprints the welcome message.");
     
     // Panel versions of weapon info
     RegConsoleCmd("sm_rp", Command_RevertsPanel, "Shows weapon changes in a panel");
@@ -201,10 +202,10 @@ public OnPluginStart()
 
 // Welcome message components
 static const char g_WelcomeMsg[][] = {
-    "{peachpuff}Welcome to {unique}The Youkai Pound{peachpuff} %N!",
+    "{peachpuff}Welcome to {unique}Gensokyo{peachpuff} %N!",
     "{peachpuff}This server has buffs for bad weapons and some new weapons;",
     "{peachpuff}Read more with {lightskyblue}!info{peachpuff} or see our group at {unique}!steam",
-    "{unique}News: {default}Added Touhou & Blue Archive weapons to !cw, updated the {axis}Flame Shotgun{default} in !cw, check out {cornflowerblue}Cirno's Wings{default} with {gold}!hats"
+    "{unique}News: {default}Created a new autobalance plugin and !points, added automatic renaming with !prename, added !colors, updated the {axis}Flame Shotgun{default} in !cw, check out {cornflowerblue}Cirno's Wings{default} with {gold}!hats"
 };
 
 static const char g_UncleWelcomeMsg[][] = {
@@ -229,17 +230,32 @@ public Event_PlayerSpawn(Handle:event, const String:name[], bool:dontBroadcast)
 
 public Action Timer_Welcome(Handle timer, any userid)
 {
-    int client = GetClientOfUserId(userid);
-    if (client <= 0 || !IsClientInGame(client) || g_HasBeenWelcomed[client])
-        return Plugin_Stop;
-    
-    g_HasBeenWelcomed[client] = true;
-    
-    char buffer[256];
-    if (IsUncleCycleActive())
-    {
-        Format(buffer, sizeof(buffer), g_UncleWelcomeMsg[0], client);
-        CPrintToChat(client, "%s", buffer);
+	int client = GetClientOfUserId(userid);
+	if (client <= 0 || !IsClientInGame(client) || g_HasBeenWelcomed[client])
+		return Plugin_Stop;
+	
+	g_HasBeenWelcomed[client] = true;
+
+	SendWelcomeNow(client);
+	return Plugin_Stop;
+}
+
+public Action Command_Welcome(int client, int args)
+{
+	if (client <= 0 || !IsClientInGame(client))
+		return Plugin_Handled;
+
+	SendWelcomeNow(client);
+	return Plugin_Handled;
+}
+
+static void SendWelcomeNow(int client)
+{
+	char buffer[256];
+	if (IsUncleCycleActive())
+	{
+		Format(buffer, sizeof(buffer), g_UncleWelcomeMsg[0], client);
+		CPrintToChat(client, "%s", buffer);
         
         for (int i = 1; i < sizeof(g_UncleWelcomeMsg); i++)
             CPrintToChat(client, "%s", g_UncleWelcomeMsg[i]);
@@ -249,10 +265,9 @@ public Action Timer_Welcome(Handle timer, any userid)
         Format(buffer, sizeof(buffer), g_WelcomeMsg[0], client);
         CPrintToChat(client, "%s", buffer);
         
-        for (int i = 1; i < sizeof(g_WelcomeMsg); i++)
-            CPrintToChat(client, "%s", g_WelcomeMsg[i]);
-    }
-    return Plugin_Stop;
+		for (int i = 1; i < sizeof(g_WelcomeMsg); i++)
+			CPrintToChat(client, "%s", g_WelcomeMsg[i]);
+	}
 }
 
 public bool IsUncleCycleActive()

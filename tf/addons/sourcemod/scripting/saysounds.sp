@@ -17,7 +17,7 @@
 
 public Plugin myinfo =
 {
-    name = "SaySounds",
+    name = "saysounds",
     author = "Hombre",
     description = "Chat-triggered say sounds with opt-out and volume features",
     version = "2.0.1",
@@ -40,7 +40,7 @@ Handle g_hKillCookie = INVALID_HANDLE;
 Handle g_hGroupCookie = INVALID_HANDLE;
 ConVar g_hForce;
 
-const float DEFAULT_VOLUME = 0.0;
+const float DEFAULT_VOLUME = 0.5;
 const float MIN_VOLUME = 0.0;
 const float MAX_VOLUME = 1.0;
 const float DEFAULT_COOLDOWN = 5.0;
@@ -54,6 +54,10 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
     CreateNative("SaySounds_PlaySoundToOptedIn", Native_PlaySoundToOptedIn);
     return APLRes_Success;
 }
+
+public void OnAllPluginsLoaded() {}
+public void OnLibraryAdded(const char[] name) {}
+public void OnLibraryRemoved(const char[] name) {}
 
 public void OnPluginStart()
 {
@@ -72,6 +76,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_sounds", Command_ListSounds);
     RegConsoleCmd("sm_vol", Command_SetVolume);
     RegConsoleCmd("sm_diesound", Command_SetDeathSound);
+    RegConsoleCmd("sm_deathsound", Command_SetDeathSound);
     RegConsoleCmd("sm_killsound", Command_SetKillSound);
     RegConsoleCmd("sm_saysound", Command_PlaySpecificSound);
 
@@ -609,7 +614,7 @@ public Action Command_ToggleSoundOpt(int client, int args)
         {
             strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), DEFAULT_GROUP);
             SaveGroupPreference(client);
-            g_fClientVolume[client] = 0.5;
+            g_fClientVolume[client] = DEFAULT_VOLUME;
             SaveVolumePreference(client);
             PrintToChat(client, "[SaySounds] Say sounds enabled.");
             return Plugin_Handled;
@@ -619,7 +624,7 @@ public Action Command_ToggleSoundOpt(int client, int args)
         {
             strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), DEFAULT_GROUP);
             SaveGroupPreference(client);
-            g_fClientVolume[client] = 0.5;
+            g_fClientVolume[client] = DEFAULT_VOLUME;
             SaveVolumePreference(client);
             PrintToChat(client, "[SaySounds] Say sounds enabled.");
             return Plugin_Handled;
@@ -633,7 +638,7 @@ public Action Command_ToggleSoundOpt(int client, int args)
 
         strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), arg);
         SaveGroupPreference(client);
-        g_fClientVolume[client] = 0.5;
+        g_fClientVolume[client] = DEFAULT_VOLUME;
         SaveVolumePreference(client);
         PrintToChat(client, "[SaySounds] You're now only able to hear sound group \x03%s", arg);
     }
@@ -650,7 +655,7 @@ public Action Command_ToggleSoundOpt(int client, int args)
             // No arguments and muted: enable all groups at default volume
             strcopy(g_szClientGroup[client], sizeof(g_szClientGroup[]), DEFAULT_GROUP);
             SaveGroupPreference(client);
-            g_fClientVolume[client] = 0.5;
+            g_fClientVolume[client] = DEFAULT_VOLUME;
             SaveVolumePreference(client);
             PrintToChat(client, "[SaySounds] Say sounds enabled.");
         }
@@ -682,7 +687,7 @@ public Action Command_ListSounds(int client, int args)
         return Plugin_Handled;
 
     PrintToChat(client, "[SaySounds] Available commands:");
-    PrintToChat(client, "[SaySounds] (Use !opt to enable sound playback; !vol <0.0-1.0> for custom volume)");
+    PrintToChat(client, "[SaySounds] (Use !opt to toggle sound playback; !vol <0.0-1.0> for custom volume)");
     for (int i = 0; i < gCommandNames.Length; i++)
     {
         char command[MAX_COMMAND_NAME];
@@ -1332,51 +1337,6 @@ void SaveKillSoundPreference(int client)
     SetClientCookie(client, g_hKillCookie, g_szKillSound[client]);
 }
 
-static bool HasTouhouDeathSoundWeapon(int attacker)
-{
-    if (attacker <= 0 || attacker > MaxClients || !IsClientInGame(attacker))
-    {
-        return false;
-    }
-
-    int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
-    if (weapon <= MaxClients || !IsValidEntity(weapon))
-    {
-        return false;
-    }
-
-    return TF2CustAttr_GetInt(weapon, TOUHOU_DEATH_SOUND_ATTR, 0) != 0;
-}
-
-static void PlayTouhouDeathSound(int attacker, int victim)
-{
-    PrecacheSound(TOUHOU_DEATH_SOUND_PATH, true);
-    PlaySaySound(TOUHOU_DEATH_SOUND_PATH, "");
-
-    if (g_hForce != null && g_hForce.BoolValue)
-    {
-        return;
-    }
-
-    if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
-    {
-        if (GetClientVolume(attacker) <= 0.0)
-        {
-            EmitSoundToClient(attacker, TOUHOU_DEATH_SOUND_PATH, attacker, SNDCHAN_AUTO,
-                SNDLEVEL_NORMAL, SND_NOFLAGS, TOUHOU_DEATH_SOUND_FORCE_VOLUME, SNDPITCH_NORMAL);
-        }
-    }
-
-    if (victim > 0 && victim <= MaxClients && IsClientInGame(victim) && victim != attacker)
-    {
-        if (GetClientVolume(victim) <= 0.0)
-        {
-            EmitSoundToClient(victim, TOUHOU_DEATH_SOUND_PATH, victim, SNDCHAN_AUTO,
-                SNDLEVEL_NORMAL, SND_NOFLAGS, TOUHOU_DEATH_SOUND_FORCE_VOLUME, SNDPITCH_NORMAL);
-        }
-    }
-}
-
 public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroadcast)
 {
     int victim = GetClientOfUserId(event.GetInt("userid"));
@@ -1432,5 +1392,50 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
     else if (haveAttacker)
     {
         PlaySaySound(attackerPath, attackerGroup);
+    }
+}
+
+static bool HasTouhouDeathSoundWeapon(int attacker)
+{
+    if (attacker <= 0 || attacker > MaxClients || !IsClientInGame(attacker))
+    {
+        return false;
+    }
+
+    int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
+    if (weapon <= MaxClients || !IsValidEntity(weapon))
+    {
+        return false;
+    }
+
+    return TF2CustAttr_GetInt(weapon, TOUHOU_DEATH_SOUND_ATTR, 0) != 0;
+}
+
+static void PlayTouhouDeathSound(int attacker, int victim)
+{
+    PrecacheSound(TOUHOU_DEATH_SOUND_PATH, true);
+    PlaySaySound(TOUHOU_DEATH_SOUND_PATH, "");
+
+    if (g_hForce != null && g_hForce.BoolValue)
+    {
+        return;
+    }
+
+    if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
+    {
+        if (GetClientVolume(attacker) <= 0.0)
+        {
+            EmitSoundToClient(attacker, TOUHOU_DEATH_SOUND_PATH, attacker, SNDCHAN_AUTO,
+                SNDLEVEL_NORMAL, SND_NOFLAGS, TOUHOU_DEATH_SOUND_FORCE_VOLUME, SNDPITCH_NORMAL);
+        }
+    }
+
+    if (victim > 0 && victim <= MaxClients && IsClientInGame(victim) && victim != attacker)
+    {
+        if (GetClientVolume(victim) <= 0.0)
+        {
+            EmitSoundToClient(victim, TOUHOU_DEATH_SOUND_PATH, victim, SNDCHAN_AUTO,
+                SNDLEVEL_NORMAL, SND_NOFLAGS, TOUHOU_DEATH_SOUND_FORCE_VOLUME, SNDPITCH_NORMAL);
+        }
     }
 }

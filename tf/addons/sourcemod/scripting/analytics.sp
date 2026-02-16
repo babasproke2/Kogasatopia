@@ -1,6 +1,5 @@
 #include <sourcemod>
 #include <geoip>
-#include <tf2_stocks>
 
 #define PLUGIN_VERSION "1.4"
 
@@ -27,8 +26,6 @@ enum struct PlayerStats
     char Time[32];
 }
 
-char g_sClassNames[TFClassType][16] = { "Unknown", "Scout", "Sniper", "Soldier", "Demoman", "Medic", "Heavy", "Pyro", "Spy", "Engineer"};
-
 bool clientIsAdmin[MAXPLAYERS+1] = { false, ... };
 bool clientConnected[MAXPLAYERS+1] = { false, ... };
 
@@ -36,7 +33,7 @@ ConVar g_cvLogSensitiveData;
 
 public Plugin myinfo =
 {
-    name = "Log Connections",
+    name = "analytics",
     author = "Xander, IT-KiLLER, Dosergen, Hombre",
     description = "This plugin logs players' connect and disconnect times, capturing their Name, SteamID, IP Address and Country.",
     version = PLUGIN_VERSION,
@@ -127,8 +124,8 @@ public Action UpdateQuickStats(Handle timer)
 
             if (IsPlayerAlive(client))
             {
-                TFClassType classId = TF2_GetPlayerClass(client);
-                Format(stats.Class, sizeof(stats.Class), "%s", g_sClassNames[classId]);
+                int classId = GetEntProp(client, Prop_Send, "m_iClass");
+                Format(stats.Class, sizeof(stats.Class), "Class%d", classId);
             }
             else
             {

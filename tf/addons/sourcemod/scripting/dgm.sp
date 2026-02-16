@@ -505,7 +505,7 @@ public Action Command_ResetSetup(int client , int args)
     if (timerEnt == -1)
     {
         if (client > 0) PrintToChat(client, "No team_round_timer entity found.");
-        else PrintToServer("[SM] No team_round_timer entity found.");
+        else PrintToServer("[Kogasa] No team_round_timer entity found.");
         return Plugin_Handled;
     }
 
@@ -525,7 +525,7 @@ public Action Command_ResetSetup(int client , int args)
     AcceptEntityInput(timerEnt, "SetTime");
 
     if (client > 0) PrintToChatAll("Setup time reduced to %i seconds.", time);
-    PrintToServer("[SM] Setup time set to %i seconds.", time);
+    PrintToServer("[Kogasa] Setup time set to %i seconds.", time);
     return Plugin_Handled;
 }
 
@@ -535,7 +535,7 @@ public Action Command_ExtendTimer(int client , int args)
     if (timerEnt == -1)
     {
         if (client > 0) PrintToChat(client, "No team_round_timer entity found.");
-        else PrintToServer("[SM] No team_round_timer entity found.");
+        else PrintToServer("[Kogasa] No team_round_timer entity found.");
         return Plugin_Handled;
     }
 
@@ -555,7 +555,7 @@ public Action Command_ExtendTimer(int client , int args)
     AcceptEntityInput(timerEnt, "SetTime");
 
     if (client > 0) PrintToChatAll("Setup time reduced to %i seconds.", time);
-    PrintToServer("[SM] Setup time set to %i seconds.", time);
+    PrintToServer("[Kogasa] Setup time set to %i seconds.", time);
     return Plugin_Handled;
 }
 
@@ -567,7 +567,7 @@ public void SetSetupTime()
         int time = GetConVarInt(g_cvSetSetupTime);
         SetVariantInt(time);
         AcceptEntityInput(timerEnt, "SetTime");
-        PrintToServer("[SM] Setup time set to %i seconds.", time);
+        PrintToServer("[Kogasa] Setup time set to %i seconds.", time);
     }
 }
 

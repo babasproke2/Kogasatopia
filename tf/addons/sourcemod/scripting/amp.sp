@@ -500,7 +500,7 @@ public MenuHandler_Amplifier(Handle:menu, MenuAction:action, param1, param2)
 
 			SetClientCookie(param1, g_hPadCookie, szToggle);
 
-			PrintToChat(param1, "[SM] Teleporter mode set to: %s", usePadSpeed ? "Speed/Jump" : "Normal");
+			PrintToChat(param1, "[Kogasa] Teleporter mode set to: %s", usePadSpeed ? "Speed/Jump" : "Normal");
 			ShowAmplifierMenu(param1);
 		}
 	}

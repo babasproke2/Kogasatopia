@@ -621,7 +621,7 @@ public Action Command_Whitelist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_whitelist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_whitelist <player>");
         return Plugin_Handled;
     }
     
@@ -654,11 +654,11 @@ public Action Command_Whitelist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Whitelisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Whitelisted %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Whitelisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Whitelisted %s", target_name);
     }
     
     return Plugin_Handled;
@@ -668,7 +668,7 @@ public Action Command_UnWhitelist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_unwhitelist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_unwhitelist <player>");
         return Plugin_Handled;
     }
     
@@ -701,11 +701,11 @@ public Action Command_UnWhitelist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Removed whitelist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed whitelist from %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Removed whitelist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed whitelist from %s", target_name);
     }
     
     return Plugin_Handled;
@@ -731,7 +731,7 @@ public Action Command_FilterWhitelist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_filterwhitelist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_filterwhitelist <player>");
         return Plugin_Handled;
     }
     
@@ -764,11 +764,11 @@ public Action Command_FilterWhitelist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Filter whitelisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Filter whitelisted %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Filter whitelisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Filter whitelisted %s", target_name);
     }
     
     return Plugin_Handled;
@@ -778,7 +778,7 @@ public Action Command_UnFilterWhitelist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_unfilterwhitelist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_unfilterwhitelist <player>");
         return Plugin_Handled;
     }
     
@@ -811,11 +811,11 @@ public Action Command_UnFilterWhitelist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Removed filter whitelist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed filter whitelist from %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Removed filter whitelist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed filter whitelist from %s", target_name);
     }
     
     return Plugin_Handled;
@@ -841,7 +841,7 @@ public Action Command_Blacklist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_blacklist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_blacklist <player>");
         return Plugin_Handled;
     }
     
@@ -874,11 +874,11 @@ public Action Command_Blacklist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Blacklisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Blacklisted %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Blacklisted %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Blacklisted %s", target_name);
     }
     
     return Plugin_Handled;
@@ -888,7 +888,7 @@ public Action Command_UnBlacklist(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[SM] Usage: sm_unblacklist <player>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_unblacklist <player>");
         return Plugin_Handled;
     }
     
@@ -921,11 +921,11 @@ public Action Command_UnBlacklist(int client, int args)
     
     if (tn_is_ml)
     {
-        ShowActivity2(client, "[SM] ", "Removed blacklist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed blacklist from %s", target_name);
     }
     else
     {
-        ShowActivity2(client, "[SM] ", "Removed blacklist from %s", target_name);
+        ShowActivity2(client, "[Kogasa] ", "Removed blacklist from %s", target_name);
     }
     
     return Plugin_Handled;

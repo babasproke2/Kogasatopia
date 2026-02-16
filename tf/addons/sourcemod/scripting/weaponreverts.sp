@@ -12,8 +12,8 @@
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
 #define ACC_MAX_DIST		768.0
-#define ACC_THRESH_NEAR		  30.0
-#define ACC_THRESH_FAR		  8.0
+#define ACC_THRESH_NEAR		  32.0
+#define ACC_THRESH_FAR		  12.0
 #define ACC_STREAK_TARGET	   2
 
 #define ACC_EXPLODE_DAMAGE	 50.0
@@ -503,11 +503,11 @@ public void Accuracy_OnTakeDamagePost(int victim, int attacker, int inflictor, f
 
 	bool accurate = Accuracy_IsAccurateHit(damage, dist);
 	int remainingHealth = IsPlayerAlive(victim) ? GetClientHealth(victim) : 0;
-	if (remainingHealth > 0 && remainingHealth <= RoundToCeil(damage))
+	/*if (remainingHealth > 0 && remainingHealth <= RoundToCeil(damage))
 		remainingHealth = 0; // treat as lethal if the incoming damage equals remaining HP
-	bool lethal = (remainingHealth <= 0);
+	bool lethal = (remainingHealth <= 0);*/
 
-	if (accurate || lethal)
+	if (accurate)
 	{
 		if (accurate)
 		{
@@ -522,16 +522,9 @@ public void Accuracy_OnTakeDamagePost(int victim, int attacker, int inflictor, f
 			}
 		}
 
-		if (lethal)
-		{
-			tf2_players[victim].accuracyStreak = ACC_STREAK_TARGET;
-		}
-		else
-		{
-			tf2_players[victim].accuracyStreak++;
-		}
+		tf2_players[victim].accuracyStreak++;
 		CreateTimer(4.0, Accuracy_Timer_RemoveChargeCount, victim, TIMER_FLAG_NO_MAPCHANGE);
-		if (tf2_players[victim].accuracyStreak >= ACC_STREAK_TARGET || lethal)
+		if (tf2_players[victim].accuracyStreak >= ACC_STREAK_TARGET)
 		{
 			float boomPos[3];
 			GetClientAbsOrigin(victim, boomPos);

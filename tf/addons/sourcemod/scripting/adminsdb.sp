@@ -19,7 +19,7 @@ static const char STEAM64_BASE_STR[] = "76561197960265728";
 public Plugin myinfo =
 {
     name = "AdminsDB Sync",
-    author = "Cogwheel",
+    author = "Hombre",
     description = "Syncs admins_simple.ini to database",
     version = "1.0",
     url = ""
@@ -30,6 +30,7 @@ public void OnPluginStart()
     BuildPath(Path_SM, g_sAdminsFile, sizeof(g_sAdminsFile), "configs/admins_simple.ini");
     ConnectToDatabase();
     RegConsoleCmd("sm_admins", Command_ShowAdmins, "Lists online admins");
+    RegConsoleCmd("sm_checkid", Command_CheckId, "Shows your SteamID formats");
 }
 
 public void OnPluginEnd()
@@ -417,6 +418,68 @@ public Action Command_ShowAdmins(int client, int args)
         GetClientName(admins[i], adminName, sizeof(adminName));
         CPrintToChat(client, "{green}[AdminsDB]{default} {gold}%s", adminName);
     }
+
+    return Plugin_Handled;
+}
+
+public Action Command_CheckId(int client, int args)
+{
+    if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return Plugin_Handled;
+    }
+
+    int target = client;
+    if (args >= 1)
+    {
+        char targetArg[64];
+        GetCmdArg(1, targetArg, sizeof(targetArg));
+        target = FindTarget(client, targetArg, true, false);
+        if (target <= 0)
+        {
+            return Plugin_Handled;
+        }
+    }
+
+    if (IsFakeClient(target))
+    {
+        CPrintToChat(client, "{green}[AdminsDB]{default} Target is a bot.");
+        return Plugin_Handled;
+    }
+
+    char steam2[32];
+    char steam3[32];
+    char steam64[32];
+
+    bool ok2 = GetClientAuthId(target, AuthId_Steam2, steam2, sizeof(steam2), false);
+    bool ok3 = GetClientAuthId(target, AuthId_Steam3, steam3, sizeof(steam3), false);
+    bool ok64 = GetClientAuthId(target, AuthId_SteamID64, steam64, sizeof(steam64), false);
+
+    if (!ok2 && !ok3 && !ok64)
+    {
+        CPrintToChat(client, "{green}[AdminsDB]{default} Unable to read SteamID.");
+        return Plugin_Handled;
+    }
+
+    if (!ok2)
+    {
+        strcopy(steam2, sizeof(steam2), "Unknown");
+    }
+    if (!ok3)
+    {
+        strcopy(steam3, sizeof(steam3), "Unknown");
+    }
+    if (!ok64)
+    {
+        strcopy(steam64, sizeof(steam64), "Unknown");
+    }
+
+    char targetName[MAX_NAME_LENGTH];
+    GetClientName(target, targetName, sizeof(targetName));
+    CPrintToChat(client, "{green}[AdminsDB]{default} %s", targetName);
+    CPrintToChat(client, "{green}[AdminsDB]{default} Steam2: {gold}%s", steam2);
+    CPrintToChat(client, "{green}[AdminsDB]{default} Steam3: {gold}%s", steam3);
+    CPrintToChat(client, "{green}[AdminsDB]{default} Steam64: {gold}%s", steam64);
 
     return Plugin_Handled;
 }
