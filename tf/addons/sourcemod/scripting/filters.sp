@@ -1144,7 +1144,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
     BuildMessageColorTag(client, messageColorTag, sizeof(messageColorTag));
 
     char output[256];
-    Format(output, sizeof(output), "%s%s%s%N%s: %s", messageColorTag, dead, nameColorTag, client, messageColorTag, sArgs);
+    Format(output, sizeof(output), "%s%s%s%N%s : %s", messageColorTag, dead, nameColorTag, client, messageColorTag, sArgs);
 
     ApplyFiltersIfNeeded(output, sizeof(output), context);
 
@@ -1512,7 +1512,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
     BuildMessageColorTag(client, messageColorTag, sizeof(messageColorTag));
 
     char output[256];
-    Format(output, sizeof(output), "%s%s%s %s%N%s: %s", messageColorTag, deadPrefix, tag, colorTag, client, messageColorTag, sArgs);
+    Format(output, sizeof(output), "%s%s%s %s%N%s : %s", messageColorTag, deadPrefix, tag, colorTag, client, messageColorTag, sArgs);
     bool cordMode = GetConVarInt(g_sChatMode2) != 0;
     if (cordMode)
     {

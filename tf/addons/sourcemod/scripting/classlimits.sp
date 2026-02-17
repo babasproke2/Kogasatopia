@@ -144,19 +144,14 @@ public void Event_PlayerSay(Event event, const char[] name, bool dontBroadcast)
         }
     }
 
-    if (!StrEqual(lower, "!classrestrict") && !StrEqual(lower, "!classlimits") && !StrEqual(lower, "!cr") && !StrEqual(lower, "!cl"))
+    // !classlimits/!cl are already handled by sm_classlimits/sm_cl.
+    // Keep only legacy aliases here to avoid duplicate output.
+    if (!StrEqual(lower, "!classrestrict") && !StrEqual(lower, "!cr"))
     {
         return;
     }
 
-    char limitText[32];
-    for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
-    {
-        FormatClassLimitText(classId, limitText, sizeof(limitText));
-        CPrintToChat(client, "{olive}  %s{default}: {gold}%s{default}", g_ClassNames[classId], limitText);
-    }
-    UpdateGameModeName();
-    CPrintToChat(client, "{olive}[Class Limits]{default} Current gamemode: {yellow}%s{default}", g_sGameMode);
+    Command_ShowClassLimits(client, 0);
 }
 
 public Action Command_ShowClassLimits(int client, int args)
@@ -287,7 +282,7 @@ static bool GetTeamTopScoreThreshold(int team, int &threshold)
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsClientInGame(i) || GetClientTeam(i) != team)
+        if (!IsClientInGame(i) || IsFakeClient(i) || GetClientTeam(i) != team)
         {
             continue;
         }
@@ -323,7 +318,7 @@ static bool GetTeamTopScoreThreshold(int team, int &threshold)
 
 static bool IsTopTeamScorer(int client)
 {
-    if (client <= 0 || !IsClientInGame(client))
+    if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
     {
         return false;
     }
@@ -353,6 +348,20 @@ static bool IsClassLimitImmune(int client)
     return g_hImmunity.BoolValue && IsImmune(client);
 }
 
+static int GetHumanTeamClientCount(int team)
+{
+    int count = 0;
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i) || IsFakeClient(i) || GetClientTeam(i) != team)
+        {
+            continue;
+        }
+        count++;
+    }
+    return count;
+}
+
 bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
 {
     limitOut = -1;
@@ -376,7 +385,7 @@ bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
 
     if (flLimit > 0.0 && flLimit < 1.0)
     {
-        limitOut = RoundToNearest(flLimit * GetTeamClientCount(iTeam));
+        limitOut = RoundToNearest(flLimit * GetHumanTeamClientCount(iTeam));
     }
     else
     {
@@ -393,7 +402,7 @@ bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
 
     for (int i = 1, iCount = 0; i <= MaxClients; i++)
     {
-        if (!IsClientInGame(i) || GetClientTeam(i) != iTeam || view_as<int>(TF2_GetPlayerClass(i)) != iClass)
+        if (!IsClientInGame(i) || IsFakeClient(i) || GetClientTeam(i) != iTeam || view_as<int>(TF2_GetPlayerClass(i)) != iClass)
         {
             continue;
         }
