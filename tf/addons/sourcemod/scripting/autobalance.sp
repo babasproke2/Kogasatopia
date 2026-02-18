@@ -10,7 +10,6 @@
 #define TEAM_RED            2
 #define TEAM_BLUE           3
 
-Handle  g_hBalanceTimer;
 float   g_fImmunityExpiry[MAXPLAYERS + 1];  // GetGameTime() at which immunity expires; 0.0 = not immune
 ConVar  g_hLogEnabled;
 ConVar  g_hMpAutoteamBalance;
@@ -25,7 +24,7 @@ public Plugin myinfo =
     author      = "Hombre",
     description = "Moves low-scoring players when teams are imbalanced.",
     version     = "1.2",
-    url         = ""
+    url         = "https://kogasa.tf"
 };
 
 // ---------------------------------------------------------------------------
@@ -39,17 +38,11 @@ public void OnPluginStart()
 
     ApplyServerBalanceCvars(true);
 
-    g_hBalanceTimer = CreateTimer(CHECK_INTERVAL, Timer_Autobalance, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+    CreateTimer(CHECK_INTERVAL, Timer_Autobalance, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public void OnPluginEnd()
 {
-    if (g_hBalanceTimer != null)
-    {
-        KillTimer(g_hBalanceTimer);
-        g_hBalanceTimer = null;
-    }
-
     ApplyServerBalanceCvars(false);
 }
 
