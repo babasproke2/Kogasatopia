@@ -86,6 +86,10 @@ public Action Timer_Autobalance(Handle timer)
     char toTeamName[8];
     strcopy(fromTeamName, sizeof(fromTeamName), (biggestTeam  == TEAM_RED) ? "RED" : "BLU");
     strcopy(toTeamName,   sizeof(toTeamName),   (smallestTeam == TEAM_RED) ? "RED" : "BLU");
+    char fromTeamChat[16];
+    char toTeamChat[16];
+    strcopy(fromTeamChat, sizeof(fromTeamChat), (biggestTeam  == TEAM_RED) ? "{red}RED{default}" : "{blue}BLU{default}");
+    strcopy(toTeamChat,   sizeof(toTeamChat),   (smallestTeam == TEAM_RED) ? "{red}RED{default}" : "{blue}BLU{default}");
 
     LogBalance(
         "Imbalance detected: red=%d blue=%d from=%s to=%s force=%s",
@@ -121,7 +125,17 @@ public Action Timer_Autobalance(Handle timer)
 
     if (totalPlayers == 0)
     {
-        LogBalance("No eligible players on %s team.", fromTeamName);
+        int immuneCount = 0;
+        for (int i = 1; i <= MaxClients; i++)
+        {
+            if (!IsClientInGame(i) || IsFakeClient(i) || GetClientTeam(i) != biggestTeam) continue;
+            if (IsClientImmune(i)) immuneCount++;
+        }
+
+        LogBalance(
+            "Skip balance on %s: no eligible players (force=%d, teamPlayers=%d, immune=%d)",
+            fromTeamName, forceBalance ? 1 : 0, biggestCount, immuneCount
+        );
         return Plugin_Continue;
     }
 
@@ -171,10 +185,44 @@ public Action Timer_Autobalance(Handle timer)
 
     if (candidateCount == 0)
     {
-        LogBalance(
-            "No candidates on %s team. avg=%.2f total=%d force=%d",
-            fromTeamName, avg, totalPlayers, forceBalance ? 1 : 0
-        );
+        if (forceBalance)
+        {
+            LogBalance(
+                "Skip balance on %s: force mode had zero candidates (teamPlayers=%d, eligible=%d)",
+                fromTeamName, biggestCount, totalPlayers
+            );
+        }
+        else
+        {
+            int classExcluded = 0;
+            int aliveFiltered = 0;
+            int scoreFiltered = 0;
+            int strictWouldPass = 0;
+
+            for (int i = 1; i <= MaxClients; i++)
+            {
+                if (!IsEligiblePlayer(i, biggestTeam)) continue;
+
+                TFClassType cls = TF2_GetPlayerClass(i);
+                if (cls == TFClass_Engineer || cls == TFClass_Medic)
+                {
+                    classExcluded++;
+                    continue;
+                }
+
+                bool alive = IsPlayerAlive(i);
+                bool highScore = float(GetClientScore(i)) >= avg;
+
+                if (alive) aliveFiltered++;
+                if (highScore) scoreFiltered++;
+                if (!alive && !highScore) strictWouldPass++;
+            }
+
+            LogBalance(
+                "Skip balance on %s: no candidates (avg=%.2f eligible=%d classExcluded=%d aliveFiltered=%d scoreFiltered=%d strictPass=%d)",
+                fromTeamName, avg, totalPlayers, classExcluded, aliveFiltered, scoreFiltered, strictWouldPass
+            );
+        }
         return Plugin_Continue;
     }
 
@@ -224,6 +272,12 @@ public Action Timer_Autobalance(Handle timer)
 
     ChangeClientTeam(pick, smallestTeam);
     SetClientImmunity(pick, true);
+
+    CPrintToChatAllEx(
+        pick,
+        "{tomato}[{purple}Gap{tomato}]{default} Sending {teamcolor}%N{default} from %s to %s",
+        pick, fromTeamChat, toTeamChat
+    );
 
     CreateTimer(0.1, Timer_Respawn, GetClientUserId(pick), TIMER_FLAG_NO_MAPCHANGE);
 
