@@ -128,7 +128,7 @@ static const char g_PaintNames[][48] =
 public Plugin myinfo =
 {
 	name = "Custom Hats",
-	author = "Codex",
+	author = "Hombre",
 	description = "Equips configured custom hats.",
 	version = "1.0.0",
 	url = "https://kogasa.tf"

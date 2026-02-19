@@ -95,7 +95,7 @@ DynamicHook dhook_CObjectCartDispenser_DispenseMetal;
 public Plugin myinfo =
 {
 	name = "WeaponReverts",
-	author = "Hombre, Huutti, Utsuho",
+	author = "Hombre",
 	description = "Weapon changes plugin for Kogasatopia, very specific, this includes custom attribute code such as recoil jumping",
 	version = "5.0",
 	url = "https://kogasa.tf"

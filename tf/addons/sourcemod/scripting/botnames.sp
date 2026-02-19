@@ -10,10 +10,10 @@
 public Plugin:myinfo =
 {
 	name = "[TF2] Rename bots",
-	author = "Pelipoika",
+	author = "Hombre",
 	description = "Rename bots based by class",
 	version = PLUGIN_VERSION,
-	url = "http://www.sourcemod.net/"
+	url = "https://kogasa.tf"
 }
 
 public OnPluginStart()

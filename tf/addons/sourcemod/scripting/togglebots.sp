@@ -5,7 +5,7 @@ ConVar g_cvManualBotQuota;
 
 public Plugin myinfo = {
     name = "TF2 Bot Toggle Command",
-    author = "Bad Hombre",
+    author = "Hombre",
     description = "Toggle TF2 bots on or off conveniently",
     version = "1.3",
     url = "https://kogasa.tf"

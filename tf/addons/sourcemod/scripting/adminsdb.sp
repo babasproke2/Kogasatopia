@@ -22,7 +22,7 @@ public Plugin myinfo =
     author = "Hombre",
     description = "Syncs admins_simple.ini to database",
     version = "1.0",
-    url = ""
+    url = "https://kogasa.tf"
 };
 
 public void OnPluginStart()

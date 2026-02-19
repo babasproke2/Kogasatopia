@@ -48,7 +48,7 @@ public Plugin myinfo = {
     author = "Hombre",
     description = "Handles gamemode settings and instant respawns",
     version = PLUGIN_VERSION,
-    url = "https://tf2.gyate.net"
+    url = "https://kogasa.tf"
 };
 
 public void OnPluginStart()

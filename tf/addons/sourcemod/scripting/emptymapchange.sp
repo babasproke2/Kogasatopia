@@ -12,7 +12,7 @@ public Plugin myinfo =
     author = "Hombre",
     description = "Changes map if server is empty after X minutes",
     version = PLUGIN_VERSION,
-    url = "https://tf2.gyate.net"
+    url = "https://kogasa.tf"
 };
 
 Handle g_hTimer = null;

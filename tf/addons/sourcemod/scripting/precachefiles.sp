@@ -16,7 +16,7 @@ bool g_AddDownloads = true;
 public Plugin myinfo =
 {
     name = "Precache Manager",
-    author = "Codex",
+    author = "Hombre",
     description = "Adds configured assets to the download table and precaches them.",
     version = "1.0.0",
     url = "https://kogasa.tf"

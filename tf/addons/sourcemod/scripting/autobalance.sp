@@ -5,6 +5,8 @@
 #include <morecolors>
 #include <tf2_stocks>
 
+native int FilterAlerts_MarkAutobalance(int client);
+
 #define CHECK_INTERVAL      5.0
 #define IMMUNITY_DURATION   300.0   // seconds a player stays immune after being balanced
 #define TEAM_RED            2
@@ -26,6 +28,12 @@ public Plugin myinfo =
     version     = "1.2",
     url         = "https://kogasa.tf"
 };
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+{
+    MarkNativeAsOptional("FilterAlerts_MarkAutobalance");
+    return APLRes_Success;
+}
 
 // ---------------------------------------------------------------------------
 // Lifecycle
@@ -269,6 +277,11 @@ public Action Timer_Autobalance(Handle timer)
         fromTeamName, toTeamName,
         GetClientScore(pick), avg, candidateCount
     );
+
+    if (GetFeatureStatus(FeatureType_Native, "FilterAlerts_MarkAutobalance") == FeatureStatus_Available)
+    {
+        FilterAlerts_MarkAutobalance(pick);
+    }
 
     ChangeClientTeam(pick, smallestTeam);
     SetClientImmunity(pick, true);

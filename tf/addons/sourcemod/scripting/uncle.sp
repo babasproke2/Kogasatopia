@@ -34,10 +34,10 @@ char g_sOriginalHostname[256];
 public Plugin myinfo =
 {
     name = "Uncle Hostname Cycler",
-    author = "Cogwheel",
+    author = "Hombre",
     description = "Cycles Uncletopia hostnames and restores the original on demand.",
     version = "1.0.0",
-    url = ""
+    url = "https://kogasa.tf"
 };
 
 public void OnPluginStart()
