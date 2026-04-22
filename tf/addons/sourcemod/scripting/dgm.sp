@@ -628,8 +628,8 @@ static void CreateDefaultConfigs()
         "d_medieval.cfg",
         "d_pd.cfg",
         "d_default.cfg",
-        "d_highpop_a",
-        "d_highpop",
+        "d_highpop_a.cfg",
+        "d_highpop.cfg",
         "d_lowpop_a.cfg",
         "d_lowpop.cfg",
     };
