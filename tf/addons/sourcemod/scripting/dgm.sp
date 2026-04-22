@@ -573,9 +573,9 @@ static void DetectGameMode()
         }
         case TF2_GameMode_5CP:
         {
-            ServerCommand("exec d_ctf.cfg");
+            ServerCommand("exec d_5cp.cfg");
             sym = true;
-            strcopy(modeName, sizeof(modeName), "Capture the Flag");
+            strcopy(modeName, sizeof(modeName), "5 Control Points");
         }
         case TF2_GameMode_ADCP:
         {
