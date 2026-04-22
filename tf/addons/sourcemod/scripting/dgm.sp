@@ -68,7 +68,10 @@ public void OnPluginStart()
     g_cvGameMode = CreateConVar("sm_gamemode", "unknown", "Stores the executed gamemode", FCVAR_NONE);
     // Hook the value of mp_disable_respawn_times
     g_cvMpDisableRespawnTimes = FindConVar("mp_disable_respawn_times");
-    HookConVarChange(g_cvRespawnTime, ConVarChange_MpDisableRespawnTimes);
+    HookConVarChange(g_cvRespawnTime, ConVarChange_RespawnSetting);
+    HookConVarChange(g_cvTimeOverride, ConVarChange_RespawnSetting);
+    HookConVarChange(g_cvRedTime, ConVarChange_RespawnSetting);
+    HookConVarChange(g_cvBluTime, ConVarChange_RespawnSetting);
     
     HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
     HookEvent("teamplay_round_start", Event_RoundActive);
@@ -102,20 +105,50 @@ public void OnMapStart()
     g_iSetupCheckCount = 0;
     g_bSetupDetected = false;
     g_bSetupEnded = false;
+    DGM_RefreshRespawnVisualState();
     DGM_StartSetupCheckTimer();
 }
 
 // I prefer the visual effect when TF2's mp_disable_respawn_times cvar is true but dislike that it can be exploited
 // Also takes about 5~ seconds for the respawn to occur
-public void ConVarChange_MpDisableRespawnTimes(ConVar convar, const char[] oldValue, const char[] newValue)
+static void DGM_RefreshRespawnVisualState()
 {
-    if (StringToInt(newValue) > 5 || g_InternalOverride)
+    if (g_cvMpDisableRespawnTimes == null)
+    {
+        return;
+    }
+
+    float maxRespawn = GetConVarFloat(g_cvRespawnTime);
+    float override = GetConVarFloat(g_cvTimeOverride);
+    float redTime = GetConVarFloat(g_cvRedTime);
+    float bluTime = GetConVarFloat(g_cvBluTime);
+
+    if (override > maxRespawn)
+    {
+        maxRespawn = override;
+    }
+    if (redTime > maxRespawn)
+    {
+        maxRespawn = redTime;
+    }
+    if (bluTime > maxRespawn)
+    {
+        maxRespawn = bluTime;
+    }
+
+    if (maxRespawn > 5.0 || g_InternalOverride)
     {
         SetConVarInt(g_cvMpDisableRespawnTimes, 0);
-    } else 
+    }
+    else
     {
         SetConVarInt(g_cvMpDisableRespawnTimes, 1);
     }
+}
+
+public void ConVarChange_RespawnSetting(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    DGM_RefreshRespawnVisualState();
 }
 
 static bool DGM_IsRoundRunning()
@@ -195,6 +228,7 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
 		if (g_PointCaptures >= 3)
 		{
 			g_InternalOverride = true; // Stop managing respawn times if approaching last
+            DGM_RefreshRespawnVisualState();
 		}
 		// Asymmetrical: respawn all dead RED players
 		if (GetConVarBool(g_cvAsymCapRespawn) && !g_bSymmetrical)
@@ -327,6 +361,7 @@ public Action Command_CvarHelp(int client, int args)
 public Action Command_RespawnToggle(int client, int args)
 {
     g_InternalOverride = !g_InternalOverride; // toggles between true and false
+    DGM_RefreshRespawnVisualState();
     PrintToChat(client, "Respawn times %s", g_InternalOverride ? "forced on" : "forced off");
     return Plugin_Handled;
 }
@@ -379,6 +414,7 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
 {
     if (g_cvTimeOverride != null)    g_cvTimeOverride.RestoreDefault();
     g_InternalOverride = false; // This is set to true when a round is won, it changes back to false now
+    DGM_RefreshRespawnVisualState();
     g_PointCaptures = 0;
     g_bSetupDetected = false;
     g_bSetupEnded = false;
@@ -425,6 +461,7 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
     SetConVarInt(g_cvTimeOverride, 30);
     g_PointCaptures = 0;
     g_InternalOverride = true; // We're gonna stop clients from getting insta-respawned with this
+    DGM_RefreshRespawnVisualState();
 }
 
 public Action Command_ResetSetup(int client , int args)
