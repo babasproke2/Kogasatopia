@@ -33,11 +33,8 @@ ConVar g_cvGameMode;
 
 // Add a ConVar to hook the value of mp_disable_respawn_times
 Handle g_cvMpDisableRespawnTimes = INVALID_HANDLE;
-Handle g_hSetupCheckTimer = INVALID_HANDLE;
-Handle g_hSetupMonitorTimer = INVALID_HANDLE;
-int g_iSetupCheckCount = 0;
-bool g_bSetupDetected = false;
-bool g_bSetupEnded = false;
+Handle g_hSetupStateTimer = INVALID_HANDLE;
+bool g_bSetupActive = false;
 
 public Plugin myinfo = {
     name = "Gamemode Detector",
@@ -90,23 +87,15 @@ public void OnPluginStart()
 
 public void OnMapStart()
 {
-    if (g_hSetupCheckTimer != INVALID_HANDLE)
+    if (g_hSetupStateTimer != INVALID_HANDLE)
     {
-        KillTimer(g_hSetupCheckTimer);
-        g_hSetupCheckTimer = INVALID_HANDLE;
+        KillTimer(g_hSetupStateTimer);
+        g_hSetupStateTimer = INVALID_HANDLE;
     }
 
-    if (g_hSetupMonitorTimer != INVALID_HANDLE)
-    {
-        KillTimer(g_hSetupMonitorTimer);
-        g_hSetupMonitorTimer = INVALID_HANDLE;
-    }
-
-    g_iSetupCheckCount = 0;
-    g_bSetupDetected = false;
-    g_bSetupEnded = false;
+    g_bSetupActive = false;
     DGM_RefreshRespawnVisualState();
-    DGM_StartSetupCheckTimer();
+    DGM_UpdateSetupState();
 }
 
 // I prefer the visual effect when TF2's mp_disable_respawn_times cvar is true but dislike that it can be exploited
@@ -156,53 +145,44 @@ static bool DGM_IsRoundRunning()
     return (GameRules_GetRoundState() == RoundState_RoundRunning);
 }
 
-static void DGM_StartSetupCheckTimer()
+static void DGM_SetSetupActive(bool setupActive)
 {
-    if (g_bSetupDetected || g_hSetupCheckTimer != INVALID_HANDLE || g_hSetupMonitorTimer != INVALID_HANDLE)
+    if (g_bSetupActive == setupActive)
     {
         return;
     }
 
-    g_iSetupCheckCount = 0;
-    g_hSetupCheckTimer = CreateTimer(2.0, Timer_CheckSetupStart, _, TIMER_REPEAT);
-}
-
-public Action Timer_CheckSetupStart(Handle timer)
-{
-    g_iSetupCheckCount++;
-
-    if (!DGM_IsRoundRunning())
+    g_bSetupActive = setupActive;
+    if (setupActive)
     {
         PrintToChatAll("Setup detected, bhop enabled");
-        g_bSetupDetected = true;
         ServerCommand("exec d_setup.cfg");
-        if (g_hSetupMonitorTimer == INVALID_HANDLE)
+        if (g_hSetupStateTimer == INVALID_HANDLE)
         {
-            g_hSetupMonitorTimer = CreateTimer(2.0, Timer_MonitorSetupEnd, _, TIMER_REPEAT);
+            g_hSetupStateTimer = CreateTimer(2.0, Timer_SetupStateMonitor, _, TIMER_REPEAT);
         }
-        g_hSetupCheckTimer = INVALID_HANDLE;
-        return Plugin_Stop;
     }
-
-    if (g_iSetupCheckCount >= 15)
+    else
     {
-        g_hSetupCheckTimer = INVALID_HANDLE;
-        return Plugin_Stop;
+        ServerCommand("exec d_endsetup.cfg");
+        if (g_hSetupStateTimer != INVALID_HANDLE)
+        {
+            KillTimer(g_hSetupStateTimer);
+            g_hSetupStateTimer = INVALID_HANDLE;
+        }
     }
-
-    return Plugin_Continue;
 }
 
-public Action Timer_MonitorSetupEnd(Handle timer)
+static void DGM_UpdateSetupState()
+{
+    DGM_SetSetupActive(!DGM_IsRoundRunning());
+}
+
+public Action Timer_SetupStateMonitor(Handle timer)
 {
     if (DGM_IsRoundRunning())
     {
-        if (!g_bSetupEnded)
-        {
-            ServerCommand("exec d_endsetup.cfg");
-            g_bSetupEnded = true;
-        }
-        g_hSetupMonitorTimer = INVALID_HANDLE;
+        DGM_SetSetupActive(false);
         return Plugin_Stop;
     }
 
@@ -416,9 +396,7 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
     g_InternalOverride = false; // This is set to true when a round is won, it changes back to false now
     DGM_RefreshRespawnVisualState();
     g_PointCaptures = 0;
-    g_bSetupDetected = false;
-    g_bSetupEnded = false;
-    DGM_StartSetupCheckTimer();
+    DGM_UpdateSetupState();
     if (!g_bRoundStartedOnce)
     {
         g_bRoundStartedOnce = true;
@@ -443,17 +421,7 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
 
 public void Event_SetupFinished(Event event, const char[] name, bool dontBroadcast)
 {
-    if (!g_bSetupEnded)
-    {
-        ServerCommand("exec d_endsetup.cfg");
-        g_bSetupEnded = true;
-    }
-
-    if (g_hSetupMonitorTimer != INVALID_HANDLE)
-    {
-        KillTimer(g_hSetupMonitorTimer);
-        g_hSetupMonitorTimer = INVALID_HANDLE;
-    }
+    DGM_SetSetupActive(false);
 }
 
 public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
