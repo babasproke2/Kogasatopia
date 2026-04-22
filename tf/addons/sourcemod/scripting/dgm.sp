@@ -197,7 +197,7 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
 			g_InternalOverride = true; // Stop managing respawn times if approaching last
 		}
 		// Asymmetrical: respawn all dead RED players
-		if (g_cvAsymCapRespawn && !g_bSymmetrical)
+		if (GetConVarBool(g_cvAsymCapRespawn) && !g_bSymmetrical)
 		{    
 			for (int i = 1; i <= MaxClients; i++)
 				if (IsClientInGame(i) && GetClientTeam(i) == 2 && !IsPlayerAlive(i))
