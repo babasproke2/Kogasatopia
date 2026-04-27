@@ -891,6 +891,12 @@ static void Filters_MaybeCleanupChatHistory()
     g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
 }
 
+static void Filters_SanitizeDbMessage(const char[] message, char[] buffer, int maxlen)
+{
+    strcopy(buffer, maxlen, message);
+    ReplaceString(buffer, maxlen, "{teamcolor}", "{grey}", false);
+}
+
 static void Filters_QueueOutboxMessage(int timestamp, const char[] iphash, const char[] displayName, const char[] message, bool webchatOnly, bool alertFlag)
 {
     if (!g_bDbReady || g_hFiltersDb == null)
@@ -898,8 +904,10 @@ static void Filters_QueueOutboxMessage(int timestamp, const char[] iphash, const
         return;
     }
 
+    char sanitizedMsg[512];
     char escapedMsg[512];
-    SQL_EscapeString(g_hFiltersDb, message, escapedMsg, sizeof(escapedMsg));
+    Filters_SanitizeDbMessage(message, sanitizedMsg, sizeof(sanitizedMsg));
+    SQL_EscapeString(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg));
     char escapedHash[128];
     SQL_EscapeString(g_hFiltersDb, iphash, escapedHash, sizeof(escapedHash));
     char escapedDisplay[256];
@@ -998,9 +1006,11 @@ void Filters_LogChatMessage(int client, const char[] message)
     char name[MAX_NAME_LENGTH];
     GetClientName(client, name, sizeof(name));
     char escapedName[MAX_NAME_LENGTH * 2];
+    char sanitizedMsg[512];
     char escapedMsg[512];
     SQL_EscapeString(g_hFiltersDb, name, escapedName, sizeof(escapedName));
-    SQL_EscapeString(g_hFiltersDb, message, escapedMsg, sizeof(escapedMsg));
+    Filters_SanitizeDbMessage(message, sanitizedMsg, sizeof(sanitizedMsg));
+    SQL_EscapeString(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg));
     char query[1024];
     if (hasSteam)
     {
@@ -1041,8 +1051,10 @@ void Filters_InsertSystemMessage(bool webchatOnly, bool alertFlag, const char[] 
     VFormat(message, sizeof(message), format, 4);
 
     int timestamp = GetTime();
+    char sanitizedMsg[512];
     char escapedMsg[512];
-    SQL_EscapeString(g_hFiltersDb, message, escapedMsg, sizeof(escapedMsg));
+    Filters_SanitizeDbMessage(message, sanitizedMsg, sizeof(sanitizedMsg));
+    SQL_EscapeString(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg));
     char localIp[64];
     int localPort;
     Filters_GetLocalHostStamp(localIp, sizeof(localIp), localPort);
@@ -2437,8 +2449,10 @@ public Action Command_WebSay(int client, int args)
     // Log web message
     if (g_bDbReady)
     {
+        char sanitizedMsg[512];
         char escapedMsg[512];
-        SQL_EscapeString(g_hFiltersDb, msgPart, escapedMsg, sizeof(escapedMsg));
+        Filters_SanitizeDbMessage(msgPart, sanitizedMsg, sizeof(sanitizedMsg));
+        SQL_EscapeString(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg));
         char query[1024];
         Format(query, sizeof(query),
             "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, NULL, NULL, '%s', '%s', 1)",
