@@ -793,12 +793,12 @@ public void SQL_OnPersistentImmunityToggled(Database db, DBResultSet results, co
     {
         if (wasImmune)
         {
-            CPrintToChatAll("{lightgreen}[Server]{default} {teamcolor}%N{default} is no longer persistently autobalance-immune.", target);
+            CPrintToChatAllEx(target, "{lightgreen}[Server]{default} {teamcolor}%N{default} is no longer persistently autobalance-immune.", target);
             LogBalance("Persistent immunity removed by %N from %N", actor, target);
         }
         else
         {
-            CPrintToChatAll("{lightgreen}[Server]{default} {teamcolor}%N{default} is now persistently autobalance-immune.", target);
+            CPrintToChatAllEx(target, "{lightgreen}[Server]{default} {teamcolor}%N{default} is now persistently autobalance-immune.", target);
             LogBalance("Persistent immunity applied by %N to %N", actor, target);
         }
         return;
