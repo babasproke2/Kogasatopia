@@ -16,6 +16,7 @@ native int FilterAlerts_MarkAutobalance(int client);
 #define TEAM_GREEN          4
 #define TEAM_YELLOW         5
 #define GAME_TEAM_COUNT     4
+#define MEDIC_AUTOBALANCE_UBER_FLOOR 0.05
 
 static const int g_GameTeams[GAME_TEAM_COUNT] =
 {
@@ -224,8 +225,8 @@ public Action Timer_Autobalance(Handle timer)
     // Candidate selection.
     //
     // If forceBalance is active (diff > threshold), switch immediately:
-    // pick from any human on the oversized team, regardless of alive
-    // state or immunity.
+    // pick from any eligible human on the oversized team, regardless of
+    // alive state.
     //
     // Otherwise keep normal two-pass selection:
     //  Pass 1 (strict)    : dead, below-average score, non-Engi/Medic
@@ -442,6 +443,7 @@ static bool IsEligiblePlayer(int client, int team)
     if (client <= 0 || client > MaxClients) return false;
     if (!IsClientInGame(client) || IsFakeClient(client)) return false;
     if (GetClientTeam(client) != team) return false;
+    if (IsMedicWithProtectedUber(client)) return false;
     if (IsClientImmune(client)) return false;
     if (HasClanTeammateProtection(client, team)) return false;
     if (IsClientCurrentRoundMvpSafe(client)) return false;
@@ -454,11 +456,34 @@ static bool IsEligiblePlayerForce(int client, int team)
     if (client <= 0 || client > MaxClients) return false;
     if (!IsClientInGame(client) || IsFakeClient(client)) return false;
     if (GetClientTeam(client) != team) return false;
+    if (IsMedicWithProtectedUber(client)) return false;
     if (IsClientImmune(client)) return false;
     if (HasClanTeammateProtection(client, team)) return false;
     if (IsClientCurrentRoundMvpSafe(client)) return false;
 
     return true;
+}
+
+static bool IsMedicWithProtectedUber(int client)
+{
+    if (TF2_GetPlayerClass(client) != TFClass_Medic)
+    {
+        return false;
+    }
+
+    int medigun = GetPlayerWeaponSlot(client, 1);
+    if (medigun <= MaxClients || !IsValidEntity(medigun))
+    {
+        return false;
+    }
+
+    if (!HasEntProp(medigun, Prop_Send, "m_flChargeLevel"))
+    {
+        return false;
+    }
+
+    // m_flChargeLevel is normalized: 0.05 is 5% uber.
+    return GetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel") > MEDIC_AUTOBALANCE_UBER_FLOOR;
 }
 
 static bool IsClientCurrentRoundMvpSafe(int client)
