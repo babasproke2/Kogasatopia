@@ -239,7 +239,7 @@ public Action Timer_Autobalance(Handle timer)
     // alive state.
     //
     // Volunteer selection runs before normal candidate filters. Volunteers
-    // still keep medic uber, clan, and MVP protection.
+    // still keep medic uber and MVP protection.
     //
     // Otherwise keep normal two-pass selection:
     //  Pass 1 (strict)    : dead, below-average score, non-Engi/Medic
@@ -586,7 +586,6 @@ static bool IsVolunteerCandidate(int client, int team)
     if (!IsClientVolunteer(client)) return false;
     if (IsClientMapImmune(client)) return false;
     if (IsMedicWithProtectedUber(client)) return false;
-    if (HasClanTeammateProtection(client, team)) return false;
     if (IsClientCurrentRoundMvpSafe(client)) return false;
 
     return true;
