@@ -1165,7 +1165,7 @@ static bool ValidateClanTagText(const char[] text, bool allowFormatting)
             return false;
         }
 
-        if (!allowFormatting && (ch == '{' || ch == '}' || ch == '[' || ch == ']'))
+        if (!allowFormatting && (ch == '[' || ch == ']'))
         {
             return false;
         }
@@ -7346,7 +7346,7 @@ public void SQL_OnClanInviteCreated(Database db, DBResultSet results, const char
     {
         char inviterName[MAX_NAME_LENGTH];
         ResolvePlayerDisplayName(inviterSteam, inviterName, sizeof(inviterName));
-        PrintToChat(target, "[Clans] %s has invited you to clan %s!", inviterName, clanName);
+        PrintToChat(target, "[Clans] %s has invited you to clan %s! Type !accept to accept the invite.", inviterName, clanName);
     }
 
     char inviterName[MAX_NAME_LENGTH * 2];
@@ -7991,7 +7991,7 @@ public void SQL_OnClanTagContext(Database db, DBResultSet results, const char[] 
 
     if (!IsSafeClanTagText(rawTag))
     {
-        PrintToChat(client, "[Clans] Tags may not contain control characters or formatting delimiters.");
+        PrintToChat(client, "[Clans] Tags may not contain control characters, pipes, or square brackets.");
         return;
     }
 
@@ -8130,7 +8130,7 @@ public void SQL_OnClanSubTagContext(Database db, DBResultSet results, const char
 
     if (!IsSafeClanTagText(rawTag))
     {
-        PrintToChat(client, "[Clans] Tags may not contain control characters or formatting delimiters.");
+        PrintToChat(client, "[Clans] Tags may not contain control characters, pipes, or square brackets.");
         return;
     }
 
