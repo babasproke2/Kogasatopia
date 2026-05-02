@@ -55,6 +55,7 @@ int g_iActiveSurrenderTeam = 0;
 bool scrambleCooldown = false;
 NativeVote g_hVote = null;
 Handle g_hScrambleCooldownTimer = null;
+Handle g_hAutoScrambleTimer = null;
 ConVar g_hLogEnabled = null;
 ConVar g_hAutoRounds = null;
 ConVar g_hVoteTime = null;
@@ -70,6 +71,7 @@ StringMap g_hScrambleImmunity = null;
 #define MAX_TOP_SWAP  4
 #define MAX_RANDOM_SWAP  5
 #define MAX_SWAP_BUFFER  MAX_RANDOM_SWAP
+#define AUTO_SCRAMBLE_DELAY 3.0
 
 public Plugin myinfo =
 {
@@ -146,6 +148,7 @@ public void OnMapStart()
 {
     ResetVotes();
     ClearScrambleCooldown();
+    ClearAutoScrambleTimer();
     g_iRoundsSinceAuto = 0;
     if (g_hScrambleImmunity != null)
     {
@@ -158,6 +161,7 @@ public void OnMapEnd()
 {
     ResetVotes();
     ClearScrambleCooldown();
+    ClearAutoScrambleTimer();
     g_iRoundsSinceAuto = 0;
     LogWhale("Map end: votes reset.");
 }
@@ -166,6 +170,7 @@ public void OnPluginEnd()
 {
     ResetVotes();
     ClearScrambleCooldown();
+    ClearAutoScrambleTimer();
     LogWhale("Plugin ended.");
 }
 
@@ -296,10 +301,14 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
         return;
     }
 
-    if (StartAutoScramble(true))
+    if (g_hAutoScrambleTimer != null)
     {
-        g_iRoundsSinceAuto = 0;
+        LogWhale("Auto scramble already pending.");
+        return;
     }
+
+    g_hAutoScrambleTimer = CreateTimer(AUTO_SCRAMBLE_DELAY, Timer_StartAutoScramble, _, TIMER_FLAG_NO_MAPCHANGE);
+    LogWhale("Auto scramble scheduled in %.1f seconds.", AUTO_SCRAMBLE_DELAY);
 }
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
@@ -715,6 +724,17 @@ static bool StartAutoScramble(bool suppressFeedback)
     return StartConfiguredWhaleScramble(0, !suppressFeedback, false, false);
 }
 
+public Action Timer_StartAutoScramble(Handle timer)
+{
+    if (timer == g_hAutoScrambleTimer)
+    {
+        g_hAutoScrambleTimer = null;
+    }
+
+    StartAutoScramble(true);
+    return Plugin_Stop;
+}
+
 static bool StartConfiguredWhaleScramble(int issuer, bool broadcastFailures, bool allowLowPop, bool forced)
 {
     if (g_hTopSwap != null && g_hTopSwap.BoolValue)
@@ -949,6 +969,15 @@ static void ClearScrambleCooldown()
     {
         delete g_hScrambleCooldownTimer;
         g_hScrambleCooldownTimer = null;
+    }
+}
+
+static void ClearAutoScrambleTimer()
+{
+    if (g_hAutoScrambleTimer != null)
+    {
+        delete g_hAutoScrambleTimer;
+        g_hAutoScrambleTimer = null;
     }
 }
 
@@ -1449,11 +1478,11 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
             int b = pairB[i];
             if (r > 0 && IsClientInGame(r))
             {
-                PrintHintText(r, "You have been WhaleScrambled!");
+                PrintCenterText(r, "You have been scrambled!");
             }
             if (b > 0 && IsClientInGame(b))
             {
-                PrintHintText(b, "You have been WhaleScrambled!");
+                PrintCenterText(b, "You have been scrambled!");
             }
         }
     }
