@@ -28,9 +28,10 @@ static const int g_GameTeams[GAME_TEAM_COUNT] =
 
 StringMap g_hMapImmunity = null;            // SteamID64 set for map-long immunity.
 StringMap g_hPersistentImmunity = null;     // SteamID64 set for persistent admin immunity.
-StringMap g_hVolunteers = null;             // SteamID64 set for players volunteering for autobalance.
+StringMap g_hVolunteers = null;             // SteamID64 set for persistent autobalance volunteers.
 Database  g_hImmunityDb = null;
 bool      g_bImmunityDbReady = false;
+bool      g_bVolunteerDbReady = false;
 ConVar  g_hLogEnabled;
 ConVar  g_hDiffThreshold;
 ConVar  g_hSimpleSelection;
@@ -96,16 +97,6 @@ public void OnMapStart()
     {
         g_hMapImmunity.Clear();
     }
-
-    if (g_hVolunteers != null)
-    {
-        g_hVolunteers.Clear();
-    }
-}
-
-public void OnClientDisconnect(int client)
-{
-    SetClientVolunteer(client, false);
 }
 
 public void OnPluginEnd()
@@ -460,7 +451,6 @@ public Action Timer_Autobalance(Handle timer)
     ChangeClientTeam(pick, smallestTeam);
     TF2_RespawnPlayer(pick);
     SetClientMapImmunity(pick, true);
-    SetClientVolunteer(pick, false);
 
     CPrintToChatAllEx(
         pick,
@@ -594,6 +584,7 @@ static bool IsVolunteerCandidate(int client, int team)
     if (!IsClientInGame(client) || IsFakeClient(client)) return false;
     if (GetClientTeam(client) != team) return false;
     if (!IsClientVolunteer(client)) return false;
+    if (IsClientMapImmune(client)) return false;
     if (IsMedicWithProtectedUber(client)) return false;
     if (HasClanTeammateProtection(client, team)) return false;
     if (IsClientCurrentRoundMvpSafe(client)) return false;
@@ -712,17 +703,11 @@ static bool IsClientVolunteer(int client)
     return g_hVolunteers.GetValue(steamId, dummy);
 }
 
-static bool SetClientVolunteer(int client, bool volunteer)
+static void SetPersistentVolunteerCache(const char[] steamId, bool volunteer)
 {
-    if (g_hVolunteers == null || client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
+    if (g_hVolunteers == null || !steamId[0])
     {
-        return false;
-    }
-
-    char steamId[32];
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
-    {
-        return false;
+        return;
     }
 
     if (volunteer)
@@ -733,7 +718,6 @@ static bool SetClientVolunteer(int client, bool volunteer)
     {
         g_hVolunteers.Remove(steamId);
     }
-    return true;
 }
 
 static void ConnectImmunityDatabase()
@@ -758,6 +742,7 @@ public void SQL_OnImmunityDatabaseConnected(Database db, const char[] error, any
 
     g_hImmunityDb = db;
     g_bImmunityDbReady = false;
+    g_bVolunteerDbReady = false;
 
     if (!g_hImmunityDb.SetCharset("utf8mb4"))
     {
@@ -785,6 +770,11 @@ public void SQL_OnImmunitySchemaReady(Database db, DBResultSet results, const ch
 
     g_hImmunityDb.Query(SQL_OnPersistentImmunityLoaded,
         "SELECT steamid64 FROM autobalance_immunity WHERE immune != 0");
+
+    g_hImmunityDb.Query(SQL_OnVolunteerSchemaReady,
+        "CREATE TABLE IF NOT EXISTS autobalance_volunteers ("
+        ... "steamid64 VARCHAR(32) NOT NULL PRIMARY KEY, "
+        ... "volunteer TINYINT(1) NOT NULL DEFAULT 1)");
 }
 
 public void SQL_OnPersistentImmunityLoaded(Database db, DBResultSet results, const char[] error, any data)
@@ -823,6 +813,59 @@ public void SQL_OnPersistentImmunityLoaded(Database db, DBResultSet results, con
     g_bImmunityDbReady = true;
 }
 
+public void SQL_OnVolunteerSchemaReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0])
+    {
+        LogError("[autobalance_4teams] Volunteer schema creation failed: %s", error);
+        return;
+    }
+
+    if (g_hVolunteers != null)
+    {
+        g_hVolunteers.Clear();
+    }
+
+    g_hImmunityDb.Query(SQL_OnPersistentVolunteersLoaded,
+        "SELECT steamid64 FROM autobalance_volunteers WHERE volunteer != 0");
+}
+
+public void SQL_OnPersistentVolunteersLoaded(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0])
+    {
+        LogError("[autobalance_4teams] Persistent volunteer preload failed: %s", error);
+        return;
+    }
+
+    if (g_hVolunteers == null)
+    {
+        g_hVolunteers = new StringMap();
+    }
+    else
+    {
+        g_hVolunteers.Clear();
+    }
+
+    if (results != null)
+    {
+        char steamId[32];
+        while (results.FetchRow())
+        {
+            results.FetchString(0, steamId, sizeof(steamId));
+            TrimString(steamId);
+            if (!steamId[0])
+            {
+                continue;
+            }
+
+            g_hVolunteers.SetValue(steamId, 1, true);
+        }
+    }
+
+    g_bVolunteerDbReady = true;
+}
+
 static void AB_EscapeSql(const char[] input, char[] output, int maxlen)
 {
     output[0] = '\0';
@@ -842,6 +885,12 @@ static void AB_EscapeSql(const char[] input, char[] output, int maxlen)
 
 public Action Command_Volunteer(int client, int args)
 {
+    if (g_hImmunityDb == null || !g_bVolunteerDbReady)
+    {
+        ReplyToCommand(client, "[autobalance_4teams] Persistent volunteer database is not ready.");
+        return Plugin_Handled;
+    }
+
     int target = client;
     bool targetChangedByAdmin = false;
 
@@ -879,34 +928,110 @@ public Action Command_Volunteer(int client, int args)
     }
 
     bool wasVolunteer = IsClientVolunteer(target);
-    bool nowVolunteer = !wasVolunteer;
-    if (!SetClientVolunteer(target, nowVolunteer))
+
+    char steamId[32];
+    if (!GetClientAuthId(target, AuthId_SteamID64, steamId, sizeof(steamId)))
     {
-        ReplyToCommand(client, "[autobalance_4teams] Failed to toggle volunteer status for %N.", target);
+        ReplyToCommand(client, "[autobalance_4teams] Failed to read SteamID64 for %N.", target);
         return Plugin_Handled;
     }
 
+    char escapedSteam[64];
+    AB_EscapeSql(steamId, escapedSteam, sizeof(escapedSteam));
+
+    char query[256];
+    if (wasVolunteer)
+    {
+        FormatEx(query, sizeof(query),
+            "DELETE FROM autobalance_volunteers WHERE steamid64 = '%s'",
+            escapedSteam);
+    }
+    else
+    {
+        FormatEx(query, sizeof(query),
+            "REPLACE INTO autobalance_volunteers (steamid64, volunteer) VALUES ('%s', 1)",
+            escapedSteam);
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteCell((client > 0) ? GetClientUserId(client) : 0);
+    pack.WriteCell(GetClientUserId(target));
+    pack.WriteCell(wasVolunteer ? 1 : 0);
+    pack.WriteCell(targetChangedByAdmin ? 1 : 0);
+    pack.WriteString(steamId);
+
+    g_hImmunityDb.Query(SQL_OnPersistentVolunteerToggled, query, pack);
+    return Plugin_Handled;
+}
+
+public void SQL_OnPersistentVolunteerToggled(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+
+    int actorUserId = pack.ReadCell();
+    int targetUserId = pack.ReadCell();
+    bool wasVolunteer = (pack.ReadCell() != 0);
+    bool targetChangedByAdmin = (pack.ReadCell() != 0);
+    char steamId[32];
+    pack.ReadString(steamId, sizeof(steamId));
+    delete pack;
+
+    int actor = (actorUserId > 0) ? GetClientOfUserId(actorUserId) : 0;
+    int target = GetClientOfUserId(targetUserId);
+    bool nowVolunteer = !wasVolunteer;
+
+    if (error[0])
+    {
+        if (actorUserId == 0 || (actor > 0 && IsClientInGame(actor)))
+        {
+            ReplyToCommand(actor, "[autobalance_4teams] Failed to toggle persistent volunteer status.");
+        }
+
+        LogError("[autobalance_4teams] Persistent volunteer toggle failed for %s: %s", steamId, error);
+        return;
+    }
+
+    SetPersistentVolunteerCache(steamId, nowVolunteer);
+
     if (targetChangedByAdmin)
     {
-        ReplyToCommand(client,
-            nowVolunteer
-                ? "[autobalance_4teams] %N is now volunteering for autobalance."
-                : "[autobalance_4teams] %N is no longer volunteering for autobalance.",
-            target);
-        PrintToChat(target,
-            nowVolunteer
-                ? "[autobalance_4teams] You are now volunteering for autobalance."
-                : "[autobalance_4teams] You are no longer volunteering for autobalance.");
+        if (actorUserId == 0 || (actor > 0 && IsClientInGame(actor)))
+        {
+            if (target > 0 && IsClientInGame(target))
+            {
+                ReplyToCommand(actor,
+                    nowVolunteer
+                        ? "[autobalance_4teams] %N is now persistently volunteering for autobalance."
+                        : "[autobalance_4teams] %N is no longer persistently volunteering for autobalance.",
+                    target);
+            }
+            else
+            {
+                ReplyToCommand(actor,
+                    nowVolunteer
+                        ? "[autobalance_4teams] Persistent autobalance volunteer status applied."
+                        : "[autobalance_4teams] Persistent autobalance volunteer status removed.");
+            }
+        }
 
-        if (client > 0)
+        if (target > 0 && IsClientInGame(target))
+        {
+            PrintToChat(target,
+                nowVolunteer
+                    ? "[autobalance_4teams] You are now persistently volunteering for autobalance."
+                    : "[autobalance_4teams] You are no longer persistently volunteering for autobalance.");
+        }
+
+        if (actor > 0 && IsClientInGame(actor) && target > 0 && IsClientInGame(target))
         {
             LogBalance(
                 nowVolunteer
                     ? "Volunteer status applied by %N to %N"
                     : "Volunteer status removed by %N from %N",
-                client, target);
+                actor, target);
         }
-        else
+        else if (target > 0 && IsClientInGame(target))
         {
             LogBalance(
                 nowVolunteer
@@ -914,21 +1039,29 @@ public Action Command_Volunteer(int client, int args)
                     : "Volunteer status removed by console from %N",
                 target);
         }
+        else
+        {
+            LogBalance(
+                nowVolunteer
+                    ? "Volunteer status applied for %s"
+                    : "Volunteer status removed for %s",
+                steamId);
+        }
+        return;
     }
-    else
+
+    if (target > 0 && IsClientInGame(target))
     {
-        ReplyToCommand(client,
+        ReplyToCommand(target,
             nowVolunteer
-                ? "[autobalance_4teams] You are now volunteering for autobalance."
-                : "[autobalance_4teams] You are no longer volunteering for autobalance.");
+                ? "[autobalance_4teams] You are now persistently volunteering for autobalance."
+                : "[autobalance_4teams] You are no longer persistently volunteering for autobalance.");
         LogBalance(
             nowVolunteer
                 ? "%N volunteered for autobalance"
                 : "%N stopped volunteering for autobalance",
             target);
     }
-
-    return Plugin_Handled;
 }
 
 public Action Command_Immune(int client, int args)
