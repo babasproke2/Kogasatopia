@@ -28,6 +28,7 @@ static const int g_GameTeams[GAME_TEAM_COUNT] =
 
 StringMap g_hMapImmunity = null;            // SteamID64 set for map-long immunity.
 StringMap g_hPersistentImmunity = null;     // SteamID64 set for persistent admin immunity.
+StringMap g_hVolunteers = null;             // SteamID64 set for players volunteering for autobalance.
 Database  g_hImmunityDb = null;
 bool      g_bImmunityDbReady = false;
 ConVar  g_hLogEnabled;
@@ -70,10 +71,12 @@ public void OnPluginStart()
     g_hSimpleSelection = CreateConVar("sm_autobalance_simple_selection", "1", "If enabled, autobalance prefers the most recently joined dead non-Engineer on the oversized team, then falls back to lower-priority eligible players by userID.", _, true, 0.0, true, 1.0);
     g_hDatabaseConfig = CreateConVar("sm_autobalance_database", "default", "Database config name from databases.cfg to use for persistent autobalance immunity.");
     RegAdminCmd("sm_immune", Command_Immune, ADMFLAG_GENERIC, "sm_immune <name> - Toggle persistent autobalance immunity for a player.");
+    RegConsoleCmd("sm_volunteer", Command_Volunteer, "sm_volunteer [name] - Toggle autobalance volunteer status.");
     BuildPath(Path_SM, g_sLogPath, sizeof(g_sLogPath), "logs/autobalance.log");
     LogToFileEx(g_sLogPath, "[autobalance_4teams] Plugin started.");
     g_hMapImmunity = new StringMap();
     g_hPersistentImmunity = new StringMap();
+    g_hVolunteers = new StringMap();
 
     ApplyServerBalanceCvars(true);
     ConnectImmunityDatabase();
@@ -93,6 +96,16 @@ public void OnMapStart()
     {
         g_hMapImmunity.Clear();
     }
+
+    if (g_hVolunteers != null)
+    {
+        g_hVolunteers.Clear();
+    }
+}
+
+public void OnClientDisconnect(int client)
+{
+    SetClientVolunteer(client, false);
 }
 
 public void OnPluginEnd()
@@ -121,6 +134,12 @@ public void OnPluginEnd()
     {
         delete g_hPersistentImmunity;
         g_hPersistentImmunity = null;
+    }
+
+    if (g_hVolunteers != null)
+    {
+        delete g_hVolunteers;
+        g_hVolunteers = null;
     }
 }
 
@@ -228,6 +247,9 @@ public Action Timer_Autobalance(Handle timer)
     // pick from any eligible human on the oversized team, regardless of
     // alive state.
     //
+    // Volunteer selection runs before normal candidate filters. Volunteers
+    // still keep medic uber, clan, and MVP protection.
+    //
     // Otherwise keep normal two-pass selection:
     //  Pass 1 (strict)    : dead, below-average score, non-Engi/Medic
     //  Pass 2 (relax s/a) : any alive/score state, non-Engi/Medic
@@ -235,181 +257,199 @@ public Action Timer_Autobalance(Handle timer)
 
     int totalScore   = 0;
     int totalPlayers = 0;
-
-    for (int i = 1; i <= MaxClients; i++)
-    {
-        if (!(forceBalance ? IsEligiblePlayerForce(i, biggestTeam) : IsEligiblePlayer(i, biggestTeam)))
-        {
-            continue;
-        }
-
-        totalScore += GetClientScore(i);
-        totalPlayers++;
-    }
-
-    if (totalPlayers == 0)
-    {
-        int immuneCount = 0;
-        for (int i = 1; i <= MaxClients; i++)
-        {
-            if (!IsClientInGame(i) || IsFakeClient(i) || GetClientTeam(i) != biggestTeam) continue;
-            if (IsClientImmune(i)) immuneCount++;
-        }
-
-        LogBalance(
-            "Skip balance on %s: no eligible players (force=%d, teamPlayers=%d, immune=%d)",
-            fromTeamName, forceBalance ? 1 : 0, biggestCount, immuneCount
-        );
-        return Plugin_Continue;
-    }
-
-    float avg = float(totalScore) / float(totalPlayers);
+    float avg = 0.0;
     int pick = 0;
     int candidateCount = 0;
     bool simpleSelection = (g_hSimpleSelection != null && g_hSimpleSelection.BoolValue);
+    bool volunteerSelection = false;
 
-    if (simpleSelection)
+    int volunteerNonMedicCount = 0;
+    int volunteerMedicCount = 0;
+    pick = SelectVolunteerPlayer(biggestTeam, volunteerNonMedicCount, volunteerMedicCount);
+    if (pick > 0)
     {
-        pick = SelectPreferredRecentPlayer(biggestTeam);
-        candidateCount = (pick > 0) ? 1 : 0;
-        if (pick <= 0)
-        {
-            LogBalance(
-                "Skip balance on %s: simple selection found no eligible candidates (eligible=%d)",
-                fromTeamName, totalPlayers
-            );
-            return Plugin_Continue;
-        }
+        volunteerSelection = true;
+        candidateCount = (volunteerNonMedicCount > 0) ? volunteerNonMedicCount : volunteerMedicCount;
+
+        LogBalance(
+            "Volunteer priority on %s: picked %N from %d non-medic and %d medic volunteer candidates",
+            fromTeamName, pick, volunteerNonMedicCount, volunteerMedicCount
+        );
     }
     else
     {
-        int candidates[MAXPLAYERS];
-
-        if (forceBalance)
+        for (int i = 1; i <= MaxClients; i++)
         {
+            if (!(forceBalance ? IsEligiblePlayerForce(i, biggestTeam) : IsEligiblePlayer(i, biggestTeam)))
+            {
+                continue;
+            }
+
+            totalScore += GetClientScore(i);
+            totalPlayers++;
+        }
+
+        if (totalPlayers == 0)
+        {
+            int immuneCount = 0;
             for (int i = 1; i <= MaxClients; i++)
             {
-                if (!IsEligiblePlayerForce(i, biggestTeam)) continue;
+                if (!IsClientInGame(i) || IsFakeClient(i) || GetClientTeam(i) != biggestTeam) continue;
+                if (IsClientImmune(i)) immuneCount++;
+            }
 
-                candidates[candidateCount++] = i;
+            LogBalance(
+                "Skip balance on %s: no eligible players (force=%d, teamPlayers=%d, immune=%d)",
+                fromTeamName, forceBalance ? 1 : 0, biggestCount, immuneCount
+            );
+            return Plugin_Continue;
+        }
+
+        avg = float(totalScore) / float(totalPlayers);
+
+        if (simpleSelection)
+        {
+            pick = SelectPreferredRecentPlayer(biggestTeam);
+            candidateCount = (pick > 0) ? 1 : 0;
+            if (pick <= 0)
+            {
+                LogBalance(
+                    "Skip balance on %s: simple selection found no eligible candidates (eligible=%d)",
+                    fromTeamName, totalPlayers
+                );
+                return Plugin_Continue;
             }
         }
         else
         {
-            // Pass 1: strict — dead, below average, no Engi/Medic.
-            for (int i = 1; i <= MaxClients; i++)
+            int candidates[MAXPLAYERS];
+
+            if (forceBalance)
             {
-                if (!IsEligiblePlayer(i, biggestTeam)) continue;
+                for (int i = 1; i <= MaxClients; i++)
+                {
+                    if (!IsEligiblePlayerForce(i, biggestTeam)) continue;
 
-                TFClassType cls = TF2_GetPlayerClass(i);
-                if (cls == TFClass_Engineer || cls == TFClass_Medic) continue;
-                if (IsPlayerAlive(i)) continue;
-                if (float(GetClientScore(i)) >= avg) continue;
-
-                candidates[candidateCount++] = i;
+                    candidates[candidateCount++] = i;
+                }
             }
-
-            // Pass 2: relax score/alive, still exclude Engi/Medic.
-            if (candidateCount == 0)
+            else
             {
+                // Pass 1: strict — dead, below average, no Engi/Medic.
                 for (int i = 1; i <= MaxClients; i++)
                 {
                     if (!IsEligiblePlayer(i, biggestTeam)) continue;
 
                     TFClassType cls = TF2_GetPlayerClass(i);
                     if (cls == TFClass_Engineer || cls == TFClass_Medic) continue;
+                    if (IsPlayerAlive(i)) continue;
+                    if (float(GetClientScore(i)) >= avg) continue;
 
                     candidates[candidateCount++] = i;
                 }
-            }
-        }
 
-        if (candidateCount == 0)
-        {
-            if (forceBalance)
-            {
-                LogBalance(
-                    "Skip balance on %s: force mode had zero candidates (teamPlayers=%d, eligible=%d)",
-                    fromTeamName, biggestCount, totalPlayers
-                );
-            }
-            else
-            {
-                int classExcluded = 0;
-                int aliveFiltered = 0;
-                int scoreFiltered = 0;
-                int strictWouldPass = 0;
-
-                for (int i = 1; i <= MaxClients; i++)
+                // Pass 2: relax score/alive, still exclude Engi/Medic.
+                if (candidateCount == 0)
                 {
-                    if (!IsEligiblePlayer(i, biggestTeam)) continue;
-
-                    TFClassType cls = TF2_GetPlayerClass(i);
-                    if (cls == TFClass_Engineer || cls == TFClass_Medic)
+                    for (int i = 1; i <= MaxClients; i++)
                     {
-                        classExcluded++;
-                        continue;
+                        if (!IsEligiblePlayer(i, biggestTeam)) continue;
+
+                        TFClassType cls = TF2_GetPlayerClass(i);
+                        if (cls == TFClass_Engineer || cls == TFClass_Medic) continue;
+
+                        candidates[candidateCount++] = i;
+                    }
+                }
+            }
+
+            if (candidateCount == 0)
+            {
+                if (forceBalance)
+                {
+                    LogBalance(
+                        "Skip balance on %s: force mode had zero candidates (teamPlayers=%d, eligible=%d)",
+                        fromTeamName, biggestCount, totalPlayers
+                    );
+                }
+                else
+                {
+                    int classExcluded = 0;
+                    int aliveFiltered = 0;
+                    int scoreFiltered = 0;
+                    int strictWouldPass = 0;
+
+                    for (int i = 1; i <= MaxClients; i++)
+                    {
+                        if (!IsEligiblePlayer(i, biggestTeam)) continue;
+
+                        TFClassType cls = TF2_GetPlayerClass(i);
+                        if (cls == TFClass_Engineer || cls == TFClass_Medic)
+                        {
+                            classExcluded++;
+                            continue;
+                        }
+
+                        bool alive = IsPlayerAlive(i);
+                        bool highScore = float(GetClientScore(i)) >= avg;
+
+                        if (alive) aliveFiltered++;
+                        if (highScore) scoreFiltered++;
+                        if (!alive && !highScore) strictWouldPass++;
                     }
 
-                    bool alive = IsPlayerAlive(i);
-                    bool highScore = float(GetClientScore(i)) >= avg;
-
-                    if (alive) aliveFiltered++;
-                    if (highScore) scoreFiltered++;
-                    if (!alive && !highScore) strictWouldPass++;
+                    LogBalance(
+                        "Skip balance on %s: no candidates (avg=%.2f eligible=%d classExcluded=%d aliveFiltered=%d scoreFiltered=%d strictPass=%d)",
+                        fromTeamName, avg, totalPlayers, classExcluded, aliveFiltered, scoreFiltered, strictWouldPass
+                    );
                 }
-
-                LogBalance(
-                    "Skip balance on %s: no candidates (avg=%.2f eligible=%d classExcluded=%d aliveFiltered=%d scoreFiltered=%d strictPass=%d)",
-                    fromTeamName, avg, totalPlayers, classExcluded, aliveFiltered, scoreFiltered, strictWouldPass
-                );
+                return Plugin_Continue;
             }
-            return Plugin_Continue;
-        }
 
-        // Weight selection toward lowest-scoring candidates.
-        // Build a cumulative-weight array where each candidate's weight is
-        // (maxScore - score + 1) so the lowest scorer is most likely.
-        int maxScore = 0;
-        for (int i = 0; i < candidateCount; i++)
-        {
-            int s = GetClientScore(candidates[i]);
-            if (s > maxScore) maxScore = s;
-        }
-
-        int weights[MAXPLAYERS];
-        int totalWeight = 0;
-        for (int i = 0; i < candidateCount; i++)
-        {
-            weights[i]   = maxScore - GetClientScore(candidates[i]) + 1;
-            totalWeight += weights[i];
-        }
-
-        int roll = GetRandomInt(0, totalWeight - 1);
-        pick = candidates[0];
-        int running = 0;
-        for (int i = 0; i < candidateCount; i++)
-        {
-            running += weights[i];
-            if (roll < running)
+            // Weight selection toward lowest-scoring candidates.
+            // Build a cumulative-weight array where each candidate's weight is
+            // (maxScore - score + 1) so the lowest scorer is most likely.
+            int maxScore = 0;
+            for (int i = 0; i < candidateCount; i++)
             {
-                pick = candidates[i];
-                break;
+                int s = GetClientScore(candidates[i]);
+                if (s > maxScore) maxScore = s;
+            }
+
+            int weights[MAXPLAYERS];
+            int totalWeight = 0;
+            for (int i = 0; i < candidateCount; i++)
+            {
+                weights[i]   = maxScore - GetClientScore(candidates[i]) + 1;
+                totalWeight += weights[i];
+            }
+
+            int roll = GetRandomInt(0, totalWeight - 1);
+            pick = candidates[0];
+            int running = 0;
+            for (int i = 0; i < candidateCount; i++)
+            {
+                running += weights[i];
+                if (roll < running)
+                {
+                    pick = candidates[i];
+                    break;
+                }
             }
         }
     }
 
     LogBalance(
-        "Autobalancing %N (%d) from %s to %s. score=%d avg=%.2f candidates=%d simple=%d",
+        "Autobalancing %N (%d) from %s to %s. score=%d avg=%.2f candidates=%d simple=%d volunteer=%d",
         pick, GetClientUserId(pick),
         fromTeamName, toTeamName,
-        GetClientScore(pick), avg, candidateCount, simpleSelection ? 1 : 0
+        GetClientScore(pick), avg, candidateCount, simpleSelection ? 1 : 0, volunteerSelection ? 1 : 0
     );
     PrintToServer(
-        "[autobalance_4teams] move %N (%d) %s -> %s | score=%d avg=%.2f candidates=%d simple=%d",
+        "[autobalance_4teams] move %N (%d) %s -> %s | score=%d avg=%.2f candidates=%d simple=%d volunteer=%d",
         pick, GetClientUserId(pick),
         fromTeamName, toTeamName,
-        GetClientScore(pick), avg, candidateCount, simpleSelection ? 1 : 0
+        GetClientScore(pick), avg, candidateCount, simpleSelection ? 1 : 0, volunteerSelection ? 1 : 0
     );
 
     if (GetFeatureStatus(FeatureType_Native, "FilterAlerts_MarkAutobalance") == FeatureStatus_Available)
@@ -420,6 +460,7 @@ public Action Timer_Autobalance(Handle timer)
     ChangeClientTeam(pick, smallestTeam);
     TF2_RespawnPlayer(pick);
     SetClientMapImmunity(pick, true);
+    SetClientVolunteer(pick, false);
 
     CPrintToChatAllEx(
         pick,
@@ -547,6 +588,53 @@ static int SelectPreferredRecentPlayer(int team)
     return pick;
 }
 
+static bool IsVolunteerCandidate(int client, int team)
+{
+    if (client <= 0 || client > MaxClients) return false;
+    if (!IsClientInGame(client) || IsFakeClient(client)) return false;
+    if (GetClientTeam(client) != team) return false;
+    if (!IsClientVolunteer(client)) return false;
+    if (IsMedicWithProtectedUber(client)) return false;
+    if (HasClanTeammateProtection(client, team)) return false;
+    if (IsClientCurrentRoundMvpSafe(client)) return false;
+
+    return true;
+}
+
+static int SelectVolunteerPlayer(int team, int &nonMedicCount, int &medicCount)
+{
+    int nonMedics[MAXPLAYERS];
+    int medics[MAXPLAYERS];
+    nonMedicCount = 0;
+    medicCount = 0;
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsVolunteerCandidate(i, team)) continue;
+
+        if (TF2_GetPlayerClass(i) == TFClass_Medic)
+        {
+            medics[medicCount++] = i;
+        }
+        else
+        {
+            nonMedics[nonMedicCount++] = i;
+        }
+    }
+
+    if (nonMedicCount > 0)
+    {
+        return nonMedics[GetRandomInt(0, nonMedicCount - 1)];
+    }
+
+    if (medicCount > 0)
+    {
+        return medics[GetRandomInt(0, medicCount - 1)];
+    }
+
+    return 0;
+}
+
 static bool IsClientImmune(int client)
 {
     return IsClientMapImmune(client) || IsClientPersistentlyImmune(client);
@@ -603,6 +691,47 @@ static bool SetClientMapImmunity(int client, bool immune)
     else
     {
         g_hMapImmunity.Remove(steamId);
+    }
+    return true;
+}
+
+static bool IsClientVolunteer(int client)
+{
+    if (g_hVolunteers == null || !IsClientInGame(client))
+    {
+        return false;
+    }
+
+    char steamId[32];
+    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+    {
+        return false;
+    }
+
+    int dummy = 0;
+    return g_hVolunteers.GetValue(steamId, dummy);
+}
+
+static bool SetClientVolunteer(int client, bool volunteer)
+{
+    if (g_hVolunteers == null || client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return false;
+    }
+
+    char steamId[32];
+    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+    {
+        return false;
+    }
+
+    if (volunteer)
+    {
+        g_hVolunteers.SetValue(steamId, 1, true);
+    }
+    else
+    {
+        g_hVolunteers.Remove(steamId);
     }
     return true;
 }
@@ -709,6 +838,97 @@ static void AB_EscapeSql(const char[] input, char[] output, int maxlen)
     {
         strcopy(output, maxlen, input);
     }
+}
+
+public Action Command_Volunteer(int client, int args)
+{
+    int target = client;
+    bool targetChangedByAdmin = false;
+
+    if (args >= 1)
+    {
+        if (client > 0 && !CheckCommandAccess(client, "sm_volunteer_target", ADMFLAG_GENERIC, true))
+        {
+            ReplyToCommand(client, "[autobalance_4teams] Usage: sm_volunteer");
+            return Plugin_Handled;
+        }
+
+        char targetArg[MAX_TARGET_LENGTH];
+        GetCmdArgString(targetArg, sizeof(targetArg));
+        TrimString(targetArg);
+
+        target = FindTarget(client, targetArg, true, false);
+        if (target <= 0)
+        {
+            return Plugin_Handled;
+        }
+
+        targetChangedByAdmin = (target != client);
+    }
+
+    if (target <= 0)
+    {
+        ReplyToCommand(client, "[autobalance_4teams] Usage: sm_volunteer [client name/substring]");
+        return Plugin_Handled;
+    }
+
+    if (!IsClientInGame(target) || IsFakeClient(target))
+    {
+        ReplyToCommand(client, "[autobalance_4teams] Invalid volunteer target.");
+        return Plugin_Handled;
+    }
+
+    bool wasVolunteer = IsClientVolunteer(target);
+    bool nowVolunteer = !wasVolunteer;
+    if (!SetClientVolunteer(target, nowVolunteer))
+    {
+        ReplyToCommand(client, "[autobalance_4teams] Failed to toggle volunteer status for %N.", target);
+        return Plugin_Handled;
+    }
+
+    if (targetChangedByAdmin)
+    {
+        ReplyToCommand(client,
+            nowVolunteer
+                ? "[autobalance_4teams] %N is now volunteering for autobalance."
+                : "[autobalance_4teams] %N is no longer volunteering for autobalance.",
+            target);
+        PrintToChat(target,
+            nowVolunteer
+                ? "[autobalance_4teams] You are now volunteering for autobalance."
+                : "[autobalance_4teams] You are no longer volunteering for autobalance.");
+
+        if (client > 0)
+        {
+            LogBalance(
+                nowVolunteer
+                    ? "Volunteer status applied by %N to %N"
+                    : "Volunteer status removed by %N from %N",
+                client, target);
+        }
+        else
+        {
+            LogBalance(
+                nowVolunteer
+                    ? "Volunteer status applied by console to %N"
+                    : "Volunteer status removed by console from %N",
+                target);
+        }
+    }
+    else
+    {
+        ReplyToCommand(client,
+            nowVolunteer
+                ? "[autobalance_4teams] You are now volunteering for autobalance."
+                : "[autobalance_4teams] You are no longer volunteering for autobalance.");
+        LogBalance(
+            nowVolunteer
+                ? "%N volunteered for autobalance"
+                : "%N stopped volunteering for autobalance",
+            target);
+    }
+
+    return Plugin_Handled;
 }
 
 public Action Command_Immune(int client, int args)
