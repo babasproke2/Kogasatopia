@@ -473,7 +473,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_colors", Command_Colors, "Show available chat colors");
     RegConsoleCmd("sm_colours", Command_Colors, "Show available chat colours");
     RegConsoleCmd("sm_prename", Command_Prename, "sm_prename <name_substring|steamid> <newname> (admins) or sm_prename <newname> (self)");
-    RegConsoleCmd("sm_reset", Command_PrenameReset, "sm_reset <name_substring|steamid> (admins) or sm_reset (self)");
+    RegConsoleCmd("sm_reset", Command_PrenameReset, "sm_reset <steamid> (admins) or sm_reset (self)");
     RegAdminCmd("sm_migrate", Command_PrenameMigrate, ADMFLAG_SLAY, "sm_migrate - Migrates legacy name rules to SteamID rules for connected clients");
 
     // Web chat relay
@@ -4221,68 +4221,26 @@ public Action Command_Prename(int client, int args)
         return Plugin_Handled;
     }
 
-    int matches = 0;
-    int target = 0;
-    char matchList[256];
-    matchList[0] = '\0';
-    char name[MAX_NAME_LENGTH];
-
-    for (int i = 1; i <= MaxClients; i++)
+    char targetName[MAX_NAME_LENGTH];
+    int target = Prename_FindSingleClientByName(client, patternRaw, targetName, sizeof(targetName));
+    if (target <= 0)
     {
-        if (!IsClientInGame(i) || IsFakeClient(i))
-        {
-            continue;
-        }
-
-        GetClientName(i, name, sizeof(name));
-        if (StrContains(name, patternRaw, false) == -1)
-        {
-            continue;
-        }
-
-        matches++;
-        if (target == 0)
-        {
-            target = i;
-        }
-
-        if (matchList[0] == '\0')
-        {
-            strcopy(matchList, sizeof(matchList), name);
-        }
-        else if (strlen(matchList) + strlen(name) + 2 < sizeof(matchList))
-        {
-            StrCat(matchList, sizeof(matchList), ", ");
-            StrCat(matchList, sizeof(matchList), name);
-        }
-    }
-
-    if (matches == 0)
-    {
-        ReplyToCommand(client, "[Kogasa] No client matches '%s'.", patternRaw);
-        return Plugin_Handled;
-    }
-
-    if (matches > 1)
-    {
-        ReplyToCommand(client, "[Kogasa] Multiple matches for '%s': %s", patternRaw, matchList);
         return Plugin_Handled;
     }
 
     char steam2[32], steam64[32], steamId[32];
     Prename_GetClientIds(target, steam2, sizeof(steam2), steam64, sizeof(steam64));
     Prename_GetPreferredClientId(steam64, steam2, steamId, sizeof(steamId));
-
     if (!steamId[0])
     {
-        ReplyToCommand(client, "[Kogasa] Failed to resolve SteamID for %s.", matchList);
+        ReplyToCommand(client, "[Kogasa] Failed to resolve SteamID for %s.", targetName);
         return Plugin_Handled;
     }
 
     Prename_SaveRule(steamId, newname);
     Prename_SetIdRuleCache(steamId, newname);
     SetClientName(target, newname);
-    ReplyToCommand(client, "[Kogasa] Prename rule saved: %s -> %s (%s)", matchList, newname, steamId);
+    ReplyToCommand(client, "[Kogasa] Prename rule saved: %s -> %s (%s)", targetName, newname, steamId);
     return Plugin_Handled;
 }
 
@@ -4314,7 +4272,7 @@ public Action Command_PrenameReset(int client, int args)
 
     if (args < 1)
     {
-        ReplyToCommand(client, "[Kogasa] Usage: sm_reset <name_substring|steamid>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_reset <steamid>");
         return Plugin_Handled;
     }
 
@@ -4324,56 +4282,38 @@ public Action Command_PrenameReset(int client, int args)
 
     if (!idRaw[0])
     {
-        ReplyToCommand(client, "[Kogasa] Usage: sm_reset <name_substring|steamid>");
+        ReplyToCommand(client, "[Kogasa] Usage: sm_reset <steamid>");
         return Plugin_Handled;
     }
 
     char steam2[32], steam64[32];
-    if (Prename_IsIdString(idRaw))
+    if (!Prename_IsIdString(idRaw))
     {
-        if (StrContains(idRaw, "STEAM_", false) == 0)
+        ReplyToCommand(client, "[Kogasa] Admin reset targets must be a SteamID64 or STEAM_ ID.");
+        return Plugin_Handled;
+    }
+
+    if (StrContains(idRaw, "STEAM_", false) == 0)
+    {
+        int match = Prename_FindClientBySteam2(idRaw);
+        if (match > 0)
         {
-            int match = Prename_FindClientBySteam2(idRaw);
-            if (match > 0)
+            Prename_GetClientIds(match, steam2, sizeof(steam2), steam64, sizeof(steam64));
+            char resolvedId[32];
+            Prename_GetPreferredClientId(steam64, steam2, resolvedId, sizeof(resolvedId));
+            if (resolvedId[0])
             {
-                Prename_GetClientIds(match, steam2, sizeof(steam2), steam64, sizeof(steam64));
-                char resolvedId[32];
-                Prename_GetPreferredClientId(steam64, steam2, resolvedId, sizeof(resolvedId));
-                if (resolvedId[0])
-                {
-                    Prename_DeleteRule(resolvedId);
-                    Prename_RemoveIdRuleCache(resolvedId);
-                    ReplyToCommand(client, "[Kogasa] Prename rule removed for '%s'", resolvedId);
-                    return Plugin_Handled;
-                }
+                Prename_DeleteRule(resolvedId);
+                Prename_RemoveIdRuleCache(resolvedId);
+                ReplyToCommand(client, "[Kogasa] Prename rule removed for '%s'", resolvedId);
+                return Plugin_Handled;
             }
         }
-
-        Prename_DeleteRule(idRaw);
-        Prename_RemoveIdRuleCache(idRaw);
-        ReplyToCommand(client, "[Kogasa] Prename rule removed for '%s'", idRaw);
-        return Plugin_Handled;
     }
 
-    char targetName[MAX_NAME_LENGTH];
-    int target = Prename_FindSingleClientByName(client, idRaw, targetName, sizeof(targetName));
-    if (target <= 0)
-    {
-        return Plugin_Handled;
-    }
-
-    char steamId[32];
-    Prename_GetClientIds(target, steam2, sizeof(steam2), steam64, sizeof(steam64));
-    Prename_GetPreferredClientId(steam64, steam2, steamId, sizeof(steamId));
-    if (!steamId[0])
-    {
-        ReplyToCommand(client, "[Kogasa] Failed to resolve SteamID for %s.", targetName);
-        return Plugin_Handled;
-    }
-
-    Prename_DeleteRule(steamId);
-    Prename_RemoveIdRuleCache(steamId);
-    ReplyToCommand(client, "[Kogasa] Prename rule removed for %s (%s).", targetName, steamId);
+    Prename_DeleteRule(idRaw);
+    Prename_RemoveIdRuleCache(idRaw);
+    ReplyToCommand(client, "[Kogasa] Prename rule removed for '%s'", idRaw);
     return Plugin_Handled;
 }
 
@@ -4608,6 +4548,31 @@ static bool Prename_FindBestOutputMatch(const char[] lowerName, char[] output, i
     return g_PrenameOutputMap.GetString(bestKey, output, outMax);
 }
 
+static int Prename_FindClientBySteam2(const char[] steam2)
+{
+    if (!steam2[0])
+    {
+        return -1;
+    }
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i) || IsFakeClient(i))
+        {
+            continue;
+        }
+
+        char id[32];
+        GetClientAuthId(i, AuthId_Steam2, id, sizeof(id), true);
+        if (StrEqual(id, steam2, false))
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
 static int Prename_FindSingleClientByName(int requester, const char[] patternRaw, char[] matchName, int matchMax)
 {
     char pattern[PRENAME_MAX_PATTERN];
@@ -4669,31 +4634,6 @@ static int Prename_FindSingleClientByName(int requester, const char[] patternRaw
     }
 
     return target;
-}
-
-static int Prename_FindClientBySteam2(const char[] steam2)
-{
-    if (!steam2[0])
-    {
-        return -1;
-    }
-
-    for (int i = 1; i <= MaxClients; i++)
-    {
-        if (!IsClientInGame(i) || IsFakeClient(i))
-        {
-            continue;
-        }
-
-        char id[32];
-        GetClientAuthId(i, AuthId_Steam2, id, sizeof(id), true);
-        if (StrEqual(id, steam2, false))
-        {
-            return i;
-        }
-    }
-
-    return -1;
 }
 
 static void Prename_ToLowercaseInPlace(char[] text, int maxlen)
