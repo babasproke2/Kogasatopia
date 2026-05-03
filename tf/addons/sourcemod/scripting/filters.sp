@@ -124,6 +124,7 @@ bool g_PrenameRulesLoaded = false;
 
 enum struct ConnectEvent
 {
+    int userId;
     char name[MAX_NAME_LENGTH];
     bool connected;
 }
@@ -1094,6 +1095,7 @@ void Filters_AnnouncePlayerEvent(int client, bool connected)
     }
 
     ConnectEvent event;
+    event.userId = GetClientUserId(client);
     GetClientName(client, event.name, sizeof(event.name));
     event.connected = connected;
 
@@ -1121,19 +1123,53 @@ public Action Timer_ProcessConnectQueue(Handle timer)
     {
         ConnectEvent event;
         g_ConnectQueue.GetArray(i, event);
+        char displayName[PRENAME_MAX_RENAME];
+        Filters_GetConnectEventName(event.userId, event.name, event.connected, displayName, sizeof(displayName));
 
         if (event.connected)
         {
-            Filters_AnnouncePlayerJoin(event.name);
+            Filters_AnnouncePlayerJoin(displayName);
         }
         else
         {
-            Filters_AnnouncePlayerLeave(event.name);
+            Filters_AnnouncePlayerLeave(displayName);
         }
     }
 
     g_ConnectQueue.Clear();
     return Plugin_Stop;
+}
+
+static void Filters_GetConnectEventName(int userId, const char[] fallbackName, bool connected, char[] output, int maxlen)
+{
+    strcopy(output, maxlen, fallbackName);
+
+    if (!connected)
+    {
+        return;
+    }
+
+    int client = GetClientOfUserId(userId);
+    if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    char steam2[32], steam64[32];
+    Prename_GetClientIds(client, steam2, sizeof(steam2), steam64, sizeof(steam64));
+
+    char prename[PRENAME_MAX_RENAME];
+    if (Prename_TryGetIdRule(steam64, steam2, prename, sizeof(prename)))
+    {
+        TrimString(prename);
+        if (prename[0])
+        {
+            strcopy(output, maxlen, prename);
+            return;
+        }
+    }
+
+    GetClientName(client, output, maxlen);
 }
 
 public void Filters_OutboxInsertCallback(Database db, DBResultSet results, const char[] error, any data)
