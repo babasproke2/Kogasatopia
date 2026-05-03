@@ -868,9 +868,11 @@ public Action:BuildingCheckStage2(Handle hTimer, any:ref)
 	}
 	else
 	{
-		SetEntProp(ent, Prop_Send, "m_iMaxHealth", 216);
-		SetVariantString("-66");
-		AcceptEntityInput(ent, "RemoveHealth");
+		SetEntProp(ent, Prop_Send, "m_iMaxHealth", AMPLIFIER_HEALTH);
+		char sHealth[16];
+		IntToString(AMPLIFIER_HEALTH, sHealth, sizeof(sHealth));
+		SetVariantString(sHealth);
+		AcceptEntityInput(ent, "SetHealth");
 	}
 	
 	new String:buildingClass[64];
