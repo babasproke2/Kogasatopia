@@ -124,7 +124,6 @@ bool g_PrenameRulesLoaded = false;
 
 enum struct ConnectEvent
 {
-    int userId;
     char name[MAX_NAME_LENGTH];
     bool connected;
 }
@@ -1095,7 +1094,6 @@ void Filters_AnnouncePlayerEvent(int client, bool connected)
     }
 
     ConnectEvent event;
-    event.userId = GetClientUserId(client);
     GetClientName(client, event.name, sizeof(event.name));
     event.connected = connected;
 
@@ -1123,16 +1121,14 @@ public Action Timer_ProcessConnectQueue(Handle timer)
     {
         ConnectEvent event;
         g_ConnectQueue.GetArray(i, event);
-        char displayName[PRENAME_MAX_RENAME];
-        Filters_GetConnectEventName(event.userId, event.name, event.connected, displayName, sizeof(displayName));
 
         if (event.connected)
         {
-            Filters_AnnouncePlayerJoin(displayName);
+            Filters_AnnouncePlayerJoin(event.name);
         }
         else
         {
-            Filters_AnnouncePlayerLeave(displayName);
+            Filters_AnnouncePlayerLeave(event.name);
         }
     }
 
@@ -1140,16 +1136,8 @@ public Action Timer_ProcessConnectQueue(Handle timer)
     return Plugin_Stop;
 }
 
-static void Filters_GetConnectEventName(int userId, const char[] fallbackName, bool connected, char[] output, int maxlen)
+static void Filters_AnnounceClientJoin(int client)
 {
-    strcopy(output, maxlen, fallbackName);
-
-    if (!connected)
-    {
-        return;
-    }
-
-    int client = GetClientOfUserId(userId);
     if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
     {
         return;
@@ -1164,12 +1152,14 @@ static void Filters_GetConnectEventName(int userId, const char[] fallbackName, b
         TrimString(prename);
         if (prename[0])
         {
-            strcopy(output, maxlen, prename);
+            Filters_AnnouncePlayerJoin(prename);
             return;
         }
     }
 
-    GetClientName(client, output, maxlen);
+    char name[MAX_NAME_LENGTH];
+    GetClientName(client, name, sizeof(name));
+    Filters_AnnouncePlayerJoin(name);
 }
 
 public void Filters_OutboxInsertCallback(Database db, DBResultSet results, const char[] error, any data)
@@ -3261,6 +3251,8 @@ public void OnClientPostAdminCheck(int client)
     {
         Filters_StartAutoRedlistCheck(client);
         LoadNamePreferencesFromDb(client);
+        Prename_Apply(client);
+        Filters_AnnounceClientJoin(client);
     }
 
     Filters_UpdateExternalStats(client);
@@ -3289,12 +3281,7 @@ public void Filters_OnRedlistChanged(ConVar convar, const char[] oldValue, const
 
 public void OnClientPutInServer(int client)
 {
-    Filters_AnnouncePlayerEvent(client, true);
     Filters_ResetExternalStats(client);
-    if (!IsFakeClient(client))
-    {
-        CreateTimer(1.0, Timer_PrenameApply, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
-    }
 }
 
 public void OnClientDisconnect(int client)
@@ -4148,18 +4135,6 @@ public void Filters_PrenameLoadRulesCallback(Database db, DBResultSet results, c
             g_PrenameIdRules.SetString(pattern, newname);
         }
     }
-}
-
-public Action Timer_PrenameApply(Handle timer, any userId)
-{
-    int client = GetClientOfUserId(userId);
-    if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
-    {
-        return Plugin_Stop;
-    }
-
-    Prename_Apply(client);
-    return Plugin_Stop;
 }
 
 static bool Prename_Apply(int client)
