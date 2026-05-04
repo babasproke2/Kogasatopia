@@ -18,7 +18,6 @@
 #define TF_CLASS_SNIPER         2
 #define TF_CLASS_SOLDIER        3
 #define TF_CLASS_SPY            8
-#define TF_CLASS_CIVILIAN       10
 #define TF_CLASS_UNKNOWN        0
 
 #define TF_TEAM_BLU             3
@@ -42,23 +41,22 @@ ConVar g_hImmunity;
 ConVar g_hTopScore;
 ConVar g_hDisplayUnlim;
 ConVar g_hGameMode;
-ConVar g_hLimits[TF_CLASS_CIVILIAN + 1];
+ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[64] = "this map";
 
-static const char g_ClassNames[TF_CLASS_CIVILIAN + 1][16] = {
+static const char g_ClassNames[TF_CLASS_ENGINEER + 1][16] = {
     "Unknown", "Scout", "Sniper", "Soldier", "Demoman",
-    "Medic", "Heavy", "Pyro", "Spy", "Engineer", "Civilian"
+    "Medic", "Heavy", "Pyro", "Spy", "Engineer"
 };
 
-static const char g_ClassSuffixes[TF_CLASS_CIVILIAN + 1][12] = {
+static const char g_ClassSuffixes[TF_CLASS_ENGINEER + 1][12] = {
     "unknown", "scouts", "snipers", "soldiers", "demomen",
-    "medics", "heavies", "pyros", "spies", "engineers", "civilians"
+    "medics", "heavies", "pyros", "spies", "engineers"
 };
 
-char g_sSounds[11][24] = {"", "vo/scout_no03.mp3",   "vo/sniper_no04.mp3", "vo/soldier_no01.mp3",
+char g_sSounds[TF_CLASS_ENGINEER + 1][24] = {"", "vo/scout_no03.mp3",   "vo/sniper_no04.mp3", "vo/soldier_no01.mp3",
                                 "vo/demoman_no03.mp3", "vo/medic_no03.mp3",  "vo/heavy_no02.mp3",
-                                "vo/pyro_no01.mp3",    "vo/spy_no02.mp3",    "vo/engineer_no03.mp3",
-                                "vo/civilian_no01.mp3"};
+                                "vo/pyro_no01.mp3",    "vo/spy_no02.mp3",    "vo/engineer_no03.mp3"};
 
 public void OnPluginStart()
 {
@@ -70,16 +68,13 @@ public void OnPluginStart()
     g_hDisplayUnlim = CreateConVar("display_unlim",        "0", "If 1, show unlimited classes in class limit displays.", _, true, 0.0, true, 1.0);
     g_hGameMode     = FindConVar("sm_gamemode");
 
-    for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_CIVILIAN; classId++)
+    for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
     {
-        if (classId == TF_CLASS_CIVILIAN || classId <= TF_CLASS_ENGINEER)
-        {
-            char cvarName[32];
-            char description[64];
-            Format(cvarName, sizeof(cvarName), "restrict_%s", g_ClassSuffixes[classId]);
-            Format(description, sizeof(description), "Limit for %s.", g_ClassNames[classId]);
-            g_hLimits[classId] = CreateConVar(cvarName, "-1", description);
-        }
+        char cvarName[32];
+        char description[64];
+        Format(cvarName, sizeof(cvarName), "restrict_%s", g_ClassSuffixes[classId]);
+        Format(description, sizeof(description), "Limit for %s.", g_ClassNames[classId]);
+        g_hLimits[classId] = CreateConVar(cvarName, "-1", description);
     }
 
     HookEvent("player_changeclass", Event_PlayerClass);
@@ -139,9 +134,8 @@ public Action Command_ShowClassLimits(int client, int args)
         CPrintToChat(client, "{olive}[Class Limits]{default} Current gamemode: {yellow}%s{default}", g_sGameMode);
 
     char limitText[32];
-    for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_CIVILIAN; classId++)
+    for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
     {
-        if (classId != TF_CLASS_CIVILIAN && classId > TF_CLASS_ENGINEER) continue;
         if (!ShouldDisplayClassInList(classId)) continue;
         FormatClassLimitText(classId, limitText, sizeof(limitText));
         if (fromConsole)
@@ -154,7 +148,7 @@ public Action Command_ShowClassLimits(int client, int args)
 
 bool ShouldDisplayClassInList(int classId)
 {
-    if (classId < TF_CLASS_SCOUT || (classId > TF_CLASS_ENGINEER && classId != TF_CLASS_CIVILIAN))
+    if (classId < TF_CLASS_SCOUT || classId > TF_CLASS_ENGINEER)
         return false;
     if (g_hDisplayUnlim != null && g_hDisplayUnlim.BoolValue) return true;
     ConVar limitCvar = g_hLimits[classId];
@@ -302,7 +296,7 @@ static int GetHumanTeamClientCount(int team)
 bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
 {
     limitOut = -1;
-    if (!g_hEnabled.BoolValue || iTeam < TF_TEAM_RED || iClass < TF_CLASS_SCOUT || (iClass > TF_CLASS_ENGINEER && iClass != TF_CLASS_CIVILIAN))
+    if (!g_hEnabled.BoolValue || iTeam < TF_TEAM_RED || iClass < TF_CLASS_SCOUT || iClass > TF_CLASS_ENGINEER)
         return false;
 
     ConVar limitCvar = g_hLimits[iClass];
@@ -342,11 +336,8 @@ void PickClass(int iClient)
 {
     if (iClient <= 0 || !IsClientInGame(iClient)) return;
 
-    for (int i = GetRandomInt(TF_CLASS_SCOUT, TF_CLASS_CIVILIAN), iClass = i, iTeam = GetClientTeam(iClient);;)
+    for (int i = GetRandomInt(TF_CLASS_SCOUT, TF_CLASS_ENGINEER), iClass = i, iTeam = GetClientTeam(iClient);;)
     {
-        if (i == TF_CLASS_ENGINEER + 1 && i != TF_CLASS_CIVILIAN)
-            i = TF_CLASS_CIVILIAN;
-
         int limit;
         if (!IsClassAtLimit(iTeam, i, limit))
         {
@@ -357,7 +348,7 @@ void PickClass(int iClient)
             g_iClass[iClient] = i;
             break;
         }
-        else if (++i > TF_CLASS_CIVILIAN)
+        else if (++i > TF_CLASS_ENGINEER)
             i = TF_CLASS_SCOUT;
         else if (i == iClass)
             break;
@@ -377,7 +368,7 @@ void NotifyClassRestricted(int client, int classId, int limit)
 
 void FormatClassLimitText(int classId, char[] buffer, int maxlen)
 {
-    if (classId < TF_CLASS_SCOUT || (classId > TF_CLASS_ENGINEER && classId != TF_CLASS_CIVILIAN))
+    if (classId < TF_CLASS_SCOUT || classId > TF_CLASS_ENGINEER)
         { strcopy(buffer, maxlen, "Unknown"); return; }
     ConVar limitCvar = g_hLimits[classId];
     if (limitCvar == null) { strcopy(buffer, maxlen, "Default"); return; }
@@ -406,7 +397,7 @@ void UpdateGameModeName()
 
 void GetClassName(int classId, char[] buffer, int maxlen)
 {
-    if ((classId >= TF_CLASS_SCOUT && classId <= TF_CLASS_ENGINEER) || classId == TF_CLASS_CIVILIAN)
+    if (classId >= TF_CLASS_SCOUT && classId <= TF_CLASS_ENGINEER)
         strcopy(buffer, maxlen, g_ClassNames[classId]);
     else
         strcopy(buffer, maxlen, "Unknown");
