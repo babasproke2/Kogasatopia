@@ -41,8 +41,9 @@ ConVar g_hFlags;
 ConVar g_hImmunity;
 ConVar g_hTopScore;
 ConVar g_hDisplayUnlim;
+ConVar g_hGameMode;
 ConVar g_hLimits[TF_CLASS_CIVILIAN + 1];
-char g_sGameMode[32] = "Default";
+char g_sGameMode[64] = "this map";
 
 static const char g_ClassNames[TF_CLASS_CIVILIAN + 1][16] = {
     "Unknown", "Scout", "Sniper", "Soldier", "Demoman",
@@ -67,6 +68,7 @@ public void OnPluginStart()
     g_hImmunity     = CreateConVar("restrict_immunity",    "0", "Enable/disable admin immunity for class limits.");
     g_hTopScore     = CreateConVar("classlimits_topscore", "0", "Allow top team scorers to bypass class limits.", _, true, 0.0, true, 1.0);
     g_hDisplayUnlim = CreateConVar("display_unlim",        "0", "If 1, show unlimited classes in class limit displays.", _, true, 0.0, true, 1.0);
+    g_hGameMode     = FindConVar("sm_gamemode");
 
     for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_CIVILIAN; classId++)
     {
@@ -367,7 +369,8 @@ void NotifyClassRestricted(int client, int classId, int limit)
     if (client <= 0 || !IsClientInGame(client)) return;
     char className[16];
     GetClassName(classId, className, sizeof(className));
-    char modeName[32];
+    UpdateGameModeName();
+    char modeName[64];
     strcopy(modeName, sizeof(modeName), g_sGameMode[0] ? g_sGameMode : "this map");
     CPrintToChat(client, "{olive}[Class Limits]{default} Class {yellow}%s{default} is restricted to {gold}%d{default} on {gold}%s{default}!", className, limit >= 0 ? limit : 0, modeName);
 }
@@ -386,7 +389,19 @@ void FormatClassLimitText(int classId, char[] buffer, int maxlen)
 
 void UpdateGameModeName()
 {
-    strcopy(g_sGameMode, sizeof(g_sGameMode), "Default");
+    if (g_hGameMode == null)
+        g_hGameMode = FindConVar("sm_gamemode");
+
+    if (g_hGameMode == null)
+    {
+        strcopy(g_sGameMode, sizeof(g_sGameMode), "this map");
+        return;
+    }
+
+    g_hGameMode.GetString(g_sGameMode, sizeof(g_sGameMode));
+    TrimString(g_sGameMode);
+    if (!g_sGameMode[0])
+        strcopy(g_sGameMode, sizeof(g_sGameMode), "this map");
 }
 
 void GetClassName(int classId, char[] buffer, int maxlen)
