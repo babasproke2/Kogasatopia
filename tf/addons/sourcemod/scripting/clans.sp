@@ -307,6 +307,7 @@ Handle g_hInviteCleanupTimer = null;
 Handle g_hClanWarFlushTimer = null;
 Handle g_hDbReconnectTimer = null;
 Handle g_hDbKeepaliveTimer = null;
+Handle g_hDbInitTimer = null;
 StringMap g_hClanIdCache = null;
 bool g_bClanIdCacheReady = false;
 ArrayList g_hActiveWars = null;
@@ -373,6 +374,12 @@ public void OnPluginEnd()
     {
         delete g_hDbKeepaliveTimer;
         g_hDbKeepaliveTimer = null;
+    }
+
+    if (g_hDbInitTimer != null)
+    {
+        delete g_hDbInitTimer;
+        g_hDbInitTimer = null;
     }
 
     if (g_hInviteCleanupTimer != null)
@@ -489,7 +496,29 @@ public void SQL_OnDatabaseConnected(Database db, const char[] error, any data)
         LogError("[Clans] Failed to set utf8mb4 charset");
     }
 
+    ScheduleDatabaseInitialization();
+}
+
+void ScheduleDatabaseInitialization()
+{
+    if (g_hDbInitTimer != null)
+    {
+        delete g_hDbInitTimer;
+        g_hDbInitTimer = null;
+    }
+
+    g_hDbInitTimer = CreateTimer(0.5, Timer_FinishDatabaseInitialization);
+}
+
+public Action Timer_FinishDatabaseInitialization(Handle timer, any data)
+{
+    if (timer == g_hDbInitTimer)
+    {
+        g_hDbInitTimer = null;
+    }
+
     FinishDatabaseInitialization();
+    return Plugin_Stop;
 }
 
 void FinishDatabaseInitialization()
@@ -610,6 +639,12 @@ void StartDatabaseKeepaliveTimer()
 void DropDatabaseConnection()
 {
     StopDatabaseKeepaliveTimer();
+    if (g_hDbInitTimer != null)
+    {
+        delete g_hDbInitTimer;
+        g_hDbInitTimer = null;
+    }
+
     g_bDatabaseReady = false;
     g_bClanIdCacheReady = false;
 
