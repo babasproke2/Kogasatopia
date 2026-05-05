@@ -1599,6 +1599,24 @@ bool GetClientClanIdFast(int client, int &clanId)
     return ResolveClanIdForSteam64Sync(steamid64, clanId);
 }
 
+bool GetLoadedClientClanId(int client, int &clanId)
+{
+    clanId = 0;
+
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return false;
+    }
+
+    if (!g_bClientClanLoaded[client])
+    {
+        return false;
+    }
+
+    clanId = g_iClientClanId[client];
+    return true;
+}
+
 void UpdateClanIdCacheEntry(const char[] steamid64, int clanId)
 {
     if (steamid64[0] == '\0')
@@ -1672,19 +1690,19 @@ int GetSameTeamClanMemberCount(int client, int team = 0)
         return -1;
     }
 
-    char steamid64[STEAMID64_MAXLEN];
-    if (!GetClientSteam64(client, steamid64, sizeof(steamid64)))
+    int clanId = 0;
+    if (!GetLoadedClientClanId(client, clanId))
     {
-        return 0;
+        return -1;
     }
 
-    int clanId = 0;
-    if (!GetCachedClanIdForSteam64(steamid64, clanId) || clanId <= 0)
+    if (clanId <= 0)
     {
         return 0;
     }
 
     int count = 0;
+    bool hasUnloadedTeammate = false;
     for (int i = 1; i <= MaxClients; i++)
     {
         if (!IsClientInGame(i) || IsFakeClient(i) || GetClientTeam(i) != team)
@@ -1692,17 +1710,22 @@ int GetSameTeamClanMemberCount(int client, int team = 0)
             continue;
         }
 
-        char currentSteam[STEAMID64_MAXLEN];
-        if (!GetClientSteam64(i, currentSteam, sizeof(currentSteam)))
+        int currentClanId = 0;
+        if (!GetLoadedClientClanId(i, currentClanId))
         {
+            hasUnloadedTeammate = true;
             continue;
         }
 
-        int currentClanId = 0;
-        if (GetCachedClanIdForSteam64(currentSteam, currentClanId) && currentClanId == clanId)
+        if (currentClanId == clanId)
         {
             count++;
         }
+    }
+
+    if (count <= 1 && hasUnloadedTeammate)
+    {
+        return -1;
     }
 
     return count;
