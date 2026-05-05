@@ -1093,6 +1093,11 @@ bool EnsureClanWarInstanceSync(int warId, int clanIdA, int clanIdB, int createdA
         return true;
     }
 
+    if (!EnsureDatabaseReady() || g_Database == null)
+    {
+        return false;
+    }
+
     char query[384];
     FormatEx(query, sizeof(query),
         "INSERT INTO clan_war_instances (war_id, clan_id_a, clan_id_b, score_a, score_b, winner_clan_id, status, created_at, finished_at) "
@@ -3026,7 +3031,13 @@ bool LoadActiveClanWarsCacheSync()
         int createdAt = results.FetchInt(5);
         int expiresAt = results.FetchInt(6);
         int instanceId = 0;
-        EnsureClanWarInstanceSync(warId, clanIdA, clanIdB, createdAt, instanceId);
+        if (!EnsureClanWarInstanceSync(warId, clanIdA, clanIdB, createdAt, instanceId)
+            && (!EnsureDatabaseReady() || g_Database == null))
+        {
+            delete results;
+            ResetActiveWarCache();
+            return false;
+        }
         UpsertActiveWarCacheEntry(warId, clanIdA, clanIdB, scoreA, scoreB, createdAt, expiresAt, instanceId);
     }
 
