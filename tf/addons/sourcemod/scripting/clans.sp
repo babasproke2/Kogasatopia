@@ -465,6 +465,13 @@ public void SQL_OnDatabaseConnected(Database db, const char[] error, any data)
         return;
     }
 
+    if (!ValidateDatabaseHandle(db))
+    {
+        delete db;
+        ScheduleDatabaseReconnect(1.0);
+        return;
+    }
+
     if (g_Database != null)
     {
         delete g_Database;
@@ -557,6 +564,28 @@ bool IsDatabaseConnectionLostError(const char[] error)
     return StrContains(error, "Lost connection", false) != -1
         || StrContains(error, "server has gone away", false) != -1
         || StrContains(error, "Server has gone away", false) != -1;
+}
+
+bool ValidateDatabaseHandle(Database db)
+{
+    if (db == null)
+    {
+        return false;
+    }
+
+    if (SQL_FastQuery(db, "SELECT 1"))
+    {
+        return true;
+    }
+
+    char error[256];
+    SQL_GetError(db, error, sizeof(error));
+    if (!IsDatabaseConnectionLostError(error))
+    {
+        LogError("[Clans] Database validation failed: %s", error);
+    }
+
+    return false;
 }
 
 void StopDatabaseKeepaliveTimer()
