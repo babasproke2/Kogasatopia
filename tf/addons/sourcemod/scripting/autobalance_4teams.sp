@@ -403,15 +403,29 @@ public Action Timer_Autobalance(Handle timer)
 
 static bool IsEligiblePlayer(int client, int team, bool clanProtectionAvailable, bool mvpProtectionAvailable)
 {
+    if (!IsBasicBalanceCandidate(client, team)) return false;
+    if (IsProtectedBalanceCandidate(client, team, clanProtectionAvailable, mvpProtectionAvailable)) return false;
+
+    return true;
+}
+
+static bool IsBasicBalanceCandidate(int client, int team)
+{
     if (client <= 0 || client > MaxClients) return false;
     if (!IsClientInGame(client) || IsFakeClient(client)) return false;
     if (GetClientTeam(client) != team) return false;
-    if (IsMedicWithProtectedUber(client)) return false;
-    if (IsClientImmune(client)) return false;
-    if (HasClanTeammateProtection(client, team, clanProtectionAvailable)) return false;
-    if (IsClientCurrentRoundMvpSafe(client, mvpProtectionAvailable)) return false;
 
     return true;
+}
+
+static bool IsProtectedBalanceCandidate(int client, int team, bool clanProtectionAvailable, bool mvpProtectionAvailable)
+{
+    if (IsMedicWithProtectedUber(client)) return true;
+    if (IsClientImmune(client)) return true;
+    if (HasClanTeammateProtection(client, team, clanProtectionAvailable)) return true;
+    if (IsClientCurrentRoundMvpSafe(client, mvpProtectionAvailable)) return true;
+
+    return false;
 }
 
 static bool IsMedicWithProtectedUber(int client)
@@ -482,10 +496,20 @@ static int SelectPreferredRecentPlayer(int team, bool clanProtectionAvailable, b
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsEligiblePlayer(i, team, clanProtectionAvailable, mvpProtectionAvailable)) continue;
+        if (!IsBasicBalanceCandidate(i, team)) continue;
 
         int priority = GetSimpleSelectionPriority(i);
         int currentUserId = GetClientUserId(i);
+        if (priority < bestPriority || (priority == bestPriority && currentUserId <= highestUserId))
+        {
+            continue;
+        }
+
+        if (IsProtectedBalanceCandidate(i, team, clanProtectionAvailable, mvpProtectionAvailable))
+        {
+            continue;
+        }
+
         if (priority > bestPriority || (priority == bestPriority && currentUserId > highestUserId))
         {
             bestPriority = priority;
@@ -499,9 +523,7 @@ static int SelectPreferredRecentPlayer(int team, bool clanProtectionAvailable, b
 
 static bool IsVolunteerCandidate(int client, int team, bool mvpProtectionAvailable)
 {
-    if (client <= 0 || client > MaxClients) return false;
-    if (!IsClientInGame(client) || IsFakeClient(client)) return false;
-    if (GetClientTeam(client) != team) return false;
+    if (!IsBasicBalanceCandidate(client, team)) return false;
     if (!IsClientVolunteer(client)) return false;
     if (IsClientMapImmune(client)) return false;
     if (IsMedicWithProtectedUber(client)) return false;
