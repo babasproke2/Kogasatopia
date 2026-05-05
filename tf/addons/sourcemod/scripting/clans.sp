@@ -35,6 +35,7 @@
 #define CLAN_TAG_FORMAT_OVERHEAD  17 // Stored tag format: "[{gold}" + raw tag + "{default}]"
 #define CLAN_TAG_PLAYER_MAXLEN    32
 #define CLAN_TAG_ADMIN_MAXLEN     64
+#define CLAN_TAGS_JOINED_MAXLEN   4096
 #define INVITE_CLEANUP_INTERVAL   300.0
 #define CLAN_MENU_TIME            MENU_TIME_FOREVER
 
@@ -320,6 +321,9 @@ char g_PendingAdminClanDescName[MAXPLAYERS + 1][CLAN_NAME_MAXLEN + 1];
 int g_iClientClanId[MAXPLAYERS + 1];
 bool g_bClientClanLoaded[MAXPLAYERS + 1];
 bool g_bClientClanLoadPending[MAXPLAYERS + 1];
+char g_sClientClanTags[MAXPLAYERS + 1][CLAN_TAGS_JOINED_MAXLEN];
+bool g_bClientClanTagsLoaded[MAXPLAYERS + 1];
+bool g_bClientClanTagsPending[MAXPLAYERS + 1];
 int g_iClanMembersMenuClanId[MAXPLAYERS + 1];
 char g_sClanMembersMenuClanName[MAXPLAYERS + 1][CLAN_NAME_MAXLEN + 1];
 int g_iClanHistoryMenuClanId[MAXPLAYERS + 1];
@@ -440,6 +444,7 @@ public void OnClientPostAdminCheck(int client)
     }
 
     RequestClientClanIdLoad(client);
+    RequestClientClanTagsLoad(client);
 }
 
 void ResetClientState(int client)
@@ -450,6 +455,9 @@ void ResetClientState(int client)
     g_iClientClanId[client] = 0;
     g_bClientClanLoaded[client] = false;
     g_bClientClanLoadPending[client] = false;
+    g_sClientClanTags[client][0] = '\0';
+    g_bClientClanTagsLoaded[client] = false;
+    g_bClientClanTagsPending[client] = false;
     g_iClanMembersMenuClanId[client] = 0;
     g_sClanMembersMenuClanName[client][0] = '\0';
     g_iClanHistoryMenuClanId[client] = 0;
@@ -577,6 +585,7 @@ void FinishDatabaseInitialization()
         if (IsClientInGame(i) && !IsFakeClient(i))
         {
             RequestClientClanIdLoad(i);
+            RequestClientClanTagsLoad(i);
         }
     }
 
@@ -1474,120 +1483,143 @@ static bool AppendJoinedClanTag(char[] buffer, int maxlen, const char[] tag)
     return true;
 }
 
-static bool FetchSingleClanTagValue(const char[] steamid64, const char[] query, const char[] label, char[] buffer, int maxlen)
+void ClearClientClanTagsCache(int client, bool loaded = false)
 {
-    buffer[0] = '\0';
-
-    DBResultSet results = SQL_Query(g_Database, query);
-    if (!HasUsableResultSet(results))
+    if (client <= 0 || client > MaxClients)
     {
-        char error[256];
-        SQL_GetError(g_Database, error, sizeof(error));
-        LogError("[Clans] Failed to fetch %s for %s: %s", label, steamid64, error);
-        HandleDatabaseConnectionLoss(error);
-        delete results;
-        return false;
+        return;
     }
 
-    if (results.FetchRow())
-    {
-        results.FetchString(0, buffer, maxlen);
-        TrimString(buffer);
-    }
-
-    delete results;
-    return buffer[0] != '\0';
+    g_sClientClanTags[client][0] = '\0';
+    g_bClientClanTagsLoaded[client] = loaded;
+    g_bClientClanTagsPending[client] = false;
 }
 
-static bool AppendClanSubTagsForSteam64(const char[] steamid64, char[] buffer, int maxlen)
+void RequestClientClanTagsLoad(int client, bool force = false)
 {
-    char escapedSteam[SQL_STEAMID64_MAXLEN];
-    EscapeSql(steamid64, escapedSteam, sizeof(escapedSteam));
-
-    char query[384];
-    FormatEx(query, sizeof(query),
-        "SELECT cst.tag "
-        ... "FROM clan_members self_cm "
-        ... "INNER JOIN clan_sub_tags cst ON cst.clan_id = self_cm.clan_id "
-        ... "WHERE self_cm.steamid64 = '%s' AND cst.tag IS NOT NULL AND cst.tag <> '' "
-        ... "ORDER BY cst.created_at ASC, cst.steamid64 ASC",
-        escapedSteam);
-
-    DBResultSet results = SQL_Query(g_Database, query);
-    if (!HasUsableResultSet(results))
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
     {
-        char error[256];
-        SQL_GetError(g_Database, error, sizeof(error));
-        LogError("[Clans] Failed to fetch clan sub-tags for %s: %s", steamid64, error);
-        HandleDatabaseConnectionLoss(error);
-        delete results;
-        return false;
+        return;
     }
 
-    char rawTag[CLAN_SUB_TAG_STORE_MAXLEN];
-    bool found = false;
-    while (results.FetchRow())
+    if (!EnsureDatabaseReady())
     {
-        results.FetchString(0, rawTag, sizeof(rawTag));
-        TrimString(rawTag);
-        if (IsExportableClanTagText(rawTag) && AppendJoinedClanTag(buffer, maxlen, rawTag))
-        {
-            found = true;
-        }
+        return;
     }
 
-    delete results;
-    return found;
-}
-
-static bool GetClanTagsForSteam64(const char[] steamid64, char[] buffer, int maxlen)
-{
-    buffer[0] = '\0';
-
-    if (!steamid64[0] || !EnsureDatabaseReady())
+    if (g_bClientClanTagsPending[client])
     {
-        return false;
+        return;
     }
 
-    if (!IsValidSteam64String(steamid64))
+    if (!force && g_bClientClanTagsLoaded[client])
     {
-        LogError("[Clans] Rejected invalid steamid64 while fetching clan tags: %s", steamid64);
-        return false;
+        return;
+    }
+
+    char steamid64[STEAMID64_MAXLEN];
+    if (!GetClientSteam64(client, steamid64, sizeof(steamid64)))
+    {
+        ClearClientClanTagsCache(client, true);
+        return;
     }
 
     char escapedSteam[SQL_STEAMID64_MAXLEN];
     EscapeSql(steamid64, escapedSteam, sizeof(escapedSteam));
 
-    char query[256];
-    char tagValue[CLAN_TAG_STORE_MAXLEN];
-    char rawTag[CLAN_SUB_TAG_STORE_MAXLEN];
-    bool found = false;
-
+    char query[1024];
     FormatEx(query, sizeof(query),
-        "SELECT c.tag "
+        "SELECT 0 AS sort_order, 0 AS created_at, '' AS owner_steamid, c.tag "
         ... "FROM clan_members cm "
         ... "INNER JOIN clans c ON c.id = cm.clan_id "
         ... "WHERE cm.steamid64 = '%s' AND c.tag IS NOT NULL AND c.tag <> '' "
-        ... "LIMIT 1",
+        ... "UNION ALL "
+        ... "SELECT 1 AS sort_order, cst.created_at, cst.steamid64 AS owner_steamid, cst.tag "
+        ... "FROM clan_members self_cm "
+        ... "INNER JOIN clan_sub_tags cst ON cst.clan_id = self_cm.clan_id "
+        ... "WHERE self_cm.steamid64 = '%s' AND cst.tag IS NOT NULL AND cst.tag <> '' "
+        ... "ORDER BY sort_order ASC, created_at ASC, owner_steamid ASC",
+        escapedSteam,
         escapedSteam);
 
-    if (FetchSingleClanTagValue(steamid64, query, "main clan tag", tagValue, sizeof(tagValue)))
-    {
-        ExtractRawClanTag(tagValue, rawTag, sizeof(rawTag));
-        TrimString(rawTag);
+    g_sClientClanTags[client][0] = '\0';
+    g_bClientClanTagsLoaded[client] = false;
+    g_bClientClanTagsPending[client] = true;
+    g_Database.Query(SQL_OnClientClanTagsLoaded, query, GetClientUserId(client));
+}
 
-        if (IsExportableClanTagText(rawTag) && AppendJoinedClanTag(buffer, maxlen, rawTag))
+public void SQL_OnClientClanTagsLoaded(Database db, DBResultSet results, const char[] error, any data)
+{
+    int client = GetClientOfUserId(data);
+    if (client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+
+    g_bClientClanTagsPending[client] = false;
+
+    if (!IsClientInGame(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    if (error[0])
+    {
+        LogError("[Clans] Failed to load clan tags for %N: %s", client, error);
+        HandleDatabaseConnectionLoss(error);
+        return;
+    }
+
+    g_sClientClanTags[client][0] = '\0';
+
+    char storedTag[CLAN_TAG_STORE_MAXLEN];
+    char rawTag[CLAN_SUB_TAG_STORE_MAXLEN];
+    while (results != null && results.FetchRow())
+    {
+        int sortOrder = results.FetchInt(0);
+        results.FetchString(3, storedTag, sizeof(storedTag));
+        TrimString(storedTag);
+
+        if (!storedTag[0])
         {
-            found = true;
+            continue;
+        }
+
+        if (sortOrder == 0)
+        {
+            ExtractRawClanTag(storedTag, rawTag, sizeof(rawTag));
+        }
+        else
+        {
+            strcopy(rawTag, sizeof(rawTag), storedTag);
+        }
+
+        TrimString(rawTag);
+        if (IsExportableClanTagText(rawTag))
+        {
+            AppendJoinedClanTag(g_sClientClanTags[client], sizeof(g_sClientClanTags[]), rawTag);
         }
     }
 
-    if (AppendClanSubTagsForSteam64(steamid64, buffer, maxlen))
+    g_bClientClanTagsLoaded[client] = true;
+}
+
+void RefreshConnectedClanTagsForClan(int clanId)
+{
+    if (clanId <= 0)
     {
-        found = true;
+        return;
     }
 
-    return found;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client) || IsFakeClient(client) || g_iClientClanId[client] != clanId)
+        {
+            continue;
+        }
+
+        RequestClientClanTagsLoad(client, true);
+    }
 }
 
 public any Native_Clans_GetTags(Handle plugin, int numParams)
@@ -1596,14 +1628,20 @@ public any Native_Clans_GetTags(Handle plugin, int numParams)
     int maxlen = GetNativeCell(3);
 
     char buffer[4096];
-    char steamid64[STEAMID64_MAXLEN];
     buffer[0] = '\0';
-    steamid64[0] = '\0';
 
     bool found = false;
-    if (GetClientSteam64(client, steamid64, sizeof(steamid64)))
+    if (client > 0 && client <= MaxClients && IsClientInGame(client) && !IsFakeClient(client))
     {
-        found = GetClanTagsForSteam64(steamid64, buffer, sizeof(buffer));
+        if (g_bClientClanTagsLoaded[client] && g_sClientClanTags[client][0])
+        {
+            strcopy(buffer, sizeof(buffer), g_sClientClanTags[client]);
+            found = true;
+        }
+        else if (!g_bClientClanTagsPending[client])
+        {
+            RequestClientClanTagsLoad(client);
+        }
     }
 
     SetNativeString(2, buffer, maxlen, true);
@@ -1972,6 +2010,15 @@ void SetClientClanIdBySteam64(const char[] steamid64, int clanId)
         g_iClientClanId[client] = clanId;
         g_bClientClanLoaded[client] = true;
         g_bClientClanLoadPending[client] = false;
+
+        if (clanId > 0)
+        {
+            RequestClientClanTagsLoad(client, true);
+        }
+        else
+        {
+            ClearClientClanTagsCache(client, true);
+        }
     }
 }
 
@@ -1999,6 +2046,7 @@ void ClearConnectedClanId(int clanId)
         g_iClientClanId[client] = 0;
         g_bClientClanLoaded[client] = true;
         g_bClientClanLoadPending[client] = false;
+        ClearClientClanTagsCache(client, true);
     }
 }
 
@@ -7077,6 +7125,7 @@ public void SQL_OnClanLeaveContext(Database db, DBResultSet results, const char[
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(clanId);
     pack.WriteString(clanName);
     pack.WriteString(steamid64);
 
@@ -7138,6 +7187,7 @@ public void SQL_OnClanLeaveSuccess(Database db, any data, int numQueries, DBResu
     pack.Reset();
 
     int userId = pack.ReadCell();
+    int clanId = pack.ReadCell();
     char clanName[CLAN_NAME_MAXLEN + 1];
     char steamid64[STEAMID64_MAXLEN];
     pack.ReadString(clanName, sizeof(clanName));
@@ -7148,6 +7198,7 @@ public void SQL_OnClanLeaveSuccess(Database db, any data, int numQueries, DBResu
     {
         SetClientClanIdBySteam64(steamid64, 0);
     }
+    RefreshConnectedClanTagsForClan(clanId);
 
     int client = GetClientOfUserId(userId);
     if (client <= 0 || !IsClientInGame(client))
@@ -7164,6 +7215,7 @@ public void SQL_OnClanLeaveFailure(Database db, any data, int numQueries, const 
     pack.Reset();
 
     int userId = pack.ReadCell();
+    pack.ReadCell();
     char clanName[CLAN_NAME_MAXLEN + 1];
     char steamid64[STEAMID64_MAXLEN];
     pack.ReadString(clanName, sizeof(clanName));
@@ -8035,6 +8087,7 @@ public void SQL_OnClanKickTargetValidate(Database db, DBResultSet results, const
     DataPack next = new DataPack();
     next.WriteCell(actorUserId);
     next.WriteCell(targetUserId);
+    next.WriteCell(clanId);
     next.WriteString(targetSteam);
 
     g_Database.Execute(txn, SQL_OnClanKickSuccess, SQL_OnClanKickFailure, next);
@@ -8047,6 +8100,7 @@ public void SQL_OnClanKickSuccess(Database db, any data, int numQueries, DBResul
 
     int actorUserId = pack.ReadCell();
     int targetUserId = pack.ReadCell();
+    int clanId = pack.ReadCell();
     char targetSteam[STEAMID64_MAXLEN];
     pack.ReadString(targetSteam, sizeof(targetSteam));
     delete pack;
@@ -8055,6 +8109,7 @@ public void SQL_OnClanKickSuccess(Database db, any data, int numQueries, DBResul
     {
         SetClientClanIdBySteam64(targetSteam, 0);
     }
+    RefreshConnectedClanTagsForClan(clanId);
 
     int actor = GetClientOfUserId(actorUserId);
     int target = GetClientOfUserId(targetUserId);
@@ -8083,6 +8138,7 @@ public void SQL_OnClanKickFailure(Database db, any data, int numQueries, const c
     pack.Reset();
 
     int actorUserId = pack.ReadCell();
+    pack.ReadCell();
     pack.ReadCell();
     char targetSteam[STEAMID64_MAXLEN];
     pack.ReadString(targetSteam, sizeof(targetSteam));
@@ -8225,6 +8281,7 @@ public void SQL_OnClanTagUniqueCheck(Database db, DBResultSet results, const cha
 
     DataPack next = new DataPack();
     next.WriteCell(userId);
+    next.WriteCell(clanId);
     next.WriteString(formattedTag);
 
     SetClanTag(clanId, formattedTag, SQL_OnClanTagSet, next);
@@ -8236,6 +8293,7 @@ public void SQL_OnClanTagSet(Database db, DBResultSet results, const char[] erro
     pack.Reset();
 
     int userId = pack.ReadCell();
+    int clanId = pack.ReadCell();
     char formattedTag[CLAN_TAG_MAXLEN + 1];
     pack.ReadString(formattedTag, sizeof(formattedTag));
     delete pack;
@@ -8253,6 +8311,7 @@ public void SQL_OnClanTagSet(Database db, DBResultSet results, const char[] erro
         return;
     }
 
+    RefreshConnectedClanTagsForClan(clanId);
     PrintToChat(client, "[Clans] Clan tag updated to %s", formattedTag);
 }
 
@@ -8366,6 +8425,7 @@ public void SQL_OnClanSubTagUniqueCheck(Database db, DBResultSet results, const 
 
     DataPack next = new DataPack();
     next.WriteCell(userId);
+    next.WriteCell(clanId);
     next.WriteString(rawTag);
 
     SetClanSubTag(clanId, steamid64, rawTag, SQL_OnClanSubTagSet, next);
@@ -8377,6 +8437,7 @@ public void SQL_OnClanSubTagSet(Database db, DBResultSet results, const char[] e
     pack.Reset();
 
     int userId = pack.ReadCell();
+    int clanId = pack.ReadCell();
     char rawTag[CLAN_SUB_TAG_MAXLEN + 1];
     pack.ReadString(rawTag, sizeof(rawTag));
     delete pack;
@@ -8394,6 +8455,7 @@ public void SQL_OnClanSubTagSet(Database db, DBResultSet results, const char[] e
         return;
     }
 
+    RefreshConnectedClanTagsForClan(clanId);
     PrintToChat(client, "[Clans] Clan sub-tag updated to '%s'.", rawTag);
 }
 
