@@ -16,6 +16,7 @@
 #define CLAN_WAR_EXPIRE_SECONDS   604800
 #define CLAN_WAR_FLUSH_INTERVAL   3.0
 #define CLAN_DB_RECONNECT_INTERVAL 5.0
+#define CLAN_DB_KEEPALIVE_INTERVAL 300.0
 #define CLAN_WAR_POINT_GOAL       50
 #define CLAN_NAME_MAXLEN          48
 #define CLAN_DESC_MAXLEN          128
@@ -305,6 +306,7 @@ ConVar g_cvDatabaseConfig = null;
 Handle g_hInviteCleanupTimer = null;
 Handle g_hClanWarFlushTimer = null;
 Handle g_hDbReconnectTimer = null;
+Handle g_hDbKeepaliveTimer = null;
 StringMap g_hClanIdCache = null;
 bool g_bClanIdCacheReady = false;
 ArrayList g_hActiveWars = null;
@@ -367,6 +369,12 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
+    if (g_hDbKeepaliveTimer != null)
+    {
+        delete g_hDbKeepaliveTimer;
+        g_hDbKeepaliveTimer = null;
+    }
+
     if (g_hInviteCleanupTimer != null)
     {
         delete g_hInviteCleanupTimer;
@@ -486,12 +494,34 @@ void FinishDatabaseInitialization()
 
     g_bDatabaseReady = true;
     CleanupExpiredInvites();
+    if (!EnsureDatabaseReady())
+    {
+        return;
+    }
+
     if (!g_bActiveWarCacheReady || g_hActiveWars == null)
     {
-        LoadActiveClanWarsCacheSync();
+        if (!LoadActiveClanWarsCacheSync() && !EnsureDatabaseReady())
+        {
+            return;
+        }
     }
+    if (!EnsureDatabaseReady())
+    {
+        return;
+    }
+
     CleanupExpiredWars();
+    if (!EnsureDatabaseReady())
+    {
+        return;
+    }
+
     RebuildClanIdCache();
+    if (!EnsureDatabaseReady())
+    {
+        return;
+    }
 
     if (g_hInviteCleanupTimer == null)
     {
@@ -503,6 +533,7 @@ void FinishDatabaseInitialization()
         g_hClanWarFlushTimer = CreateTimer(CLAN_WAR_FLUSH_INTERVAL, Timer_FlushClanWarDeltas, 0, TIMER_REPEAT);
     }
 
+    StartDatabaseKeepaliveTimer();
     PrintToServer("[Clans] Database ready using driver '%s'.", g_sDbDriver);
 
     for (int i = 1; i <= MaxClients; i++)
@@ -526,6 +557,38 @@ bool IsDatabaseConnectionLostError(const char[] error)
     return StrContains(error, "Lost connection", false) != -1
         || StrContains(error, "server has gone away", false) != -1
         || StrContains(error, "Server has gone away", false) != -1;
+}
+
+void StopDatabaseKeepaliveTimer()
+{
+    if (g_hDbKeepaliveTimer != null)
+    {
+        delete g_hDbKeepaliveTimer;
+        g_hDbKeepaliveTimer = null;
+    }
+}
+
+void StartDatabaseKeepaliveTimer()
+{
+    if (g_hDbKeepaliveTimer != null)
+    {
+        return;
+    }
+
+    g_hDbKeepaliveTimer = CreateTimer(CLAN_DB_KEEPALIVE_INTERVAL, Timer_DatabaseKeepalive, 0, TIMER_REPEAT);
+}
+
+void DropDatabaseConnection()
+{
+    StopDatabaseKeepaliveTimer();
+    g_bDatabaseReady = false;
+    g_bClanIdCacheReady = false;
+
+    if (g_Database != null)
+    {
+        delete g_Database;
+        g_Database = null;
+    }
 }
 
 bool HasUsableResultSet(DBResultSet results)
@@ -554,6 +617,31 @@ public Action Timer_ReconnectDatabase(Handle timer, any data)
     return Plugin_Stop;
 }
 
+public Action Timer_DatabaseKeepalive(Handle timer, any data)
+{
+    if (timer != g_hDbKeepaliveTimer)
+    {
+        return Plugin_Stop;
+    }
+
+    if (g_Database == null || !g_bDatabaseReady)
+    {
+        return Plugin_Continue;
+    }
+
+    g_Database.Query(SQL_OnDatabaseKeepalive, "SELECT 1");
+    return Plugin_Continue;
+}
+
+public void SQL_OnDatabaseKeepalive(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0])
+    {
+        LogError("[Clans] Database keepalive failed: %s", error);
+        HandleDatabaseConnectionLoss(error);
+    }
+}
+
 void HandleDatabaseConnectionLoss(const char[] error)
 {
     if (!IsDatabaseConnectionLostError(error))
@@ -561,7 +649,7 @@ void HandleDatabaseConnectionLoss(const char[] error)
         return;
     }
 
-    g_bDatabaseReady = false;
+    DropDatabaseConnection();
     ScheduleDatabaseReconnect();
 }
 
@@ -1484,6 +1572,7 @@ public void SQL_OnClanIdCacheRebuilt(Database db, DBResultSet results, const cha
     if (error[0])
     {
         LogError("[Clans] Failed to rebuild clan id cache: %s", error);
+        HandleDatabaseConnectionLoss(error);
         return;
     }
 
