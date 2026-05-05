@@ -1529,16 +1529,16 @@ void RequestClientClanTagsLoad(int client, bool force = false)
 
     char query[1024];
     FormatEx(query, sizeof(query),
-        "SELECT 0 AS sort_order, 0 AS created_at, '' AS owner_steamid, c.tag "
+        "SELECT 0 AS sort_order, 0 AS created_at, c.tag "
         ... "FROM clan_members cm "
         ... "INNER JOIN clans c ON c.id = cm.clan_id "
-        ... "WHERE cm.steamid64 = '%s' AND c.tag IS NOT NULL AND c.tag <> '' "
+        ... "WHERE cm.steamid64 = '%s' AND c.tag IS NOT NULL AND LENGTH(c.tag) > 0 "
         ... "UNION ALL "
-        ... "SELECT 1 AS sort_order, cst.created_at, cst.steamid64 AS owner_steamid, cst.tag "
+        ... "SELECT 1 AS sort_order, cst.created_at, cst.tag "
         ... "FROM clan_members self_cm "
         ... "INNER JOIN clan_sub_tags cst ON cst.clan_id = self_cm.clan_id "
-        ... "WHERE self_cm.steamid64 = '%s' AND cst.tag IS NOT NULL AND cst.tag <> '' "
-        ... "ORDER BY sort_order ASC, created_at ASC, owner_steamid ASC",
+        ... "WHERE self_cm.steamid64 = '%s' AND cst.tag IS NOT NULL AND LENGTH(cst.tag) > 0 "
+        ... "ORDER BY sort_order ASC, created_at ASC",
         escapedSteam,
         escapedSteam);
 
@@ -1577,7 +1577,7 @@ public void SQL_OnClientClanTagsLoaded(Database db, DBResultSet results, const c
     while (results != null && results.FetchRow())
     {
         int sortOrder = results.FetchInt(0);
-        results.FetchString(3, storedTag, sizeof(storedTag));
+        results.FetchString(2, storedTag, sizeof(storedTag));
         TrimString(storedTag);
 
         if (!storedTag[0])
