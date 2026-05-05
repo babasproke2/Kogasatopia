@@ -24,6 +24,7 @@ StringMap g_hVolunteers = null;             // SteamID64 set for persistent auto
 Database  g_hImmunityDb = null;
 bool      g_bImmunityDbReady = false;
 bool      g_bVolunteerDbReady = false;
+int       g_iPersistentVolunteerCount = 0;
 ConVar  g_hLogEnabled;
 ConVar  g_hDiffThreshold;
 ConVar  g_hSimpleSelection;
@@ -258,7 +259,10 @@ public Action Timer_Autobalance(Handle timer)
 
     int volunteerNonMedicCount = 0;
     int volunteerMedicCount = 0;
-    pick = SelectVolunteerPlayer(biggestTeam, volunteerNonMedicCount, volunteerMedicCount, mvpProtectionAvailable);
+    if (HasCachedVolunteers())
+    {
+        pick = SelectVolunteerPlayer(biggestTeam, volunteerNonMedicCount, volunteerMedicCount, mvpProtectionAvailable);
+    }
     if (pick > 0)
     {
         volunteerSelection = true;
@@ -617,6 +621,11 @@ static bool IsClientVolunteer(int client)
     return g_hVolunteers.GetValue(steamId, dummy);
 }
 
+static bool HasCachedVolunteers()
+{
+    return g_bVolunteerDbReady && g_hVolunteers != null && g_iPersistentVolunteerCount > 0;
+}
+
 static void SetPersistentVolunteerCache(const char[] steamId, bool volunteer)
 {
     if (g_hVolunteers == null || !steamId[0])
@@ -624,13 +633,27 @@ static void SetPersistentVolunteerCache(const char[] steamId, bool volunteer)
         return;
     }
 
+    int existing = 0;
+    bool wasVolunteer = g_hVolunteers.GetValue(steamId, existing);
+
     if (volunteer)
     {
         g_hVolunteers.SetValue(steamId, 1, true);
+        if (!wasVolunteer)
+        {
+            g_iPersistentVolunteerCount++;
+        }
     }
     else
     {
-        g_hVolunteers.Remove(steamId);
+        if (wasVolunteer)
+        {
+            g_hVolunteers.Remove(steamId);
+            if (g_iPersistentVolunteerCount > 0)
+            {
+                g_iPersistentVolunteerCount--;
+            }
+        }
     }
 }
 
@@ -657,6 +680,7 @@ public void SQL_OnImmunityDatabaseConnected(Database db, const char[] error, any
     g_hImmunityDb = db;
     g_bImmunityDbReady = false;
     g_bVolunteerDbReady = false;
+    g_iPersistentVolunteerCount = 0;
 
     if (!g_hImmunityDb.SetCharset("utf8mb4"))
     {
@@ -739,6 +763,7 @@ public void SQL_OnVolunteerSchemaReady(Database db, DBResultSet results, const c
     {
         g_hVolunteers.Clear();
     }
+    g_iPersistentVolunteerCount = 0;
 
     g_hImmunityDb.Query(SQL_OnPersistentVolunteersLoaded,
         "SELECT steamid64 FROM autobalance_volunteers WHERE volunteer != 0");
@@ -760,6 +785,7 @@ public void SQL_OnPersistentVolunteersLoaded(Database db, DBResultSet results, c
     {
         g_hVolunteers.Clear();
     }
+    g_iPersistentVolunteerCount = 0;
 
     if (results != null)
     {
@@ -774,6 +800,7 @@ public void SQL_OnPersistentVolunteersLoaded(Database db, DBResultSet results, c
             }
 
             g_hVolunteers.SetValue(steamId, 1, true);
+            g_iPersistentVolunteerCount++;
         }
     }
 
