@@ -3021,27 +3021,47 @@ bool LoadActiveClanWarsCacheSync()
         return false;
     }
 
+    ArrayList pendingWars = new ArrayList(sizeof(ActiveClanWar));
+    ActiveClanWar loadedWar;
     while (results.FetchRow())
     {
-        int warId = results.FetchInt(0);
-        int clanIdA = results.FetchInt(1);
-        int clanIdB = results.FetchInt(2);
-        int scoreA = results.FetchInt(3);
-        int scoreB = results.FetchInt(4);
-        int createdAt = results.FetchInt(5);
-        int expiresAt = results.FetchInt(6);
-        int instanceId = 0;
-        if (!EnsureClanWarInstanceSync(warId, clanIdA, clanIdB, createdAt, instanceId)
-            && (!EnsureDatabaseReady() || g_Database == null))
-        {
-            delete results;
-            ResetActiveWarCache();
-            return false;
-        }
-        UpsertActiveWarCacheEntry(warId, clanIdA, clanIdB, scoreA, scoreB, createdAt, expiresAt, instanceId);
+        loadedWar.warId = results.FetchInt(0);
+        loadedWar.instanceId = 0;
+        loadedWar.clanIdA = results.FetchInt(1);
+        loadedWar.clanIdB = results.FetchInt(2);
+        loadedWar.scoreA = results.FetchInt(3);
+        loadedWar.scoreB = results.FetchInt(4);
+        loadedWar.createdAt = results.FetchInt(5);
+        loadedWar.expiresAt = results.FetchInt(6);
+        loadedWar.writeDirty = false;
+        loadedWar.finalizePending = false;
+        loadedWar.finalizeWinnerClanId = 0;
+        loadedWar.finalizeStatus = ClanWarStatus_Active;
+        loadedWar.finalizeFinishedAt = 0;
+        loadedWar.announceLabelA[0] = '\0';
+        loadedWar.announceLabelB[0] = '\0';
+        loadedWar.historyLabelA[0] = '\0';
+        loadedWar.historyLabelB[0] = '\0';
+        pendingWars.PushArray(loadedWar);
     }
 
     delete results;
+
+    for (int i = 0; i < pendingWars.Length; i++)
+    {
+        pendingWars.GetArray(i, loadedWar);
+        int instanceId = 0;
+        if (!EnsureClanWarInstanceSync(loadedWar.warId, loadedWar.clanIdA, loadedWar.clanIdB, loadedWar.createdAt, instanceId)
+            && (!EnsureDatabaseReady() || g_Database == null))
+        {
+            delete pendingWars;
+            ResetActiveWarCache();
+            return false;
+        }
+        UpsertActiveWarCacheEntry(loadedWar.warId, loadedWar.clanIdA, loadedWar.clanIdB, loadedWar.scoreA, loadedWar.scoreB, loadedWar.createdAt, loadedWar.expiresAt, instanceId);
+    }
+
+    delete pendingWars;
     g_bActiveWarCacheReady = true;
     return true;
 }
