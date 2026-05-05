@@ -14,12 +14,11 @@ ConVar g_hGitRepoCommitMessage;
 ConVar g_hGitRepoCommitDate;
 
 static const char g_Info[][] = {
-    "{peachpuff}Some weapons have better stats; use {yellow}!r {peachpuff}to read about your class.\n",
-    "{peachpuff}We have new weapons; check {yellow}!c {peachpuff}to read and {yellow}!cw {peachpuff}to equip.\n",
-    "{peachpuff}Use {yellow}!commands {peachpuff}to browse the rest of the server commands.\n",
-    "{peachpuff}Random crits and bullet spread are disabled, respawn times are reduced\n",
-    "{peachpuff}Some classes are limited on Payload/AD gamemodes;\n",
-    "{peachpuff}Visit our group with {yellow}!steam {peachpuff}to learn more and see when people are playing.\n"
+    "{default}Some weapons have better stats; use {gold}!r{default} to read about your class.\n",
+    "{default}We have new weapons; check {gold}!c{default} for the list and {gold}!cw{default} to equip.\n",
+    "{default}Random crits and bullet spread are disabled\n",
+    "{default}Some classes such as {grey}Heavy{default} are limited;\n",
+    "{default}Visit our group with {gold}!steam{default} {default}to learn more and see when people are playing.\n"
 };
 
 static const char g_ScoutReverts[][] = {
