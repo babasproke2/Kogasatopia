@@ -537,11 +537,6 @@ void FinishDatabaseInitialization()
     }
 
     g_bDatabaseReady = true;
-    CleanupExpiredInvites();
-    if (!EnsureDatabaseReady())
-    {
-        return;
-    }
 
     if (!g_bActiveWarCacheReady || g_hActiveWars == null)
     {
@@ -567,6 +562,12 @@ void FinishDatabaseInitialization()
         return;
     }
 
+    FlushPendingClanWarPersistenceSync();
+    if (!EnsureDatabaseReady())
+    {
+        return;
+    }
+
     if (g_hInviteCleanupTimer == null)
     {
         g_hInviteCleanupTimer = CreateTimer(INVITE_CLEANUP_INTERVAL, Timer_CleanupExpiredInvites, 0, TIMER_REPEAT);
@@ -580,6 +581,8 @@ void FinishDatabaseInitialization()
     StartDatabaseKeepaliveTimer();
     PrintToServer("[Clans] Database ready using driver '%s'.", g_sDbDriver);
 
+    CleanupExpiredInvites();
+
     for (int i = 1; i <= MaxClients; i++)
     {
         if (IsClientInGame(i) && !IsFakeClient(i))
@@ -588,8 +591,6 @@ void FinishDatabaseInitialization()
             RequestClientClanTagsLoad(i);
         }
     }
-
-    FlushPendingClanWarPersistenceSync();
 }
 
 bool IsMySql()
