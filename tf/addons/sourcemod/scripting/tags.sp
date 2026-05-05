@@ -32,6 +32,7 @@ ConVar g_cvDatabaseConfig = null;
 
 char g_SelectedTags[MAXPLAYERS + 1][TAG_VALUE_MAXLEN];
 bool g_bTagLoaded[MAXPLAYERS + 1];
+bool g_bTagLoadPending[MAXPLAYERS + 1];
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
@@ -91,6 +92,7 @@ void ResetClientTagState(int client)
 {
     g_SelectedTags[client][0] = '\0';
     g_bTagLoaded[client] = false;
+    g_bTagLoadPending[client] = false;
 }
 
 void ConnectDatabase()
@@ -199,7 +201,13 @@ void EscapeSql(const char[] input, char[] output, int maxlen)
 
 void LoadClientSelectedTag(int client)
 {
-    ResetClientTagState(client);
+    if (client <= 0 || client > MaxClients || g_bTagLoadPending[client])
+    {
+        return;
+    }
+
+    g_SelectedTags[client][0] = '\0';
+    g_bTagLoaded[client] = false;
 
     if (!EnsureDatabaseReady() || !IsClientInGame(client) || IsFakeClient(client))
     {
@@ -219,6 +227,7 @@ void LoadClientSelectedTag(int client)
     FormatEx(query, sizeof(query),
         "SELECT tag FROM tags_selected WHERE steamid64 = '%s' LIMIT 1",
         escapedSteam);
+    g_bTagLoadPending[client] = true;
     g_Database.Query(SQL_OnClientTagLoaded, query, GetClientUserId(client));
 }
 
@@ -230,6 +239,7 @@ public void SQL_OnClientTagLoaded(Database db, DBResultSet results, const char[]
         return;
     }
 
+    g_bTagLoadPending[client] = false;
     g_SelectedTags[client][0] = '\0';
     g_bTagLoaded[client] = true;
 
@@ -401,23 +411,19 @@ static bool QueryStoredTagBySteam64(const char[] steamid64, char[] buffer, int m
     return found;
 }
 
-static void EnsureClientTagLoadedSync(int client)
+static void RequestClientTagLoadIfNeeded(int client)
 {
     if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client) || g_bTagLoaded[client])
     {
         return;
     }
 
-    char steamid64[TAG_STEAMID64_MAXLEN];
-    if (!GetClientSteam64(client, steamid64, sizeof(steamid64)))
+    if (g_bTagLoadPending[client] || !EnsureDatabaseReady())
     {
-        g_bTagLoaded[client] = true;
         return;
     }
 
-    g_SelectedTags[client][0] = '\0';
-    QueryStoredTagBySteam64(steamid64, g_SelectedTags[client], sizeof(g_SelectedTags[]));
-    g_bTagLoaded[client] = true;
+    LoadClientSelectedTag(client);
 }
 
 static bool GetResolvedClientTag(int client, char[] buffer, int maxlen)
@@ -429,8 +435,8 @@ static bool GetResolvedClientTag(int client, char[] buffer, int maxlen)
         return false;
     }
 
-    EnsureClientTagLoadedSync(client);
-    if (!g_SelectedTags[client][0])
+    RequestClientTagLoadIfNeeded(client);
+    if (!g_bTagLoaded[client] || !g_SelectedTags[client][0])
     {
         return false;
     }
