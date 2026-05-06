@@ -104,7 +104,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	char victimName[256];
 	BuildDisplayName(attacker, attackerName, sizeof(attackerName));
 	BuildDisplayName(victim, victimName, sizeof(victimName));
-	CPrintToChatAll("%s headshot %s while in the air!", attackerName, victimName);
+	CPrintToChatAll("%s dropshot %s!", attackerName, victimName);
 	if (g_bSaySoundsAvailable)
 	{
 		SaySounds_PlayCommand(0, SAYSOUND_AIRSHOT_COMMAND);
