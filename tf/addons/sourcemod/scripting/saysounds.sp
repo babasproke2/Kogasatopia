@@ -11,6 +11,7 @@
 #define MAX_GROUP_NAME 32
 #define MAX_GROUP_PREF_VALUE 512
 #define DEFAULT_GROUP "all"
+#define ADMIN_ONLY_GROUPS_SECTION "adminonlygroups"
 #define DEFAULT_DEATH_COMMAND "doh"
 #define TOUHOU_DEATH_SOUND_ATTR "touhou death sound"
 #define TOUHOU_DEATH_SOUND_PATH "touhou/pichuun.mp3"
@@ -27,9 +28,13 @@ public Plugin myinfo =
 
 StringMap gSoundMap;
 StringMap gSoundGroupMap;
+StringMap gAdminOnlyGroups;
 ArrayList gCommandNames;
 ArrayList gGroupNames;
 bool gConfigLoaded = false;
+bool gConfigInAdminOnlyGroups = false;
+int gConfigSectionDepth = 0;
+int gConfigAdminOnlyGroupsDepth = -1;
 float g_fClientVolume[MAXPLAYERS + 1];
 float g_fNextAllowedSound[MAXPLAYERS + 1];
 char g_szDeathSound[MAXPLAYERS + 1][MAX_COMMAND_NAME * 4];
@@ -65,6 +70,7 @@ public void OnPluginStart()
 {
     gSoundMap = new StringMap();
     gSoundGroupMap = new StringMap();
+    gAdminOnlyGroups = new StringMap();
     gCommandNames = new ArrayList(ByteCountToCells(MAX_COMMAND_NAME));
     gGroupNames = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
 
@@ -77,6 +83,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_opt", Command_ToggleSoundOpt);
     RegConsoleCmd("sm_opts", Command_ShowGroupOptions);
     RegConsoleCmd("sm_sounds", Command_ListSounds);
+    RegConsoleCmd("sm_saysounds", Command_ListSounds);
     RegConsoleCmd("sm_vol", Command_SetVolume);
     RegConsoleCmd("sm_diesounds", Command_ShowDeathSoundsMenu);
     RegConsoleCmd("sm_deathsounds", Command_ShowDeathSoundsMenu);
@@ -122,6 +129,12 @@ public void OnPluginEnd()
     {
         delete gSoundGroupMap;
         gSoundGroupMap = null;
+    }
+
+    if (gAdminOnlyGroups != null)
+    {
+        delete gAdminOnlyGroups;
+        gAdminOnlyGroups = null;
     }
 
     if (gCommandNames != null)
@@ -266,6 +279,12 @@ Action ChatCommandListener(int client, const char[] command, int argc)
 
     if (initiator != -1)
     {
+        if (!CanClientUseSaySoundGroup(initiator, groupName))
+        {
+            PrintToChat(initiator, "[SaySounds] That sound group is admin-only.");
+            return Plugin_Handled;
+        }
+
         if (g_fNextAllowedSound[initiator] > now)
         {
             float remaining = g_fNextAllowedSound[initiator] - now;
@@ -289,9 +308,13 @@ void LoadSaySoundConfig()
 {
     gSoundMap.Clear();
     gSoundGroupMap.Clear();
+    gAdminOnlyGroups.Clear();
     gCommandNames.Clear();
     gGroupNames.Clear();
     gConfigLoaded = false;
+    gConfigInAdminOnlyGroups = false;
+    gConfigSectionDepth = 0;
+    gConfigAdminOnlyGroupsDepth = -1;
     EnsureGroupRegistered(DEFAULT_GROUP);
 
     char filePath[PLATFORM_MAX_PATH];
@@ -304,6 +327,8 @@ void LoadSaySoundConfig()
     }
 
     SMCParser parser = new SMCParser();
+    parser.OnEnterSection = Config_EnterSection;
+    parser.OnLeaveSection = Config_LeaveSection;
     parser.OnKeyValue = Config_KeyValue;
 
     int errorLine, errorColumn;
@@ -331,8 +356,50 @@ void LoadSaySoundConfig()
     gConfigLoaded = true;
 }
 
+public SMCResult Config_EnterSection(SMCParser parser, const char[] name, bool optQuotes)
+{
+    gConfigSectionDepth++;
+
+    char sectionName[64];
+    strcopy(sectionName, sizeof(sectionName), name);
+    TrimString(sectionName);
+    ToLowercaseInPlace(sectionName, sizeof(sectionName));
+
+    if (StrEqual(sectionName, ADMIN_ONLY_GROUPS_SECTION)
+        || StrEqual(sectionName, "admin_only_groups")
+        || StrEqual(sectionName, "admin-only-groups"))
+    {
+        gConfigInAdminOnlyGroups = true;
+        gConfigAdminOnlyGroupsDepth = gConfigSectionDepth;
+    }
+
+    return SMCParse_Continue;
+}
+
+public SMCResult Config_LeaveSection(SMCParser parser)
+{
+    if (gConfigInAdminOnlyGroups && gConfigSectionDepth == gConfigAdminOnlyGroupsDepth)
+    {
+        gConfigInAdminOnlyGroups = false;
+        gConfigAdminOnlyGroupsDepth = -1;
+    }
+
+    if (gConfigSectionDepth > 0)
+    {
+        gConfigSectionDepth--;
+    }
+
+    return SMCParse_Continue;
+}
+
 public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[] value, bool keyQuoted, bool valueQuoted)
 {
+    if (gConfigInAdminOnlyGroups)
+    {
+        Config_AdminOnlyGroup(key, value);
+        return SMCParse_Continue;
+    }
+
     char commandName[MAX_COMMAND_NAME];
     strcopy(commandName, sizeof(commandName), key);
     TrimString(commandName);
@@ -375,6 +442,30 @@ public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[
     gSoundMap.SetString(commandName, soundPath);
     gSoundGroupMap.SetString(commandName, groupName);
     return SMCParse_Continue;
+}
+
+static void Config_AdminOnlyGroup(const char[] key, const char[] value)
+{
+    char groupName[MAX_GROUP_NAME];
+    strcopy(groupName, sizeof(groupName), key);
+    TrimString(groupName);
+    ToLowercaseInPlace(groupName, sizeof(groupName));
+
+    if (!groupName[0] || StrEqual(groupName, DEFAULT_GROUP))
+    {
+        return;
+    }
+
+    EnsureGroupRegistered(groupName);
+
+    if (ConfigValueIsEnabled(value))
+    {
+        gAdminOnlyGroups.SetValue(groupName, 1);
+    }
+    else
+    {
+        gAdminOnlyGroups.Remove(groupName);
+    }
 }
 
 void PrecacheConfiguredSounds()
@@ -610,6 +701,67 @@ static bool IsKnownGroup(const char[] groupName)
     }
 
     return FindGroupIndex(normalized) != -1;
+}
+
+static bool ConfigValueIsEnabled(const char[] value)
+{
+    char normalized[16];
+    strcopy(normalized, sizeof(normalized), value);
+    TrimString(normalized);
+    ToLowercaseInPlace(normalized, sizeof(normalized));
+
+    if (!normalized[0])
+    {
+        return true;
+    }
+
+    return !StrEqual(normalized, "0")
+        && !StrEqual(normalized, "false")
+        && !StrEqual(normalized, "off")
+        && !StrEqual(normalized, "no");
+}
+
+static bool IsGroupAdminOnly(const char[] groupName)
+{
+    if (gAdminOnlyGroups == null || !groupName[0])
+    {
+        return false;
+    }
+
+    char normalized[MAX_GROUP_NAME];
+    strcopy(normalized, sizeof(normalized), groupName);
+    TrimString(normalized);
+    ToLowercaseInPlace(normalized, sizeof(normalized));
+
+    int adminOnly = 0;
+    return gAdminOnlyGroups.GetValue(normalized, adminOnly) && adminOnly != 0;
+}
+
+static bool CanClientUseSaySoundGroup(int client, const char[] groupName)
+{
+    if (!IsGroupAdminOnly(groupName))
+    {
+        return true;
+    }
+
+    if (client <= 0)
+    {
+        return true;
+    }
+
+    return CheckCommandAccess(client, "sm_saysounds_admin_groups", ADMFLAG_GENERIC, true);
+}
+
+static bool CanClientUseSaySoundCommand(int client, const char[] commandName)
+{
+    char path[PLATFORM_MAX_PATH];
+    char groupName[MAX_GROUP_NAME];
+    if (!GetCommandSoundData(commandName, path, sizeof(path), groupName, sizeof(groupName)))
+    {
+        return false;
+    }
+
+    return CanClientUseSaySoundGroup(client, groupName);
 }
 
 static void EnsureClientGroupPreferenceMap(int client)
@@ -1108,6 +1260,10 @@ static bool ToggleClientSoundPreferenceCommand(int client, SaySoundPreferenceTyp
     for (int i = 0; i < gCommandNames.Length; i++)
     {
         gCommandNames.GetString(i, currentCommand, sizeof(currentCommand));
+        if (!CanClientUseSaySoundCommand(client, currentCommand))
+        {
+            continue;
+        }
 
         bool shouldEnable = PreferenceListHasCommand(currentValue, currentCommand);
         if (StrEqual(currentCommand, commandName))
@@ -1165,10 +1321,19 @@ static void ShowSoundPreferenceMenu(int client, SaySoundPreferenceType type)
     menu.SetTitle(title);
 
     char commandName[MAX_COMMAND_NAME];
+    char groupName[MAX_GROUP_NAME];
     char display[128];
     for (int i = 0; i < gCommandNames.Length; i++)
     {
         gCommandNames.GetString(i, commandName, sizeof(commandName));
+        if (!gSoundGroupMap.GetString(commandName, groupName, sizeof(groupName)))
+        {
+            strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
+        }
+        if (!CanClientUseSaySoundGroup(client, groupName))
+        {
+            continue;
+        }
         Format(display, sizeof(display), "%s (%s)", commandName, PreferenceListHasCommand(currentValue, commandName) ? "enabled" : "disabled");
         menu.AddItem(commandName, display);
     }
@@ -1277,6 +1442,8 @@ public Action Command_ListSounds(int client, int args)
             continue;
         if (!gSoundGroupMap.GetString(command, group, sizeof(group)))
             strcopy(group, sizeof(group), DEFAULT_GROUP);
+        if (!CanClientUseSaySoundGroup(client, group))
+            continue;
         PrintToChat(client, "!%s -> %s [%s]", command, sound, group);
     }
 
@@ -1385,7 +1552,7 @@ public Action Command_SetVolume(int client, int args)
     return Plugin_Handled;
 }
 
-static bool BuildSoundPreferenceList(const char[] input, char[] aggregated, int aggregatedLen, bool &anyInvalid)
+static bool BuildSoundPreferenceList(int client, const char[] input, char[] aggregated, int aggregatedLen, bool &anyInvalid)
 {
     aggregated[0] = '\0';
     anyInvalid = false;
@@ -1433,6 +1600,17 @@ static bool BuildSoundPreferenceList(const char[] input, char[] aggregated, int 
                 char path[PLATFORM_MAX_PATH];
                 if (gSoundMap.GetString(token, path, sizeof(path)))
                 {
+                    if (!CanClientUseSaySoundCommand(client, token))
+                    {
+                        anyInvalid = true;
+                        start = end + 1;
+                        if (start > len)
+                        {
+                            break;
+                        }
+                        continue;
+                    }
+
                     if (validCount < MAX_SOUND_OPTIONS)
                     {
                         int currentLen = strlen(aggregated);
@@ -1508,7 +1686,7 @@ public Action Command_SetDeathSound(int client, int args)
 
     char aggregated[256];
     bool anyInvalid = false;
-    if (!BuildSoundPreferenceList(buffer, aggregated, sizeof(aggregated), anyInvalid))
+    if (!BuildSoundPreferenceList(client, buffer, aggregated, sizeof(aggregated), anyInvalid))
     {
         PrintToChat(client, "[SaySounds] No valid sounds supplied. Use !sounds to list commands.");
         return Plugin_Handled;
@@ -1556,7 +1734,7 @@ public Action Command_SetKillSound(int client, int args)
 
     char aggregated[256];
     bool anyInvalid = false;
-    if (!BuildSoundPreferenceList(buffer, aggregated, sizeof(aggregated), anyInvalid))
+    if (!BuildSoundPreferenceList(client, buffer, aggregated, sizeof(aggregated), anyInvalid))
     {
         PrintToChat(client, "[SaySounds] No valid sounds supplied. Use !sounds to list commands.");
         return Plugin_Handled;
@@ -1605,6 +1783,12 @@ public Action Command_PlaySpecificSound(int client, int args)
     if (!GetCommandSoundData(arg, path, sizeof(path), groupName, sizeof(groupName)))
     {
         PrintToChat(client, "[SaySounds] Unknown sound '%s'. Use !sounds to list commands.", arg);
+        return Plugin_Handled;
+    }
+
+    if (!CanClientUseSaySoundGroup(client, groupName))
+    {
+        PrintToChat(client, "[SaySounds] That sound group is admin-only.");
         return Plugin_Handled;
     }
 
@@ -1982,6 +2166,10 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
     if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker) && attacker != victim && g_szKillSound[attacker][0])
     {
         haveAttacker = GetCommandSoundData(g_szKillSound[attacker], attackerPath, sizeof(attackerPath), attackerGroup, sizeof(attackerGroup));
+        if (haveAttacker && !CanClientUseSaySoundGroup(attacker, attackerGroup))
+        {
+            haveAttacker = false;
+        }
     }
 
     if (victim > 0 && victim <= MaxClients && IsClientInGame(victim))
@@ -1989,6 +2177,10 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
         if (g_szDeathSound[victim][0])
         {
             haveVictim = GetCommandSoundData(g_szDeathSound[victim], victimPath, sizeof(victimPath), victimGroup, sizeof(victimGroup));
+            if (haveVictim && !CanClientUseSaySoundGroup(victim, victimGroup))
+            {
+                haveVictim = false;
+            }
         }
         else if (!haveAttacker)
         {
