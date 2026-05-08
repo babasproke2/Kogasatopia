@@ -1,3 +1,37 @@
+#if defined DGM_PLUGIN
+
+stock bool ServerCapacityCheck(float capacityRatio = 0.50)
+{
+    if (capacityRatio < 0.0)
+    {
+        capacityRatio = 0.0;
+    }
+    else if (capacityRatio > 1.0)
+    {
+        capacityRatio = 1.0;
+    }
+
+    ConVar visibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
+    int capacity = 0;
+    if (visibleMaxPlayers != null)
+    {
+        capacity = visibleMaxPlayers.IntValue;
+    }
+
+    if (capacity <= 0)
+    {
+        capacity = MaxClients;
+    }
+
+    if (capacity <= 0)
+    {
+        return false;
+    }
+
+    float playerCount = float(GetClientCount(false));
+    return (playerCount / float(capacity)) >= capacityRatio;
+}
+
 ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
 ConVar g_cvThreshold;
@@ -280,3 +314,39 @@ void CreateDefaultConfigs()
         }
     }
 }
+
+#else
+
+stock bool ServerCapacityCheck(float capacityRatio = 0.50)
+{
+    if (capacityRatio < 0.0)
+    {
+        capacityRatio = 0.0;
+    }
+    else if (capacityRatio > 1.0)
+    {
+        capacityRatio = 1.0;
+    }
+
+    ConVar visibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
+    int capacity = 0;
+    if (visibleMaxPlayers != null)
+    {
+        capacity = visibleMaxPlayers.IntValue;
+    }
+
+    if (capacity <= 0)
+    {
+        capacity = MaxClients;
+    }
+
+    if (capacity <= 0)
+    {
+        return false;
+    }
+
+    float playerCount = float(GetClientCount(false));
+    return (playerCount / float(capacity)) >= capacityRatio;
+}
+
+#endif

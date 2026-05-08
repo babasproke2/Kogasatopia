@@ -12,7 +12,8 @@
 
 #define PLUGIN_VERSION "4.3"
 
-#include "detectgamemode/dgm"
+#define DGM_PLUGIN
+#include "include/dgm.inc"
 
 public void OnPluginStart()
 {
