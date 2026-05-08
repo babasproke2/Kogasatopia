@@ -35,6 +35,9 @@ ConVar g_cvGameMode;
 Handle g_cvMpDisableRespawnTimes = INVALID_HANDLE;
 Handle g_hSetupStateTimer = INVALID_HANDLE;
 bool g_bSetupActive = false;
+int g_iRoundStartTimestamp = 0;
+int g_iRoundEndTimestamp = 0;
+int g_iLastRoundDuration = 0;
 
 public Plugin myinfo = {
     name = "Gamemode Detector",
@@ -145,6 +148,16 @@ static bool DGM_IsRoundRunning()
     return (GameRules_GetRoundState() == RoundState_RoundRunning);
 }
 
+static int DGM_GetRoundDurationSeconds(int firstTimestamp, int secondTimestamp)
+{
+    if (firstTimestamp <= 0 || secondTimestamp <= firstTimestamp)
+    {
+        return 0;
+    }
+
+    return secondTimestamp - firstTimestamp;
+}
+
 static void DGM_SetSetupActive(bool setupActive)
 {
     if (g_bSetupActive == setupActive)
@@ -195,6 +208,9 @@ public void OnConfigsExecuted()
     DetectGameMode();
     g_InternalOverride = false; // Reset this on map change
     g_bRoundStartedOnce = false;
+    g_iRoundStartTimestamp = 0;
+    g_iRoundEndTimestamp = 0;
+    g_iLastRoundDuration = 0;
 }
 
 // Fires when a control point is captured
@@ -281,6 +297,7 @@ public Action Command_Stats(int client, int args)
         PrintToServer("Map: %s | Server: %s | Max Players: %d", map, hostname, visMax);
         PrintToServer("  respawn_time: %.2f", respawnTime);
         PrintToServer("  red: %.2f | blu: %.2f | otime:%.2f", redTime, bluTime, timeOverride);
+        PrintToServer("  last_round_duration: %d seconds", g_iLastRoundDuration);
         PrintToServer("  respawn_red_on_cap: %d",
                       asymCapRespawn);
     }
@@ -293,6 +310,8 @@ public Action Command_Stats(int client, int args)
                     respawnTime, timeOverride);
 
         PrintToChat(client, "\x04[Respawn]\x01 red: \x04%.2f\x01 | blu: \x04%.2f", redTime, bluTime);
+
+        PrintToChat(client, "\x04[DGM]\x01 Last round duration: \x04%d\x01 seconds", g_iLastRoundDuration);
 
         PrintToChat(client, "\x04[Respawn]\x01 respawn_red_on_cap: \x04%d",
                     asymCapRespawn);
@@ -392,6 +411,10 @@ public Action Timer_RespawnClient(Handle timer, int client)
 
 public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast)
 {
+    g_iRoundStartTimestamp = GetTime();
+    g_iRoundEndTimestamp = 0;
+    g_iLastRoundDuration = 0;
+
     if (g_cvTimeOverride != null)    g_cvTimeOverride.RestoreDefault();
     g_InternalOverride = false; // This is set to true when a round is won, it changes back to false now
     DGM_RefreshRespawnVisualState();
@@ -426,6 +449,9 @@ public void Event_SetupFinished(Event event, const char[] name, bool dontBroadca
 
 public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 {
+    g_iRoundEndTimestamp = GetTime();
+    g_iLastRoundDuration = DGM_GetRoundDurationSeconds(g_iRoundStartTimestamp, g_iRoundEndTimestamp);
+
     SetConVarInt(g_cvTimeOverride, 30);
     g_PointCaptures = 0;
     g_InternalOverride = true; // We're gonna stop clients from getting insta-respawned with this
