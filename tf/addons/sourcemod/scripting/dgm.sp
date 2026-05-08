@@ -12,7 +12,7 @@
 
 #define PLUGIN_VERSION "4.3"
 
-#define DGM_PLUGIN
+#include "include/dgm_api.inc"
 #include "include/dgm.inc"
 
 public void OnPluginStart()

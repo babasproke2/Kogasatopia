@@ -1,37 +1,3 @@
-#if defined DGM_PLUGIN
-
-stock bool ServerCapacityCheck(float capacityRatio = 0.50)
-{
-    if (capacityRatio < 0.0)
-    {
-        capacityRatio = 0.0;
-    }
-    else if (capacityRatio > 1.0)
-    {
-        capacityRatio = 1.0;
-    }
-
-    ConVar visibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
-    int capacity = 0;
-    if (visibleMaxPlayers != null)
-    {
-        capacity = visibleMaxPlayers.IntValue;
-    }
-
-    if (capacity <= 0)
-    {
-        capacity = MaxClients;
-    }
-
-    if (capacity <= 0)
-    {
-        return false;
-    }
-
-    float playerCount = float(GetClientCount(false));
-    return (playerCount / float(capacity)) >= capacityRatio;
-}
-
 ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
 ConVar g_cvThreshold;
@@ -66,6 +32,86 @@ public Plugin myinfo = {
     version = PLUGIN_VERSION,
     url = "https://kogasa.tf"
 };
+
+bool DGM_ServerCapacityCheck(float capacityRatio = 0.50)
+{
+    if (capacityRatio < 0.0)
+    {
+        capacityRatio = 0.0;
+    }
+    else if (capacityRatio > 1.0)
+    {
+        capacityRatio = 1.0;
+    }
+
+    ConVar visibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
+    int capacity = 0;
+    if (visibleMaxPlayers != null)
+    {
+        capacity = visibleMaxPlayers.IntValue;
+    }
+
+    if (capacity <= 0)
+    {
+        capacity = MaxClients;
+    }
+
+    if (capacity <= 0)
+    {
+        return false;
+    }
+
+    float playerCount = float(GetClientCount(false));
+    return (playerCount / float(capacity)) >= capacityRatio;
+}
+
+bool DGM_CopyCurrentGameMode(char[] buffer, int maxlen)
+{
+    if (maxlen <= 0)
+    {
+        return false;
+    }
+
+    buffer[0] = '\0';
+    if (g_cvGameMode != null)
+    {
+        g_cvGameMode.GetString(buffer, maxlen);
+    }
+
+    if (!buffer[0])
+    {
+        strcopy(buffer, maxlen, "unknown");
+    }
+
+    return buffer[0] != '\0';
+}
+
+public any Native_DGM_GetGameMode(Handle plugin, int numParams)
+{
+    char gamemode[64];
+    bool hasGamemode = DGM_CopyCurrentGameMode(gamemode, sizeof(gamemode));
+    SetNativeString(1, gamemode, GetNativeCell(2), true);
+    return hasGamemode;
+}
+
+public any Native_ServerCapacityCheck(Handle plugin, int numParams)
+{
+    float capacityRatio = 0.50;
+    if (numParams >= 1)
+    {
+        capacityRatio = view_as<float>(GetNativeCell(1));
+    }
+
+    return DGM_ServerCapacityCheck(capacityRatio);
+}
+
+public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
+{
+    RegPluginLibrary("dgm");
+    CreateNative("DGM_GetGameMode", Native_DGM_GetGameMode);
+    CreateNative("ServerCapacityCheck", Native_ServerCapacityCheck);
+    return APLRes_Success;
+}
 
 // I prefer the visual effect when TF2's mp_disable_respawn_times cvar is true but dislike that it can be exploited
 // Also takes about 5~ seconds for the respawn to occur
@@ -314,39 +360,3 @@ void CreateDefaultConfigs()
         }
     }
 }
-
-#else
-
-stock bool ServerCapacityCheck(float capacityRatio = 0.50)
-{
-    if (capacityRatio < 0.0)
-    {
-        capacityRatio = 0.0;
-    }
-    else if (capacityRatio > 1.0)
-    {
-        capacityRatio = 1.0;
-    }
-
-    ConVar visibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
-    int capacity = 0;
-    if (visibleMaxPlayers != null)
-    {
-        capacity = visibleMaxPlayers.IntValue;
-    }
-
-    if (capacity <= 0)
-    {
-        capacity = MaxClients;
-    }
-
-    if (capacity <= 0)
-    {
-        return false;
-    }
-
-    float playerCount = float(GetClientCount(false));
-    return (playerCount / float(capacity)) >= capacityRatio;
-}
-
-#endif
