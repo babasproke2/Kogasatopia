@@ -64,6 +64,7 @@ ConVar cvarMetalMax;
 ConVar cvarDistance;
 ConVar cvarEffectLength;
 ConVar cvarForceAmplifier;
+ConVar cvarForceSentryBelowPlayers;
 ConVar cvarEnableExplosion;
 ConVar cvarEnableZap;
 
@@ -74,6 +75,7 @@ TFCond DefaultCondition = TFCond_RuneHaste; // Formerly TFCond_Buffed
 float DefaultDistance = 400.0;
 float DefaultEffectLength = 5.0;
 int ForceAmplifier = 0; // 0=nothing, 1=dispenser, 2=sentry, 3=both
+int ForceSentryBelowPlayers = 0;
 int EnableExplosion = 65;
 int EnableZap = 0; // I prefer 20
 
@@ -149,6 +151,7 @@ public OnPluginStart()
 	cvarMetalMax = CreateConVar("amplifier_max", "200.0", "Maximum amount of metal an amplifier can hold.", FCVAR_PLUGIN);
 	cvarMetal = CreateConVar("amplifier_metal", "5.0", "Amount of metal to use to apply a condition to a player (per second).", FCVAR_PLUGIN);
 	cvarForceAmplifier = CreateConVar("amplifier_force", "0", "Force amplifier mode: 0=nothing, 1=dispenser, 2=sentry, 3=both", FCVAR_PLUGIN, true, 0.0, true, 3.0);
+	cvarForceSentryBelowPlayers = CreateConVar("amplifier_force_sentry_below_players", "0", "If >0 and human player count is below this value, treat amplifier_force as 2 (sentry only).", FCVAR_PLUGIN, true, 0.0);
 	cvarEnableExplosion = CreateConVar("amplifier_explode", "65", "Enable Amplifier death explosions? >0 for damage value.", FCVAR_PLUGIN, true, 0.0, true, 1.0);
 	cvarEnableZap = CreateConVar("amplifier_zap", "20.0", "Should Amplifier pulses harm the enemy team? 0 to disable, >0 for damage.", FCVAR_PLUGIN, true, 0.0, true, 50.0);
 
@@ -179,6 +182,7 @@ public OnPluginStart()
 	HookConVarChange(cvarEffectLength, CvarChange);
 	HookConVarChange(cvarDistance, CvarChange);
 	HookConVarChange(cvarForceAmplifier, CvarChange);
+	HookConVarChange(cvarForceSentryBelowPlayers, CvarChange);
 	
 	for (new i = 1; i <= MaxClients; i++)
 	{
@@ -214,6 +218,7 @@ public CvarChange(Handle:convar, const String:oldValue[], const String:newValue[
 	else if (convar == cvarEnableExplosion) EnableExplosion = StringToInt(newValue);
 	else if (convar == cvarEnableZap) EnableZap = StringToInt(newValue);
 	else if (convar == cvarForceAmplifier) ForceAmplifier = StringToInt(newValue);
+	else if (convar == cvarForceSentryBelowPlayers) ForceSentryBelowPlayers = StringToInt(newValue);
 }
 
 public OnConfigsExecuted()
@@ -225,6 +230,7 @@ public OnConfigsExecuted()
 	MetalPerPlayer = GetConVarInt(cvarMetal);
 	MetalMax = GetConVarInt(cvarMetalMax);
 	ForceAmplifier = GetConVarInt(cvarForceAmplifier);
+	ForceSentryBelowPlayers = GetConVarInt(cvarForceSentryBelowPlayers);
 	g_hAmplifierTimer = CreateTimer(1.0, Timer_amplifier, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 }
 
@@ -285,6 +291,31 @@ void SaveClientPreferences(client)
 	
 	IntToString(g_PlayerState[client].useSentry, szValue, sizeof(szValue));
 	SetClientCookie(client, g_hCookieSentry, szValue);
+}
+
+int GetEffectiveForceAmplifier()
+{
+	if (ForceSentryBelowPlayers > 0 && CountHumanPlayers() < ForceSentryBelowPlayers)
+	{
+		return 2;
+	}
+
+	return ForceAmplifier;
+}
+
+int CountHumanPlayers()
+{
+	int count = 0;
+
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		if (IsClientInGame(client) && !IsFakeClient(client))
+		{
+			count++;
+		}
+	}
+
+	return count;
 }
 
 public AddToDownload()
@@ -787,11 +818,12 @@ CheckBuilding(ent)
 	
     bool shouldConvert = false;
     bool forcedConversion = false;
+    int effectiveForceAmplifier = GetEffectiveForceAmplifier();
 	
 	// Check force mode
-    if (ForceAmplifier == 1 && isDispenser) { shouldConvert = true; forcedConversion = true; }
-    else if (ForceAmplifier == 2 && isSentry) { shouldConvert = true; forcedConversion = true; }
-    else if (ForceAmplifier == 3) { shouldConvert = true; forcedConversion = true; }
+    if (effectiveForceAmplifier == 1 && isDispenser) { shouldConvert = true; forcedConversion = true; }
+    else if (effectiveForceAmplifier == 2 && isSentry) { shouldConvert = true; forcedConversion = true; }
+    else if (effectiveForceAmplifier == 3) { shouldConvert = true; forcedConversion = true; }
 	// Check custom attributes
 	else if (isDispenser && CheckAmpAttributesDisp(Client)) shouldConvert = true;
 	else if (isSentry && CheckAmpAttributesSentry(Client)) shouldConvert = true;
@@ -829,10 +861,9 @@ CheckBuilding(ent)
 		SetEntProp(ent, Prop_Send, "m_nSkin", GetEntProp(ent, Prop_Send, "m_nSkin") + 2);
         CreateTimer(1.0, BuildingCheckStage1, EntIndexToEntRef(ent));
 
-        // If force==2 (sentry) and this build was converted only because of force,
-        if (forcedConversion && ForceAmplifier == 2)
+        if (forcedConversion && effectiveForceAmplifier == 2)
         {
-            CPrintToChat(Client, "{orange}[Amplifier]{default} Sentries have been vote-disabled on this map or gamemode; have an Amplifier instead!");
+            CPrintToChat(Client, "{orange}[Amplifier]{default} Sentries are being replaced with Amplifiers right now; have an Amplifier instead!");
         }
     }
 }
