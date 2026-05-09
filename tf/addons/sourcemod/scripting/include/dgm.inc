@@ -150,6 +150,11 @@ void DGM_CopyGameModeKeyForMap(const char[] mapName, char[] buffer, int maxlen)
         strcopy(buffer, maxlen, "arena");
         return;
     }
+    if (StrContains(mapName, "vsh_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "vsh");
+        return;
+    }
     if (StrContains(mapName, "ultiduo_", false) == 0)
     {
         strcopy(buffer, maxlen, "ultiduo");
@@ -254,6 +259,7 @@ bool DGM_CheckSmallFormatGamemode()
     if (DGM_CopyCurrentGameModeKey(gamemodeKey, sizeof(gamemodeKey)))
     {
         if (StrEqual(gamemodeKey, "arena", false)
+            || StrEqual(gamemodeKey, "vsh", false)
             || StrEqual(gamemodeKey, "ultiduo", false)
             || StrEqual(gamemodeKey, "mge", false))
         {
@@ -269,6 +275,7 @@ bool DGM_CheckSmallFormatGamemode()
     char gamemode[64];
     g_cvGameMode.GetString(gamemode, sizeof(gamemode));
     return StrEqual(gamemode, "Arena", false)
+        || StrEqual(gamemode, "vsh", false)
         || StrEqual(gamemode, "ultiduo", false)
         || StrEqual(gamemode, "mge", false);
 }
@@ -605,7 +612,11 @@ void DetectGameMode()
     }
 
     GetCurrentMap(mapName, sizeof(mapName));
-    if (StrContains(mapName, "ultiduo_", false) != -1)
+    if (StrContains(mapName, "vsh_", false) != -1)
+    {
+        strcopy(modeName, sizeof(modeName), "vsh");
+    }
+    else if (StrContains(mapName, "ultiduo_", false) != -1)
     {
         strcopy(modeName, sizeof(modeName), "ultiduo");
     }
