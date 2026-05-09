@@ -2,6 +2,7 @@
 #include <sourcemod>
 #include <morecolors>
 #include <nativevotes>
+#include <dhooks>
 #include <tf2_stocks>
 #include <clans_api>
 #include <whaletracker_api>
@@ -63,9 +64,14 @@ ConVar g_hVoteTime = null;
 ConVar g_hCountBots = null;
 ConVar g_hTopSwap = null;
 ConVar g_hRandom = null;
+ConVar g_hEngineHook = null;
 int g_iRoundsSinceAuto = 0;
 char g_sLogPath[PLATFORM_MAX_PATH];
 StringMap g_hScrambleImmunity = null;
+DynamicHook g_hHandleScrambleTeams = null;
+int g_iHandleScrambleHookId = INVALID_HOOK_ID;
+bool g_bAllowNextEngineScramble = false;
+float g_flAllowEngineScrambleUntil = 0.0;
 
 #define TEAM_RED  2
 #define TEAM_BLU  3
@@ -104,7 +110,10 @@ public void OnPluginStart()
     g_hCountBots = CreateConVar("whalescramble_count_bots", "0", "Include bots when selecting whale scramble targets.", _, true, 0.0, true, 1.0);
     g_hTopSwap = CreateConVar("sm_ws_topswap", "0", "Enable topswap scramble mode.", _, true, 0.0, true, 1.0);
     g_hRandom = CreateConVar("sm_ws_random", "1", "Enable random scramble mode.", _, true, 0.0, true, 1.0);
+    g_hEngineHook = CreateConVar("sm_whalescramble_engine_hook", "1", "Replace TF2 engine/auto scrambles with Whalescramble when possible.", _, true, 0.0, true, 1.0);
     g_hScrambleImmunity = new StringMap();
+    InitEngineScrambleHook();
+    HookEngineScrambleHandler();
 
     for (int i = 0; i < sizeof(SCRAMBLE_COMMANDS); i++)
     {
@@ -156,6 +165,7 @@ public void OnMapStart()
     {
         g_hScrambleImmunity.Clear();
     }
+    HookEngineScrambleHandler();
     LogWhale("Map start: immunity cleared, votes reset.");
 }
 
@@ -164,6 +174,7 @@ public void OnMapEnd()
     ResetVotes();
     ClearScrambleCooldown();
     ClearAutoScrambleTimer();
+    UnhookEngineScrambleHandler();
     g_iRoundsSinceAuto = 0;
     LogWhale("Map end: votes reset.");
 }
@@ -173,6 +184,7 @@ public void OnPluginEnd()
     ResetVotes();
     ClearScrambleCooldown();
     ClearAutoScrambleTimer();
+    UnhookEngineScrambleHandler();
     LogWhale("Plugin ended.");
 }
 
@@ -437,6 +449,123 @@ static bool ShouldIgnoreScrambleImmunity(int totalPlayers, bool randomMode)
     }
 
     return totalPlayers <= (MAX_TOP_SWAP * 2);
+}
+
+static void InitEngineScrambleHook()
+{
+    if (g_hHandleScrambleTeams != null)
+    {
+        return;
+    }
+
+    GameData gameData = new GameData("whalescramble");
+    if (gameData == null)
+    {
+        LogError("[WhaleScramble] Failed to load gamedata: whalescramble");
+        return;
+    }
+
+    int offset = gameData.GetOffset("CTeamplayRules::HandleScrambleTeams");
+    delete gameData;
+
+    if (offset == -1)
+    {
+        LogError("[WhaleScramble] Missing CTeamplayRules::HandleScrambleTeams offset in gamedata");
+        return;
+    }
+
+    g_hHandleScrambleTeams = DHookCreate(offset, HookType_GameRules, ReturnType_Void, ThisPointer_Ignore);
+    if (g_hHandleScrambleTeams == null)
+    {
+        LogError("[WhaleScramble] Failed to create CTeamplayRules::HandleScrambleTeams hook");
+        return;
+    }
+
+    LogWhale("Engine scramble hook prepared.");
+}
+
+static void HookEngineScrambleHandler()
+{
+    if (g_iHandleScrambleHookId != INVALID_HOOK_ID || g_hHandleScrambleTeams == null)
+    {
+        return;
+    }
+
+    if (g_hEngineHook != null && !g_hEngineHook.BoolValue)
+    {
+        LogWhale("Engine scramble hook disabled by sm_whalescramble_engine_hook.");
+        return;
+    }
+
+    g_iHandleScrambleHookId = g_hHandleScrambleTeams.HookGamerules(Hook_Pre, DHook_HandleScrambleTeams);
+    if (g_iHandleScrambleHookId == INVALID_HOOK_ID)
+    {
+        LogError("[WhaleScramble] Failed to hook CTeamplayRules::HandleScrambleTeams");
+        return;
+    }
+
+    LogWhale("Engine scramble hook installed id=%d.", g_iHandleScrambleHookId);
+}
+
+static void UnhookEngineScrambleHandler()
+{
+    if (g_iHandleScrambleHookId == INVALID_HOOK_ID)
+    {
+        return;
+    }
+
+    DHookRemoveHookID(g_iHandleScrambleHookId);
+    LogWhale("Engine scramble hook removed id=%d.", g_iHandleScrambleHookId);
+    g_iHandleScrambleHookId = INVALID_HOOK_ID;
+}
+
+static void AllowNextEngineScramble(float seconds)
+{
+    g_bAllowNextEngineScramble = true;
+    g_flAllowEngineScrambleUntil = GetEngineTime() + seconds;
+}
+
+static bool ShouldAllowEngineScrambleThrough()
+{
+    if (!g_bAllowNextEngineScramble)
+    {
+        return false;
+    }
+
+    if (GetEngineTime() > g_flAllowEngineScrambleUntil)
+    {
+        g_bAllowNextEngineScramble = false;
+        g_flAllowEngineScrambleUntil = 0.0;
+        return false;
+    }
+
+    g_bAllowNextEngineScramble = false;
+    g_flAllowEngineScrambleUntil = 0.0;
+    return true;
+}
+
+public MRESReturn DHook_HandleScrambleTeams()
+{
+    if (g_hEngineHook != null && !g_hEngineHook.BoolValue)
+    {
+        return MRES_Ignored;
+    }
+
+    if (ShouldAllowEngineScrambleThrough())
+    {
+        LogWhale("Engine scramble allowed through for explicit mp_scrambleteams path.");
+        return MRES_Ignored;
+    }
+
+    bool started = StartAutoScramble(true);
+    if (!started)
+    {
+        LogWhale("Engine scramble hook could not start Whalescramble; allowing TF2 handler.");
+        return MRES_Ignored;
+    }
+
+    LogWhale("Engine scramble replaced with Whalescramble.");
+    return MRES_Supercede;
 }
 
 static bool IsSmallFormatGamemode()
@@ -872,6 +1001,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
                         yesVotes,
                         totalVotes);
                     StartScrambleCooldown();
+                    AllowNextEngineScramble(5.0);
                     ServerCommand("mp_scrambleteams");
                     success = true;
                 }
