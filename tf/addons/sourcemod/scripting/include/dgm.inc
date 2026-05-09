@@ -414,7 +414,7 @@ public void AdjustByPlayerCount(any data)
     {
         return;
     }
-    int playerCount = GetClientCount(true);
+    int playerCount = DGM_CountRealPlayers();
     int threshhold = GetConVarInt(g_cvThreshold);
     if (!g_bSymmetrical) {
         ServerCommand(playerCount > threshhold ? "exec d_highpop_a.cfg" : "exec d_lowpop_a.cfg");
