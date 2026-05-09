@@ -99,6 +99,11 @@ public void OnConfigsExecuted()
 // Fires when a control point is captured
 public void Event_PointCaptured(Event event, const char[] name, bool dontBroadcast)
 {
+    if (DGM_ShouldDisableInstantRespawn())
+    {
+        return;
+    }
+
     //This stuff is mostly WIP for dynamic changes on maps in the future
 	// For now, all of these  features are from asymmetrical gamemode types
 	if (!g_bSymmetrical)
@@ -242,6 +247,12 @@ public Action Command_CvarHelp(int client, int args)
 
 public Action Command_RespawnToggle(int client, int args)
 {
+    if (DGM_ShouldDisableInstantRespawn())
+    {
+        ReplyToCommand(client, "DGM respawn management is disabled on arena maps.");
+        return Plugin_Handled;
+    }
+
     g_InternalOverride = !g_InternalOverride; // toggles between true and false
     DGM_RefreshRespawnVisualState();
     PrintToChat(client, "Respawn times %s", g_InternalOverride ? "forced on" : "forced off");
@@ -250,6 +261,11 @@ public Action Command_RespawnToggle(int client, int args)
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
+        if (DGM_ShouldDisableInstantRespawn())
+        {
+            return;
+        }
+
         if (g_InternalOverride)
         {
             SetConVarInt(g_cvMpDisableRespawnTimes, 0);
@@ -286,6 +302,11 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
 public Action Timer_RespawnClient(Handle timer, int client)
 {
+    if (DGM_ShouldDisableInstantRespawn())
+    {
+        return Plugin_Stop;
+    }
+
     if (IsValidClient(client) && !IsPlayerAlive(client) && GetClientTeam(client) > 1) {
         TF2_RespawnPlayer(client);
     }

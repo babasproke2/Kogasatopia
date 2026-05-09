@@ -206,6 +206,30 @@ bool DGM_CopyCurrentGameMode(char[] buffer, int maxlen)
     return buffer[0] != '\0';
 }
 
+bool DGM_IsArenaGamemode()
+{
+    char gamemodeKey[32];
+    if (DGM_CopyCurrentGameModeKey(gamemodeKey, sizeof(gamemodeKey))
+        && StrEqual(gamemodeKey, "arena", false))
+    {
+        return true;
+    }
+
+    if (g_cvGameMode == null)
+    {
+        return false;
+    }
+
+    char gamemode[64];
+    g_cvGameMode.GetString(gamemode, sizeof(gamemode));
+    return StrEqual(gamemode, "Arena", false);
+}
+
+bool DGM_ShouldDisableInstantRespawn()
+{
+    return DGM_IsArenaGamemode();
+}
+
 public any Native_DGM_GetGameMode(Handle plugin, int numParams)
 {
     char gamemode[64];
@@ -265,6 +289,12 @@ void DGM_RefreshRespawnVisualState()
 {
     if (g_cvMpDisableRespawnTimes == null)
     {
+        return;
+    }
+
+    if (DGM_ShouldDisableInstantRespawn())
+    {
+        SetConVarInt(g_cvMpDisableRespawnTimes, 0);
         return;
     }
 
