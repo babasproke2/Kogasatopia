@@ -7,6 +7,7 @@
 #include <tf2_stocks>
 #include <clans_api>
 #include <whaletracker_api>
+#include "include/dgm_api.inc"
 
 native int FilterAlerts_MarkAutobalance(int client);
 
@@ -50,6 +51,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("FilterAlerts_MarkAutobalance");
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
+    MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
     return APLRes_Success;
 }
 
@@ -133,6 +135,11 @@ public void OnPluginEnd()
 
 public Action Timer_Autobalance(Handle timer)
 {
+    if (ShouldSuppressAutobalanceForGamemode())
+    {
+        return Plugin_Continue;
+    }
+
     int teamCounts[6];
 
     for (int i = 1; i <= MaxClients; i++)
@@ -401,6 +408,16 @@ public Action Timer_Autobalance(Handle timer)
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+static bool ShouldSuppressAutobalanceForGamemode()
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_IsSmallFormatGamemode") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    return DGM_IsSmallFormatGamemode();
+}
 
 static bool IsEligiblePlayer(int client, int team, bool clanProtectionAvailable, bool mvpProtectionAvailable)
 {
