@@ -130,6 +130,16 @@ void DGM_CopyGameModeKeyForMap(const char[] mapName, char[] buffer, int maxlen)
         strcopy(buffer, maxlen, "arena");
         return;
     }
+    if (StrContains(mapName, "ultiduo_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "ultiduo");
+        return;
+    }
+    if (StrContains(mapName, "mge_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "mge");
+        return;
+    }
     if (StrContains(mapName, "mvm_", false) == 0)
     {
         strcopy(buffer, maxlen, "mvm");
@@ -206,13 +216,17 @@ bool DGM_CopyCurrentGameMode(char[] buffer, int maxlen)
     return buffer[0] != '\0';
 }
 
-bool DGM_IsArenaGamemode()
+bool DGM_IsRespawnManagementDisabledGamemode()
 {
     char gamemodeKey[32];
-    if (DGM_CopyCurrentGameModeKey(gamemodeKey, sizeof(gamemodeKey))
-        && StrEqual(gamemodeKey, "arena", false))
+    if (DGM_CopyCurrentGameModeKey(gamemodeKey, sizeof(gamemodeKey)))
     {
-        return true;
+        if (StrEqual(gamemodeKey, "arena", false)
+            || StrEqual(gamemodeKey, "ultiduo", false)
+            || StrEqual(gamemodeKey, "mge", false))
+        {
+            return true;
+        }
     }
 
     if (g_cvGameMode == null)
@@ -222,12 +236,14 @@ bool DGM_IsArenaGamemode()
 
     char gamemode[64];
     g_cvGameMode.GetString(gamemode, sizeof(gamemode));
-    return StrEqual(gamemode, "Arena", false);
+    return StrEqual(gamemode, "Arena", false)
+        || StrEqual(gamemode, "ultiduo", false)
+        || StrEqual(gamemode, "mge", false);
 }
 
 bool DGM_ShouldDisableInstantRespawn()
 {
-    return DGM_IsArenaGamemode();
+    return DGM_IsRespawnManagementDisabledGamemode();
 }
 
 public any Native_DGM_GetGameMode(Handle plugin, int numParams)
