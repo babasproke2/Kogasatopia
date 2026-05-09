@@ -3,7 +3,6 @@
 
 #include <sourcemod>
 #include <keyvalues>
-#include "include/dgm_api.inc"
 
 #define PLUGIN_VERSION "1.1"
 
@@ -15,12 +14,6 @@ public Plugin myinfo =
     version = PLUGIN_VERSION,
     url = "https://kogasa.tf"
 };
-
-public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
-{
-    MarkNativeAsOptional("DGM_RealPlayerCount");
-    return APLRes_Success;
-}
 
 Handle g_hTimer = null;
 ArrayList g_MapList = null;
@@ -141,7 +134,7 @@ public void OnMapStart()
 
 public Action Timer_CheckPlayers(Handle timer)
 {    
-	int playerCount = GetRealPlayerCount();
+	int playerCount = GetClientCount(true); // Count connecting players
 	
 	if (playerCount == 0)
 	{
@@ -155,16 +148,6 @@ public Action Timer_CheckPlayers(Handle timer)
 	}
     
     return Plugin_Continue;
-}
-
-int GetRealPlayerCount()
-{
-    if (GetFeatureStatus(FeatureType_Native, "DGM_RealPlayerCount") == FeatureStatus_Available)
-    {
-        return DGM_RealPlayerCount();
-    }
-
-    return GetClientCount(true);
 }
 
 void ChangeToRandomMap()
