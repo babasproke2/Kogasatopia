@@ -965,16 +965,16 @@ public void SQL_OnPersistentVolunteerToggled(Database db, DBResultSet results, c
             {
                 ReplyToCommand(actor,
                     nowVolunteer
-                        ? "[autobalance_4teams] %N is now persistently volunteering for autobalance."
-                        : "[autobalance_4teams] %N is no longer persistently volunteering for autobalance.",
+                        ? "[Autobalance] %N is now an autobalance volunteer."
+                        : "[Autobalance] %N is no longer an autobalance volunteer.",
                     target);
             }
             else
             {
                 ReplyToCommand(actor,
                     nowVolunteer
-                        ? "[autobalance_4teams] Persistent autobalance volunteer status applied."
-                        : "[autobalance_4teams] Persistent autobalance volunteer status removed.");
+                        ? "[Autobalance] Autobalance volunteer status applied."
+                        : "[Autobalance] Autobalance volunteer status removed.");
             }
         }
 
@@ -982,8 +982,8 @@ public void SQL_OnPersistentVolunteerToggled(Database db, DBResultSet results, c
         {
             PrintToChat(target,
                 nowVolunteer
-                    ? "[autobalance_4teams] You are now persistently volunteering for autobalance."
-                    : "[autobalance_4teams] You are no longer persistently volunteering for autobalance.");
+                    ? "[Autobalance] You are now an autobalance volunteer; use !volunteer to opt out."
+                    : "[Autobalance] You are no longer an autobalance volunteer; use !volunteer to opt in.");
         }
 
         if (actor > 0 && IsClientInGame(actor) && target > 0 && IsClientInGame(target))
@@ -1017,8 +1017,8 @@ public void SQL_OnPersistentVolunteerToggled(Database db, DBResultSet results, c
     {
         ReplyToCommand(target,
             nowVolunteer
-                ? "[autobalance_4teams] You are now persistently volunteering for autobalance."
-                : "[autobalance_4teams] You are no longer persistently volunteering for autobalance.");
+                ? "[Autobalance] You are now an autobalance volunteer; use !volunteer to opt out."
+                : "[Autobalance] You are no longer an autobalance volunteer; use !volunteer to opt in.");
         LogBalance(
             nowVolunteer
                 ? "%N volunteered for autobalance"
