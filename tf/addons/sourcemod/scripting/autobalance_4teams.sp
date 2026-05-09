@@ -923,11 +923,6 @@ public Action Command_Volunteer(int client, int args)
     pack.WriteCell(targetChangedByAdmin ? 1 : 0);
     pack.WriteString(steamId);
 
-    if (client > 0 && IsClientInGame(client))
-    {
-        PrintToChat(client, "[Autobalance] Saving volunteer status...");
-    }
-
     g_hImmunityDb.Query(SQL_OnPersistentVolunteerToggled, query, pack);
     return Plugin_Handled;
 }
