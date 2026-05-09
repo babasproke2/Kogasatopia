@@ -33,7 +33,28 @@ public Plugin myinfo = {
     url = "https://kogasa.tf"
 };
 
-bool DGM_ServerCapacityCheck(float capacityRatio = 0.50)
+int DGM_CountRealPlayers()
+{
+    int count = 0;
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsValidClient(client) || IsFakeClient(client))
+        {
+            continue;
+        }
+
+        int team = GetClientTeam(client);
+        if (team == 2 || team == 3)
+        {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+bool DGM_CheckServerCapacity(float capacityRatio = 0.50)
 {
     if (capacityRatio < 0.0)
     {
@@ -61,8 +82,81 @@ bool DGM_ServerCapacityCheck(float capacityRatio = 0.50)
         return false;
     }
 
-    float playerCount = float(GetClientCount(false));
+    float playerCount = float(DGM_CountRealPlayers());
     return (playerCount / float(capacity)) >= capacityRatio;
+}
+
+void DGM_CopyGameModeKeyForMap(const char[] mapName, char[] buffer, int maxlen)
+{
+    strcopy(buffer, maxlen, "default");
+
+    if (StrContains(mapName, "ctf_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "ctf");
+        return;
+    }
+    if (StrContains(mapName, "cp_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "cp");
+        return;
+    }
+    if (StrContains(mapName, "pl_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "pl");
+        return;
+    }
+    if (StrContains(mapName, "plr_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "plr");
+        return;
+    }
+    if (StrContains(mapName, "koth_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "koth");
+        return;
+    }
+    if (StrContains(mapName, "pd_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "pd");
+        return;
+    }
+    if (StrContains(mapName, "sd_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "sd");
+        return;
+    }
+    if (StrContains(mapName, "arena_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "arena");
+        return;
+    }
+    if (StrContains(mapName, "mvm_", false) == 0)
+    {
+        strcopy(buffer, maxlen, "mvm");
+        return;
+    }
+}
+
+bool DGM_CopyCurrentGameModeKey(char[] buffer, int maxlen)
+{
+    if (maxlen <= 0)
+    {
+        return false;
+    }
+
+    char mapName[PLATFORM_MAX_PATH];
+    GetCurrentMap(mapName, sizeof(mapName));
+    ReplaceStringEx(mapName, sizeof(mapName), "workshop/", "");
+
+    int dot = FindCharInString(mapName, '.');
+    if (dot > 0)
+    {
+        mapName[dot] = '\0';
+    }
+
+    TrimString(mapName);
+    DGM_CopyGameModeKeyForMap(mapName, buffer, maxlen);
+    return buffer[0] != '\0';
 }
 
 bool DGM_CopyCurrentGameMode(char[] buffer, int maxlen)
@@ -94,7 +188,20 @@ public any Native_DGM_GetGameMode(Handle plugin, int numParams)
     return hasGamemode;
 }
 
-public any Native_ServerCapacityCheck(Handle plugin, int numParams)
+public any Native_DGM_RealPlayerCount(Handle plugin, int numParams)
+{
+    return DGM_CountRealPlayers();
+}
+
+public any Native_DGM_GetGameModeKey(Handle plugin, int numParams)
+{
+    char gamemodeKey[32];
+    bool hasGamemodeKey = DGM_CopyCurrentGameModeKey(gamemodeKey, sizeof(gamemodeKey));
+    SetNativeString(1, gamemodeKey, GetNativeCell(2), true);
+    return hasGamemodeKey;
+}
+
+public any Native_DGM_ServerCapacitycheck(Handle plugin, int numParams)
 {
     float capacityRatio = 0.50;
     if (numParams >= 1)
@@ -102,14 +209,16 @@ public any Native_ServerCapacityCheck(Handle plugin, int numParams)
         capacityRatio = view_as<float>(GetNativeCell(1));
     }
 
-    return DGM_ServerCapacityCheck(capacityRatio);
+    return DGM_CheckServerCapacity(capacityRatio);
 }
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
 {
     RegPluginLibrary("dgm");
     CreateNative("DGM_GetGameMode", Native_DGM_GetGameMode);
-    CreateNative("ServerCapacityCheck", Native_ServerCapacityCheck);
+    CreateNative("DGM_RealPlayerCount", Native_DGM_RealPlayerCount);
+    CreateNative("DGM_GetGameModeKey", Native_DGM_GetGameModeKey);
+    CreateNative("DGM_ServerCapacitycheck", Native_DGM_ServerCapacitycheck);
     return APLRes_Success;
 }
 

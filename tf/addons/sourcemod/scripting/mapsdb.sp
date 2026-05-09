@@ -1,4 +1,5 @@
 #include <sourcemod>
+#include "include/dgm_api.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -27,6 +28,7 @@ public Plugin myinfo =
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 {
     g_bLateLoad = late;
+    MarkNativeAsOptional("DGM_GetGameModeKey");
     return APLRes_Success;
 }
 
@@ -56,7 +58,7 @@ public void OnMapStart()
     char rawMap[PLATFORM_MAX_PATH];
     GetCurrentMap(rawMap, sizeof(rawMap));
     NormalizeMapName(rawMap, g_sCurrentMap, sizeof(g_sCurrentMap));
-    DetermineGamemode(g_sCurrentMap, g_sCurrentGamemode, sizeof(g_sCurrentGamemode));
+    UpdateGamemodeKey();
 
     CreateTimer(5.0, Timer_RunDefaultConfig, _, TIMER_FLAG_NO_MAPCHANGE);
 
@@ -246,55 +248,15 @@ static void NormalizeMapName(const char[] input, char[] output, int outputLen)
     TrimString(output);
 }
 
-static void DetermineGamemode(const char[] mapName, char[] gamemode, int gamemodeLen)
+static void UpdateGamemodeKey()
 {
-    strcopy(gamemode, gamemodeLen, "default");
+    strcopy(g_sCurrentGamemode, sizeof(g_sCurrentGamemode), "default");
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") != FeatureStatus_Available)
+    {
+        return;
+    }
 
-    if (StrContains(mapName, "ctf_", false) == 0)
-    {
-        strcopy(gamemode, gamemodeLen, "ctf");
-        return;
-    }
-    if (StrContains(mapName, "cp_", false) == 0)
-    {
-        strcopy(gamemode, gamemodeLen, "cp");
-        return;
-    }
-    if (StrContains(mapName, "pl_", false) == 0)
-    {
-        strcopy(gamemode, gamemodeLen, "pl");
-        return;
-    }
-    if (StrContains(mapName, "plr_", false) == 0)
-    {
-        strcopy(gamemode, gamemodeLen, "plr");
-        return;
-    }
-    if (StrContains(mapName, "koth_", false) == 0)
-    {
-        strcopy(gamemode, gamemodeLen, "koth");
-        return;
-    }
-    if (StrContains(mapName, "pd_", false) == 0)
-    {
-        strcopy(gamemode, gamemodeLen, "pd");
-        return;
-    }
-    if (StrContains(mapName, "sd_", false) == 0)
-    {
-        strcopy(gamemode, gamemodeLen, "sd");
-        return;
-    }
-    if (StrContains(mapName, "arena_", false) == 0)
-    {
-        strcopy(gamemode, gamemodeLen, "arena");
-        return;
-    }
-    if (StrContains(mapName, "mvm_", false) == 0)
-    {
-        strcopy(gamemode, gamemodeLen, "mvm");
-        return;
-    }
+    DGM_GetGameModeKey(g_sCurrentGamemode, sizeof(g_sCurrentGamemode));
 }
 
 static void ExecMapsDbConfig(const char[] configName)

@@ -10,6 +10,7 @@
 #include <tf_custom_attributes>
 #include <clientprefs>
 #include <tf2attributes>
+#include "include/dgm_api.inc"
 
 #define MP 34
 #define ME 2048
@@ -133,6 +134,7 @@ public Plugin:myinfo = {
 
 public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 {
+	MarkNativeAsOptional("DGM_RealPlayerCount");
 	CreateNative("ControlAmplifier", Native_ControlAmplifier);
 	CreateNative("SetAmplifierDisp", Native_SetAmplifierDisp);
 	CreateNative("SetAmplifierSentry", Native_SetAmplifierSentry);
@@ -305,22 +307,17 @@ int GetEffectiveForceAmplifier()
 
 bool IsPlayercountForceActive()
 {
-	return ForceAmplifier != 2 && ForcePlayercount > 0 && CountHumanPlayers() < ForcePlayercount;
-}
-
-int CountHumanPlayers()
-{
-	int count = 0;
-
-	for (int client = 1; client <= MaxClients; client++)
+	if (ForceAmplifier == 2 || ForcePlayercount <= 0)
 	{
-		if (IsClientInGame(client) && !IsFakeClient(client))
-		{
-			count++;
-		}
+		return false;
 	}
 
-	return count;
+	if (GetFeatureStatus(FeatureType_Native, "DGM_RealPlayerCount") != FeatureStatus_Available)
+	{
+		return false;
+	}
+
+	return DGM_RealPlayerCount() < ForcePlayercount;
 }
 
 public AddToDownload()
