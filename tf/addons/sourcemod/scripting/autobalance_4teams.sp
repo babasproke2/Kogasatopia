@@ -415,8 +415,20 @@ static bool IsBasicBalanceCandidate(int client, int team)
     if (client <= 0 || client > MaxClients) return false;
     if (!IsClientInGame(client) || IsFakeClient(client)) return false;
     if (GetClientTeam(client) != team) return false;
+    if (ClientHasDecapitationHeads(client)) return false;
 
     return true;
+}
+
+static bool ClientHasDecapitationHeads(int client)
+{
+    if (!HasEntProp(client, Prop_Send, "m_iDecapitations"))
+    {
+        return false;
+    }
+
+    int heads = GetEntProp(client, Prop_Send, "m_iDecapitations");
+    return heads != 0;
 }
 
 static bool IsProtectedBalanceCandidate(int client, int team, bool clanProtectionAvailable, bool mvpProtectionAvailable)
