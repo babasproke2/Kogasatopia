@@ -89,7 +89,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
-    MarkNativeAsOptional("DGM_GetGameModeKey");
+    MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
     return APLRes_Success;
 }
 
@@ -439,20 +439,14 @@ static bool ShouldIgnoreScrambleImmunity(int totalPlayers, bool randomMode)
     return totalPlayers <= (MAX_TOP_SWAP * 2);
 }
 
-static bool IsArenaGamemode()
+static bool IsSmallFormatGamemode()
 {
-    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") != FeatureStatus_Available)
+    if (GetFeatureStatus(FeatureType_Native, "DGM_IsSmallFormatGamemode") != FeatureStatus_Available)
     {
         return false;
     }
 
-    char gamemode[32];
-    if (!DGM_GetGameModeKey(gamemode, sizeof(gamemode)))
-    {
-        return false;
-    }
-
-    return StrEqual(gamemode, "arena", false);
+    return DGM_IsSmallFormatGamemode();
 }
 
 static int GetScrambleVoteRequestCount()
@@ -1035,14 +1029,14 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
         else bluCount++;
     }
 
-    bool arenaGamemode = IsArenaGamemode();
-    bool effectiveAllowLowPop = allowLowPop || arenaGamemode;
-    bool ignoreImmunity = arenaGamemode || ShouldIgnoreScrambleImmunity(totalPlayers, false);
+    bool smallFormatGamemode = IsSmallFormatGamemode();
+    bool effectiveAllowLowPop = allowLowPop || smallFormatGamemode;
+    bool ignoreImmunity = smallFormatGamemode || ShouldIgnoreScrambleImmunity(totalPlayers, false);
     if (ignoreImmunity)
     {
         LogWhale(
             "Topswap scramble: ignoring immunity due to %s total=%d threshold=%d.",
-            arenaGamemode ? "arena gamemode" : "low player count",
+            smallFormatGamemode ? "small-format gamemode" : "low player count",
             totalPlayers,
             MAX_TOP_SWAP * 2);
     }
@@ -1073,7 +1067,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
 
     LogWhale("Counts: total=%d red=%d blu=%d eligibleRed=%d eligibleBlu=%d.", totalPlayers, redCount, bluCount, redEligible, bluEligible);
     int swapCount = 0;
-    bool lowPop = arenaGamemode || (totalPlayers < 12);
+    bool lowPop = smallFormatGamemode || (totalPlayers < 12);
 
     if (!lowPop)
     {
@@ -1226,14 +1220,14 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
         else bluCount++;
     }
 
-    bool arenaGamemode = IsArenaGamemode();
-    bool effectiveAllowLowPop = allowLowPop || arenaGamemode;
-    bool ignoreImmunity = arenaGamemode || ShouldIgnoreScrambleImmunity(totalPlayers, true);
+    bool smallFormatGamemode = IsSmallFormatGamemode();
+    bool effectiveAllowLowPop = allowLowPop || smallFormatGamemode;
+    bool ignoreImmunity = smallFormatGamemode || ShouldIgnoreScrambleImmunity(totalPlayers, true);
     if (ignoreImmunity)
     {
         LogWhale(
             "Random scramble: ignoring immunity due to %s total=%d threshold=%d.",
-            arenaGamemode ? "arena gamemode" : "low player count",
+            smallFormatGamemode ? "small-format gamemode" : "low player count",
             totalPlayers,
             MAX_RANDOM_SWAP * 2);
     }
@@ -1269,7 +1263,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
 
     LogWhale("Random counts: total=%d red=%d blu=%d eligibleRed=%d eligibleBlu=%d.", totalPlayers, redCount, bluCount, redEligible, bluEligible);
     int swapCount = 0;
-    bool lowPop = arenaGamemode || (totalPlayers < 12);
+    bool lowPop = smallFormatGamemode || (totalPlayers < 12);
 
     if (!lowPop)
     {

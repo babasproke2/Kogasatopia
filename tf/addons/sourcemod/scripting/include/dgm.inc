@@ -216,7 +216,7 @@ bool DGM_CopyCurrentGameMode(char[] buffer, int maxlen)
     return buffer[0] != '\0';
 }
 
-bool DGM_IsRespawnManagementDisabledGamemode()
+bool DGM_CheckSmallFormatGamemode()
 {
     char gamemodeKey[32];
     if (DGM_CopyCurrentGameModeKey(gamemodeKey, sizeof(gamemodeKey)))
@@ -243,7 +243,7 @@ bool DGM_IsRespawnManagementDisabledGamemode()
 
 bool DGM_ShouldDisableInstantRespawn()
 {
-    return DGM_IsRespawnManagementDisabledGamemode();
+    return DGM_CheckSmallFormatGamemode();
 }
 
 public any Native_DGM_GetGameMode(Handle plugin, int numParams)
@@ -265,6 +265,11 @@ public any Native_DGM_GetGameModeKey(Handle plugin, int numParams)
     bool hasGamemodeKey = DGM_CopyCurrentGameModeKey(gamemodeKey, sizeof(gamemodeKey));
     SetNativeString(1, gamemodeKey, GetNativeCell(2), true);
     return hasGamemodeKey;
+}
+
+public any Native_DGM_IsSmallFormatGamemode(Handle plugin, int numParams)
+{
+    return DGM_CheckSmallFormatGamemode();
 }
 
 public any Native_DGM_NormalizeMapName(Handle plugin, int numParams)
@@ -294,6 +299,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     CreateNative("DGM_GetGameMode", Native_DGM_GetGameMode);
     CreateNative("DGM_RealPlayerCount", Native_DGM_RealPlayerCount);
     CreateNative("DGM_GetGameModeKey", Native_DGM_GetGameModeKey);
+    CreateNative("DGM_IsSmallFormatGamemode", Native_DGM_IsSmallFormatGamemode);
     CreateNative("DGM_NormalizeMapName", Native_DGM_NormalizeMapName);
     CreateNative("DGM_ServerCapacitycheck", Native_DGM_ServerCapacitycheck);
     return APLRes_Success;

@@ -249,7 +249,7 @@ public Action Command_RespawnToggle(int client, int args)
 {
     if (DGM_ShouldDisableInstantRespawn())
     {
-        ReplyToCommand(client, "DGM respawn management is disabled on arena maps.");
+        ReplyToCommand(client, "DGM respawn management is disabled on small-format maps.");
         return Plugin_Handled;
     }
 
