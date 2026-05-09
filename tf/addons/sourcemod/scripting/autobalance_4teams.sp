@@ -241,8 +241,8 @@ public Action Timer_Autobalance(Handle timer)
     // Candidate selection.
     //
     // Volunteer selection runs before normal candidate filters. Volunteers
-    // intentionally bypass autobalance immunity, but still keep medic
-    // uber and MVP protection.
+    // intentionally bypass autobalance immunity, but still keep Engineer,
+    // medic uber, and MVP protection.
     //
     // By this point diff > threshold, so the balance is always forced.
     // Simple selection uses one scan and picks the most recent eligible
@@ -526,6 +526,7 @@ static bool IsVolunteerCandidate(int client, int team, bool mvpProtectionAvailab
 {
     if (!IsBasicBalanceCandidate(client, team)) return false;
     if (!IsClientVolunteer(client)) return false;
+    if (TF2_GetPlayerClass(client) == TFClass_Engineer) return false;
     if (IsMedicWithProtectedUber(client)) return false;
     if (IsClientCurrentRoundMvpSafe(client, mvpProtectionAvailable)) return false;
 
