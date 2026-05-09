@@ -29,6 +29,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 {
     g_bLateLoad = late;
     MarkNativeAsOptional("DGM_GetGameModeKey");
+    MarkNativeAsOptional("DGM_NormalizeMapName");
     return APLRes_Success;
 }
 
@@ -57,7 +58,7 @@ public void OnMapStart()
 {
     char rawMap[PLATFORM_MAX_PATH];
     GetCurrentMap(rawMap, sizeof(rawMap));
-    NormalizeMapName(rawMap, g_sCurrentMap, sizeof(g_sCurrentMap));
+    UpdateNormalizedMapName(rawMap, g_sCurrentMap, sizeof(g_sCurrentMap));
     UpdateGamemodeKey();
 
     CreateTimer(5.0, Timer_RunDefaultConfig, _, TIMER_FLAG_NO_MAPCHANGE);
@@ -127,7 +128,7 @@ public Action Timer_RecordPopularitySample(Handle timer)
     char rawMap[PLATFORM_MAX_PATH];
     char mapName[128];
     GetCurrentMap(rawMap, sizeof(rawMap));
-    NormalizeMapName(rawMap, mapName, sizeof(mapName));
+    UpdateNormalizedMapName(rawMap, mapName, sizeof(mapName));
 
     if (!mapName[0])
     {
@@ -221,30 +222,15 @@ static int CountHumanPlayers()
     return count;
 }
 
-static void NormalizeMapName(const char[] input, char[] output, int outputLen)
+static void UpdateNormalizedMapName(const char[] input, char[] output, int outputLen)
 {
+    if (GetFeatureStatus(FeatureType_Native, "DGM_NormalizeMapName") == FeatureStatus_Available
+        && DGM_NormalizeMapName(input, output, outputLen))
+    {
+        return;
+    }
+
     strcopy(output, outputLen, input);
-    ReplaceStringEx(output, outputLen, "workshop\\", "");
-    ReplaceStringEx(output, outputLen, "workshop/", "");
-
-    int slash = FindCharInString(output, '/', true);
-    if (slash != -1 && output[slash + 1] != '\0')
-    {
-        strcopy(output, outputLen, output[slash + 1]);
-    }
-
-    int backslash = FindCharInString(output, '\\', true);
-    if (backslash != -1 && output[backslash + 1] != '\0')
-    {
-        strcopy(output, outputLen, output[backslash + 1]);
-    }
-
-    int dot = FindCharInString(output, '.');
-    if (dot > 0)
-    {
-        output[dot] = '\0';
-    }
-
     TrimString(output);
 }
 

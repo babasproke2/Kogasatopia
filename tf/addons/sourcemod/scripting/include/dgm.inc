@@ -137,6 +137,39 @@ void DGM_CopyGameModeKeyForMap(const char[] mapName, char[] buffer, int maxlen)
     }
 }
 
+bool DGM_CopyNormalizedMapName(const char[] input, char[] output, int outputLen)
+{
+    if (outputLen <= 0)
+    {
+        return false;
+    }
+
+    strcopy(output, outputLen, input);
+    ReplaceStringEx(output, outputLen, "workshop\\", "");
+    ReplaceStringEx(output, outputLen, "workshop/", "");
+
+    int slash = FindCharInString(output, '/', true);
+    if (slash != -1 && output[slash + 1] != '\0')
+    {
+        strcopy(output, outputLen, output[slash + 1]);
+    }
+
+    int backslash = FindCharInString(output, '\\', true);
+    if (backslash != -1 && output[backslash + 1] != '\0')
+    {
+        strcopy(output, outputLen, output[backslash + 1]);
+    }
+
+    int dot = FindCharInString(output, '.');
+    if (dot > 0)
+    {
+        output[dot] = '\0';
+    }
+
+    TrimString(output);
+    return output[0] != '\0';
+}
+
 bool DGM_CopyCurrentGameModeKey(char[] buffer, int maxlen)
 {
     if (maxlen <= 0)
@@ -145,17 +178,10 @@ bool DGM_CopyCurrentGameModeKey(char[] buffer, int maxlen)
     }
 
     char mapName[PLATFORM_MAX_PATH];
+    char normalizedMapName[PLATFORM_MAX_PATH];
     GetCurrentMap(mapName, sizeof(mapName));
-    ReplaceStringEx(mapName, sizeof(mapName), "workshop/", "");
-
-    int dot = FindCharInString(mapName, '.');
-    if (dot > 0)
-    {
-        mapName[dot] = '\0';
-    }
-
-    TrimString(mapName);
-    DGM_CopyGameModeKeyForMap(mapName, buffer, maxlen);
+    DGM_CopyNormalizedMapName(mapName, normalizedMapName, sizeof(normalizedMapName));
+    DGM_CopyGameModeKeyForMap(normalizedMapName, buffer, maxlen);
     return buffer[0] != '\0';
 }
 
@@ -201,6 +227,16 @@ public any Native_DGM_GetGameModeKey(Handle plugin, int numParams)
     return hasGamemodeKey;
 }
 
+public any Native_DGM_NormalizeMapName(Handle plugin, int numParams)
+{
+    char input[PLATFORM_MAX_PATH];
+    char output[PLATFORM_MAX_PATH];
+    GetNativeString(1, input, sizeof(input));
+    bool hasMapName = DGM_CopyNormalizedMapName(input, output, sizeof(output));
+    SetNativeString(2, output, GetNativeCell(3), true);
+    return hasMapName;
+}
+
 public any Native_DGM_ServerCapacitycheck(Handle plugin, int numParams)
 {
     float capacityRatio = 0.50;
@@ -218,6 +254,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     CreateNative("DGM_GetGameMode", Native_DGM_GetGameMode);
     CreateNative("DGM_RealPlayerCount", Native_DGM_RealPlayerCount);
     CreateNative("DGM_GetGameModeKey", Native_DGM_GetGameModeKey);
+    CreateNative("DGM_NormalizeMapName", Native_DGM_NormalizeMapName);
     CreateNative("DGM_ServerCapacitycheck", Native_DGM_ServerCapacitycheck);
     return APLRes_Success;
 }

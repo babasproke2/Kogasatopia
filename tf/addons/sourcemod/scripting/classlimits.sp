@@ -2,6 +2,7 @@
 #include <tf2_stocks>
 #include <morecolors>
 #include <tf2>
+#include "include/dgm_api.inc"
 
 #pragma semicolon 1
 #pragma tabsize 4
@@ -40,7 +41,6 @@ ConVar g_hFlags;
 ConVar g_hImmunity;
 ConVar g_hTopScore;
 ConVar g_hDisplayUnlim;
-ConVar g_hGameMode;
 ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[64] = "this map";
 
@@ -66,8 +66,6 @@ public void OnPluginStart()
     g_hImmunity     = CreateConVar("restrict_immunity",    "0", "Enable/disable admin immunity for class limits.");
     g_hTopScore     = CreateConVar("classlimits_topscore", "0", "Allow top team scorers to bypass class limits.", _, true, 0.0, true, 1.0);
     g_hDisplayUnlim = CreateConVar("display_unlim",        "0", "If 1, show unlimited classes in class limit displays.", _, true, 0.0, true, 1.0);
-    g_hGameMode     = FindConVar("sm_gamemode");
-
     for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
     {
         char cvarName[32];
@@ -83,6 +81,12 @@ public void OnPluginStart()
     HookEvent("player_say",         Event_PlayerSay, EventHookMode_Post);
     RegConsoleCmd("sm_classlimits", Command_ShowClassLimits, "Show current class limits.");
     RegConsoleCmd("sm_cl",          Command_ShowClassLimits, "Show current class limits.");
+}
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
+{
+    MarkNativeAsOptional("DGM_GetGameMode");
+    return APLRes_Success;
 }
 
 public void OnMapStart()
@@ -380,16 +384,13 @@ void FormatClassLimitText(int classId, char[] buffer, int maxlen)
 
 void UpdateGameModeName()
 {
-    if (g_hGameMode == null)
-        g_hGameMode = FindConVar("sm_gamemode");
-
-    if (g_hGameMode == null)
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameMode") != FeatureStatus_Available)
     {
         strcopy(g_sGameMode, sizeof(g_sGameMode), "this map");
         return;
     }
 
-    g_hGameMode.GetString(g_sGameMode, sizeof(g_sGameMode));
+    DGM_GetGameMode(g_sGameMode, sizeof(g_sGameMode));
     TrimString(g_sGameMode);
     if (!g_sGameMode[0])
         strcopy(g_sGameMode, sizeof(g_sGameMode), "this map");

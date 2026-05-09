@@ -1,5 +1,6 @@
 #include <sourcemod>
 #include <geoip>
+#include "include/dgm_api.inc"
 
 #define PLUGIN_VERSION "1.4"
 
@@ -64,6 +65,12 @@ public void OnPluginStart()
     }
 }
 
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
+{
+    MarkNativeAsOptional("DGM_NormalizeMapName");
+    return APLRes_Success;
+}
+
 public void OnAllPluginsLoaded()
 {
     CreateTimer(5.0, UpdateQuickStats, _, TIMER_REPEAT);
@@ -83,8 +90,10 @@ public Action UpdateQuickStats(Handle timer)
 
     char mapName[100];
     GetCurrentMap(mapName, sizeof(mapName));
-    ReplaceStringEx(mapName, sizeof(mapName), "workshop/", "");
-    SplitString(mapName, ".", mapName, sizeof(mapName));
+    if (GetFeatureStatus(FeatureType_Native, "DGM_NormalizeMapName") == FeatureStatus_Available)
+    {
+        DGM_NormalizeMapName(mapName, mapName, sizeof(mapName));
+    }
 
     int playerLimit = GetMaxPlayers();
     int playerCount = GetClientCount(false);
