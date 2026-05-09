@@ -5,6 +5,7 @@
 #include <tf2_stocks>
 #include <clans_api>
 #include <whaletracker_api>
+#include "include/dgm_api.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -88,6 +89,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
+    MarkNativeAsOptional("DGM_GetGameModeKey");
     return APLRes_Success;
 }
 
@@ -435,6 +437,22 @@ static bool ShouldIgnoreScrambleImmunity(int totalPlayers, bool randomMode)
     }
 
     return totalPlayers <= (MAX_TOP_SWAP * 2);
+}
+
+static bool IsArenaGamemode()
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    char gamemode[32];
+    if (!DGM_GetGameModeKey(gamemode, sizeof(gamemode)))
+    {
+        return false;
+    }
+
+    return StrEqual(gamemode, "arena", false);
 }
 
 static int GetScrambleVoteRequestCount()
@@ -1017,10 +1035,16 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
         else bluCount++;
     }
 
-    bool ignoreImmunity = ShouldIgnoreScrambleImmunity(totalPlayers, false);
+    bool arenaGamemode = IsArenaGamemode();
+    bool effectiveAllowLowPop = allowLowPop || arenaGamemode;
+    bool ignoreImmunity = arenaGamemode || ShouldIgnoreScrambleImmunity(totalPlayers, false);
     if (ignoreImmunity)
     {
-        LogWhale("Topswap scramble: ignoring immunity due to low player count total=%d threshold=%d.", totalPlayers, MAX_TOP_SWAP * 2);
+        LogWhale(
+            "Topswap scramble: ignoring immunity due to %s total=%d threshold=%d.",
+            arenaGamemode ? "arena gamemode" : "low player count",
+            totalPlayers,
+            MAX_TOP_SWAP * 2);
     }
 
     for (int i = 1; i <= MaxClients; i++)
@@ -1049,7 +1073,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
 
     LogWhale("Counts: total=%d red=%d blu=%d eligibleRed=%d eligibleBlu=%d.", totalPlayers, redCount, bluCount, redEligible, bluEligible);
     int swapCount = 0;
-    bool lowPop = (totalPlayers < 12);
+    bool lowPop = arenaGamemode || (totalPlayers < 12);
 
     if (!lowPop)
     {
@@ -1062,7 +1086,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
             swapCount = 3;
         }
     }
-    else if (allowLowPop)
+    else if (effectiveAllowLowPop)
     {
         swapCount = redEligible < bluEligible ? redEligible : bluEligible;
         if (swapCount > 2)
@@ -1072,7 +1096,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
     }
 
     bool needsFallback = (redEligible < swapCount || bluEligible < swapCount);
-    if (allowLowPop && lowPop && swapCount == 0)
+    if (effectiveAllowLowPop && lowPop && swapCount == 0)
     {
         needsFallback = true;
     }
@@ -1111,7 +1135,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
                 InsertTopN(i, score, topBlu, topBluScore, MAX_TOP_SWAP);
             }
         }
-        if (allowLowPop && lowPop)
+        if (effectiveAllowLowPop && lowPop)
         {
             swapCount = redEligible < bluEligible ? redEligible : bluEligible;
             if (swapCount > 2)
@@ -1123,7 +1147,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
 
     if (swapCount == 0)
     {
-        if (allowLowPop && lowPop)
+        if (effectiveAllowLowPop && lowPop)
         {
             NotifyFailure(issuer, broadcastFailures, "Not enough eligible players to swap (RED=%d BLU=%d).", redEligible, bluEligible);
             LogWhale("Scramble aborted: not enough eligible players (red=%d blu=%d).", redEligible, bluEligible);
@@ -1202,10 +1226,16 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
         else bluCount++;
     }
 
-    bool ignoreImmunity = ShouldIgnoreScrambleImmunity(totalPlayers, true);
+    bool arenaGamemode = IsArenaGamemode();
+    bool effectiveAllowLowPop = allowLowPop || arenaGamemode;
+    bool ignoreImmunity = arenaGamemode || ShouldIgnoreScrambleImmunity(totalPlayers, true);
     if (ignoreImmunity)
     {
-        LogWhale("Random scramble: ignoring immunity due to low player count total=%d threshold=%d.", totalPlayers, MAX_RANDOM_SWAP * 2);
+        LogWhale(
+            "Random scramble: ignoring immunity due to %s total=%d threshold=%d.",
+            arenaGamemode ? "arena gamemode" : "low player count",
+            totalPlayers,
+            MAX_RANDOM_SWAP * 2);
     }
 
     for (int i = 1; i <= MaxClients; i++)
@@ -1239,7 +1269,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
 
     LogWhale("Random counts: total=%d red=%d blu=%d eligibleRed=%d eligibleBlu=%d.", totalPlayers, redCount, bluCount, redEligible, bluEligible);
     int swapCount = 0;
-    bool lowPop = (totalPlayers < 12);
+    bool lowPop = arenaGamemode || (totalPlayers < 12);
 
     if (!lowPop)
     {
@@ -1252,7 +1282,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
             swapCount = 4;
         }
     }
-    else if (allowLowPop)
+    else if (effectiveAllowLowPop)
     {
         swapCount = redEligible < bluEligible ? redEligible : bluEligible;
         if (swapCount > 2)
@@ -1262,7 +1292,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
     }
 
     bool needsFallback = (redEligible < swapCount || bluEligible < swapCount);
-    if (allowLowPop && lowPop && swapCount == 0)
+    if (effectiveAllowLowPop && lowPop && swapCount == 0)
     {
         needsFallback = true;
     }
@@ -1299,7 +1329,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
                 }
             }
         }
-        if (allowLowPop && lowPop)
+        if (effectiveAllowLowPop && lowPop)
         {
             swapCount = redEligible < bluEligible ? redEligible : bluEligible;
             if (swapCount > 2)
@@ -1311,7 +1341,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
 
     if (swapCount == 0)
     {
-        if (allowLowPop && lowPop)
+        if (effectiveAllowLowPop && lowPop)
         {
             NotifyFailure(issuer, broadcastFailures, "Not enough eligible players to swap (RED=%d BLU=%d).", redEligible, bluEligible);
             LogWhale("Random scramble aborted: not enough eligible players (red=%d blu=%d).", redEligible, bluEligible);
