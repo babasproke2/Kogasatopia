@@ -76,7 +76,7 @@ public void ConVarChange_RespawnSetting(ConVar convar, const char[] oldValue, co
 
 public Action Timer_SetupStateMonitor(Handle timer)
 {
-    if (DGM_IsRoundRunning())
+    if (DGM_InternalIsRoundRunning())
     {
         DGM_SetSetupActive(false);
         return Plugin_Stop;
@@ -147,11 +147,11 @@ public Action Command_Stats(int client, int args)
     bool fromConsole = (client <= 0 || !IsClientInGame(client));
 
     // Player count (humans + bots)
-    int playerCount = GetClientCount(false);
+    int playerCount = DGM_CountRealPlayers();
 
     // Current map name
     char map[64];
-    GetCurrentMap(map, sizeof(map));
+    DGM_CopyCurrentNormalizedMapName(map, sizeof(map));
 
     // Hostname string
     char hostname[128];
@@ -169,7 +169,7 @@ public Action Command_Stats(int client, int args)
     {
         g_hVisibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
     }
-    int visMax = GetConVarInt(g_hVisibleMaxPlayers);
+    int visMax = DGM_GetServerCapacityValue();
 
     // Respawn-related ConVars
     float respawnTime = GetConVarFloat(g_cvRespawnTime);
@@ -354,7 +354,7 @@ public void Event_SetupFinished(Event event, const char[] name, bool dontBroadca
 public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 {
     g_iRoundEndTimestamp = GetTime();
-    g_iLastRoundDuration = DGM_GetRoundDurationSeconds(g_iRoundStartTimestamp, g_iRoundEndTimestamp);
+    g_iLastRoundDuration = DGM_CalculateRoundDurationSeconds(g_iRoundStartTimestamp, g_iRoundEndTimestamp);
 
     SetConVarInt(g_cvTimeOverride, 30);
     g_PointCaptures = 0;

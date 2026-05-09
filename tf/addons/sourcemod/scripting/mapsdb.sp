@@ -30,6 +30,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
     g_bLateLoad = late;
     MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_NormalizeMapName");
+    MarkNativeAsOptional("DGM_CurrentNormalizedMap");
+    MarkNativeAsOptional("DGM_RealPlayerCount");
     return APLRes_Success;
 }
 
@@ -56,9 +58,7 @@ public void OnPluginEnd()
 
 public void OnMapStart()
 {
-    char rawMap[PLATFORM_MAX_PATH];
-    GetCurrentMap(rawMap, sizeof(rawMap));
-    UpdateNormalizedMapName(rawMap, g_sCurrentMap, sizeof(g_sCurrentMap));
+    UpdateCurrentMapName(g_sCurrentMap, sizeof(g_sCurrentMap));
     UpdateGamemodeKey();
 
     CreateTimer(5.0, Timer_RunDefaultConfig, _, TIMER_FLAG_NO_MAPCHANGE);
@@ -125,10 +125,8 @@ public Action Timer_RecordPopularitySample(Handle timer)
         return Plugin_Continue;
     }
 
-    char rawMap[PLATFORM_MAX_PATH];
     char mapName[128];
-    GetCurrentMap(rawMap, sizeof(rawMap));
-    UpdateNormalizedMapName(rawMap, mapName, sizeof(mapName));
+    UpdateCurrentMapName(mapName, sizeof(mapName));
 
     if (!mapName[0])
     {
@@ -140,7 +138,7 @@ public Action Timer_RecordPopularitySample(Handle timer)
         return Plugin_Continue;
     }
 
-    int playerCount = CountHumanPlayers();
+    int playerCount = GetPopularityPlayerCount();
     int now = GetTime();
 
     char escapedMap[256];
@@ -204,6 +202,30 @@ static void StopSampleTimer()
         KillTimer(g_hSampleTimer);
         g_hSampleTimer = null;
     }
+}
+
+
+static int GetPopularityPlayerCount()
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_RealPlayerCount") == FeatureStatus_Available)
+    {
+        return DGM_RealPlayerCount();
+    }
+
+    return CountHumanPlayers();
+}
+
+static void UpdateCurrentMapName(char[] output, int outputLen)
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_CurrentNormalizedMap") == FeatureStatus_Available
+        && DGM_CurrentNormalizedMap(output, outputLen))
+    {
+        return;
+    }
+
+    char rawMap[PLATFORM_MAX_PATH];
+    GetCurrentMap(rawMap, sizeof(rawMap));
+    UpdateNormalizedMapName(rawMap, output, outputLen);
 }
 
 static int CountHumanPlayers()

@@ -68,6 +68,9 @@ public void OnPluginStart()
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 {
     MarkNativeAsOptional("DGM_NormalizeMapName");
+    MarkNativeAsOptional("DGM_CurrentNormalizedMap");
+    MarkNativeAsOptional("DGM_GetServerCapacity");
+    MarkNativeAsOptional("DGM_RealPlayerCount");
     return APLRes_Success;
 }
 
@@ -89,14 +92,10 @@ public Action UpdateQuickStats(Handle timer)
     CloseHandle(cvarHost);
 
     char mapName[100];
-    GetCurrentMap(mapName, sizeof(mapName));
-    if (GetFeatureStatus(FeatureType_Native, "DGM_NormalizeMapName") == FeatureStatus_Available)
-    {
-        DGM_NormalizeMapName(mapName, mapName, sizeof(mapName));
-    }
+    GetQuickStatsMapName(mapName, sizeof(mapName));
 
-    int playerLimit = GetMaxPlayers();
-    int playerCount = GetClientCount(false);
+    int playerLimit = GetQuickStatsCapacity();
+    int playerCount = GetQuickStatsPlayerCount();
 
     char filename[64];
     Format(filename, sizeof(filename), StrEqual(serverPort, "27015") ? "quickstats.txt" : "server%s_quickstats.txt", serverPort);
@@ -186,6 +185,45 @@ public Action UpdateQuickStats(Handle timer)
     else LogError("Failed to open quickstats file: %s", g_sFilePath2);
 
     return Plugin_Continue;
+}
+
+void GetQuickStatsMapName(char[] mapName, int maxLen)
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_CurrentNormalizedMap") == FeatureStatus_Available
+        && DGM_CurrentNormalizedMap(mapName, maxLen))
+    {
+        return;
+    }
+
+    GetCurrentMap(mapName, maxLen);
+    if (GetFeatureStatus(FeatureType_Native, "DGM_NormalizeMapName") == FeatureStatus_Available)
+    {
+        DGM_NormalizeMapName(mapName, mapName, maxLen);
+    }
+}
+
+int GetQuickStatsCapacity()
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetServerCapacity") == FeatureStatus_Available)
+    {
+        int capacity = DGM_GetServerCapacity();
+        if (capacity > 0)
+        {
+            return capacity;
+        }
+    }
+
+    return GetMaxPlayers();
+}
+
+int GetQuickStatsPlayerCount()
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_RealPlayerCount") == FeatureStatus_Available)
+    {
+        return DGM_RealPlayerCount();
+    }
+
+    return GetClientCount(false);
 }
 
 // Helper: Get formatted time string

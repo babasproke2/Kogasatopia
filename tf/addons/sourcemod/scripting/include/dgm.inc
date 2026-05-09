@@ -35,23 +35,56 @@ public Plugin myinfo = {
 
 int DGM_CountRealPlayers()
 {
-    int count = 0;
+    return DGM_CountRealTeamPlayers(2) + DGM_CountRealTeamPlayers(3);
+}
 
+int DGM_CountRealTeamPlayers(int team)
+{
+    if (team != 2 && team != 3)
+    {
+        return 0;
+    }
+
+    int count = 0;
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (!IsValidClient(client) || IsFakeClient(client))
+        if (!IsValidClient(client) || IsFakeClient(client) || GetClientTeam(client) != team)
         {
             continue;
         }
 
-        int team = GetClientTeam(client);
-        if (team == 2 || team == 3)
-        {
-            count++;
-        }
+        count++;
     }
 
     return count;
+}
+
+int DGM_GetServerCapacityValue()
+{
+    ConVar visibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
+    int capacity = 0;
+    if (visibleMaxPlayers != null)
+    {
+        capacity = visibleMaxPlayers.IntValue;
+    }
+
+    if (capacity <= 0)
+    {
+        capacity = MaxClients;
+    }
+
+    return capacity;
+}
+
+float DGM_GetPopulationRatioValue()
+{
+    int capacity = DGM_GetServerCapacityValue();
+    if (capacity <= 0)
+    {
+        return 0.0;
+    }
+
+    return float(DGM_CountRealPlayers()) / float(capacity);
 }
 
 bool DGM_CheckServerCapacity(float capacityRatio = 0.50)
@@ -65,25 +98,12 @@ bool DGM_CheckServerCapacity(float capacityRatio = 0.50)
         capacityRatio = 1.0;
     }
 
-    ConVar visibleMaxPlayers = FindConVar("sv_visiblemaxplayers");
-    int capacity = 0;
-    if (visibleMaxPlayers != null)
-    {
-        capacity = visibleMaxPlayers.IntValue;
-    }
-
-    if (capacity <= 0)
-    {
-        capacity = MaxClients;
-    }
-
-    if (capacity <= 0)
+    if (DGM_GetServerCapacityValue() <= 0)
     {
         return false;
     }
 
-    float playerCount = float(DGM_CountRealPlayers());
-    return (playerCount / float(capacity)) >= capacityRatio;
+    return DGM_GetPopulationRatioValue() >= capacityRatio;
 }
 
 void DGM_CopyGameModeKeyForMap(const char[] mapName, char[] buffer, int maxlen)
@@ -178,6 +198,18 @@ bool DGM_CopyNormalizedMapName(const char[] input, char[] output, int outputLen)
 
     TrimString(output);
     return output[0] != '\0';
+}
+
+bool DGM_CopyCurrentNormalizedMapName(char[] buffer, int maxlen)
+{
+    if (maxlen <= 0)
+    {
+        return false;
+    }
+
+    char rawMapName[PLATFORM_MAX_PATH];
+    GetCurrentMap(rawMapName, sizeof(rawMapName));
+    return DGM_CopyNormalizedMapName(rawMapName, buffer, maxlen);
 }
 
 bool DGM_CopyCurrentGameModeKey(char[] buffer, int maxlen)
@@ -293,15 +325,83 @@ public any Native_DGM_ServerCapacitycheck(Handle plugin, int numParams)
     return DGM_CheckServerCapacity(capacityRatio);
 }
 
+public any Native_DGM_RealTeamPlayerCount(Handle plugin, int numParams)
+{
+    int team = GetNativeCell(1);
+    return DGM_CountRealTeamPlayers(team);
+}
+
+public any Native_DGM_GetGameModeKeyForMap(Handle plugin, int numParams)
+{
+    char input[PLATFORM_MAX_PATH];
+    char normalized[PLATFORM_MAX_PATH];
+    char gamemodeKey[32];
+    GetNativeString(1, input, sizeof(input));
+    bool hasMapName = DGM_CopyNormalizedMapName(input, normalized, sizeof(normalized));
+    if (hasMapName)
+    {
+        DGM_CopyGameModeKeyForMap(normalized, gamemodeKey, sizeof(gamemodeKey));
+    }
+    else
+    {
+        DGM_CopyGameModeKeyForMap(input, gamemodeKey, sizeof(gamemodeKey));
+    }
+    SetNativeString(2, gamemodeKey, GetNativeCell(3), true);
+    return gamemodeKey[0] != '\0';
+}
+
+public any Native_DGM_CurrentNormalizedMap(Handle plugin, int numParams)
+{
+    char mapName[PLATFORM_MAX_PATH];
+    bool hasMapName = DGM_CopyCurrentNormalizedMapName(mapName, sizeof(mapName));
+    SetNativeString(1, mapName, GetNativeCell(2), true);
+    return hasMapName;
+}
+
+public any Native_DGM_GetServerCapacity(Handle plugin, int numParams)
+{
+    return DGM_GetServerCapacityValue();
+}
+
+public any Native_DGM_GetPopulationRatio(Handle plugin, int numParams)
+{
+    return view_as<any>(DGM_GetPopulationRatioValue());
+}
+
+public any Native_DGM_IsRoundRunning(Handle plugin, int numParams)
+{
+    return DGM_InternalIsRoundRunning();
+}
+
+public any Native_DGM_GetLastRoundDurationSeconds(Handle plugin, int numParams)
+{
+    return g_iLastRoundDuration;
+}
+
+public any Native_DGM_GetRoundDurationSeconds(Handle plugin, int numParams)
+{
+    int firstTimestamp = GetNativeCell(1);
+    int secondTimestamp = GetNativeCell(2);
+    return DGM_CalculateRoundDurationSeconds(firstTimestamp, secondTimestamp);
+}
+
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
 {
     RegPluginLibrary("dgm");
     CreateNative("DGM_GetGameMode", Native_DGM_GetGameMode);
     CreateNative("DGM_RealPlayerCount", Native_DGM_RealPlayerCount);
+    CreateNative("DGM_RealTeamPlayerCount", Native_DGM_RealTeamPlayerCount);
     CreateNative("DGM_GetGameModeKey", Native_DGM_GetGameModeKey);
+    CreateNative("DGM_GetGameModeKeyForMap", Native_DGM_GetGameModeKeyForMap);
     CreateNative("DGM_IsSmallFormatGamemode", Native_DGM_IsSmallFormatGamemode);
     CreateNative("DGM_NormalizeMapName", Native_DGM_NormalizeMapName);
+    CreateNative("DGM_CurrentNormalizedMap", Native_DGM_CurrentNormalizedMap);
+    CreateNative("DGM_GetServerCapacity", Native_DGM_GetServerCapacity);
+    CreateNative("DGM_GetPopulationRatio", Native_DGM_GetPopulationRatio);
     CreateNative("DGM_ServerCapacitycheck", Native_DGM_ServerCapacitycheck);
+    CreateNative("DGM_IsRoundRunning", Native_DGM_IsRoundRunning);
+    CreateNative("DGM_GetLastRoundDurationSeconds", Native_DGM_GetLastRoundDurationSeconds);
+    CreateNative("DGM_GetRoundDurationSeconds", Native_DGM_GetRoundDurationSeconds);
     return APLRes_Success;
 }
 
@@ -348,12 +448,12 @@ void DGM_RefreshRespawnVisualState()
     }
 }
 
-bool DGM_IsRoundRunning()
+bool DGM_InternalIsRoundRunning()
 {
     return (GameRules_GetRoundState() == RoundState_RoundRunning);
 }
 
-int DGM_GetRoundDurationSeconds(int firstTimestamp, int secondTimestamp)
+int DGM_CalculateRoundDurationSeconds(int firstTimestamp, int secondTimestamp)
 {
     if (firstTimestamp <= 0 || secondTimestamp <= firstTimestamp)
     {
@@ -393,7 +493,7 @@ void DGM_SetSetupActive(bool setupActive)
 
 void DGM_UpdateSetupState()
 {
-    DGM_SetSetupActive(!DGM_IsRoundRunning());
+    DGM_SetSetupActive(!DGM_InternalIsRoundRunning());
 }
 
 public void SetSetupTime()
