@@ -923,6 +923,11 @@ public Action Command_Volunteer(int client, int args)
     pack.WriteCell(targetChangedByAdmin ? 1 : 0);
     pack.WriteString(steamId);
 
+    if (client > 0 && IsClientInGame(client))
+    {
+        PrintToChat(client, "[Autobalance] Saving volunteer status...");
+    }
+
     g_hImmunityDb.Query(SQL_OnPersistentVolunteerToggled, query, pack);
     return Plugin_Handled;
 }
@@ -948,7 +953,14 @@ public void SQL_OnPersistentVolunteerToggled(Database db, DBResultSet results, c
     {
         if (actorUserId == 0 || (actor > 0 && IsClientInGame(actor)))
         {
-            ReplyToCommand(actor, "[autobalance_4teams] Failed to toggle persistent volunteer status.");
+            if (actor > 0 && IsClientInGame(actor))
+            {
+                PrintToChat(actor, "[Autobalance] Failed to toggle volunteer status.");
+            }
+            else
+            {
+                ReplyToCommand(actor, "[Autobalance] Failed to toggle volunteer status.");
+            }
         }
 
         LogError("[autobalance_4teams] Persistent volunteer toggle failed for %s: %s", steamId, error);
@@ -963,18 +975,39 @@ public void SQL_OnPersistentVolunteerToggled(Database db, DBResultSet results, c
         {
             if (target > 0 && IsClientInGame(target))
             {
-                ReplyToCommand(actor,
-                    nowVolunteer
-                        ? "[Autobalance] %N is now an autobalance volunteer."
-                        : "[Autobalance] %N is no longer an autobalance volunteer.",
-                    target);
+                if (actor > 0 && IsClientInGame(actor))
+                {
+                    PrintToChat(actor,
+                        nowVolunteer
+                            ? "[Autobalance] %N is now an autobalance volunteer."
+                            : "[Autobalance] %N is no longer an autobalance volunteer.",
+                        target);
+                }
+                else
+                {
+                    ReplyToCommand(actor,
+                        nowVolunteer
+                            ? "[Autobalance] %N is now an autobalance volunteer."
+                            : "[Autobalance] %N is no longer an autobalance volunteer.",
+                        target);
+                }
             }
             else
             {
-                ReplyToCommand(actor,
-                    nowVolunteer
-                        ? "[Autobalance] Autobalance volunteer status applied."
-                        : "[Autobalance] Autobalance volunteer status removed.");
+                if (actor > 0 && IsClientInGame(actor))
+                {
+                    PrintToChat(actor,
+                        nowVolunteer
+                            ? "[Autobalance] Autobalance volunteer status applied."
+                            : "[Autobalance] Autobalance volunteer status removed.");
+                }
+                else
+                {
+                    ReplyToCommand(actor,
+                        nowVolunteer
+                            ? "[Autobalance] Autobalance volunteer status applied."
+                            : "[Autobalance] Autobalance volunteer status removed.");
+                }
             }
         }
 
@@ -1015,7 +1048,7 @@ public void SQL_OnPersistentVolunteerToggled(Database db, DBResultSet results, c
 
     if (target > 0 && IsClientInGame(target))
     {
-        ReplyToCommand(target,
+        PrintToChat(target,
             nowVolunteer
                 ? "[Autobalance] You are now an autobalance volunteer; use !volunteer to opt out."
                 : "[Autobalance] You are no longer an autobalance volunteer; use !volunteer to opt in.");
