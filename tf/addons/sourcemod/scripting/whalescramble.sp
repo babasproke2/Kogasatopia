@@ -105,15 +105,13 @@ public void OnPluginStart()
     g_hLogEnabled = CreateConVar("sm_whalescramble_log", "1", "Enable whalescramble debug logging.", _, true, 0.0, true, 1.0);
     BuildPath(Path_SM, g_sLogPath, sizeof(g_sLogPath), "logs/whalescramble.log");
     LogWhale("Plugin started.");
-    g_hAutoRounds = CreateConVar("whalescramble_rounds", "0", "Automatically start a scramble vote every X rounds. 0/1 disables auto vote.", _, true, 0.0, true, 100.0);
+    g_hAutoRounds = CreateConVar("whalescramble_rounds", "2", "Automatically start a scramble vote every X rounds. 0/1 disables auto vote.", _, true, 0.0, true, 100.0);
     g_hVoteTime = CreateConVar("whalescramble_votetime", "4", "Scramble vote duration in seconds.", _, true, 1.0, true, 30.0);
     g_hCountBots = CreateConVar("whalescramble_count_bots", "1", "Include bots when selecting whale scramble targets.", _, true, 0.0, true, 1.0);
     g_hTopSwap = CreateConVar("sm_ws_topswap", "0", "Enable topswap scramble mode.", _, true, 0.0, true, 1.0);
     g_hRandom = CreateConVar("sm_ws_random", "1", "Enable random scramble mode.", _, true, 0.0, true, 1.0);
     g_hEngineHook = CreateConVar("sm_whalescramble_engine_hook", "1", "Replace TF2 engine/auto scrambles with Whalescramble when possible.", _, true, 0.0, true, 1.0);
     g_hScrambleImmunity = new StringMap();
-    InitEngineScrambleHook();
-    HookEngineScrambleHandler();
 
     for (int i = 0; i < sizeof(SCRAMBLE_COMMANDS); i++)
     {
@@ -160,6 +158,8 @@ public void OnMapStart()
     ResetVotes();
     ClearScrambleCooldown();
     ClearAutoScrambleTimer();
+    InitEngineScrambleHook();
+    HookEngineScrambleHandler();
     g_iRoundsSinceAuto = 0;
     if (g_hScrambleImmunity != null)
     {
@@ -563,6 +563,9 @@ public MRESReturn DHook_HandleScrambleTeams()
         LogWhale("Engine scramble hook could not start Whalescramble; allowing TF2 handler.");
         return MRES_Ignored;
     }
+
+    g_iRoundsSinceAuto = 0;
+    ClearAutoScrambleTimer();
 
     LogWhale("Engine scramble replaced with Whalescramble.");
     return MRES_Supercede;
