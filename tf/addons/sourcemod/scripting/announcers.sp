@@ -5,6 +5,8 @@
 #pragma newdecls required
 
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
+#define WHALE_MULTIKILL_MIN_LEVEL 2
+#define WHALE_MULTIKILL_MAX_LEVEL 5
 
 native bool SaySounds_PlayCommand(int client, const char[] commandName, bool ignoreOptIn = false);
 native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50);
@@ -35,6 +37,17 @@ public void WhaleTracker_OnKillstreak(int client, int killstreak)
     char clientName[MAX_NAME_LENGTH];
     GetClientName(client, clientName, sizeof(clientName));
     AnnounceKillstreakMilestone(client, clientName, killstreak);
+}
+
+
+public void WhaleTracker_OnMultikill(int client, int kills)
+{
+    if (!IsValidAnnouncerClient(client))
+    {
+        return;
+    }
+
+    AnnounceMultikill(client, kills);
 }
 
 void AnnounceKillstreakMilestone(int client, const char[] clientName, int killstreak, bool playSound = true)
@@ -115,6 +128,37 @@ void AnnounceKillstreakMilestone(int client, const char[] clientName, int killst
     }
 
     PrintCenterTextAll("%s is %s! (%d)", clientName, label, killstreak);
+}
+
+void AnnounceMultikill(int client, int kills, bool playSound = true)
+{
+    if (kills < WHALE_MULTIKILL_MIN_LEVEL || kills > WHALE_MULTIKILL_MAX_LEVEL)
+    {
+        return;
+    }
+
+    if (!IsValidAnnouncerClient(client))
+    {
+        return;
+    }
+
+    if (playSound && LibraryExists("saysounds"))
+    {
+        for (int i = 1; i <= MaxClients; i++)
+        {
+            if (!IsValidAnnouncerClient(i) || IsFakeClient(i))
+            {
+                continue;
+            }
+
+            // SaySounds_PlayCommand(i, "placeholder", false);
+            // PrintCenterText(i, "placeholder");
+        }
+
+        return;
+    }
+
+    // PrintCenterTextAll("placeholder");
 }
 
 bool Announcer_ServerCapacityCheck(float capacityRatio = 0.50)
