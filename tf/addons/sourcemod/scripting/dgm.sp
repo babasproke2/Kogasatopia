@@ -146,8 +146,8 @@ public Action Command_Stats(int client, int args)
 {
     bool fromConsole = (client <= 0 || !IsClientInGame(client));
 
-    // Player count (humans + bots)
-    int playerCount = DGM_CountRealPlayers();
+    // Connected clients, matching SourceMod's raw client count.
+    int playerCount = GetClientCount(false);
 
     // Current map name
     char map[64];
