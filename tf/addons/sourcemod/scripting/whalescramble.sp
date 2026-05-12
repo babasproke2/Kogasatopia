@@ -3,6 +3,7 @@
 #include <morecolors>
 #include <nativevotes>
 #include <dhooks>
+#include <sdktools>
 #include <tf2_stocks>
 #include <clans_api>
 #include <whaletracker_api>
@@ -65,6 +66,9 @@ ConVar g_hCountBots = null;
 ConVar g_hTopSwap = null;
 ConVar g_hRandom = null;
 ConVar g_hEngineHook = null;
+ConVar g_hDisableTfAuto = null;
+ConVar g_hMpScrambleTeamsAuto = null;
+Handle g_hSetScrambleTeams = null;
 int g_iRoundsSinceAuto = 0;
 char g_sLogPath[PLATFORM_MAX_PATH];
 StringMap g_hScrambleImmunity = null;
@@ -72,6 +76,10 @@ DynamicHook g_hHandleScrambleTeams = null;
 int g_iHandleScrambleHookId = INVALID_HOOK_ID;
 bool g_bAllowNextEngineScramble = false;
 float g_flAllowEngineScrambleUntil = 0.0;
+bool g_bWhaleEngineScramblePending = false;
+float g_flWhaleEngineScramblePendingUntil = 0.0;
+bool g_bExecuteSwapImmediately = false;
+bool g_bSuppressSwapRespawn = false;
 
 #define TEAM_RED  2
 #define TEAM_BLU  3
@@ -110,7 +118,9 @@ public void OnPluginStart()
     g_hCountBots = CreateConVar("whalescramble_count_bots", "1", "Include bots when selecting whale scramble targets.", _, true, 0.0, true, 1.0);
     g_hTopSwap = CreateConVar("sm_ws_topswap", "0", "Enable topswap scramble mode.", _, true, 0.0, true, 1.0);
     g_hRandom = CreateConVar("sm_ws_random", "1", "Enable random scramble mode.", _, true, 0.0, true, 1.0);
-    g_hEngineHook = CreateConVar("sm_whalescramble_engine_hook", "1", "Replace TF2 engine/auto scrambles with Whalescramble when possible.", _, true, 0.0, true, 1.0);
+    g_hEngineHook = CreateConVar("sm_whalescramble_engine_hook", "1", "Use TF2's engine scramble execution point for plugin-owned auto scrambles.", _, true, 0.0, true, 1.0);
+    g_hDisableTfAuto = CreateConVar("sm_whalescramble_disable_tf_auto", "1", "Disable TF2's built-in mp_scrambleteams_auto while WhaleScramble owns auto scrambles.", _, true, 0.0, true, 1.0);
+    g_hMpScrambleTeamsAuto = FindConVar("mp_scrambleteams_auto");
     g_hScrambleImmunity = new StringMap();
 
     for (int i = 0; i < sizeof(SCRAMBLE_COMMANDS); i++)
@@ -130,6 +140,11 @@ public void OnPluginStart()
     AddCommandListener(SayListener, "say_team");
     HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_PostNoCopy);
     HookEvent("player_team", Event_PlayerTeam, EventHookMode_Post);
+}
+
+public void OnConfigsExecuted()
+{
+    ApplyEngineScramblePolicy();
 }
 
 public void OnAllPluginsLoaded()
@@ -158,14 +173,15 @@ public void OnMapStart()
     ResetVotes();
     ClearScrambleCooldown();
     ClearAutoScrambleTimer();
+    ClearWhaleEngineScramblePending();
     InitEngineScrambleHook();
     HookEngineScrambleHandler();
+    ApplyEngineScramblePolicy();
     g_iRoundsSinceAuto = 0;
     if (g_hScrambleImmunity != null)
     {
         g_hScrambleImmunity.Clear();
     }
-    HookEngineScrambleHandler();
     LogWhale("Map start: immunity cleared, votes reset.");
 }
 
@@ -174,6 +190,7 @@ public void OnMapEnd()
     ResetVotes();
     ClearScrambleCooldown();
     ClearAutoScrambleTimer();
+    ClearWhaleEngineScramblePending();
     UnhookEngineScrambleHandler();
     g_iRoundsSinceAuto = 0;
     LogWhale("Map end: votes reset.");
@@ -184,6 +201,7 @@ public void OnPluginEnd()
     ResetVotes();
     ClearScrambleCooldown();
     ClearAutoScrambleTimer();
+    ClearWhaleEngineScramblePending();
     UnhookEngineScrambleHandler();
     LogWhale("Plugin ended.");
 }
@@ -285,7 +303,6 @@ public Action SayListener(int client, const char[] command, int argc)
 
 public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 {
-    ClearScrambleCooldown();
     LogWhale("Round win: full_round=%d voteRunning=%d activeKind=%d activeTeam=%d.",
         event.GetBool("full_round") ? 1 : 0,
         g_bVoteRunning ? 1 : 0,
@@ -453,7 +470,7 @@ static bool ShouldIgnoreScrambleImmunity(int totalPlayers, bool randomMode)
 
 static void InitEngineScrambleHook()
 {
-    if (g_hHandleScrambleTeams != null)
+    if (g_hHandleScrambleTeams != null && g_hSetScrambleTeams != null)
     {
         return;
     }
@@ -465,23 +482,50 @@ static void InitEngineScrambleHook()
         return;
     }
 
-    int offset = gameData.GetOffset("CTeamplayRules::HandleScrambleTeams");
-    delete gameData;
-
-    if (offset == -1)
+    if (g_hSetScrambleTeams == null)
     {
-        LogError("[WhaleScramble] Missing CTeamplayRules::HandleScrambleTeams offset in gamedata");
-        return;
+        StartPrepSDKCall(SDKCall_GameRules);
+        if (!PrepSDKCall_SetFromConf(gameData, SDKConf_Virtual, "CTeamplayRules::SetScrambleTeams"))
+        {
+            LogError("[WhaleScramble] Missing CTeamplayRules::SetScrambleTeams offset in gamedata");
+        }
+        else
+        {
+            PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_Plain);
+            g_hSetScrambleTeams = EndPrepSDKCall();
+            if (g_hSetScrambleTeams == null)
+            {
+                LogError("[WhaleScramble] Failed to prepare CTeamplayRules::SetScrambleTeams SDKCall");
+            }
+            else
+            {
+                LogWhale("Engine SetScrambleTeams SDKCall prepared.");
+            }
+        }
     }
 
-    g_hHandleScrambleTeams = DHookCreate(offset, HookType_GameRules, ReturnType_Void, ThisPointer_Ignore);
     if (g_hHandleScrambleTeams == null)
     {
-        LogError("[WhaleScramble] Failed to create CTeamplayRules::HandleScrambleTeams hook");
-        return;
+        int offset = gameData.GetOffset("CTeamplayRules::HandleScrambleTeams");
+        if (offset == -1)
+        {
+            LogError("[WhaleScramble] Missing CTeamplayRules::HandleScrambleTeams offset in gamedata");
+            delete gameData;
+            return;
+        }
+
+        g_hHandleScrambleTeams = DHookCreate(offset, HookType_GameRules, ReturnType_Void, ThisPointer_Ignore);
+        if (g_hHandleScrambleTeams == null)
+        {
+            LogError("[WhaleScramble] Failed to create CTeamplayRules::HandleScrambleTeams hook");
+            delete gameData;
+            return;
+        }
+
+        LogWhale("Engine scramble hook prepared.");
     }
 
-    LogWhale("Engine scramble hook prepared.");
+    delete gameData;
 }
 
 static void HookEngineScrambleHandler()
@@ -544,6 +588,91 @@ static bool ShouldAllowEngineScrambleThrough()
     return true;
 }
 
+static void ApplyEngineScramblePolicy()
+{
+    if (g_hDisableTfAuto == null || !g_hDisableTfAuto.BoolValue)
+    {
+        return;
+    }
+
+    if (g_hMpScrambleTeamsAuto == null)
+    {
+        g_hMpScrambleTeamsAuto = FindConVar("mp_scrambleteams_auto");
+    }
+
+    if (g_hMpScrambleTeamsAuto == null)
+    {
+        LogWhale("Unable to find mp_scrambleteams_auto for policy enforcement.");
+        return;
+    }
+
+    if (g_hMpScrambleTeamsAuto.BoolValue)
+    {
+        g_hMpScrambleTeamsAuto.SetBool(false);
+        LogWhale("Disabled TF2 mp_scrambleteams_auto; WhaleScramble owns auto scrambles.");
+    }
+}
+
+static void SetEngineScrambleTeams(bool value)
+{
+    if (g_hSetScrambleTeams == null)
+    {
+        return;
+    }
+
+    SDKCall(g_hSetScrambleTeams, value);
+}
+
+static bool RequestEngineWhaleScramble()
+{
+    if (g_bVoteRunning || NativeVotes_IsVoteInProgress() || IsVoteInProgress())
+    {
+        LogWhale("Engine WhaleScramble request rejected: vote already running.");
+        return false;
+    }
+
+    if (scrambleCooldown)
+    {
+        LogWhale("Engine WhaleScramble request rejected: scramble cooldown active.");
+        return false;
+    }
+
+    if (g_hEngineHook == null || !g_hEngineHook.BoolValue || g_hSetScrambleTeams == null || g_iHandleScrambleHookId == INVALID_HOOK_ID)
+    {
+        LogWhale("Engine WhaleScramble handoff unavailable; starting directly.");
+        return StartAutoScramble(true);
+    }
+
+    g_bWhaleEngineScramblePending = true;
+    g_flWhaleEngineScramblePendingUntil = GetEngineTime() + 10.0;
+    SetEngineScrambleTeams(true);
+    LogWhale("Engine WhaleScramble pending flag set.");
+    return true;
+}
+
+static bool IsWhaleEngineScramblePending()
+{
+    if (!g_bWhaleEngineScramblePending)
+    {
+        return false;
+    }
+
+    if (GetEngineTime() > g_flWhaleEngineScramblePendingUntil)
+    {
+        ClearWhaleEngineScramblePending();
+        LogWhale("Engine WhaleScramble pending flag expired.");
+        return false;
+    }
+
+    return true;
+}
+
+static void ClearWhaleEngineScramblePending()
+{
+    g_bWhaleEngineScramblePending = false;
+    g_flWhaleEngineScramblePendingUntil = 0.0;
+}
+
 public MRESReturn DHook_HandleScrambleTeams()
 {
     if (g_hEngineHook != null && !g_hEngineHook.BoolValue)
@@ -557,17 +686,30 @@ public MRESReturn DHook_HandleScrambleTeams()
         return MRES_Ignored;
     }
 
+    if (!IsWhaleEngineScramblePending())
+    {
+        LogWhale("Engine scramble hook ignored: no WhaleScramble pending flag.");
+        return MRES_Ignored;
+    }
+
+    ClearWhaleEngineScramblePending();
+    SetEngineScrambleTeams(false);
+
+    g_bExecuteSwapImmediately = true;
+    g_bSuppressSwapRespawn = true;
     bool started = StartAutoScramble(true);
+    g_bSuppressSwapRespawn = false;
+    g_bExecuteSwapImmediately = false;
     if (!started)
     {
-        LogWhale("Engine scramble hook could not start Whalescramble; allowing TF2 handler.");
-        return MRES_Ignored;
+        LogWhale("Pending WhaleScramble could not start; blocking TF2 handler.");
+        return MRES_Supercede;
     }
 
     g_iRoundsSinceAuto = 0;
     ClearAutoScrambleTimer();
 
-    LogWhale("Engine scramble replaced with Whalescramble.");
+    LogWhale("Engine scramble replaced with pending Whalescramble.");
     return MRES_Supercede;
 }
 
@@ -859,6 +1001,12 @@ static bool StartAutoScramble(bool suppressFeedback)
         return false;
     }
 
+    if (scrambleCooldown)
+    {
+        LogWhale("Auto scramble aborted: scramble cooldown active.");
+        return false;
+    }
+
     if (!suppressFeedback)
     {
         CPrintToChatAll("{blue}[WhaleScramble]{default} Auto scramble triggered.");
@@ -875,7 +1023,7 @@ public Action Timer_StartAutoScramble(Handle timer)
         g_hAutoScrambleTimer = null;
     }
 
-    StartAutoScramble(true);
+    RequestEngineWhaleScramble();
     return Plugin_Stop;
 }
 
@@ -1313,8 +1461,16 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
         pack.WriteCell(GetClientUserId(topBlu[i]));
     }
 
-    CreateTimer(0.1, Timer_DoSwap, pack, TIMER_FLAG_NO_MAPCHANGE);
-    LogWhale("Scramble scheduled: swapCount=%d.", swapCount);
+    if (g_bExecuteSwapImmediately)
+    {
+        LogWhale("Scramble executing immediately: swapCount=%d.", swapCount);
+        Timer_DoSwap(null, pack);
+    }
+    else
+    {
+        CreateTimer(0.1, Timer_DoSwap, pack, TIMER_FLAG_NO_MAPCHANGE);
+        LogWhale("Scramble scheduled: swapCount=%d.", swapCount);
+    }
     return true;
 }
 
@@ -1515,8 +1671,16 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
         pack.WriteCell(GetClientUserId(topBlu[i]));
     }
 
-    CreateTimer(0.1, Timer_DoSwap, pack, TIMER_FLAG_NO_MAPCHANGE);
-    LogWhale("Random scramble scheduled: swapCount=%d.", swapCount);
+    if (g_bExecuteSwapImmediately)
+    {
+        LogWhale("Random scramble executing immediately: swapCount=%d.", swapCount);
+        Timer_DoSwap(null, pack);
+    }
+    else
+    {
+        CreateTimer(0.1, Timer_DoSwap, pack, TIMER_FLAG_NO_MAPCHANGE);
+        LogWhale("Random scramble scheduled: swapCount=%d.", swapCount);
+    }
     return true;
 }
 
@@ -1540,6 +1704,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
 
     delete pack;
 
+    bool suppressRespawn = g_bSuppressSwapRespawn;
     if (GetFeatureStatus(FeatureType_Native, "FilterAlerts_SuppressTeamAlertWindow") == FeatureStatus_Available)
     {
         FilterAlerts_SuppressTeamAlertWindow(2.0);
@@ -1568,13 +1733,19 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         if (r > 0 && IsClientInGame(r) && GetClientTeam(r) == TEAM_RED)
         {
             ChangeClientTeam(r, TEAM_BLU);
-            TF2_RespawnPlayer(r);
+            if (!suppressRespawn)
+            {
+                TF2_RespawnPlayer(r);
+            }
             MarkScrambleImmune(r);
         }
         if (b > 0 && IsClientInGame(b) && GetClientTeam(b) == TEAM_BLU)
         {
             ChangeClientTeam(b, TEAM_RED);
-            TF2_RespawnPlayer(b);
+            if (!suppressRespawn)
+            {
+                TF2_RespawnPlayer(b);
+            }
             MarkScrambleImmune(b);
         }
     }
@@ -1585,7 +1756,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         ResetSurrenderVotes("whalescramble_execute");
         StartScrambleCooldown();
         CPrintToChatAll("{tomato}[{purple}Gap{tomato}]{default} {gold}Whalescrambling{default} %d players!", moved);
-        LogWhale("Scramble executed: moved=%d pairs=%d.", moved, pairCount);
+        LogWhale("Scramble executed: moved=%d pairs=%d suppressRespawn=%d.", moved, pairCount, suppressRespawn ? 1 : 0);
         for (int i = 0; i < pairCount; i++)
         {
             int r = pairR[i];
