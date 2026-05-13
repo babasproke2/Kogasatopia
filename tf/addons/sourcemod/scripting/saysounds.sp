@@ -84,6 +84,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_opts", Command_ShowGroupOptions);
     RegConsoleCmd("sm_sounds", Command_ListSounds);
     RegConsoleCmd("sm_saysounds", Command_ListSounds);
+    RegConsoleCmd("sm_groups", Command_ListGroups);
     RegConsoleCmd("sm_vol", Command_SetVolume);
     RegConsoleCmd("sm_diesounds", Command_ShowDeathSoundsMenu);
     RegConsoleCmd("sm_deathsounds", Command_ShowDeathSoundsMenu);
@@ -1413,6 +1414,7 @@ public Action Command_ListSounds(int client, int args)
 {
     if (client <= 0)
     {
+        PrintSaySoundGroups(client);
         for (int i = 0; i < gCommandNames.Length; i++)
         {
             char command[MAX_COMMAND_NAME];
@@ -1431,6 +1433,7 @@ public Action Command_ListSounds(int client, int args)
     if (!IsClientInGame(client))
         return Plugin_Handled;
 
+    PrintSaySoundGroups(client);
     PrintToChat(client, "[SaySounds] Available commands:");
     PrintToChat(client, "[SaySounds] (Use !opt to mute/unmute, !opts for group toggles, !vol <0.0-1.0> for custom volume)");
     for (int i = 0; i < gCommandNames.Length; i++)
@@ -1449,6 +1452,60 @@ public Action Command_ListSounds(int client, int args)
     }
 
     return Plugin_Handled;
+}
+
+public Action Command_ListGroups(int client, int args)
+{
+    if (client > 0 && !IsClientInGame(client))
+    {
+        return Plugin_Handled;
+    }
+
+    PrintSaySoundGroups(client);
+    return Plugin_Handled;
+}
+
+void PrintSaySoundGroups(int client)
+{
+    int displayIndex = 1;
+    char groupName[MAX_GROUP_NAME];
+
+    for (int i = 0; i < gGroupNames.Length; i++)
+    {
+        gGroupNames.GetString(i, groupName, sizeof(groupName));
+        if (StrEqual(groupName, DEFAULT_GROUP))
+        {
+            continue;
+        }
+
+        if (client > 0 && !CanClientUseSaySoundGroup(client, groupName))
+        {
+            continue;
+        }
+
+        if (client <= 0)
+        {
+            PrintToServer("group %d - %s", displayIndex, groupName);
+        }
+        else
+        {
+            PrintToChat(client, "group %d - %s", displayIndex, groupName);
+        }
+
+        displayIndex++;
+    }
+
+    if (displayIndex == 1)
+    {
+        if (client <= 0)
+        {
+            PrintToServer("[SaySounds] No sound groups are configured.");
+        }
+        else
+        {
+            PrintToChat(client, "[SaySounds] No sound groups are configured.");
+        }
+    }
 }
 
 stock bool SaySounds_ShouldPlay(int client)
