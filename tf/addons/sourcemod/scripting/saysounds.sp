@@ -242,7 +242,7 @@ Action ChatCommandListener(int client, const char[] command, int argc)
         return Plugin_Continue;
     }
 
-    char commandName[MAX_COMMAND_NAME];
+    char commandName[MAX_COMMAND_NAME * 4];
     char args[256];
 
     strcopy(commandName, sizeof(commandName), payload);
@@ -267,24 +267,25 @@ Action ChatCommandListener(int client, const char[] command, int argc)
         return Plugin_Continue;
     }
 
+    int initiator = (client > 0 && client <= MaxClients) ? client : -1;
     char soundPath[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
-    if (!GetCommandSoundData(commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName)))
+    bool restricted = false;
+    if (!GetCommandSoundDataForClient(initiator, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted))
     {
-        return Plugin_Continue;
-    }
-
-    int initiator = (client > 0 && client <= MaxClients) ? client : -1;
-    float now = GetGameTime();
-
-    if (initiator != -1)
-    {
-        if (!CanClientUseSaySoundGroup(initiator, groupName))
+        if (restricted)
         {
             PrintToChat(initiator, "[SaySounds] That sound group is admin-only.");
             return Plugin_Handled;
         }
 
+        return Plugin_Continue;
+    }
+
+    float now = GetGameTime();
+
+    if (initiator != -1)
+    {
         if (g_fNextAllowedSound[initiator] > now)
         {
             float remaining = g_fNextAllowedSound[initiator] - now;
@@ -1767,8 +1768,9 @@ public Action Command_PlaySpecificSound(int client, int args)
         return Plugin_Handled;
     }
 
-    char arg[MAX_COMMAND_NAME];
-    GetCmdArg(1, arg, sizeof(arg));
+    char arg[MAX_COMMAND_NAME * 4];
+    GetCmdArgString(arg, sizeof(arg));
+    StripQuotes(arg);
     TrimString(arg);
     ToLowercaseInPlace(arg, sizeof(arg));
 
@@ -1780,15 +1782,16 @@ public Action Command_PlaySpecificSound(int client, int args)
 
     char path[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
-    if (!GetCommandSoundData(arg, path, sizeof(path), groupName, sizeof(groupName)))
+    bool restricted = false;
+    if (!GetCommandSoundDataForClient(client, arg, path, sizeof(path), groupName, sizeof(groupName), restricted))
     {
-        PrintToChat(client, "[SaySounds] Unknown sound '%s'. Use !sounds to list commands.", arg);
-        return Plugin_Handled;
-    }
+        if (restricted)
+        {
+            PrintToChat(client, "[SaySounds] That sound group is admin-only.");
+            return Plugin_Handled;
+        }
 
-    if (!CanClientUseSaySoundGroup(client, groupName))
-    {
-        PrintToChat(client, "[SaySounds] That sound group is admin-only.");
+        PrintToChat(client, "[SaySounds] Unknown sound '%s'. Use !sounds to list commands.", arg);
         return Plugin_Handled;
     }
 
@@ -2015,6 +2018,108 @@ static bool GetCommandSoundData(const char[] commandName, char[] soundPath, int 
     }
 
     return true;
+}
+
+static bool GetCommandSoundDataForClient(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted)
+{
+    restricted = false;
+
+    if (!gConfigLoaded)
+    {
+        return false;
+    }
+
+    char working[MAX_COMMAND_NAME * 4];
+    strcopy(working, sizeof(working), commandNames);
+    TrimString(working);
+    ToLowercaseInPlace(working, sizeof(working));
+
+    if (!working[0])
+    {
+        return false;
+    }
+
+    if (StrContains(working, ",", false) == -1)
+    {
+        if (!GetCommandSoundData(working, soundPath, soundLen, groupName, groupLen))
+        {
+            return false;
+        }
+
+        if (client > 0 && !CanClientUseSaySoundGroup(client, groupName))
+        {
+            restricted = true;
+            return false;
+        }
+
+        return true;
+    }
+
+    char options[MAX_SOUND_OPTIONS][MAX_COMMAND_NAME];
+    int optionCount = 0;
+    char token[MAX_COMMAND_NAME];
+    int start = 0;
+    int len = strlen(working);
+
+    while (start < len && optionCount < MAX_SOUND_OPTIONS)
+    {
+        int commaPos = -1;
+        for (int i = start; i < len; i++)
+        {
+            if (working[i] == ',')
+            {
+                commaPos = i;
+                break;
+            }
+        }
+
+        int end = (commaPos == -1) ? len : commaPos;
+        int tokenLen = end - start;
+
+        if (tokenLen > 0 && tokenLen < sizeof(token))
+        {
+            for (int i = 0; i < tokenLen; i++)
+            {
+                token[i] = working[start + i];
+            }
+            token[tokenLen] = '\0';
+
+            TrimString(token);
+            ToLowercaseInPlace(token, sizeof(token));
+
+            if (token[0])
+            {
+                char optionPath[PLATFORM_MAX_PATH];
+                char optionGroup[MAX_GROUP_NAME];
+                if (GetCommandSoundData(token, optionPath, sizeof(optionPath), optionGroup, sizeof(optionGroup)))
+                {
+                    if (client <= 0 || CanClientUseSaySoundGroup(client, optionGroup))
+                    {
+                        strcopy(options[optionCount], sizeof(options[]), token);
+                        optionCount++;
+                    }
+                    else
+                    {
+                        restricted = true;
+                    }
+                }
+            }
+        }
+
+        start = end + 1;
+        if (start > len)
+        {
+            break;
+        }
+    }
+
+    if (optionCount == 0)
+    {
+        return false;
+    }
+
+    int pick = GetRandomInt(0, optionCount - 1);
+    return GetCommandSoundData(options[pick], soundPath, soundLen, groupName, groupLen);
 }
 
 static bool CanClientHearSaySoundGroup(int client, const char[] groupName)
