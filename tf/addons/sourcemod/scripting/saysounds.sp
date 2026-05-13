@@ -1952,7 +1952,7 @@ public Action Command_SetDeathSound(int client, int args)
 
     if (args < 1)
     {
-        PrintToChat(client, "[SaySounds] Usage: !diesound <command[,command...]|none> (current: %s)", g_szDeathSound[client][0] ? g_szDeathSound[client] : "none");
+        PrintToChat(client, "[SaySounds] Usage: !diesound <command/group[,command/group...]|none> (current: %s)", g_szDeathSound[client][0] ? g_szDeathSound[client] : "none");
         return Plugin_Handled;
     }
 
@@ -1971,7 +1971,7 @@ public Action Command_SetDeathSound(int client, int args)
 
     char aggregated[256];
     bool anyInvalid = false;
-    if (!BuildSoundPreferenceList(client, buffer, aggregated, sizeof(aggregated), anyInvalid, false))
+    if (!BuildSoundPreferenceList(client, buffer, aggregated, sizeof(aggregated), anyInvalid, true))
     {
         PrintToChat(client, "[SaySounds] No valid sounds supplied. Use !sounds to list commands.");
         return Plugin_Handled;
