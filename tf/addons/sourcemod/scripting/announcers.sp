@@ -154,6 +154,11 @@ void AnnounceMultikill(int client, int kills, bool playSound = true)
 
     LogMultikillEvent(client, kills);
 
+    if (kills == WHALE_MULTIKILL_MIN_LEVEL && !Announcer_ServerCapacityCheck())
+    {
+        return;
+    }
+
     if (playSound && LibraryExists("saysounds"))
     {
         for (int i = 1; i <= MaxClients; i++)
