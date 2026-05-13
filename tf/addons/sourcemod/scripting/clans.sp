@@ -1061,12 +1061,13 @@ bool GetClanWarInstanceIdSync(int warId, int createdAt, int &instanceId)
         createdAt);
 
     DBResultSet results = SQL_Query(g_Database, query);
-    if (results == null)
+    if (!HasUsableResultSet(results))
     {
         char error[256];
         SQL_GetError(g_Database, error, sizeof(error));
         LogError("[Clans] Failed to fetch war instance %d/%d: %s", warId, createdAt, error);
         HandleDatabaseConnectionLoss(error);
+        delete results;
         return false;
     }
 
@@ -3017,12 +3018,13 @@ bool LoadActiveClanWarsCacheSync()
         view_as<int>(ClanWarStatus_Active));
 
     DBResultSet results = SQL_Query(g_Database, query);
-    if (results == null)
+    if (!HasUsableResultSet(results))
     {
         char error[256];
         SQL_GetError(g_Database, error, sizeof(error));
         LogError("[Clans] Failed to load active war cache: %s", error);
         HandleDatabaseConnectionLoss(error);
+        delete results;
         return false;
     }
 
