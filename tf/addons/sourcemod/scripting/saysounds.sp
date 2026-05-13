@@ -12,6 +12,7 @@
 #define MAX_GROUP_PREF_VALUE 512
 #define DEFAULT_GROUP "all"
 #define ADMIN_ONLY_GROUPS_SECTION "adminonlygroups"
+#define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define DEFAULT_DEATH_COMMAND "doh"
 #define TOUHOU_DEATH_SOUND_ATTR "touhou death sound"
 #define TOUHOU_DEATH_SOUND_PATH "touhou/pichuun.mp3"
@@ -1300,6 +1301,139 @@ static bool ToggleClientSoundPreferenceCommand(int client, SaySoundPreferenceTyp
     return true;
 }
 
+static bool GetCommandGroupName(const char[] commandName, char[] groupName, int groupLen)
+{
+    if (!gSoundGroupMap.GetString(commandName, groupName, groupLen))
+    {
+        strcopy(groupName, groupLen, DEFAULT_GROUP);
+    }
+
+    return groupName[0] != '\0';
+}
+
+static bool IsCommandInSoundGroup(const char[] commandName, const char[] groupName)
+{
+    char commandGroup[MAX_GROUP_NAME];
+    GetCommandGroupName(commandName, commandGroup, sizeof(commandGroup));
+    return StrEqual(commandGroup, groupName);
+}
+
+static bool GetSoundPreferenceGroupState(int client, const char[] preferenceValue, const char[] groupName, bool &anyEnabled, bool &allEnabled)
+{
+    anyEnabled = false;
+    allEnabled = true;
+
+    if (!groupName[0] || StrEqual(groupName, DEFAULT_GROUP) || !IsKnownGroup(groupName) || !CanClientUseSaySoundGroup(client, groupName))
+    {
+        return false;
+    }
+
+    bool foundAny = false;
+    char currentCommand[MAX_COMMAND_NAME];
+    for (int i = 0; i < gCommandNames.Length; i++)
+    {
+        gCommandNames.GetString(i, currentCommand, sizeof(currentCommand));
+        if (!IsCommandInSoundGroup(currentCommand, groupName) || !CanClientUseSaySoundCommand(client, currentCommand))
+        {
+            continue;
+        }
+
+        foundAny = true;
+        if (PreferenceListHasCommand(preferenceValue, currentCommand))
+        {
+            anyEnabled = true;
+        }
+        else
+        {
+            allEnabled = false;
+        }
+    }
+
+    if (!foundAny)
+    {
+        allEnabled = false;
+        return false;
+    }
+
+    return true;
+}
+
+static bool ToggleClientSoundPreferenceGroup(int client, SaySoundPreferenceType type, const char[] groupName, char[] updatedValue, int updatedLen)
+{
+    updatedValue[0] = '\0';
+
+    if (client <= 0 || client > MaxClients || !groupName[0] || !gConfigLoaded)
+    {
+        return false;
+    }
+
+    char currentValue[MAX_COMMAND_NAME * 4];
+    GetClientSoundPreferenceValue(client, type, currentValue, sizeof(currentValue));
+
+    bool anyEnabled;
+    bool allEnabled;
+    if (!GetSoundPreferenceGroupState(client, currentValue, groupName, anyEnabled, allEnabled))
+    {
+        return false;
+    }
+
+    bool enableGroup = !allEnabled;
+    char rebuilt[MAX_COMMAND_NAME * 4];
+    rebuilt[0] = '\0';
+    int validCount = 0;
+    bool anyInvalid = false;
+
+    char currentCommand[MAX_COMMAND_NAME];
+    for (int i = 0; i < gCommandNames.Length; i++)
+    {
+        gCommandNames.GetString(i, currentCommand, sizeof(currentCommand));
+        if (!CanClientUseSaySoundCommand(client, currentCommand))
+        {
+            continue;
+        }
+
+        bool shouldEnable = PreferenceListHasCommand(currentValue, currentCommand);
+        if (IsCommandInSoundGroup(currentCommand, groupName))
+        {
+            shouldEnable = enableGroup;
+        }
+
+        if (!shouldEnable)
+        {
+            continue;
+        }
+
+        if (!AppendSoundPreferenceCommand(client, currentCommand, rebuilt, sizeof(rebuilt), validCount, anyInvalid))
+        {
+            return false;
+        }
+    }
+
+    SetClientSoundPreferenceValue(client, type, rebuilt);
+    strcopy(updatedValue, updatedLen, rebuilt);
+    return true;
+}
+
+static void BuildSoundPreferenceGroupMenuItem(const char[] groupName, char[] itemInfo, int itemLen)
+{
+    Format(itemInfo, itemLen, "%s%s", SOUND_PREF_GROUP_ITEM_PREFIX, groupName);
+}
+
+static bool GetSoundPreferenceGroupFromMenuItem(const char[] itemInfo, char[] groupName, int groupLen)
+{
+    groupName[0] = '\0';
+
+    if (!StartsWith(itemInfo, SOUND_PREF_GROUP_ITEM_PREFIX))
+    {
+        return false;
+    }
+
+    CopySubstring(itemInfo, strlen(SOUND_PREF_GROUP_ITEM_PREFIX), groupName, groupLen);
+    TrimString(groupName);
+    ToLowercaseInPlace(groupName, groupLen);
+    return groupName[0] != '\0';
+}
+
 static void ShowSoundPreferenceMenu(int client, SaySoundPreferenceType type)
 {
     if (client <= 0 || !IsClientInGame(client))
@@ -1342,6 +1476,27 @@ static void ShowSoundPreferenceMenu(int client, SaySoundPreferenceType type)
         menu.AddItem(commandName, display);
     }
 
+    for (int i = 0; i < gGroupNames.Length; i++)
+    {
+        gGroupNames.GetString(i, groupName, sizeof(groupName));
+        if (StrEqual(groupName, DEFAULT_GROUP) || !CanClientUseSaySoundGroup(client, groupName))
+        {
+            continue;
+        }
+
+        bool anyEnabled;
+        bool allEnabled;
+        if (!GetSoundPreferenceGroupState(client, currentValue, groupName, anyEnabled, allEnabled))
+        {
+            continue;
+        }
+
+        char itemInfo[MAX_COMMAND_NAME];
+        BuildSoundPreferenceGroupMenuItem(groupName, itemInfo, sizeof(itemInfo));
+        Format(display, sizeof(display), "%s group (%s)", groupName, allEnabled ? "enabled" : (anyEnabled ? "partial" : "disabled"));
+        menu.AddItem(itemInfo, display);
+    }
+
     menu.ExitButton = true;
     menu.Display(client, MENU_TIME_FOREVER);
 }
@@ -1355,11 +1510,22 @@ static int HandleSoundPreferenceMenu(Menu menu, MenuAction action, int client, i
             return 0;
         }
 
-        char commandName[MAX_COMMAND_NAME];
-        menu.GetItem(item, commandName, sizeof(commandName));
+        char itemInfo[MAX_COMMAND_NAME];
+        menu.GetItem(item, itemInfo, sizeof(itemInfo));
 
         char updatedValue[MAX_COMMAND_NAME * 4];
-        if (!ToggleClientSoundPreferenceCommand(client, type, commandName, updatedValue, sizeof(updatedValue)))
+        char groupName[MAX_GROUP_NAME];
+        bool success;
+        if (GetSoundPreferenceGroupFromMenuItem(itemInfo, groupName, sizeof(groupName)))
+        {
+            success = ToggleClientSoundPreferenceGroup(client, type, groupName, updatedValue, sizeof(updatedValue));
+        }
+        else
+        {
+            success = ToggleClientSoundPreferenceCommand(client, type, itemInfo, updatedValue, sizeof(updatedValue));
+        }
+
+        if (!success)
         {
             PrintToChat(client, "[SaySounds] You can only store up to %d sounds.", MAX_SOUND_OPTIONS);
         }
