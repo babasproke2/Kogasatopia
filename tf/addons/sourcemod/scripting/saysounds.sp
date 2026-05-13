@@ -1764,7 +1764,7 @@ public Action Command_PlaySpecificSound(int client, int args)
 
     if (args < 1)
     {
-        PrintToChat(client, "[SaySounds] Usage: !saysound <command>");
+        PrintToChat(client, "[SaySounds] Usage: !saysound <command|group>");
         return Plugin_Handled;
     }
 
@@ -1776,7 +1776,7 @@ public Action Command_PlaySpecificSound(int client, int args)
 
     if (!arg[0])
     {
-        PrintToChat(client, "[SaySounds] Usage: !saysound <command>");
+        PrintToChat(client, "[SaySounds] Usage: !saysound <command|group>");
         return Plugin_Handled;
     }
 
@@ -2020,6 +2020,95 @@ static bool GetCommandSoundData(const char[] commandName, char[] soundPath, int 
     return true;
 }
 
+static bool GetRandomCommandInGroupForClient(int client, const char[] groupName, char[] commandName, int commandLen, bool &restricted)
+{
+    if (commandLen > 0)
+    {
+        commandName[0] = '\0';
+    }
+
+    char normalizedGroup[MAX_GROUP_NAME];
+    strcopy(normalizedGroup, sizeof(normalizedGroup), groupName);
+    TrimString(normalizedGroup);
+    ToLowercaseInPlace(normalizedGroup, sizeof(normalizedGroup));
+
+    if (!normalizedGroup[0] || !IsKnownGroup(normalizedGroup))
+    {
+        return false;
+    }
+
+    if (client > 0 && !CanClientUseSaySoundGroup(client, normalizedGroup))
+    {
+        restricted = true;
+        return false;
+    }
+
+    char currentCommand[MAX_COMMAND_NAME];
+    char currentGroup[MAX_GROUP_NAME];
+    int matchCount = 0;
+
+    for (int i = 0; i < gCommandNames.Length; i++)
+    {
+        gCommandNames.GetString(i, currentCommand, sizeof(currentCommand));
+        if (!gSoundGroupMap.GetString(currentCommand, currentGroup, sizeof(currentGroup)))
+        {
+            strcopy(currentGroup, sizeof(currentGroup), DEFAULT_GROUP);
+        }
+
+        if (!StrEqual(currentGroup, normalizedGroup))
+        {
+            continue;
+        }
+
+        matchCount++;
+        if (GetRandomInt(1, matchCount) == 1)
+        {
+            strcopy(commandName, commandLen, currentCommand);
+        }
+    }
+
+    return matchCount > 0 && commandName[0] != '\0';
+}
+
+static bool GetCommandOptionForClient(int client, const char[] inputName, char[] commandName, int commandLen, bool &restricted)
+{
+    if (commandLen > 0)
+    {
+        commandName[0] = '\0';
+    }
+
+    char normalizedName[MAX_COMMAND_NAME];
+    strcopy(normalizedName, sizeof(normalizedName), inputName);
+    TrimString(normalizedName);
+    ToLowercaseInPlace(normalizedName, sizeof(normalizedName));
+
+    if (!normalizedName[0])
+    {
+        return false;
+    }
+
+    char soundPath[PLATFORM_MAX_PATH];
+    if (gSoundMap.GetString(normalizedName, soundPath, sizeof(soundPath)))
+    {
+        char groupName[MAX_GROUP_NAME];
+        if (!gSoundGroupMap.GetString(normalizedName, groupName, sizeof(groupName)))
+        {
+            strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
+        }
+
+        if (client > 0 && !CanClientUseSaySoundGroup(client, groupName))
+        {
+            restricted = true;
+            return false;
+        }
+
+        strcopy(commandName, commandLen, normalizedName);
+        return true;
+    }
+
+    return GetRandomCommandInGroupForClient(client, normalizedName, commandName, commandLen, restricted);
+}
+
 static bool GetCommandSoundDataForClient(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted)
 {
     restricted = false;
@@ -2041,18 +2130,13 @@ static bool GetCommandSoundDataForClient(int client, const char[] commandNames, 
 
     if (StrContains(working, ",", false) == -1)
     {
-        if (!GetCommandSoundData(working, soundPath, soundLen, groupName, groupLen))
+        char chosen[MAX_COMMAND_NAME];
+        if (!GetCommandOptionForClient(client, working, chosen, sizeof(chosen), restricted))
         {
             return false;
         }
 
-        if (client > 0 && !CanClientUseSaySoundGroup(client, groupName))
-        {
-            restricted = true;
-            return false;
-        }
-
-        return true;
+        return GetCommandSoundData(chosen, soundPath, soundLen, groupName, groupLen);
     }
 
     char options[MAX_SOUND_OPTIONS][MAX_COMMAND_NAME];
@@ -2089,19 +2173,11 @@ static bool GetCommandSoundDataForClient(int client, const char[] commandNames, 
 
             if (token[0])
             {
-                char optionPath[PLATFORM_MAX_PATH];
-                char optionGroup[MAX_GROUP_NAME];
-                if (GetCommandSoundData(token, optionPath, sizeof(optionPath), optionGroup, sizeof(optionGroup)))
+                char chosen[MAX_COMMAND_NAME];
+                if (GetCommandOptionForClient(client, token, chosen, sizeof(chosen), restricted))
                 {
-                    if (client <= 0 || CanClientUseSaySoundGroup(client, optionGroup))
-                    {
-                        strcopy(options[optionCount], sizeof(options[]), token);
-                        optionCount++;
-                    }
-                    else
-                    {
-                        restricted = true;
-                    }
+                    strcopy(options[optionCount], sizeof(options[]), chosen);
+                    optionCount++;
                 }
             }
         }
