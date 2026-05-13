@@ -7,6 +7,7 @@
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
 #define WHALE_MULTIKILL_MIN_LEVEL 2
 #define WHALE_MULTIKILL_MAX_LEVEL 5
+#define MULTIKILL_LOG_FILE "logs/announcers_multikill.log"
 
 native bool SaySounds_PlayCommand(int client, const char[] commandName, bool ignoreOptIn = false);
 native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50);
@@ -142,6 +143,8 @@ void AnnounceMultikill(int client, int kills, bool playSound = true)
         return;
     }
 
+    LogMultikillEvent(client, kills);
+
     if (playSound && LibraryExists("saysounds"))
     {
         for (int i = 1; i <= MaxClients; i++)
@@ -159,6 +162,63 @@ void AnnounceMultikill(int client, int kills, bool playSound = true)
     }
 
     // PrintCenterTextAll("placeholder");
+}
+
+bool GetMultikillLabel(int kills, char[] label, int labelLen)
+{
+    switch (kills)
+    {
+        case 2:
+        {
+            strcopy(label, labelLen, "double-kill");
+            return true;
+        }
+        case 3:
+        {
+            strcopy(label, labelLen, "triple-kill");
+            return true;
+        }
+        case 4:
+        {
+            strcopy(label, labelLen, "quadra-kill");
+            return true;
+        }
+        case 5:
+        {
+            strcopy(label, labelLen, "penta-kill");
+            return true;
+        }
+    }
+
+    return false;
+}
+
+void LogMultikillEvent(int client, int kills)
+{
+    char label[32];
+    if (!GetMultikillLabel(kills, label, sizeof(label)))
+    {
+        return;
+    }
+
+    char timestamp[32];
+    FormatTime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", GetTime());
+
+    char clientName[MAX_NAME_LENGTH];
+    GetClientName(client, clientName, sizeof(clientName));
+
+    char path[PLATFORM_MAX_PATH];
+    BuildPath(Path_SM, path, sizeof(path), MULTIKILL_LOG_FILE);
+
+    File file = OpenFile(path, "a");
+    if (file == null)
+    {
+        LogError("[Announcers] Failed to open multikill log file: %s", path);
+        return;
+    }
+
+    file.WriteLine("[%s] %s got a %s (%d)", timestamp, clientName, label, kills);
+    delete file;
 }
 
 bool Announcer_ServerCapacityCheck(float capacityRatio = 0.50)
