@@ -1612,7 +1612,94 @@ public Action Command_SetVolume(int client, int args)
     return Plugin_Handled;
 }
 
-static bool BuildSoundPreferenceList(int client, const char[] input, char[] aggregated, int aggregatedLen, bool &anyInvalid)
+static bool AppendSoundPreferenceCommand(int client, const char[] commandName, char[] aggregated, int aggregatedLen, int &validCount, bool &anyInvalid)
+{
+    if (!CanClientUseSaySoundCommand(client, commandName))
+    {
+        anyInvalid = true;
+        return false;
+    }
+
+    if (PreferenceListHasCommand(aggregated, commandName))
+    {
+        return true;
+    }
+
+    if (validCount >= MAX_SOUND_OPTIONS)
+    {
+        anyInvalid = true;
+        return false;
+    }
+
+    int currentLen = strlen(aggregated);
+    int needed = (currentLen > 0 ? 1 : 0) + strlen(commandName);
+    if (currentLen + needed >= aggregatedLen - 1)
+    {
+        anyInvalid = true;
+        return false;
+    }
+
+    if (currentLen > 0)
+    {
+        StrCat(aggregated, aggregatedLen, ",");
+    }
+
+    StrCat(aggregated, aggregatedLen, commandName);
+    validCount++;
+    return true;
+}
+
+static bool AppendSoundPreferenceGroup(int client, const char[] groupName, char[] aggregated, int aggregatedLen, int &validCount, bool &anyInvalid)
+{
+    char normalizedGroup[MAX_GROUP_NAME];
+    strcopy(normalizedGroup, sizeof(normalizedGroup), groupName);
+    TrimString(normalizedGroup);
+    ToLowercaseInPlace(normalizedGroup, sizeof(normalizedGroup));
+
+    if (!normalizedGroup[0] || !IsKnownGroup(normalizedGroup))
+    {
+        anyInvalid = true;
+        return false;
+    }
+
+    if (!CanClientUseSaySoundGroup(client, normalizedGroup))
+    {
+        anyInvalid = true;
+        return false;
+    }
+
+    bool addedAny = false;
+    char currentCommand[MAX_COMMAND_NAME];
+    char currentGroup[MAX_GROUP_NAME];
+
+    for (int i = 0; i < gCommandNames.Length; i++)
+    {
+        gCommandNames.GetString(i, currentCommand, sizeof(currentCommand));
+        if (!gSoundGroupMap.GetString(currentCommand, currentGroup, sizeof(currentGroup)))
+        {
+            strcopy(currentGroup, sizeof(currentGroup), DEFAULT_GROUP);
+        }
+
+        if (!StrEqual(currentGroup, normalizedGroup))
+        {
+            continue;
+        }
+
+        if (AppendSoundPreferenceCommand(client, currentCommand, aggregated, aggregatedLen, validCount, anyInvalid))
+        {
+            addedAny = true;
+        }
+    }
+
+    if (!addedAny)
+    {
+        anyInvalid = true;
+    }
+
+    return addedAny;
+}
+
+static bool BuildSoundPreferenceList(int client, const char[] input, char[] aggregated, int aggregatedLen, bool &anyInvalid, bool allowGroups)
 {
     aggregated[0] = '\0';
     anyInvalid = false;
@@ -1660,39 +1747,11 @@ static bool BuildSoundPreferenceList(int client, const char[] input, char[] aggr
                 char path[PLATFORM_MAX_PATH];
                 if (gSoundMap.GetString(token, path, sizeof(path)))
                 {
-                    if (!CanClientUseSaySoundCommand(client, token))
-                    {
-                        anyInvalid = true;
-                        start = end + 1;
-                        if (start > len)
-                        {
-                            break;
-                        }
-                        continue;
-                    }
-
-                    if (validCount < MAX_SOUND_OPTIONS)
-                    {
-                        int currentLen = strlen(aggregated);
-                        int needed = (currentLen > 0 ? 1 : 0) + strlen(token);
-                        if (currentLen + needed < aggregatedLen - 1)
-                        {
-                            if (currentLen > 0)
-                            {
-                                StrCat(aggregated, aggregatedLen, ",");
-                            }
-                            StrCat(aggregated, aggregatedLen, token);
-                            validCount++;
-                        }
-                        else
-                        {
-                            anyInvalid = true;
-                        }
-                    }
-                    else
-                    {
-                        anyInvalid = true;
-                    }
+                    AppendSoundPreferenceCommand(client, token, aggregated, aggregatedLen, validCount, anyInvalid);
+                }
+                else if (allowGroups)
+                {
+                    AppendSoundPreferenceGroup(client, token, aggregated, aggregatedLen, validCount, anyInvalid);
                 }
                 else
                 {
@@ -1746,7 +1805,7 @@ public Action Command_SetDeathSound(int client, int args)
 
     char aggregated[256];
     bool anyInvalid = false;
-    if (!BuildSoundPreferenceList(client, buffer, aggregated, sizeof(aggregated), anyInvalid))
+    if (!BuildSoundPreferenceList(client, buffer, aggregated, sizeof(aggregated), anyInvalid, false))
     {
         PrintToChat(client, "[SaySounds] No valid sounds supplied. Use !sounds to list commands.");
         return Plugin_Handled;
@@ -1775,7 +1834,7 @@ public Action Command_SetKillSound(int client, int args)
 
     if (args < 1)
     {
-        PrintToChat(client, "[SaySounds] Usage: !killsound <command[,command...]|none> (current: %s)", g_szKillSound[client][0] ? g_szKillSound[client] : "none");
+        PrintToChat(client, "[SaySounds] Usage: !killsound <command/group[,command/group...]|none> (current: %s)", g_szKillSound[client][0] ? g_szKillSound[client] : "none");
         return Plugin_Handled;
     }
 
@@ -1794,7 +1853,7 @@ public Action Command_SetKillSound(int client, int args)
 
     char aggregated[256];
     bool anyInvalid = false;
-    if (!BuildSoundPreferenceList(client, buffer, aggregated, sizeof(aggregated), anyInvalid))
+    if (!BuildSoundPreferenceList(client, buffer, aggregated, sizeof(aggregated), anyInvalid, true))
     {
         PrintToChat(client, "[SaySounds] No valid sounds supplied. Use !sounds to list commands.");
         return Plugin_Handled;
