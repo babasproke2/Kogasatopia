@@ -1683,6 +1683,12 @@ public void SQL_OnClanIdCacheRebuilt(Database db, DBResultSet results, const cha
         return;
     }
 
+    if (!HasUsableResultSet(results))
+    {
+        LogError("[Clans] Failed to rebuild clan id cache: query returned no result set.");
+        return;
+    }
+
     if (g_hClanIdCache != null)
     {
         delete g_hClanIdCache;
@@ -1691,7 +1697,7 @@ public void SQL_OnClanIdCacheRebuilt(Database db, DBResultSet results, const cha
     g_hClanIdCache = new StringMap();
 
     char steamid64[STEAMID64_MAXLEN];
-    while (results != null && results.FetchRow())
+    while (results.FetchRow())
     {
         results.FetchString(0, steamid64, sizeof(steamid64));
         TrimString(steamid64);
