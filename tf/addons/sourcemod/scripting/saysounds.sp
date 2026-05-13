@@ -85,6 +85,8 @@ public void OnPluginStart()
     RegConsoleCmd("sm_sounds", Command_ListSounds);
     RegConsoleCmd("sm_saysounds", Command_ListSounds);
     RegConsoleCmd("sm_groups", Command_ListGroups);
+    RegAdminCmd("sm_soundgroups", Command_ListGroups, 0, "Lists SaySound groups.");
+    RegAdminCmd("sm_saysoundgroups", Command_ListGroups, 0, "Lists SaySound groups.");
     RegConsoleCmd("sm_vol", Command_SetVolume);
     RegConsoleCmd("sm_diesounds", Command_ShowDeathSoundsMenu);
     RegConsoleCmd("sm_deathsounds", Command_ShowDeathSoundsMenu);
