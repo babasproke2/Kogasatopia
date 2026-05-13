@@ -40,6 +40,15 @@ public void WhaleTracker_OnKillstreak(int client, int killstreak)
     AnnounceKillstreakMilestone(client, clientName, killstreak);
 }
 
+public void WhaleTracker_OnKillstreakEnd(int client, int killstreak)
+{
+    if (!IsValidAnnouncerClient(client))
+    {
+        return;
+    }
+
+    // Placeholder for future killstreak-end announcements.
+}
 
 public void WhaleTracker_OnMultikill(int client, int kills)
 {
