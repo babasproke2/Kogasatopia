@@ -49,6 +49,8 @@ ConVar g_cvStreakEndMin = null;
 ConVar g_cvPlayercountThreshold = null;
 ConVar g_cvKillstreaksEnabled = null;
 ConVar g_cvMultikillsEnabled = null;
+ConVar g_cvKillstreaksSound = null;
+ConVar g_cvMultikillsSound = null;
 StringMap g_KillstreakSoundMap = null;
 StringMap g_MultikillSoundMap = null;
 AnnouncerConfigMode g_ConfigMode = AnnouncerConfig_None;
@@ -83,6 +85,26 @@ public void OnPluginStart()
         "announcers_multikills_enabled",
         "0",
         "Enable multikill announcements.",
+        FCVAR_NONE,
+        true,
+        0.0,
+        true,
+        1.0
+    );
+    g_cvKillstreaksSound = CreateConVar(
+        "announcers_killstreaks_sound",
+        "1",
+        "Play SaySounds for killstreak announcements.",
+        FCVAR_NONE,
+        true,
+        0.0,
+        true,
+        1.0
+    );
+    g_cvMultikillsSound = CreateConVar(
+        "announcers_multikills_sound",
+        "0",
+        "Play SaySounds for multikill announcements.",
         FCVAR_NONE,
         true,
         0.0,
@@ -226,7 +248,8 @@ void AnnounceKillstreakMilestone(int client, const char[] clientName, int killst
         target = client;
     }
 
-    Announcer_Announce(target, client, commandName, Announcer_ShouldPlaySound(playSound) && commandName[0] != '\0', g_cvStreaksChat.BoolValue, message);
+    bool useSound = playSound && g_cvKillstreaksSound.BoolValue && commandName[0] != '\0';
+    Announcer_Announce(target, client, commandName, Announcer_ShouldPlaySound(useSound), g_cvStreaksChat.BoolValue, message);
 }
 
 void AnnounceKillstreakEnd(int client, int killstreak)
@@ -288,7 +311,8 @@ void AnnounceMultikill(int client, int kills)
     char commandName[ANNOUNCER_MAX_COMMAND_NAME];
     GetAnnouncerSoundCommand(g_MultikillSoundMap, kills, "", commandName, sizeof(commandName));
 
-    Announcer_Announce(0, client, commandName, Announcer_ShouldPlaySound(commandName[0] != '\0'), g_cvMultikillsChat.BoolValue, message);
+    bool useSound = g_cvMultikillsSound.BoolValue && commandName[0] != '\0';
+    Announcer_Announce(0, client, commandName, Announcer_ShouldPlaySound(useSound), g_cvMultikillsChat.BoolValue, message);
 }
 
 bool GetKillstreakAnnouncement(int killstreak, char[] label, int labelLen, char[] commandName, int commandLen)
