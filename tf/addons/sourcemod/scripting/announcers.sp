@@ -46,6 +46,7 @@ ConVar g_cvMultikillsChat = null;
 ConVar g_cvStreaksChat = null;
 ConVar g_cvStreakEndsChat = null;
 ConVar g_cvStreakEndMin = null;
+ConVar g_cvKillstreakBroadcastMin = null;
 ConVar g_cvPlayercountThreshold = null;
 ConVar g_cvKillstreaksEnabled = null;
 ConVar g_cvMultikillsEnabled = null;
@@ -149,6 +150,14 @@ public void OnPluginStart()
         true,
         1.0
     );
+    g_cvKillstreakBroadcastMin = CreateConVar(
+        "announcers_killstreak_broadcast_min",
+        "10",
+        "Minimum killstreak value required to broadcast the milestone to everyone.",
+        FCVAR_NONE,
+        true,
+        1.0
+    );
     g_cvPlayercountThreshold = CreateConVar(
         "announcers_playercount_threshold",
         "0.50",
@@ -243,7 +252,13 @@ void AnnounceKillstreakMilestone(int client, const char[] clientName, int killst
     Format(message, sizeof(message), "%s is %s! (%d)", clientName, label, killstreak);
 
     int target = 0;
-    if (killstreak == WHALE_KILLSTREAK_BONUS_INTERVAL && Announcer_ServerCapacityCheck())
+    int broadcastMinimum = 10;
+    if (g_cvKillstreakBroadcastMin != null)
+    {
+        broadcastMinimum = g_cvKillstreakBroadcastMin.IntValue;
+    }
+
+    if (killstreak < broadcastMinimum)
     {
         target = client;
     }
