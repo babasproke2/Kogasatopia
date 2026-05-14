@@ -1,16 +1,34 @@
 #pragma semicolon 1
-
 #include <sourcemod>
-
 #pragma newdecls required
 
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
 #define WHALE_MULTIKILL_MIN_LEVEL 2
 #define WHALE_MULTIKILL_MAX_LEVEL 5
 #define MULTIKILL_LOG_FILE "logs/announcers_multikill.log"
+#define ANNOUNCER_SOUND_LIBRARY "saysounds"
+#define ANNOUNCER_SOUND_NATIVE "SaySounds_PlayCommand"
+#define DGM_CAPACITY_NATIVE "DGM_ServerCapacitycheck"
 
 native bool SaySounds_PlayCommand(int client, const char[] commandName, bool ignoreOptIn = false);
 native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50);
+
+static const char g_KillstreakLabels[][] =
+{
+    "on a killing spree", "on a rampage", "dominating",
+    "unstoppable", "godlike", "GODLIKE"
+};
+
+static const char g_KillstreakCommands[][] =
+{
+    "killingspree", "rampage", "dominating",
+    "unstoppable", "godlike", "holyshit"
+};
+
+static const char g_MultikillLabels[][] =
+{
+    "double-kill", "triple-kill", "quadra-kill", "penta-kill"
+};
 
 public Plugin myinfo =
 {
@@ -23,8 +41,8 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
-    MarkNativeAsOptional("SaySounds_PlayCommand");
-    MarkNativeAsOptional("DGM_ServerCapacitycheck");
+    MarkNativeAsOptional(ANNOUNCER_SOUND_NATIVE);
+    MarkNativeAsOptional(DGM_CAPACITY_NATIVE);
     return APLRes_Success;
 }
 
@@ -47,181 +65,121 @@ public void WhaleTracker_OnKillstreakEnd(int client, int killstreak)
         return;
     }
 
-    // Placeholder for future killstreak-end announcements.
+    // Reserved for future killstreak-end announcements.
 }
 
 public void WhaleTracker_OnMultikill(int client, int kills)
 {
-    if (!IsValidAnnouncerClient(client))
-    {
-        return;
-    }
-
     AnnounceMultikill(client, kills);
 }
 
 void AnnounceKillstreakMilestone(int client, const char[] clientName, int killstreak, bool playSound = true)
 {
-    if (killstreak < WHALE_KILLSTREAK_BONUS_INTERVAL || killstreak % WHALE_KILLSTREAK_BONUS_INTERVAL != 0)
+    char label[32], commandName[32];
+    if (!GetKillstreakAnnouncement(killstreak, label, sizeof(label), commandName, sizeof(commandName)))
+    {
         return;
-
-    char label[32];
-    char commandName[32];
-
-    if (killstreak >= 30)
-    {
-        strcopy(label, sizeof(label), "GODLIKE");
-        strcopy(commandName, sizeof(commandName), "holyshit");
-    }
-    else if (killstreak >= 25)
-    {
-        strcopy(label, sizeof(label), "godlike");
-        strcopy(commandName, sizeof(commandName), "godlike");
-    }
-    else if (killstreak >= 20)
-    {
-        strcopy(label, sizeof(label), "unstoppable");
-        strcopy(commandName, sizeof(commandName), "unstoppable");
-    }
-    else if (killstreak >= 15)
-    {
-        strcopy(label, sizeof(label), "dominating");
-        strcopy(commandName, sizeof(commandName), "dominating");
-    }
-    else if (killstreak >= 10)
-    {
-        strcopy(label, sizeof(label), "on a rampage");
-        strcopy(commandName, sizeof(commandName), "rampage");
-    }
-    else
-    {
-        strcopy(label, sizeof(label), "on a killing spree");
-        strcopy(commandName, sizeof(commandName), "killingspree");
     }
 
+    char message[128];
+    Format(message, sizeof(message), "%s is %s! (%d)", clientName, label, killstreak);
+
+    int target = 0;
     if (killstreak == WHALE_KILLSTREAK_BONUS_INTERVAL && Announcer_ServerCapacityCheck())
     {
-        if (!IsValidAnnouncerClient(client) || IsFakeClient(client))
-        {
-            return;
-        }
-
-        if (playSound && LibraryExists("saysounds"))
-        {
-            if (!SaySounds_PlayCommand(client, commandName, false))
-            {
-                return;
-            }
-        }
-
-        PrintCenterText(client, "%s is %s! (%d)", clientName, label, killstreak);
-        return;
+        target = client;
     }
 
-    if (playSound && LibraryExists("saysounds"))
-    {
-        for (int i = 1; i <= MaxClients; i++)
-        {
-            if (!IsValidAnnouncerClient(i) || IsFakeClient(i))
-            {
-                continue;
-            }
-
-            if (!SaySounds_PlayCommand(i, commandName, false))
-            {
-                continue;
-            }
-
-            PrintCenterText(i, "%s is %s! (%d)", clientName, label, killstreak);
-        }
-        return;
-    }
-
-    PrintCenterTextAll("%s is %s! (%d)", clientName, label, killstreak);
+    Announcer_CenterText(target, commandName, Announcer_ShouldPlaySound(playSound), message);
 }
 
-void AnnounceMultikill(int client, int kills, bool playSound = true)
+void AnnounceMultikill(int client, int kills)
 {
-    if (kills < WHALE_MULTIKILL_MIN_LEVEL || kills > WHALE_MULTIKILL_MAX_LEVEL)
-    {
-        return;
-    }
-
     if (!IsValidAnnouncerClient(client))
     {
         return;
     }
 
-    LogMultikillEvent(client, kills);
-
-    if (kills == WHALE_MULTIKILL_MIN_LEVEL && !Announcer_ServerCapacityCheck())
-    {
-        return;
-    }
-
-    if (playSound && LibraryExists("saysounds"))
-    {
-        for (int i = 1; i <= MaxClients; i++)
-        {
-            if (!IsValidAnnouncerClient(i) || IsFakeClient(i))
-            {
-                continue;
-            }
-
-            // SaySounds_PlayCommand(i, "placeholder", false);
-            // PrintCenterText(i, "placeholder");
-        }
-
-        return;
-    }
-
-    // PrintCenterTextAll("placeholder");
-}
-
-bool GetMultikillLabel(int kills, char[] label, int labelLen)
-{
-    switch (kills)
-    {
-        case 2:
-        {
-            strcopy(label, labelLen, "double-kill");
-            return true;
-        }
-        case 3:
-        {
-            strcopy(label, labelLen, "triple-kill");
-            return true;
-        }
-        case 4:
-        {
-            strcopy(label, labelLen, "quadra-kill");
-            return true;
-        }
-        case 5:
-        {
-            strcopy(label, labelLen, "penta-kill");
-            return true;
-        }
-    }
-
-    return false;
-}
-
-void LogMultikillEvent(int client, int kills)
-{
     char label[32];
     if (!GetMultikillLabel(kills, label, sizeof(label)))
     {
         return;
     }
 
-    char timestamp[32];
+    LogMultikillEvent(client, kills, label);
+    if (kills == WHALE_MULTIKILL_MIN_LEVEL && !Announcer_ServerCapacityCheck())
+    {
+        return;
+    }
+
+    // Reserved for future multikill announcements.
+}
+
+bool GetKillstreakAnnouncement(int killstreak, char[] label, int labelLen, char[] commandName, int commandLen)
+{
+    if (killstreak < WHALE_KILLSTREAK_BONUS_INTERVAL || killstreak % WHALE_KILLSTREAK_BONUS_INTERVAL != 0)
+    {
+        return false;
+    }
+
+    int index = (killstreak / WHALE_KILLSTREAK_BONUS_INTERVAL) - 1;
+    if (index >= sizeof(g_KillstreakLabels))
+    {
+        index = sizeof(g_KillstreakLabels) - 1;
+    }
+
+    strcopy(label, labelLen, g_KillstreakLabels[index]);
+    strcopy(commandName, commandLen, g_KillstreakCommands[index]);
+    return true;
+}
+
+bool GetMultikillLabel(int kills, char[] label, int labelLen)
+{
+    int index = kills - WHALE_MULTIKILL_MIN_LEVEL;
+    if (kills > WHALE_MULTIKILL_MAX_LEVEL || index < 0 || index >= sizeof(g_MultikillLabels))
+    {
+        return false;
+    }
+
+    strcopy(label, labelLen, g_MultikillLabels[index]);
+    return true;
+}
+
+void Announcer_CenterText(int target, const char[] commandName, bool useSound, const char[] message)
+{
+    if (target > 0)
+    {
+        if (IsHumanAnnouncerClient(target) && (!useSound || SaySounds_PlayCommand(target, commandName, false)))
+        {
+            PrintCenterText(target, "%s", message);
+        }
+        return;
+    }
+
+    if (!useSound)
+    {
+        PrintCenterTextAll("%s", message);
+        return;
+    }
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        Announcer_CenterText(i, commandName, true, message);
+    }
+}
+
+bool Announcer_ShouldPlaySound(bool playSound)
+{
+    return playSound
+        && LibraryExists(ANNOUNCER_SOUND_LIBRARY)
+        && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_NATIVE) == FeatureStatus_Available;
+}
+
+void LogMultikillEvent(int client, int kills, const char[] label)
+{
+    char timestamp[32], clientName[MAX_NAME_LENGTH], path[PLATFORM_MAX_PATH];
     FormatTime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", GetTime());
-
-    char clientName[MAX_NAME_LENGTH];
     GetClientName(client, clientName, sizeof(clientName));
-
-    char path[PLATFORM_MAX_PATH];
     BuildPath(Path_SM, path, sizeof(path), MULTIKILL_LOG_FILE);
 
     File file = OpenFile(path, "a");
@@ -237,12 +195,13 @@ void LogMultikillEvent(int client, int kills)
 
 bool Announcer_ServerCapacityCheck(float capacityRatio = 0.50)
 {
-    if (GetFeatureStatus(FeatureType_Native, "DGM_ServerCapacitycheck") != FeatureStatus_Available)
-    {
-        return false;
-    }
+    return GetFeatureStatus(FeatureType_Native, DGM_CAPACITY_NATIVE) == FeatureStatus_Available
+        && DGM_ServerCapacitycheck(capacityRatio);
+}
 
-    return DGM_ServerCapacitycheck(capacityRatio);
+bool IsHumanAnnouncerClient(int client)
+{
+    return IsValidAnnouncerClient(client) && !IsFakeClient(client);
 }
 
 bool IsValidAnnouncerClient(int client)
