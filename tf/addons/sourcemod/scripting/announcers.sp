@@ -32,6 +32,7 @@ static const char g_MultikillLabels[][] =
 };
 
 ConVar g_cvMultikillsChat = null;
+ConVar g_cvStreaksChat = null;
 
 public Plugin myinfo =
 {
@@ -48,6 +49,16 @@ public void OnPluginStart()
         "announcers_multikills_chat",
         "1",
         "Show multikill announcements in chat. 0 = center text, 1 = chat.",
+        FCVAR_NONE,
+        true,
+        0.0,
+        true,
+        1.0
+    );
+    g_cvStreaksChat = CreateConVar(
+        "announcers_streaks_chat",
+        "0",
+        "Show killstreak announcements in chat. 0 = center text, 1 = chat.",
         FCVAR_NONE,
         true,
         0.0,
@@ -107,7 +118,7 @@ void AnnounceKillstreakMilestone(int client, const char[] clientName, int killst
         target = client;
     }
 
-    Announcer_CenterText(target, commandName, Announcer_ShouldPlaySound(playSound), message);
+    Announcer_Announce(target, client, commandName, Announcer_ShouldPlaySound(playSound), g_cvStreaksChat.BoolValue, message);
 }
 
 void AnnounceMultikill(int client, int kills)
@@ -189,6 +200,48 @@ void Announcer_CenterText(int target, const char[] commandName, bool useSound, c
     {
         Announcer_CenterText(i, commandName, true, message);
     }
+}
+
+void Announcer_Announce(int target, int author, const char[] commandName, bool useSound, bool useChat, const char[] message)
+{
+    if (!useChat)
+    {
+        Announcer_CenterText(target, commandName, useSound, message);
+        return;
+    }
+
+    if (target > 0)
+    {
+        if (IsHumanAnnouncerClient(target) && (!useSound || SaySounds_PlayCommand(target, commandName, false)))
+        {
+            Announcer_MessageClient(target, author, message);
+        }
+        return;
+    }
+
+    if (useSound)
+    {
+        for (int i = 1; i <= MaxClients; i++)
+        {
+            if (IsHumanAnnouncerClient(i))
+            {
+                SaySounds_PlayCommand(i, commandName, false);
+            }
+        }
+    }
+
+    Announcer_MessageAll(author, true, message);
+}
+
+void Announcer_MessageClient(int target, int author, const char[] message)
+{
+    if (IsValidAnnouncerClient(author) && IsClientInGame(author))
+    {
+        CPrintToChatEx(target, author, "{green}[Announcers]{default} %s", message);
+        return;
+    }
+
+    CPrintToChat(target, "{green}[Announcers]{default} %s", message);
 }
 
 void Announcer_MessageAll(int author, bool useChat, const char[] message)
