@@ -1,5 +1,6 @@
 #pragma semicolon 1
 #include <sourcemod>
+#include <morecolors>
 #pragma newdecls required
 
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
@@ -30,6 +31,8 @@ static const char g_MultikillLabels[][] =
     "double-kill", "triple-kill", "quadra-kill", "penta-kill"
 };
 
+ConVar g_cvMultikillsChat = null;
+
 public Plugin myinfo =
 {
     name = "Announcers",
@@ -38,6 +41,20 @@ public Plugin myinfo =
     version = "1.0.0",
     url = ""
 };
+
+public void OnPluginStart()
+{
+    g_cvMultikillsChat = CreateConVar(
+        "announcers_multikills_chat",
+        "1",
+        "Show multikill announcements in chat. 0 = center text, 1 = chat.",
+        FCVAR_NONE,
+        true,
+        0.0,
+        true,
+        1.0
+    );
+}
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
@@ -112,7 +129,13 @@ void AnnounceMultikill(int client, int kills)
         return;
     }
 
-    // Reserved for future multikill announcements.
+    char clientName[MAX_NAME_LENGTH];
+    GetClientName(client, clientName, sizeof(clientName));
+
+    char message[128];
+    Format(message, sizeof(message), "%s got a %s! (%d)", clientName, label, kills);
+
+    Announcer_MessageAll(client, g_cvMultikillsChat.BoolValue, message);
 }
 
 bool GetKillstreakAnnouncement(int killstreak, char[] label, int labelLen, char[] commandName, int commandLen)
@@ -166,6 +189,24 @@ void Announcer_CenterText(int target, const char[] commandName, bool useSound, c
     {
         Announcer_CenterText(i, commandName, true, message);
     }
+}
+
+void Announcer_MessageAll(int author, bool useChat, const char[] message)
+{
+    if (useChat)
+    {
+        if (IsValidAnnouncerClient(author) && IsClientInGame(author))
+        {
+            CPrintToChatAllEx(author, "{green}[Announcers]{default} %s", message);
+        }
+        else
+        {
+            CPrintToChatAll("{green}[Announcers]{default} %s", message);
+        }
+        return;
+    }
+
+    PrintCenterTextAll("%s", message);
 }
 
 bool Announcer_ShouldPlaySound(bool playSound)
