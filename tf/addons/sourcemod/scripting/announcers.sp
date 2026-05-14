@@ -52,6 +52,7 @@ ConVar g_cvKillstreaksEnabled = null;
 ConVar g_cvMultikillsEnabled = null;
 ConVar g_cvKillstreaksSound = null;
 ConVar g_cvMultikillsSound = null;
+ConVar g_cvMultikillBroadcastMin = null;
 StringMap g_KillstreakSoundMap = null;
 StringMap g_MultikillSoundMap = null;
 AnnouncerConfigMode g_ConfigMode = AnnouncerConfig_None;
@@ -109,6 +110,14 @@ public void OnPluginStart()
         FCVAR_NONE,
         true,
         0.0,
+        true,
+        1.0
+    );
+    g_cvMultikillBroadcastMin = CreateConVar(
+        "announcers_multikill_broadcast_min",
+        "10",
+        "Minimum multikill value required to broadcast the announcement.",
+        FCVAR_NONE,
         true,
         1.0
     );
@@ -308,6 +317,17 @@ void AnnounceMultikill(int client, int kills)
 
     LogMultikillEvent(client, kills, label);
     if (!g_cvMultikillsEnabled.BoolValue)
+    {
+        return;
+    }
+
+    int broadcastMinimum = 10;
+    if (g_cvMultikillBroadcastMin != null)
+    {
+        broadcastMinimum = g_cvMultikillBroadcastMin.IntValue;
+    }
+
+    if (kills < broadcastMinimum)
     {
         return;
     }
