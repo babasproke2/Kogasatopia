@@ -1,11 +1,14 @@
 #pragma semicolon 1
 #include <sourcemod>
 #include <morecolors>
+#include <textparse>
 #pragma newdecls required
 
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
 #define WHALE_MULTIKILL_MIN_LEVEL 2
 #define WHALE_MULTIKILL_MAX_LEVEL 5
+#define ANNOUNCER_CONFIG_FILE "configs/announcers.cfg"
+#define ANNOUNCER_MAX_COMMAND_NAME 64
 #define MULTIKILL_LOG_FILE "logs/announcers_multikill.log"
 #define ANNOUNCER_SOUND_LIBRARY "saysounds"
 #define ANNOUNCER_SOUND_NATIVE "SaySounds_PlayCommand"
@@ -31,11 +34,23 @@ static const char g_MultikillLabels[][] =
     "double-kill", "triple-kill", "quadra-kill", "penta-kill"
 };
 
+enum AnnouncerConfigMode
+{
+    AnnouncerConfig_None = 0,
+    AnnouncerConfig_Killstreaks,
+    AnnouncerConfig_Multikills
+}
+
 ConVar g_cvMultikillsChat = null;
 ConVar g_cvStreaksChat = null;
 ConVar g_cvPlayercountThreshold = null;
 ConVar g_cvKillstreaksEnabled = null;
 ConVar g_cvMultikillsEnabled = null;
+StringMap g_KillstreakSoundMap = null;
+StringMap g_MultikillSoundMap = null;
+AnnouncerConfigMode g_ConfigMode = AnnouncerConfig_None;
+int g_ConfigDepth = 0;
+int g_ConfigLevel = 0;
 
 public Plugin myinfo =
 {
@@ -48,6 +63,9 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
+    g_KillstreakSoundMap = new StringMap();
+    g_MultikillSoundMap = new StringMap();
+
     g_cvKillstreaksEnabled = CreateConVar(
         "announcers_killstreaks_enabled",
         "1",
@@ -98,6 +116,31 @@ public void OnPluginStart()
         true,
         1.0
     );
+
+    LoadAnnouncerConfig();
+}
+
+public void OnConfigsExecuted()
+{
+    LoadAnnouncerConfig();
+}
+
+public void OnPluginEnd()
+{
+    ClearSoundMap(g_KillstreakSoundMap);
+    ClearSoundMap(g_MultikillSoundMap);
+
+    if (g_KillstreakSoundMap != null)
+    {
+        delete g_KillstreakSoundMap;
+        g_KillstreakSoundMap = null;
+    }
+
+    if (g_MultikillSoundMap != null)
+    {
+        delete g_MultikillSoundMap;
+        g_MultikillSoundMap = null;
+    }
 }
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
@@ -156,7 +199,7 @@ void AnnounceKillstreakMilestone(int client, const char[] clientName, int killst
         target = client;
     }
 
-    Announcer_Announce(target, client, commandName, Announcer_ShouldPlaySound(playSound), g_cvStreaksChat.BoolValue, message);
+    Announcer_Announce(target, client, commandName, Announcer_ShouldPlaySound(playSound) && commandName[0] != '\0', g_cvStreaksChat.BoolValue, message);
 }
 
 void AnnounceMultikill(int client, int kills)
@@ -189,7 +232,10 @@ void AnnounceMultikill(int client, int kills)
     char message[128];
     Format(message, sizeof(message), "%s got a %s! (%d)", clientName, label, kills);
 
-    Announcer_MessageAll(client, g_cvMultikillsChat.BoolValue, message);
+    char commandName[ANNOUNCER_MAX_COMMAND_NAME];
+    GetAnnouncerSoundCommand(g_MultikillSoundMap, kills, "", commandName, sizeof(commandName));
+
+    Announcer_Announce(0, client, commandName, Announcer_ShouldPlaySound(commandName[0] != '\0'), g_cvMultikillsChat.BoolValue, message);
 }
 
 bool GetKillstreakAnnouncement(int killstreak, char[] label, int labelLen, char[] commandName, int commandLen)
@@ -207,6 +253,7 @@ bool GetKillstreakAnnouncement(int killstreak, char[] label, int labelLen, char[
 
     strcopy(label, labelLen, g_KillstreakLabels[index]);
     strcopy(commandName, commandLen, g_KillstreakCommands[index]);
+    GetAnnouncerSoundCommand(g_KillstreakSoundMap, killstreak, commandName, commandName, commandLen);
     return true;
 }
 
@@ -310,6 +357,276 @@ bool Announcer_ShouldPlaySound(bool playSound)
     return playSound
         && LibraryExists(ANNOUNCER_SOUND_LIBRARY)
         && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_NATIVE) == FeatureStatus_Available;
+}
+
+void LoadAnnouncerConfig()
+{
+    if (g_KillstreakSoundMap == null)
+    {
+        g_KillstreakSoundMap = new StringMap();
+    }
+    if (g_MultikillSoundMap == null)
+    {
+        g_MultikillSoundMap = new StringMap();
+    }
+
+    ClearSoundMap(g_KillstreakSoundMap);
+    ClearSoundMap(g_MultikillSoundMap);
+
+    g_ConfigDepth = 0;
+    g_ConfigLevel = 0;
+    g_ConfigMode = AnnouncerConfig_None;
+
+    char filePath[PLATFORM_MAX_PATH];
+    BuildPath(Path_SM, filePath, sizeof(filePath), ANNOUNCER_CONFIG_FILE);
+
+    if (!FileExists(filePath))
+    {
+        LogError("[Announcers] Config file not found: %s", filePath);
+        return;
+    }
+
+    SMCParser parser = new SMCParser();
+    parser.OnEnterSection = AnnouncerConfig_EnterSection;
+    parser.OnLeaveSection = AnnouncerConfig_LeaveSection;
+    parser.OnKeyValue = AnnouncerConfig_KeyValue;
+
+    int errorLine, errorColumn;
+    SMCError result = parser.ParseFile(filePath, errorLine, errorColumn);
+    if (result != SMCError_Okay)
+    {
+        char error[256];
+        parser.GetErrorString(result, error, sizeof(error));
+        LogError("[Announcers] Failed to parse config: %s (line %d, column %d)", error, errorLine, errorColumn);
+    }
+
+    delete parser;
+}
+
+public SMCResult AnnouncerConfig_EnterSection(SMCParser parser, const char[] name, bool optQuotes)
+{
+    g_ConfigDepth++;
+
+    char sectionName[ANNOUNCER_MAX_COMMAND_NAME];
+    strcopy(sectionName, sizeof(sectionName), name);
+    TrimString(sectionName);
+    ToLowercaseInPlace(sectionName, sizeof(sectionName));
+
+    if (g_ConfigDepth == 2)
+    {
+        if (StrEqual(sectionName, "killstreaks"))
+        {
+            g_ConfigMode = AnnouncerConfig_Killstreaks;
+        }
+        else if (StrEqual(sectionName, "multikills"))
+        {
+            g_ConfigMode = AnnouncerConfig_Multikills;
+        }
+        else
+        {
+            g_ConfigMode = AnnouncerConfig_None;
+        }
+    }
+    else if (g_ConfigDepth == 3)
+    {
+        g_ConfigLevel = StringToInt(sectionName);
+    }
+
+    return SMCParse_Continue;
+}
+
+public SMCResult AnnouncerConfig_LeaveSection(SMCParser parser)
+{
+    if (g_ConfigDepth == 3)
+    {
+        g_ConfigLevel = 0;
+    }
+    else if (g_ConfigDepth == 2)
+    {
+        g_ConfigMode = AnnouncerConfig_None;
+    }
+
+    if (g_ConfigDepth > 0)
+    {
+        g_ConfigDepth--;
+    }
+
+    return SMCParse_Continue;
+}
+
+public SMCResult AnnouncerConfig_KeyValue(SMCParser parser, const char[] key, const char[] value, bool keyQuoted, bool valueQuoted)
+{
+    if (g_ConfigDepth != 3 || g_ConfigLevel <= 0 || g_ConfigMode == AnnouncerConfig_None)
+    {
+        return SMCParse_Continue;
+    }
+
+    char commandName[ANNOUNCER_MAX_COMMAND_NAME];
+    GetConfigCommandName(key, value, commandName, sizeof(commandName));
+    if (!commandName[0])
+    {
+        return SMCParse_Continue;
+    }
+
+    if (g_ConfigMode == AnnouncerConfig_Killstreaks)
+    {
+        AddAnnouncerSoundCommand(g_KillstreakSoundMap, g_ConfigLevel, commandName);
+    }
+    else if (g_ConfigMode == AnnouncerConfig_Multikills)
+    {
+        AddAnnouncerSoundCommand(g_MultikillSoundMap, g_ConfigLevel, commandName);
+    }
+
+    return SMCParse_Continue;
+}
+
+void GetConfigCommandName(const char[] key, const char[] value, char[] commandName, int commandLen)
+{
+    strcopy(commandName, commandLen, key);
+    TrimString(commandName);
+
+    char valueText[ANNOUNCER_MAX_COMMAND_NAME];
+    strcopy(valueText, sizeof(valueText), value);
+    TrimString(valueText);
+
+    if (valueText[0] && StartsWith(commandName, "sound"))
+    {
+        strcopy(commandName, commandLen, valueText);
+        TrimString(commandName);
+    }
+
+    if (commandName[0] == '!' || commandName[0] == '/')
+    {
+        ShiftStringLeft(commandName, commandLen, 1);
+    }
+
+    ToLowercaseInPlace(commandName, commandLen);
+}
+
+void AddAnnouncerSoundCommand(StringMap map, int level, const char[] commandName)
+{
+    if (map == null || !commandName[0])
+    {
+        return;
+    }
+
+    char levelKey[16];
+    IntToString(level, levelKey, sizeof(levelKey));
+
+    any listValue;
+    ArrayList commands = null;
+    if (map.GetValue(levelKey, listValue))
+    {
+        commands = view_as<ArrayList>(listValue);
+    }
+    else
+    {
+        commands = new ArrayList(ByteCountToCells(ANNOUNCER_MAX_COMMAND_NAME));
+        map.SetValue(levelKey, commands);
+    }
+
+    commands.PushString(commandName);
+}
+
+bool GetAnnouncerSoundCommand(StringMap map, int level, const char[] fallbackCommand, char[] commandName, int commandLen)
+{
+    strcopy(commandName, commandLen, fallbackCommand);
+
+    if (map == null)
+    {
+        return commandName[0] != '\0';
+    }
+
+    char levelKey[16];
+    IntToString(level, levelKey, sizeof(levelKey));
+
+    any listValue;
+    if (!map.GetValue(levelKey, listValue))
+    {
+        return commandName[0] != '\0';
+    }
+
+    ArrayList commands = view_as<ArrayList>(listValue);
+    if (commands == null || commands.Length <= 0)
+    {
+        return commandName[0] != '\0';
+    }
+
+    commands.GetString(GetRandomInt(0, commands.Length - 1), commandName, commandLen);
+    return commandName[0] != '\0';
+}
+
+void ClearSoundMap(StringMap map)
+{
+    if (map == null)
+    {
+        return;
+    }
+
+    StringMapSnapshot snapshot = map.Snapshot();
+    if (snapshot != null)
+    {
+        for (int i = 0; i < snapshot.Length; i++)
+        {
+            char key[16];
+            snapshot.GetKey(i, key, sizeof(key));
+
+            any listValue;
+            if (map.GetValue(key, listValue))
+            {
+                ArrayList commands = view_as<ArrayList>(listValue);
+                if (commands != null)
+                {
+                    delete commands;
+                }
+            }
+        }
+        delete snapshot;
+    }
+
+    map.Clear();
+}
+
+void ShiftStringLeft(char[] buffer, int maxlen, int positions)
+{
+    int len = strlen(buffer);
+    if (positions <= 0 || len == 0)
+    {
+        return;
+    }
+
+    if (positions >= len || positions >= maxlen)
+    {
+        buffer[0] = '\0';
+        return;
+    }
+
+    for (int i = 0; i <= len - positions; i++)
+    {
+        buffer[i] = buffer[i + positions];
+    }
+}
+
+bool StartsWith(const char[] str, const char[] prefix)
+{
+    int prefixLen = strlen(prefix);
+    for (int i = 0; i < prefixLen; i++)
+    {
+        if (str[i] == '\0' || str[i] != prefix[i])
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void ToLowercaseInPlace(char[] buffer, int maxlen)
+{
+    for (int i = 0; i < maxlen && buffer[i] != '\0'; i++)
+    {
+        buffer[i] = CharToLower(buffer[i]);
+    }
 }
 
 void LogMultikillEvent(int client, int kills, const char[] label)
