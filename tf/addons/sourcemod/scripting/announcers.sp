@@ -33,6 +33,7 @@ static const char g_MultikillLabels[][] =
 
 ConVar g_cvMultikillsChat = null;
 ConVar g_cvStreaksChat = null;
+ConVar g_cvPlayercountThreshold = null;
 
 public Plugin myinfo =
 {
@@ -59,6 +60,16 @@ public void OnPluginStart()
         "announcers_streaks_chat",
         "0",
         "Show killstreak announcements in chat. 0 = center text, 1 = chat.",
+        FCVAR_NONE,
+        true,
+        0.0,
+        true,
+        1.0
+    );
+    g_cvPlayercountThreshold = CreateConVar(
+        "announcers_playercount_threshold",
+        "0.50",
+        "Capacity ratio threshold used for low/high population announcement routing.",
         FCVAR_NONE,
         true,
         0.0,
@@ -287,8 +298,14 @@ void LogMultikillEvent(int client, int kills, const char[] label)
     delete file;
 }
 
-bool Announcer_ServerCapacityCheck(float capacityRatio = 0.50)
+bool Announcer_ServerCapacityCheck()
 {
+    float capacityRatio = 0.50;
+    if (g_cvPlayercountThreshold != null)
+    {
+        capacityRatio = g_cvPlayercountThreshold.FloatValue;
+    }
+
     return GetFeatureStatus(FeatureType_Native, DGM_CAPACITY_NATIVE) == FeatureStatus_Available
         && DGM_ServerCapacitycheck(capacityRatio);
 }
