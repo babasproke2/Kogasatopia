@@ -34,6 +34,8 @@ static const char g_MultikillLabels[][] =
 ConVar g_cvMultikillsChat = null;
 ConVar g_cvStreaksChat = null;
 ConVar g_cvPlayercountThreshold = null;
+ConVar g_cvKillstreaksEnabled = null;
+ConVar g_cvMultikillsEnabled = null;
 
 public Plugin myinfo =
 {
@@ -46,6 +48,26 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
+    g_cvKillstreaksEnabled = CreateConVar(
+        "announcers_killstreaks_enabled",
+        "1",
+        "Enable killstreak announcements.",
+        FCVAR_NONE,
+        true,
+        0.0,
+        true,
+        1.0
+    );
+    g_cvMultikillsEnabled = CreateConVar(
+        "announcers_multikills_enabled",
+        "0",
+        "Enable multikill announcements.",
+        FCVAR_NONE,
+        true,
+        0.0,
+        true,
+        1.0
+    );
     g_cvMultikillsChat = CreateConVar(
         "announcers_multikills_chat",
         "1",
@@ -87,6 +109,11 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 
 public void WhaleTracker_OnKillstreak(int client, int killstreak)
 {
+    if (!g_cvKillstreaksEnabled.BoolValue)
+    {
+        return;
+    }
+
     if (!IsValidAnnouncerClient(client))
     {
         return;
@@ -146,6 +173,11 @@ void AnnounceMultikill(int client, int kills)
     }
 
     LogMultikillEvent(client, kills, label);
+    if (!g_cvMultikillsEnabled.BoolValue)
+    {
+        return;
+    }
+
     if (kills == WHALE_MULTIKILL_MIN_LEVEL && !Announcer_ServerCapacityCheck())
     {
         return;
