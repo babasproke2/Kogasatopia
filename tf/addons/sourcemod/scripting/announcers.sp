@@ -16,6 +16,7 @@
 
 native bool SaySounds_PlayCommand(int client, const char[] commandName, bool ignoreOptIn = false);
 native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50);
+native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
 static const char g_KillstreakLabels[][] =
 {
@@ -43,6 +44,7 @@ enum AnnouncerConfigMode
 
 ConVar g_cvMultikillsChat = null;
 ConVar g_cvStreaksChat = null;
+ConVar g_cvStreakEndsChat = null;
 ConVar g_cvPlayercountThreshold = null;
 ConVar g_cvKillstreaksEnabled = null;
 ConVar g_cvMultikillsEnabled = null;
@@ -106,6 +108,16 @@ public void OnPluginStart()
         true,
         1.0
     );
+    g_cvStreakEndsChat = CreateConVar(
+        "announcers_streak_ends_chat",
+        "1",
+        "Show killstreak-end announcements in chat. 0 = center text, 1 = chat.",
+        FCVAR_NONE,
+        true,
+        0.0,
+        true,
+        1.0
+    );
     g_cvPlayercountThreshold = CreateConVar(
         "announcers_playercount_threshold",
         "0.50",
@@ -147,6 +159,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
     MarkNativeAsOptional(ANNOUNCER_SOUND_NATIVE);
     MarkNativeAsOptional(DGM_CAPACITY_NATIVE);
+    MarkNativeAsOptional("Filters_GetChatName");
     return APLRes_Success;
 }
 
@@ -169,12 +182,17 @@ public void WhaleTracker_OnKillstreak(int client, int killstreak)
 
 public void WhaleTracker_OnKillstreakEnd(int client, int killstreak)
 {
+    if (!g_cvKillstreaksEnabled.BoolValue)
+    {
+        return;
+    }
+
     if (!IsValidAnnouncerClient(client))
     {
         return;
     }
 
-    // Reserved for future killstreak-end announcements.
+    AnnounceKillstreakEnd(client, killstreak);
 }
 
 public void WhaleTracker_OnMultikill(int client, int kills)
@@ -200,6 +218,26 @@ void AnnounceKillstreakMilestone(int client, const char[] clientName, int killst
     }
 
     Announcer_Announce(target, client, commandName, Announcer_ShouldPlaySound(playSound) && commandName[0] != '\0', g_cvStreaksChat.BoolValue, message);
+}
+
+void AnnounceKillstreakEnd(int client, int killstreak)
+{
+    if (killstreak < WHALE_KILLSTREAK_BONUS_INTERVAL)
+    {
+        return;
+    }
+
+    if (g_cvStreakEndsChat.BoolValue)
+    {
+        char displayName[256];
+        GetClientChatDisplayName(client, displayName, sizeof(displayName));
+        CPrintToChatAllEx(client, "{green}[Announcers]{default} %s{default}'s killstreak was shut down! (%d)", displayName, killstreak);
+        return;
+    }
+
+    char clientName[MAX_NAME_LENGTH];
+    GetClientName(client, clientName, sizeof(clientName));
+    PrintCenterTextAll("%s's killstreak was shut down! (%d)", clientName, killstreak);
 }
 
 void AnnounceMultikill(int client, int kills)
@@ -350,6 +388,22 @@ void Announcer_MessageAll(int author, bool useChat, const char[] message)
     }
 
     PrintCenterTextAll("%s", message);
+}
+
+void GetClientChatDisplayName(int client, char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+
+    if (GetFeatureStatus(FeatureType_Native, "Filters_GetChatName") == FeatureStatus_Available
+        && Filters_GetChatName(client, buffer, maxlen)
+        && buffer[0] != '\0')
+    {
+        TrimString(buffer);
+        return;
+    }
+
+    GetClientName(client, buffer, maxlen);
+    TrimString(buffer);
 }
 
 bool Announcer_ShouldPlaySound(bool playSound)
