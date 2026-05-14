@@ -45,6 +45,7 @@ enum AnnouncerConfigMode
 ConVar g_cvMultikillsChat = null;
 ConVar g_cvStreaksChat = null;
 ConVar g_cvStreakEndsChat = null;
+ConVar g_cvStreakEndMin = null;
 ConVar g_cvPlayercountThreshold = null;
 ConVar g_cvKillstreaksEnabled = null;
 ConVar g_cvMultikillsEnabled = null;
@@ -115,6 +116,14 @@ public void OnPluginStart()
         FCVAR_NONE,
         true,
         0.0,
+        true,
+        1.0
+    );
+    g_cvStreakEndMin = CreateConVar(
+        "announcers_streak_end_min",
+        "7",
+        "Minimum ended killstreak value required to broadcast a shutdown announcement.",
+        FCVAR_NONE,
         true,
         1.0
     );
@@ -222,7 +231,13 @@ void AnnounceKillstreakMilestone(int client, const char[] clientName, int killst
 
 void AnnounceKillstreakEnd(int client, int killstreak)
 {
-    if (killstreak < WHALE_KILLSTREAK_BONUS_INTERVAL)
+    int minimumKillstreak = 7;
+    if (g_cvStreakEndMin != null)
+    {
+        minimumKillstreak = g_cvStreakEndMin.IntValue;
+    }
+
+    if (killstreak < minimumKillstreak)
     {
         return;
     }
