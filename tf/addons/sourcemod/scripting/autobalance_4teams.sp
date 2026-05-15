@@ -29,6 +29,7 @@ int       g_iPersistentVolunteerCount = 0;
 ConVar  g_hLogEnabled;
 ConVar  g_hDiffThreshold;
 ConVar  g_hSimpleSelection;
+ConVar  g_hIgnoreWinning;
 ConVar  g_hDatabaseConfig;
 ConVar  g_hMpAutoteamBalance;
 ConVar  g_hMpTeamsUnbalanceLimit;
@@ -52,6 +53,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
+    MarkNativeAsOptional("DGM_GetObjectiveLeaderTeam");
     return APLRes_Success;
 }
 
@@ -65,6 +67,7 @@ public void OnPluginStart()
     g_hLogEnabled = CreateConVar("sm_autobalance_log", "1", "Enable autobalance debug logging.", _, true, 0.0, true, 1.0);
     g_hDiffThreshold = CreateConVar("sm_autobalance_diff", "1", "Autobalance when team size difference is above this value.", _, true, 1.0, true, 10.0);
     g_hSimpleSelection = CreateConVar("sm_autobalance_simple_selection", "1", "If enabled, autobalance prefers the most recently joined dead non-Engineer on the oversized team, then falls back to lower-priority eligible players by userID.", _, true, 0.0, true, 1.0);
+    g_hIgnoreWinning = CreateConVar("sm_autobalance_ignore_winning", "1", "If enabled, do not autobalance players from the objective-losing team to the objective-leading team.", _, true, 0.0, true, 1.0);
     g_hDatabaseConfig = CreateConVar("sm_autobalance_database", "default", "Database config name from databases.cfg to use for persistent autobalance immunity.");
     RegAdminCmd("sm_immune", Command_Immune, ADMFLAG_GENERIC, "sm_immune <name> - Toggle persistent autobalance immunity for a player.");
     RegConsoleCmd("sm_volunteer", Command_Volunteer, "sm_volunteer [name] - Toggle autobalance volunteer status.");
@@ -229,6 +232,18 @@ public Action Timer_Autobalance(Handle timer)
     char toTeamChat[24];
     AB_GetTeamChatLabel(biggestTeam,  fromTeamChat, sizeof(fromTeamChat));
     AB_GetTeamChatLabel(smallestTeam, toTeamChat,   sizeof(toTeamChat));
+
+    if (ShouldSkipWinningTeamAutobalance(biggestTeam, smallestTeam))
+    {
+        if (loggingEnabled)
+        {
+            LogBalance(
+                "Skip balance from %s to %s: sm_autobalance_ignore_winning blocked moving objective-losing team to objective leader",
+                fromTeamName, toTeamName
+            );
+        }
+        return Plugin_Continue;
+    }
 
     if (loggingEnabled)
     {
@@ -417,6 +432,39 @@ static bool ShouldSuppressAutobalanceForGamemode()
     }
 
     return DGM_IsSmallFormatGamemode();
+}
+
+static bool ShouldSkipWinningTeamAutobalance(int fromTeam, int toTeam)
+{
+    if (g_hIgnoreWinning == null || !g_hIgnoreWinning.BoolValue)
+    {
+        return false;
+    }
+
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetObjectiveLeaderTeam") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    int winningTeam = DGM_GetObjectiveLeaderTeam();
+    int losingTeam = AB_GetOpposingCoreTeam(winningTeam);
+
+    return losingTeam != 0 && fromTeam == losingTeam && toTeam == winningTeam;
+}
+
+static int AB_GetOpposingCoreTeam(int team)
+{
+    if (team == TEAM_RED)
+    {
+        return TEAM_BLUE;
+    }
+
+    if (team == TEAM_BLUE)
+    {
+        return TEAM_RED;
+    }
+
+    return 0;
 }
 
 static bool IsEligiblePlayer(int client, int team, bool clanProtectionAvailable, bool mvpProtectionAvailable)
