@@ -122,7 +122,7 @@ public void OnPluginStart()
     );
     g_cvMultikillBroadcastMin = CreateConVar(
         "announcers_multikill_broadcast_min",
-        "10",
+        "3",
         "Minimum multikill value required to broadcast the announcement.",
         FCVAR_NONE,
         true,
