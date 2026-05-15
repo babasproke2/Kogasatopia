@@ -316,7 +316,7 @@ public void WhaleTracker_OnMultikill(int client, int kills)
 
 public void WhaleTracker_OnMedicDrop(int attacker, int medic)
 {
-    PlayMedicDropSound(medic);
+    PlayMedicDropSound(attacker, medic);
 }
 
 void AnnounceKillstreakMilestone(int client, const char[] clientName, int killstreak, bool playSound = true)
@@ -405,7 +405,7 @@ void PlayShutdownSound(int client, int killstreak)
     Announcer_PlaySound(0, client, commandName);
 }
 
-void PlayMedicDropSound(int medic)
+void PlayMedicDropSound(int attacker, int medic)
 {
     if (!IsValidAnnouncerClient(medic) || !Announcer_ShouldPlaySound(true))
     {
@@ -413,12 +413,13 @@ void PlayMedicDropSound(int medic)
     }
 
     char commandName[ANNOUNCER_MAX_COMMAND_NAME];
-    if (!GetAnnouncerSoundCommand(g_MedicDropSoundMap, 0, "", medic, commandName, sizeof(commandName)))
+    int sourceClient = medic;
+    if (!GetMedicDropSoundCommand(attacker, medic, commandName, sizeof(commandName), sourceClient))
     {
         return;
     }
 
-    Announcer_PlaySound(0, medic, commandName);
+    Announcer_PlaySound(0, sourceClient, commandName);
 }
 
 void QueueMultikillRollup(int client, int kills)
@@ -1109,6 +1110,63 @@ bool CanUsePurchaseAwareSoundSelection(int sourceClient)
     return IsValidAnnouncerClient(sourceClient)
         && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_CAN_USE_NATIVE) == FeatureStatus_Available
         && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_IS_PAID_NATIVE) == FeatureStatus_Available;
+}
+
+bool GetMedicDropSoundCommand(int attacker, int medic, char[] commandName, int commandLen, int &sourceClient)
+{
+    commandName[0] = '\0';
+    sourceClient = medic;
+
+    ArrayList commands = GetAnnouncerSoundCommandList(g_MedicDropSoundMap, 0);
+    if (commands == null || commands.Length <= 0)
+    {
+        return false;
+    }
+
+    ArrayList paidCommands = new ArrayList(ByteCountToCells(ANNOUNCER_MAX_COMMAND_NAME));
+    ArrayList paidSources = new ArrayList();
+
+    AddEligiblePaidSoundCommands(commands, medic, paidCommands, paidSources);
+    if (attacker != medic)
+    {
+        AddEligiblePaidSoundCommands(commands, attacker, paidCommands, paidSources);
+    }
+
+    if (paidCommands.Length > 0)
+    {
+        int pick = GetRandomInt(0, paidCommands.Length - 1);
+        paidCommands.GetString(pick, commandName, commandLen);
+        sourceClient = paidSources.Get(pick);
+    }
+
+    delete paidCommands;
+    delete paidSources;
+
+    if (commandName[0] != '\0')
+    {
+        return true;
+    }
+
+    return GetAnnouncerSoundCommand(g_MedicDropSoundMap, 0, "", medic, commandName, commandLen);
+}
+
+void AddEligiblePaidSoundCommands(ArrayList commands, int sourceClient, ArrayList paidCommands, ArrayList paidSources)
+{
+    if (!CanUsePurchaseAwareSoundSelection(sourceClient))
+    {
+        return;
+    }
+
+    char candidate[ANNOUNCER_MAX_COMMAND_NAME];
+    for (int i = 0; i < commands.Length; i++)
+    {
+        commands.GetString(i, candidate, sizeof(candidate));
+        if (SaySounds_CanClientUseCommand(sourceClient, candidate) && SaySounds_IsCommandPaid(candidate))
+        {
+            paidCommands.PushString(candidate);
+            paidSources.Push(sourceClient);
+        }
+    }
 }
 
 bool GetShutdownSoundCommand(int sourceClient, int killstreak, char[] commandName, int commandLen)
