@@ -9,6 +9,7 @@
 #define BP_TRANS_TABLE "bonuspoints_transactions"
 #define BP_TRANS_ITEM_KEY_MAX 64
 #define BP_TRANS_ITEM_NAME_MAX 128
+#define WT_GET_BONUS_POINTS_NATIVE "WhaleTracker_GetBonusPoints"
 
 ArrayList g_ItemKeys = null;
 ArrayList g_ItemNames = null;
@@ -34,6 +35,7 @@ public Plugin myinfo =
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
     MarkNativeAsOptional("WhaleTracker_SpendBonusPoints");
+    MarkNativeAsOptional(WT_GET_BONUS_POINTS_NATIVE);
     RegPluginLibrary("bonuspoints_transactions");
     CreateNative("BonusPoints_HasPurchase", Native_BonusPoints_HasPurchase);
     CreateNative("BonusPoints_GetPurchasePrice", Native_BonusPoints_GetPurchasePrice);
@@ -601,12 +603,16 @@ void AttemptPurchase(int client, const char[] itemKey)
     {
         char itemName[BP_TRANS_ITEM_NAME_MAX];
         g_ItemNames.GetString(itemIndex, itemName, sizeof(itemName));
-        CPrintToChat(client,
-            "{magenta}[BP]{default} You can't afford {gold}%s;\n"
-            ... "{default}Your balance: {lightgreen}%dBP\n"
-            ... "{default}Earn bonus points through gameplay; see {magenta}!bp",
-            itemName,
-            WhaleTracker_GetBonusPoints(client));
+
+        int balance = 0;
+        if (GetFeatureStatus(FeatureType_Native, WT_GET_BONUS_POINTS_NATIVE) == FeatureStatus_Available)
+        {
+            balance = WhaleTracker_GetBonusPoints(client);
+        }
+
+        CPrintToChat(client, "{magenta}[BP]{default} You can't afford {gold}%s;", itemName);
+        CPrintToChat(client, "{default}Your balance: {lightgreen}%dBP", balance);
+        CPrintToChat(client, "{default}Earn bonus points through gameplay; see {magenta}!bp");
         return;
     }
 
