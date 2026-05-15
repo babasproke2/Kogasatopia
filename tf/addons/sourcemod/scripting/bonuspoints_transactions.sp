@@ -611,7 +611,7 @@ void AttemptPurchase(int client, const char[] itemKey)
         }
 
         CPrintToChat(client, "{magenta}[BP]{default} You can't afford {gold}%s;", itemName);
-        CPrintToChat(client, "{default}Your balance: {lightgreen}%dBP", balance);
+        CPrintToChat(client, "{default}Your balance: {lightgreen}%d", balance);
         CPrintToChat(client, "{default}Earn bonus points through gameplay; see {magenta}!bp");
         return;
     }
