@@ -322,7 +322,7 @@ public void WhaleTracker_OnMedicDrop(int attacker, int medic)
 void AnnounceKillstreakMilestone(int client, const char[] clientName, int killstreak, bool playSound = true)
 {
     char label[32], commandName[32];
-    if (!GetKillstreakAnnouncement(killstreak, label, sizeof(label), commandName, sizeof(commandName)))
+    if (!GetKillstreakAnnouncement(client, killstreak, label, sizeof(label), commandName, sizeof(commandName)))
     {
         return;
     }
@@ -382,7 +382,7 @@ void PlayShutdownSound(int client, int killstreak)
     }
 
     char commandName[ANNOUNCER_MAX_COMMAND_NAME];
-    if (!GetShutdownSoundCommand(killstreak, commandName, sizeof(commandName)))
+    if (!GetShutdownSoundCommand(client, killstreak, commandName, sizeof(commandName)))
     {
         return;
     }
@@ -397,36 +397,28 @@ void PlayShutdownSound(int client, int killstreak)
     {
         if (IsHumanAnnouncerClient(client))
         {
-            SaySounds_PlayCommand(client, commandName, false);
+            Announcer_PlaySound(client, client, commandName);
         }
         return;
     }
 
-    for (int i = 1; i <= MaxClients; i++)
-    {
-        if (IsHumanAnnouncerClient(i))
-        {
-            SaySounds_PlayCommand(i, commandName, false);
-        }
-    }
+    Announcer_PlaySound(0, client, commandName);
 }
 
 void PlayMedicDropSound(int medic)
 {
-    if (!IsValidAnnouncerClient(medic)
-        || !Announcer_ShouldPlaySound(true)
-        || GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_PLAY_AS_NATIVE) != FeatureStatus_Available)
+    if (!IsValidAnnouncerClient(medic) || !Announcer_ShouldPlaySound(true))
     {
         return;
     }
 
     char commandName[ANNOUNCER_MAX_COMMAND_NAME];
-    if (!GetMedicDropSoundCommand(medic, commandName, sizeof(commandName)))
+    if (!GetAnnouncerSoundCommand(g_MedicDropSoundMap, 0, "", medic, commandName, sizeof(commandName)))
     {
         return;
     }
 
-    SaySounds_PlayCommandAs(medic, 0, commandName, false);
+    Announcer_PlaySound(0, medic, commandName);
 }
 
 void QueueMultikillRollup(int client, int kills)
@@ -535,7 +527,7 @@ void AnnounceMultikillNow(int client, int kills)
     FormatMultikillMessage(clientName, label, kills, message, sizeof(message), kills >= 4);
 
     char commandName[ANNOUNCER_MAX_COMMAND_NAME];
-    GetAnnouncerSoundCommand(g_MultikillSoundMap, kills, "", commandName, sizeof(commandName));
+    GetAnnouncerSoundCommand(g_MultikillSoundMap, kills, "", client, commandName, sizeof(commandName));
 
     bool useSound = g_cvMultikillsSound.BoolValue && commandName[0] != '\0';
     Announcer_Announce(broadcastToAll ? 0 : client, client, commandName, Announcer_ShouldPlaySound(useSound), g_cvMultikillsChat.BoolValue, message);
@@ -592,7 +584,7 @@ void ClearMultikillRollup(int client, bool closeTimer = true)
     g_iPendingMultikillSerial[client]++;
 }
 
-bool GetKillstreakAnnouncement(int killstreak, char[] label, int labelLen, char[] commandName, int commandLen)
+bool GetKillstreakAnnouncement(int client, int killstreak, char[] label, int labelLen, char[] commandName, int commandLen)
 {
     if (killstreak < WHALE_KILLSTREAK_BONUS_INTERVAL || killstreak % WHALE_KILLSTREAK_BONUS_INTERVAL != 0)
     {
@@ -605,9 +597,10 @@ bool GetKillstreakAnnouncement(int killstreak, char[] label, int labelLen, char[
         index = sizeof(g_KillstreakLabels) - 1;
     }
 
+    char defaultCommand[ANNOUNCER_MAX_COMMAND_NAME];
     strcopy(label, labelLen, g_KillstreakLabels[index]);
-    strcopy(commandName, commandLen, g_KillstreakCommands[index]);
-    GetAnnouncerSoundCommand(g_KillstreakSoundMap, killstreak, commandName, commandName, commandLen);
+    strcopy(defaultCommand, sizeof(defaultCommand), g_KillstreakCommands[index]);
+    GetAnnouncerSoundCommand(g_KillstreakSoundMap, killstreak, defaultCommand, client, commandName, commandLen);
     return true;
 }
 
@@ -634,11 +627,11 @@ void FormatMultikillMessage(const char[] clientName, const char[] label, int kil
     Format(message, messageLen, "%s got a %s!", clientName, label);
 }
 
-void Announcer_CenterText(int target, const char[] commandName, bool useSound, const char[] message)
+void Announcer_CenterText(int target, int sourceClient, const char[] commandName, bool useSound, const char[] message)
 {
     if (target > 0)
     {
-        if (IsHumanAnnouncerClient(target) && (!useSound || SaySounds_PlayCommand(target, commandName, false)))
+        if (IsHumanAnnouncerClient(target) && (!useSound || Announcer_PlaySound(target, sourceClient, commandName)))
         {
             PrintCenterText(target, "%s", message);
         }
@@ -653,7 +646,7 @@ void Announcer_CenterText(int target, const char[] commandName, bool useSound, c
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        Announcer_CenterText(i, commandName, true, message);
+        Announcer_CenterText(i, sourceClient, commandName, true, message);
     }
 }
 
@@ -661,13 +654,13 @@ void Announcer_Announce(int target, int author, const char[] commandName, bool u
 {
     if (!useChat)
     {
-        Announcer_CenterText(target, commandName, useSound, message);
+        Announcer_CenterText(target, author, commandName, useSound, message);
         return;
     }
 
     if (target > 0)
     {
-        if (IsHumanAnnouncerClient(target) && (!useSound || SaySounds_PlayCommand(target, commandName, false)))
+        if (IsHumanAnnouncerClient(target) && (!useSound || Announcer_PlaySound(target, author, commandName)))
         {
             Announcer_MessageClient(target, author, message);
         }
@@ -676,16 +669,31 @@ void Announcer_Announce(int target, int author, const char[] commandName, bool u
 
     if (useSound)
     {
-        for (int i = 1; i <= MaxClients; i++)
-        {
-            if (IsHumanAnnouncerClient(i))
-            {
-                SaySounds_PlayCommand(i, commandName, false);
-            }
-        }
+        Announcer_PlaySound(0, author, commandName);
     }
 
     Announcer_MessageAll(author, true, message);
+}
+
+bool Announcer_PlaySound(int target, int sourceClient, const char[] commandName)
+{
+    if (!commandName[0])
+    {
+        return false;
+    }
+
+    if (IsValidAnnouncerClient(sourceClient)
+        && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_PLAY_AS_NATIVE) == FeatureStatus_Available)
+    {
+        return SaySounds_PlayCommandAs(sourceClient, target, commandName, false);
+    }
+
+    if (GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_NATIVE) == FeatureStatus_Available)
+    {
+        return SaySounds_PlayCommand(target, commandName, false);
+    }
+
+    return false;
 }
 
 void Announcer_MessageClient(int target, int author, const char[] message)
@@ -776,7 +784,8 @@ bool Announcer_ShouldPlaySound(bool playSound)
 {
     return playSound
         && LibraryExists(ANNOUNCER_SOUND_LIBRARY)
-        && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_NATIVE) == FeatureStatus_Available;
+        && (GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_PLAY_AS_NATIVE) == FeatureStatus_Available
+            || GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_NATIVE) == FeatureStatus_Available);
 }
 
 void LoadAnnouncerConfig()
@@ -998,13 +1007,36 @@ void AddAnnouncerSoundCommand(StringMap map, int level, const char[] commandName
     commands.PushString(commandName);
 }
 
-bool GetAnnouncerSoundCommand(StringMap map, int level, const char[] fallbackCommand, char[] commandName, int commandLen)
+bool GetAnnouncerSoundCommand(StringMap map, int level, const char[] fallbackCommand, int sourceClient, char[] commandName, int commandLen)
 {
-    strcopy(commandName, commandLen, fallbackCommand);
+    commandName[0] = '\0';
 
+    ArrayList commands = GetAnnouncerSoundCommandList(map, level);
+    if (commands != null && commands.Length > 0)
+    {
+        return SelectAnnouncerSoundCommand(commands, sourceClient, commandName, commandLen);
+    }
+
+    if (!fallbackCommand[0])
+    {
+        return false;
+    }
+
+    if (CanUsePurchaseAwareSoundSelection(sourceClient)
+        && !SaySounds_CanClientUseCommand(sourceClient, fallbackCommand))
+    {
+        return false;
+    }
+
+    strcopy(commandName, commandLen, fallbackCommand);
+    return commandName[0] != '\0';
+}
+
+ArrayList GetAnnouncerSoundCommandList(StringMap map, int level)
+{
     if (map == null)
     {
-        return commandName[0] != '\0';
+        return null;
     }
 
     char levelKey[16];
@@ -1013,61 +1045,24 @@ bool GetAnnouncerSoundCommand(StringMap map, int level, const char[] fallbackCom
     any listValue;
     if (!map.GetValue(levelKey, listValue))
     {
-        return commandName[0] != '\0';
+        return null;
     }
 
-    ArrayList commands = view_as<ArrayList>(listValue);
-    if (commands == null || commands.Length <= 0)
-    {
-        return commandName[0] != '\0';
-    }
-
-    commands.GetString(GetRandomInt(0, commands.Length - 1), commandName, commandLen);
-    return commandName[0] != '\0';
+    return view_as<ArrayList>(listValue);
 }
 
-bool GetShutdownSoundCommand(int killstreak, char[] commandName, int commandLen)
+bool SelectAnnouncerSoundCommand(ArrayList commands, int sourceClient, char[] commandName, int commandLen)
 {
     commandName[0] = '\0';
-
-    if (g_ShutdownSoundMap == null)
-    {
-        return false;
-    }
-
-    int roundedKillstreak = killstreak - (killstreak % WHALE_KILLSTREAK_BONUS_INTERVAL);
-    for (int level = roundedKillstreak; level >= WHALE_KILLSTREAK_BONUS_INTERVAL; level -= WHALE_KILLSTREAK_BONUS_INTERVAL)
-    {
-        if (GetAnnouncerSoundCommand(g_ShutdownSoundMap, level, "", commandName, commandLen))
-        {
-            return true;
-        }
-    }
-
-    return GetAnnouncerSoundCommand(g_ShutdownSoundMap, 0, "", commandName, commandLen);
-}
-
-bool GetMedicDropSoundCommand(int client, char[] commandName, int commandLen)
-{
-    commandName[0] = '\0';
-
-    if (g_MedicDropSoundMap == null
-        || GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_CAN_USE_NATIVE) != FeatureStatus_Available
-        || GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_IS_PAID_NATIVE) != FeatureStatus_Available)
-    {
-        return false;
-    }
-
-    any listValue;
-    if (!g_MedicDropSoundMap.GetValue("0", listValue))
-    {
-        return false;
-    }
-
-    ArrayList commands = view_as<ArrayList>(listValue);
     if (commands == null || commands.Length <= 0)
     {
         return false;
+    }
+
+    if (!CanUsePurchaseAwareSoundSelection(sourceClient))
+    {
+        commands.GetString(GetRandomInt(0, commands.Length - 1), commandName, commandLen);
+        return commandName[0] != '\0';
     }
 
     ArrayList paidCommands = new ArrayList(ByteCountToCells(ANNOUNCER_MAX_COMMAND_NAME));
@@ -1077,7 +1072,7 @@ bool GetMedicDropSoundCommand(int client, char[] commandName, int commandLen)
     for (int i = 0; i < commands.Length; i++)
     {
         commands.GetString(i, candidate, sizeof(candidate));
-        if (!SaySounds_CanClientUseCommand(client, candidate))
+        if (!SaySounds_CanClientUseCommand(sourceClient, candidate))
         {
             continue;
         }
@@ -1107,6 +1102,34 @@ bool GetMedicDropSoundCommand(int client, char[] commandName, int commandLen)
     delete paidCommands;
     delete freeCommands;
     return found && commandName[0] != '\0';
+}
+
+bool CanUsePurchaseAwareSoundSelection(int sourceClient)
+{
+    return IsValidAnnouncerClient(sourceClient)
+        && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_CAN_USE_NATIVE) == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_IS_PAID_NATIVE) == FeatureStatus_Available;
+}
+
+bool GetShutdownSoundCommand(int sourceClient, int killstreak, char[] commandName, int commandLen)
+{
+    commandName[0] = '\0';
+
+    if (g_ShutdownSoundMap == null)
+    {
+        return false;
+    }
+
+    int roundedKillstreak = killstreak - (killstreak % WHALE_KILLSTREAK_BONUS_INTERVAL);
+    for (int level = roundedKillstreak; level >= WHALE_KILLSTREAK_BONUS_INTERVAL; level -= WHALE_KILLSTREAK_BONUS_INTERVAL)
+    {
+        if (GetAnnouncerSoundCommand(g_ShutdownSoundMap, level, "", sourceClient, commandName, commandLen))
+        {
+            return true;
+        }
+    }
+
+    return GetAnnouncerSoundCommand(g_ShutdownSoundMap, 0, "", sourceClient, commandName, commandLen);
 }
 
 void ClearSoundMap(StringMap map)
