@@ -4,6 +4,15 @@
 // two or more forward slashes indicates a comment - you cannot use /* multiline comments */ here
 "Items"
 {
+	"primary_sandvich"
+	{
+		"inherits"	"The Sandvich"
+		"name"	"Primary Sandvich"
+		"used_by_classes"
+		{
+			"heavy"	"primary"
+		}
+	}
         "nonomi_minigun"
         {
                 "inherits"    "TF_WEAPON_MINIGUN"
@@ -150,28 +159,6 @@
                         "touhou death sound"  "1"
                 }
         }
-        "accuratebfb"
-        {
-                "inherits"                      "Baby Face's Blaster"
-                "name"                          "Original Baby Face"
-                "used_by_classes"
-                {
-                        "scout" "primary"
-                }
-                "attributes_game"
-                {
-                        "damage penalty"                "0.70"
-                        "clip size penalty"             "1.0"
-                        "move speed penalty"            "0.65"
-                        "weapon spread bonus"           "0.6"
-                        "hype resets on jump"           "100.0"
-                        "lose hype on take damage"      "0.0"
-                }
-                "attributes_custom"
-                {
-                        "original babyface attributes"  "1.0"
-                }
-        }
         "scoutsproke"
         {
                 "inherits"    "Crit-a-Cola"
@@ -214,7 +201,7 @@
                 {
                         "mod max primary clip override" "-1"
                         "bullets per shot bonus"        "0.22222"
-		        "damage bonus HIDDEN"	"5.0"
+		        "damage bonus HIDDEN"	"4.5"
 			"sniper fires tracer HIDDEN"		"1"
                         "ragdolls plasma effect"   "1"
                         "mod ammo per shot"                             "10"
@@ -531,7 +518,7 @@
                 "attributes_custom"
                 {
                     "clientmodel override"                                  "models/workshop/weapons/c_models/c_tf2c_scythe/c_tf2c_scythe.mdl"
-		    "harvester attributes"	"1.0"
+		    "harvester attributes"	"1"
                 }
         }
 	"engi1" // we just need a unique identifier here - this is not necessarily a UUID
@@ -720,6 +707,10 @@
                         "dmg taken from fire increased"             "1.25"
                         "dmg taken from blast increased"             "1.15"
 			"max health additive bonus"		"15.0"
+                }
+                "attributes_custom"
+                {
+                        "wall climb enabled"    "1"
                 }
         }
         "spy4"
