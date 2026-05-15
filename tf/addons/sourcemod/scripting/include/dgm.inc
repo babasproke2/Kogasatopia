@@ -1,3 +1,5 @@
+#define DGM_MAX_CONTROL_POINTS 8
+
 ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
 ConVar g_cvThreshold;
@@ -104,6 +106,211 @@ bool DGM_CheckServerCapacity(float capacityRatio = 0.50)
     }
 
     return DGM_GetPopulationRatioValue() >= capacityRatio;
+}
+
+DGMObjectiveLeader DGM_GetObjectiveLeaderValue(
+    int &redOwned,
+    int &blueOwned,
+    int &neutralOwned,
+    int &total)
+{
+    redOwned = 0;
+    blueOwned = 0;
+    neutralOwned = 0;
+    total = 0;
+
+    if (!DGM_CountObjectiveResourcePoints(redOwned, blueOwned, neutralOwned, total))
+    {
+        DGM_CountTeamControlPointEntities(redOwned, blueOwned, neutralOwned, total);
+    }
+
+    if (total <= 0)
+    {
+        return DGMObjectiveLeader_None;
+    }
+
+    if (redOwned > blueOwned)
+    {
+        return DGMObjectiveLeader_Red;
+    }
+
+    if (blueOwned > redOwned)
+    {
+        return DGMObjectiveLeader_Blue;
+    }
+
+    return DGMObjectiveLeader_Tie;
+}
+
+int DGM_GetObjectiveLeaderTeamValue()
+{
+    int redOwned, blueOwned, neutralOwned, total;
+    DGMObjectiveLeader leader = DGM_GetObjectiveLeaderValue(redOwned, blueOwned, neutralOwned, total);
+
+    if (leader == DGMObjectiveLeader_Red)
+    {
+        return view_as<int>(TFTeam_Red);
+    }
+
+    if (leader == DGMObjectiveLeader_Blue)
+    {
+        return view_as<int>(TFTeam_Blue);
+    }
+
+    return view_as<int>(TFTeam_Unassigned);
+}
+
+bool DGM_CountObjectiveResourcePoints(
+    int &redOwned,
+    int &blueOwned,
+    int &neutralOwned,
+    int &total)
+{
+    int objRes = FindEntityByClassname(-1, "tf_objective_resource");
+
+    if (objRes == -1 || !IsValidEntity(objRes))
+    {
+        return false;
+    }
+
+    if (!HasEntProp(objRes, Prop_Send, "m_iNumControlPoints")
+        || !HasEntProp(objRes, Prop_Send, "m_iOwner"))
+    {
+        return false;
+    }
+
+    int cpCount = GetEntProp(objRes, Prop_Send, "m_iNumControlPoints");
+
+    if (cpCount <= 0)
+    {
+        return false;
+    }
+
+    if (cpCount > DGM_MAX_CONTROL_POINTS)
+    {
+        cpCount = DGM_MAX_CONTROL_POINTS;
+    }
+
+    bool haveVisibleProp = HasEntProp(objRes, Prop_Send, "m_bCPIsVisible");
+
+    for (int pass = 0; pass < 2; pass++)
+    {
+        redOwned = 0;
+        blueOwned = 0;
+        neutralOwned = 0;
+        total = 0;
+
+        bool visibleOnly = (pass == 0 && haveVisibleProp);
+
+        for (int i = 0; i < cpCount; i++)
+        {
+            if (visibleOnly)
+            {
+                int visible = GetEntProp(objRes, Prop_Send, "m_bCPIsVisible", 4, i);
+
+                if (visible == 0)
+                {
+                    continue;
+                }
+            }
+
+            int owner = GetEntProp(objRes, Prop_Send, "m_iOwner", 4, i);
+            DGM_AddObjectiveOwnerToCounts(owner, redOwned, blueOwned, neutralOwned, total);
+        }
+
+        if (total > 0 || !haveVisibleProp)
+        {
+            return total > 0;
+        }
+    }
+
+    return false;
+}
+
+void DGM_CountTeamControlPointEntities(
+    int &redOwned,
+    int &blueOwned,
+    int &neutralOwned,
+    int &total)
+{
+    redOwned = 0;
+    blueOwned = 0;
+    neutralOwned = 0;
+    total = 0;
+
+    int point = -1;
+
+    while ((point = FindEntityByClassname(point, "team_control_point")) != -1)
+    {
+        if (!IsValidEntity(point))
+        {
+            continue;
+        }
+
+        int owner = DGM_GetControlPointEntityOwner(point);
+        DGM_AddObjectiveOwnerToCounts(owner, redOwned, blueOwned, neutralOwned, total);
+    }
+}
+
+int DGM_GetControlPointEntityOwner(int point)
+{
+    if (HasEntProp(point, Prop_Send, "m_iTeamNum"))
+    {
+        return GetEntProp(point, Prop_Send, "m_iTeamNum");
+    }
+
+    if (HasEntProp(point, Prop_Data, "m_iTeamNum"))
+    {
+        return GetEntProp(point, Prop_Data, "m_iTeamNum");
+    }
+
+    return view_as<int>(TFTeam_Unassigned);
+}
+
+void DGM_AddObjectiveOwnerToCounts(
+    int owner,
+    int &redOwned,
+    int &blueOwned,
+    int &neutralOwned,
+    int &total)
+{
+    total++;
+
+    if (owner == view_as<int>(TFTeam_Red))
+    {
+        redOwned++;
+    }
+    else if (owner == view_as<int>(TFTeam_Blue))
+    {
+        blueOwned++;
+    }
+    else
+    {
+        neutralOwned++;
+    }
+}
+
+void DGM_ObjectiveLeaderToString(DGMObjectiveLeader leader, char[] buffer, int maxlen)
+{
+    switch (leader)
+    {
+        case DGMObjectiveLeader_Red:
+        {
+            strcopy(buffer, maxlen, "RED is leading by objective ownership");
+        }
+        case DGMObjectiveLeader_Blue:
+        {
+            strcopy(buffer, maxlen, "BLU is leading by objective ownership");
+        }
+        case DGMObjectiveLeader_Tie:
+        {
+            strcopy(buffer, maxlen, "Objective ownership is tied");
+        }
+        default:
+        {
+            strcopy(buffer, maxlen, "No objective leader");
+        }
+    }
 }
 
 void DGM_CopyGameModeKeyForMap(const char[] mapName, char[] buffer, int maxlen)
@@ -338,6 +545,24 @@ public any Native_DGM_RealTeamPlayerCount(Handle plugin, int numParams)
     return DGM_CountRealTeamPlayers(team);
 }
 
+public any Native_DGM_GetObjectiveLeader(Handle plugin, int numParams)
+{
+    int redOwned, blueOwned, neutralOwned, total;
+    DGMObjectiveLeader leader = DGM_GetObjectiveLeaderValue(redOwned, blueOwned, neutralOwned, total);
+
+    SetNativeCellRef(1, redOwned);
+    SetNativeCellRef(2, blueOwned);
+    SetNativeCellRef(3, neutralOwned);
+    SetNativeCellRef(4, total);
+
+    return view_as<any>(leader);
+}
+
+public any Native_DGM_GetObjectiveLeaderTeam(Handle plugin, int numParams)
+{
+    return DGM_GetObjectiveLeaderTeamValue();
+}
+
 public any Native_DGM_GetGameModeKeyForMap(Handle plugin, int numParams)
 {
     char input[PLATFORM_MAX_PATH];
@@ -409,6 +634,8 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     CreateNative("DGM_IsRoundRunning", Native_DGM_IsRoundRunning);
     CreateNative("DGM_GetLastRoundDurationSeconds", Native_DGM_GetLastRoundDurationSeconds);
     CreateNative("DGM_GetRoundDurationSeconds", Native_DGM_GetRoundDurationSeconds);
+    CreateNative("DGM_GetObjectiveLeader", Native_DGM_GetObjectiveLeader);
+    CreateNative("DGM_GetObjectiveLeaderTeam", Native_DGM_GetObjectiveLeaderTeam);
     return APLRes_Success;
 }
 

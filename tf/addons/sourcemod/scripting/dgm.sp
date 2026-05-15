@@ -53,6 +53,8 @@ public void OnPluginStart()
 
     g_cHostname = FindConVar("hostname");
     RegConsoleCmd("sm_st", Command_Stats, "Show player count, map and hostname");
+    RegConsoleCmd("sm_objectiveleader", Command_ObjectiveLeader, "Show which team leads by objective ownership");
+    RegConsoleCmd("sm_cpleader", Command_ObjectiveLeader, "Show which team leads by control-point ownership");
     RegConsoleCmd("sm_manual", Command_CvarHelp, "Displays information about plugin ConVars.");
 }
 
@@ -203,6 +205,42 @@ public Action Command_Stats(int client, int args)
 
         PrintToChat(client, "\x04[Respawn]\x01 respawn_red_on_cap: \x04%d",
                     asymCapRespawn);
+    }
+
+    return Plugin_Handled;
+}
+
+public Action Command_ObjectiveLeader(int client, int args)
+{
+    int redOwned, blueOwned, neutralOwned, total;
+    DGMObjectiveLeader leader = DGM_GetObjectiveLeaderValue(redOwned, blueOwned, neutralOwned, total);
+
+    if (leader == DGMObjectiveLeader_None)
+    {
+        if (client <= 0 || !IsClientInGame(client))
+        {
+            PrintToServer("[DGM] No control points were found or counted on this map.");
+        }
+        else
+        {
+            PrintToChat(client, "\x04[DGM]\x01 No control points were found or counted on this map.");
+        }
+
+        return Plugin_Handled;
+    }
+
+    char status[96];
+    DGM_ObjectiveLeaderToString(leader, status, sizeof(status));
+
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        PrintToServer("[DGM] %s | RED=%d BLU=%d Neutral=%d TotalCounted=%d",
+            status, redOwned, blueOwned, neutralOwned, total);
+    }
+    else
+    {
+        PrintToChat(client, "\x04[DGM]\x01 %s | RED=\x04%d\x01 BLU=\x04%d\x01 Neutral=\x04%d\x01 Total=\x04%d",
+            status, redOwned, blueOwned, neutralOwned, total);
     }
 
     return Plugin_Handled;

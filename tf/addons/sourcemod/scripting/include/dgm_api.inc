@@ -3,6 +3,14 @@
 #endif
 #define _dgm_api_included
 
+enum DGMObjectiveLeader
+{
+    DGMObjectiveLeader_None = 0,
+    DGMObjectiveLeader_Tie,
+    DGMObjectiveLeader_Red,
+    DGMObjectiveLeader_Blue
+};
+
 native bool DGM_GetGameMode(char[] buffer, int maxlen);
 native int DGM_RealPlayerCount();
 native int DGM_RealTeamPlayerCount(int team);
@@ -17,3 +25,5 @@ native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50);
 native bool DGM_IsRoundRunning();
 native int DGM_GetLastRoundDurationSeconds();
 native int DGM_GetRoundDurationSeconds(int firstTimestamp, int secondTimestamp);
+native DGMObjectiveLeader DGM_GetObjectiveLeader(int &redOwned, int &blueOwned, int &neutralOwned, int &total);
+native int DGM_GetObjectiveLeaderTeam();
