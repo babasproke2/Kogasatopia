@@ -969,10 +969,12 @@ bool GetShutdownSoundCommand(int killstreak, char[] commandName, int commandLen)
     }
 
     int roundedKillstreak = killstreak - (killstreak % WHALE_KILLSTREAK_BONUS_INTERVAL);
-    if (roundedKillstreak >= WHALE_KILLSTREAK_BONUS_INTERVAL
-        && GetAnnouncerSoundCommand(g_ShutdownSoundMap, roundedKillstreak, "", commandName, commandLen))
+    for (int level = roundedKillstreak; level >= WHALE_KILLSTREAK_BONUS_INTERVAL; level -= WHALE_KILLSTREAK_BONUS_INTERVAL)
     {
-        return true;
+        if (GetAnnouncerSoundCommand(g_ShutdownSoundMap, level, "", commandName, commandLen))
+        {
+            return true;
+        }
     }
 
     return GetAnnouncerSoundCommand(g_ShutdownSoundMap, 0, "", commandName, commandLen);
