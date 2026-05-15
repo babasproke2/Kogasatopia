@@ -373,7 +373,7 @@ void PlayShutdownSound(int client, int killstreak)
     {
         if (IsHumanAnnouncerClient(client))
         {
-            SaySounds_PlayCommand(client, commandName, true);
+            SaySounds_PlayCommand(client, commandName, false);
         }
         return;
     }
@@ -382,7 +382,7 @@ void PlayShutdownSound(int client, int killstreak)
     {
         if (IsHumanAnnouncerClient(i))
         {
-            SaySounds_PlayCommand(i, commandName, true);
+            SaySounds_PlayCommand(i, commandName, false);
         }
     }
 }
@@ -588,7 +588,7 @@ void Announcer_CenterText(int target, const char[] commandName, bool useSound, c
 {
     if (target > 0)
     {
-        if (IsHumanAnnouncerClient(target) && (!useSound || SaySounds_PlayCommand(target, commandName, true)))
+        if (IsHumanAnnouncerClient(target) && (!useSound || SaySounds_PlayCommand(target, commandName, false)))
         {
             PrintCenterText(target, "%s", message);
         }
@@ -617,7 +617,7 @@ void Announcer_Announce(int target, int author, const char[] commandName, bool u
 
     if (target > 0)
     {
-        if (IsHumanAnnouncerClient(target) && (!useSound || SaySounds_PlayCommand(target, commandName, true)))
+        if (IsHumanAnnouncerClient(target) && (!useSound || SaySounds_PlayCommand(target, commandName, false)))
         {
             Announcer_MessageClient(target, author, message);
         }
@@ -630,7 +630,7 @@ void Announcer_Announce(int target, int author, const char[] commandName, bool u
         {
             if (IsHumanAnnouncerClient(i))
             {
-                SaySounds_PlayCommand(i, commandName, true);
+                SaySounds_PlayCommand(i, commandName, false);
             }
         }
     }
