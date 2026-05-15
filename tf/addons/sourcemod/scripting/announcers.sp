@@ -320,7 +320,7 @@ void AnnounceKillstreakEnd(int client, int killstreak)
     {
         char displayName[256];
         GetClientChatDisplayName(client, displayName, sizeof(displayName));
-        CPrintToChatAllEx(client, "{green}[Announcers]{default} %s{default}'s killstreak was shut down! (%d)", displayName, killstreak);
+        CPrintToChatAllEx(client, "%s{default}'s killstreak was shut down! (%d)", displayName, killstreak);
         return;
     }
 
@@ -577,11 +577,11 @@ void Announcer_MessageClient(int target, int author, const char[] message)
 {
     if (IsValidAnnouncerClient(author) && IsClientInGame(author))
     {
-        CPrintToChatEx(target, author, "{green}[Announcers]{default} %s", message);
+        CPrintToChatEx(target, author, "%s", message);
         return;
     }
 
-    CPrintToChat(target, "{green}[Announcers]{default} %s", message);
+    CPrintToChat(target, "%s", message);
 }
 
 void Announcer_MessageAll(int author, bool useChat, const char[] message)
@@ -590,11 +590,11 @@ void Announcer_MessageAll(int author, bool useChat, const char[] message)
     {
         if (IsValidAnnouncerClient(author) && IsClientInGame(author))
         {
-            CPrintToChatAllEx(author, "{green}[Announcers]{default} %s", message);
+            CPrintToChatAllEx(author, "%s", message);
         }
         else
         {
-            CPrintToChatAll("{green}[Announcers]{default} %s", message);
+            CPrintToChatAll("%s", message);
         }
         return;
     }
