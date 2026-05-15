@@ -67,7 +67,7 @@ public void OnPluginStart()
     g_hLogEnabled = CreateConVar("sm_autobalance_log", "1", "Enable autobalance debug logging.", _, true, 0.0, true, 1.0);
     g_hDiffThreshold = CreateConVar("sm_autobalance_diff", "1", "Autobalance when team size difference is above this value.", _, true, 1.0, true, 10.0);
     g_hSimpleSelection = CreateConVar("sm_autobalance_simple_selection", "1", "If enabled, autobalance prefers the most recently joined dead non-Engineer on the oversized team, then falls back to lower-priority eligible players by userID.", _, true, 0.0, true, 1.0);
-    g_hIgnoreWinning = CreateConVar("sm_autobalance_ignore_winning", "1", "If enabled, do not autobalance players from the objective-losing team to the objective-leading team.", _, true, 0.0, true, 1.0);
+    g_hIgnoreWinning = CreateConVar("sm_autobalance_ignore_winning", "3", "0 disables. 1 blocks losing-to-winning moves. Values above 1 allow losing-to-winning moves when value is >= current team-size diff.", _, true, 0.0);
     g_hDatabaseConfig = CreateConVar("sm_autobalance_database", "default", "Database config name from databases.cfg to use for persistent autobalance immunity.");
     RegAdminCmd("sm_immune", Command_Immune, ADMFLAG_GENERIC, "sm_immune <name> - Toggle persistent autobalance immunity for a player.");
     RegConsoleCmd("sm_volunteer", Command_Volunteer, "sm_volunteer [name] - Toggle autobalance volunteer status.");
@@ -233,13 +233,13 @@ public Action Timer_Autobalance(Handle timer)
     AB_GetTeamChatLabel(biggestTeam,  fromTeamChat, sizeof(fromTeamChat));
     AB_GetTeamChatLabel(smallestTeam, toTeamChat,   sizeof(toTeamChat));
 
-    if (ShouldSkipWinningTeamAutobalance(biggestTeam, smallestTeam))
+    if (ShouldSkipWinningTeamAutobalance(biggestTeam, smallestTeam, diff))
     {
         if (loggingEnabled)
         {
             LogBalance(
-                "Skip balance from %s to %s: sm_autobalance_ignore_winning blocked moving objective-losing team to objective leader",
-                fromTeamName, toTeamName
+                "Skip balance from %s to %s: sm_autobalance_ignore_winning=%.2f blocked losing-to-winning move at diff=%d",
+                fromTeamName, toTeamName, g_hIgnoreWinning.FloatValue, diff
             );
         }
         return Plugin_Continue;
@@ -434,9 +434,9 @@ static bool ShouldSuppressAutobalanceForGamemode()
     return DGM_IsSmallFormatGamemode();
 }
 
-static bool ShouldSkipWinningTeamAutobalance(int fromTeam, int toTeam)
+static bool ShouldSkipWinningTeamAutobalance(int fromTeam, int toTeam, int diff)
 {
-    if (g_hIgnoreWinning == null || !g_hIgnoreWinning.BoolValue)
+    if (g_hIgnoreWinning == null || g_hIgnoreWinning.FloatValue <= 0.0)
     {
         return false;
     }
@@ -449,7 +449,18 @@ static bool ShouldSkipWinningTeamAutobalance(int fromTeam, int toTeam)
     int winningTeam = DGM_GetObjectiveLeaderTeam();
     int losingTeam = AB_GetOpposingCoreTeam(winningTeam);
 
-    return losingTeam != 0 && fromTeam == losingTeam && toTeam == winningTeam;
+    if (losingTeam == 0 || fromTeam != losingTeam || toTeam != winningTeam)
+    {
+        return false;
+    }
+
+    float ignoreWinning = g_hIgnoreWinning.FloatValue;
+    if (ignoreWinning > 1.0 && ignoreWinning >= float(diff))
+    {
+        return false;
+    }
+
+    return true;
 }
 
 static int AB_GetOpposingCoreTeam(int team)
