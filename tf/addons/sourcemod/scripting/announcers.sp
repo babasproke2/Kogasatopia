@@ -34,7 +34,7 @@ static const char g_KillstreakCommands[][] =
 
 static const char g_MultikillLabels[][] =
 {
-    "double-kill", "triple-kill", "quadra-kill", "penta-kill"
+    "double-kill", "triple-kill", "megakill", "MONSTER KILL"
 };
 
 enum AnnouncerConfigMode
@@ -490,7 +490,7 @@ void AnnounceMultikillNow(int client, int kills)
     }
 
     char message[128];
-    Format(message, sizeof(message), "%s got a %s! (%d)", clientName, label, kills);
+    FormatMultikillMessage(clientName, label, kills, message, sizeof(message), kills >= 4);
 
     char commandName[ANNOUNCER_MAX_COMMAND_NAME];
     GetAnnouncerSoundCommand(g_MultikillSoundMap, kills, "", commandName, sizeof(commandName));
@@ -579,6 +579,17 @@ bool GetMultikillLabel(int kills, char[] label, int labelLen)
 
     strcopy(label, labelLen, g_MultikillLabels[index]);
     return true;
+}
+
+void FormatMultikillMessage(const char[] clientName, const char[] label, int kills, char[] message, int messageLen, bool includeKills = true)
+{
+    if (includeKills)
+    {
+        Format(message, messageLen, "%s got a %s! (%d)", clientName, label, kills);
+        return;
+    }
+
+    Format(message, messageLen, "%s got a %s!", clientName, label);
 }
 
 void Announcer_CenterText(int target, const char[] commandName, bool useSound, const char[] message)
