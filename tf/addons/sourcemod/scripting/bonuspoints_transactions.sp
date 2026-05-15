@@ -510,7 +510,7 @@ void ShowShopMenu(int client)
         }
         else
         {
-            Format(display, sizeof(display), "%s (%d)", itemName, price);
+            Format(display, sizeof(display), "%s (%dBP)", itemName, price);
             menu.AddItem(itemKey, display);
         }
     }
