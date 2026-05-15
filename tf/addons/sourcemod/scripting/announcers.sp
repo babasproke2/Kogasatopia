@@ -60,7 +60,7 @@ ConVar g_cvMultikillBroadcastMin = null;
 ConVar g_cvMultikillRollupWindow = null;
 StringMap g_KillstreakSoundMap = null;
 StringMap g_MultikillSoundMap = null;
-ArrayList g_ShutdownSoundCommands = null;
+StringMap g_ShutdownSoundMap = null;
 AnnouncerConfigMode g_ConfigMode = AnnouncerConfig_None;
 int g_ConfigDepth = 0;
 int g_ConfigLevel = 0;
@@ -82,7 +82,7 @@ public void OnPluginStart()
 {
     g_KillstreakSoundMap = new StringMap();
     g_MultikillSoundMap = new StringMap();
-    g_ShutdownSoundCommands = new ArrayList(ByteCountToCells(ANNOUNCER_MAX_COMMAND_NAME));
+    g_ShutdownSoundMap = new StringMap();
 
     g_cvKillstreaksEnabled = CreateConVar(
         "announcers_killstreaks_enabled",
@@ -96,7 +96,7 @@ public void OnPluginStart()
     );
     g_cvMultikillsEnabled = CreateConVar(
         "announcers_multikills_enabled",
-        "1",
+        "0",
         "Enable multikill announcements.",
         FCVAR_NONE,
         true,
@@ -116,7 +116,7 @@ public void OnPluginStart()
     );
     g_cvMultikillsSound = CreateConVar(
         "announcers_multikills_sound",
-        "1",
+        "0",
         "Play SaySounds for multikill announcements.",
         FCVAR_NONE,
         true,
@@ -218,7 +218,7 @@ public void OnPluginEnd()
     ClearAllMultikillRollups();
     ClearSoundMap(g_KillstreakSoundMap);
     ClearSoundMap(g_MultikillSoundMap);
-    ClearShutdownSoundCommands();
+    ClearSoundMap(g_ShutdownSoundMap);
 
     if (g_KillstreakSoundMap != null)
     {
@@ -232,10 +232,10 @@ public void OnPluginEnd()
         g_MultikillSoundMap = null;
     }
 
-    if (g_ShutdownSoundCommands != null)
+    if (g_ShutdownSoundMap != null)
     {
-        delete g_ShutdownSoundCommands;
-        g_ShutdownSoundCommands = null;
+        delete g_ShutdownSoundMap;
+        g_ShutdownSoundMap = null;
     }
 }
 
@@ -358,7 +358,7 @@ void PlayShutdownSound(int client, int killstreak)
     }
 
     char commandName[ANNOUNCER_MAX_COMMAND_NAME];
-    if (!GetShutdownSoundCommand(commandName, sizeof(commandName)))
+    if (!GetShutdownSoundCommand(killstreak, commandName, sizeof(commandName)))
     {
         return;
     }
@@ -747,14 +747,14 @@ void LoadAnnouncerConfig()
     {
         g_MultikillSoundMap = new StringMap();
     }
-    if (g_ShutdownSoundCommands == null)
+    if (g_ShutdownSoundMap == null)
     {
-        g_ShutdownSoundCommands = new ArrayList(ByteCountToCells(ANNOUNCER_MAX_COMMAND_NAME));
+        g_ShutdownSoundMap = new StringMap();
     }
 
     ClearSoundMap(g_KillstreakSoundMap);
     ClearSoundMap(g_MultikillSoundMap);
-    ClearShutdownSoundCommands();
+    ClearSoundMap(g_ShutdownSoundMap);
 
     g_ConfigDepth = 0;
     g_ConfigLevel = 0;
@@ -845,7 +845,7 @@ public SMCResult AnnouncerConfig_KeyValue(SMCParser parser, const char[] key, co
 {
     if (g_ConfigMode == AnnouncerConfig_Shutdown)
     {
-        if (g_ConfigDepth != 2)
+        if (g_ConfigDepth != 2 && (g_ConfigDepth != 3 || g_ConfigLevel <= 0))
         {
             return SMCParse_Continue;
         }
@@ -854,7 +854,7 @@ public SMCResult AnnouncerConfig_KeyValue(SMCParser parser, const char[] key, co
         GetConfigCommandName(key, value, commandName, sizeof(commandName));
         if (commandName[0])
         {
-            AddShutdownSoundCommand(commandName);
+            AddAnnouncerSoundCommand(g_ShutdownSoundMap, g_ConfigDepth == 3 ? g_ConfigLevel : 0, commandName);
         }
         return SMCParse_Continue;
     }
@@ -931,16 +931,6 @@ void AddAnnouncerSoundCommand(StringMap map, int level, const char[] commandName
     commands.PushString(commandName);
 }
 
-void AddShutdownSoundCommand(const char[] commandName)
-{
-    if (g_ShutdownSoundCommands == null || !commandName[0])
-    {
-        return;
-    }
-
-    g_ShutdownSoundCommands.PushString(commandName);
-}
-
 bool GetAnnouncerSoundCommand(StringMap map, int level, const char[] fallbackCommand, char[] commandName, int commandLen)
 {
     strcopy(commandName, commandLen, fallbackCommand);
@@ -969,17 +959,23 @@ bool GetAnnouncerSoundCommand(StringMap map, int level, const char[] fallbackCom
     return commandName[0] != '\0';
 }
 
-bool GetShutdownSoundCommand(char[] commandName, int commandLen)
+bool GetShutdownSoundCommand(int killstreak, char[] commandName, int commandLen)
 {
     commandName[0] = '\0';
 
-    if (g_ShutdownSoundCommands == null || g_ShutdownSoundCommands.Length <= 0)
+    if (g_ShutdownSoundMap == null)
     {
         return false;
     }
 
-    g_ShutdownSoundCommands.GetString(GetRandomInt(0, g_ShutdownSoundCommands.Length - 1), commandName, commandLen);
-    return commandName[0] != '\0';
+    int roundedKillstreak = killstreak - (killstreak % WHALE_KILLSTREAK_BONUS_INTERVAL);
+    if (roundedKillstreak >= WHALE_KILLSTREAK_BONUS_INTERVAL
+        && GetAnnouncerSoundCommand(g_ShutdownSoundMap, roundedKillstreak, "", commandName, commandLen))
+    {
+        return true;
+    }
+
+    return GetAnnouncerSoundCommand(g_ShutdownSoundMap, 0, "", commandName, commandLen);
 }
 
 void ClearSoundMap(StringMap map)
@@ -1011,14 +1007,6 @@ void ClearSoundMap(StringMap map)
     }
 
     map.Clear();
-}
-
-void ClearShutdownSoundCommands()
-{
-    if (g_ShutdownSoundCommands != null)
-    {
-        g_ShutdownSoundCommands.Clear();
-    }
 }
 
 void ShiftStringLeft(char[] buffer, int maxlen, int positions)
