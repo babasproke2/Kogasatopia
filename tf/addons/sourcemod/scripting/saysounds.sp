@@ -1740,7 +1740,7 @@ public Action Command_ListSounds(int client, int args)
                 continue;
             if (!gSoundGroupMap.GetString(command, group, sizeof(group)))
                 strcopy(group, sizeof(group), DEFAULT_GROUP);
-            PrintToServer("[SaySounds] !%s -> %s [%s]", command, sound, group);
+            PrintToServer("[SaySounds] %s!%s -> %s [%s]", IsGroupPaid(group) ? "[!shop] " : "", command, sound, group);
         }
         return Plugin_Handled;
     }
@@ -1761,9 +1761,7 @@ public Action Command_ListSounds(int client, int args)
             continue;
         if (!gSoundGroupMap.GetString(command, group, sizeof(group)))
             strcopy(group, sizeof(group), DEFAULT_GROUP);
-        if (!CanClientUseSaySoundGroup(client, group))
-            continue;
-        PrintToChat(client, "!%s -> %s [%s]", command, sound, group);
+        PrintToChat(client, "%s!%s -> %s [%s]", IsGroupPaid(group) ? "[!shop] " : "", command, sound, group);
     }
 
     return Plugin_Handled;
@@ -1793,18 +1791,13 @@ void PrintSaySoundGroups(int client)
             continue;
         }
 
-        if (client > 0 && !CanClientUseSaySoundGroup(client, groupName))
-        {
-            continue;
-        }
-
         if (client <= 0)
         {
-            PrintToServer("group %d - %s", displayIndex, groupName);
+            PrintToServer("%sgroup %d - %s", IsGroupPaid(groupName) ? "[!shop] " : "", displayIndex, groupName);
         }
         else
         {
-            PrintToChat(client, "group %d - %s", displayIndex, groupName);
+            PrintToChat(client, "%sgroup %d - %s", IsGroupPaid(groupName) ? "[!shop] " : "", displayIndex, groupName);
         }
 
         displayIndex++;
