@@ -2,6 +2,7 @@
 #pragma newdecls required
 
 #include <sourcemod>
+#include <multicolors>
 #include <whaletracker_api>
 
 #define BP_TRANS_DB_CONFIG_DEFAULT "default"
@@ -598,7 +599,14 @@ void AttemptPurchase(int client, const char[] itemKey)
     int price = g_ItemPrices.Get(itemIndex);
     if (!WhaleTracker_SpendBonusPoints(client, price))
     {
-        PrintToChat(client, "[Shop] You do not have enough Bonus Points.");
+        char itemName[BP_TRANS_ITEM_NAME_MAX];
+        g_ItemNames.GetString(itemIndex, itemName, sizeof(itemName));
+        CPrintToChat(client,
+            "{magenta}[BP]{default} You can't afford {gold}%s;\n"
+            ... "{default}Your balance: {lightgreen}%dBP\n"
+            ... "{default}Earn bonus points through gameplay; see {magenta}!bp",
+            itemName,
+            WhaleTracker_GetBonusPoints(client));
         return;
     }
 
