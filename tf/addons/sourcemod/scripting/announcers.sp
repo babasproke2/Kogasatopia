@@ -53,11 +53,16 @@ ConVar g_cvMultikillsEnabled = null;
 ConVar g_cvKillstreaksSound = null;
 ConVar g_cvMultikillsSound = null;
 ConVar g_cvMultikillBroadcastMin = null;
+ConVar g_cvMultikillRollupWindow = null;
 StringMap g_KillstreakSoundMap = null;
 StringMap g_MultikillSoundMap = null;
 AnnouncerConfigMode g_ConfigMode = AnnouncerConfig_None;
 int g_ConfigDepth = 0;
 int g_ConfigLevel = 0;
+Handle g_hMultikillRollupTimer[MAXPLAYERS + 1];
+int g_iPendingMultikillKills[MAXPLAYERS + 1];
+int g_iPendingMultikillUserId[MAXPLAYERS + 1];
+int g_iPendingMultikillSerial[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
@@ -120,6 +125,14 @@ public void OnPluginStart()
         FCVAR_NONE,
         true,
         1.0
+    );
+    g_cvMultikillRollupWindow = CreateConVar(
+        "announcers_multikill_rollup_window",
+        "1.0",
+        "Seconds to wait for higher multikill levels before announcing the latest one.",
+        FCVAR_NONE,
+        true,
+        0.1
     );
     g_cvMultikillsChat = CreateConVar(
         "announcers_multikills_chat",
@@ -188,6 +201,7 @@ public void OnConfigsExecuted()
 
 public void OnPluginEnd()
 {
+    ClearAllMultikillRollups();
     ClearSoundMap(g_KillstreakSoundMap);
     ClearSoundMap(g_MultikillSoundMap);
 
@@ -202,6 +216,16 @@ public void OnPluginEnd()
         delete g_MultikillSoundMap;
         g_MultikillSoundMap = null;
     }
+}
+
+public void OnMapEnd()
+{
+    ClearAllMultikillRollups();
+}
+
+public void OnClientDisconnect(int client)
+{
+    ClearMultikillRollup(client);
 }
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
@@ -246,7 +270,7 @@ public void WhaleTracker_OnKillstreakEnd(int client, int killstreak)
 
 public void WhaleTracker_OnMultikill(int client, int kills)
 {
-    AnnounceMultikill(client, kills);
+    QueueMultikillRollup(client, kills);
 }
 
 void AnnounceKillstreakMilestone(int client, const char[] clientName, int killstreak, bool playSound = true)
@@ -302,7 +326,66 @@ void AnnounceKillstreakEnd(int client, int killstreak)
     PrintCenterTextAll("%s's killstreak was shut down! (%d)", clientName, killstreak);
 }
 
-void AnnounceMultikill(int client, int kills)
+void QueueMultikillRollup(int client, int kills)
+{
+    if (!IsValidAnnouncerClient(client))
+    {
+        return;
+    }
+
+    char label[32];
+    if (!GetMultikillLabel(kills, label, sizeof(label)))
+    {
+        return;
+    }
+
+    if (g_hMultikillRollupTimer[client] != null)
+    {
+        delete g_hMultikillRollupTimer[client];
+        g_hMultikillRollupTimer[client] = null;
+    }
+
+    g_iPendingMultikillKills[client] = kills;
+    g_iPendingMultikillUserId[client] = GetClientUserId(client);
+    g_iPendingMultikillSerial[client]++;
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(client);
+    pack.WriteCell(g_iPendingMultikillUserId[client]);
+    pack.WriteCell(g_iPendingMultikillSerial[client]);
+
+    g_hMultikillRollupTimer[client] = CreateTimer(
+        GetMultikillRollupWindow(),
+        Timer_FlushMultikillRollup,
+        pack,
+        TIMER_FLAG_NO_MAPCHANGE | TIMER_DATA_HNDL_CLOSE
+    );
+}
+
+public Action Timer_FlushMultikillRollup(Handle timer, DataPack pack)
+{
+    pack.Reset();
+    int originalClient = pack.ReadCell();
+    int userId = pack.ReadCell();
+    int serial = pack.ReadCell();
+    int client = GetClientOfUserId(userId);
+
+    if (client != originalClient || !IsValidAnnouncerClient(client) || g_iPendingMultikillSerial[client] != serial)
+    {
+        if (originalClient >= 1 && originalClient <= MaxClients && g_iPendingMultikillSerial[originalClient] == serial)
+        {
+            ClearMultikillRollup(originalClient, false);
+        }
+        return Plugin_Stop;
+    }
+
+    int kills = g_iPendingMultikillKills[client];
+    ClearMultikillRollup(client, false);
+    AnnounceMultikillNow(client, kills);
+    return Plugin_Stop;
+}
+
+void AnnounceMultikillNow(int client, int kills)
 {
     if (!IsValidAnnouncerClient(client))
     {
@@ -348,6 +431,42 @@ void AnnounceMultikill(int client, int kills)
 
     bool useSound = g_cvMultikillsSound.BoolValue && commandName[0] != '\0';
     Announcer_Announce(0, client, commandName, Announcer_ShouldPlaySound(useSound), g_cvMultikillsChat.BoolValue, message);
+}
+
+float GetMultikillRollupWindow()
+{
+    if (g_cvMultikillRollupWindow == null)
+    {
+        return 1.0;
+    }
+
+    return g_cvMultikillRollupWindow.FloatValue;
+}
+
+void ClearAllMultikillRollups()
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        ClearMultikillRollup(client);
+    }
+}
+
+void ClearMultikillRollup(int client, bool closeTimer = true)
+{
+    if (client < 1 || client > MaxClients)
+    {
+        return;
+    }
+
+    if (closeTimer && g_hMultikillRollupTimer[client] != null)
+    {
+        delete g_hMultikillRollupTimer[client];
+    }
+
+    g_hMultikillRollupTimer[client] = null;
+    g_iPendingMultikillKills[client] = 0;
+    g_iPendingMultikillUserId[client] = 0;
+    g_iPendingMultikillSerial[client]++;
 }
 
 bool GetKillstreakAnnouncement(int killstreak, char[] label, int labelLen, char[] commandName, int commandLen)
