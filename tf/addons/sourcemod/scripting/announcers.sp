@@ -279,12 +279,14 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 
 public void WhaleTracker_OnKillstreak(int client, int killstreak)
 {
-    if (!g_cvKillstreaksEnabled.BoolValue)
+    if (!IsValidAnnouncerClient(client))
     {
         return;
     }
 
-    if (!IsValidAnnouncerClient(client))
+    AwardKillstreakBonusPoints(client, killstreak);
+
+    if (!g_cvKillstreaksEnabled.BoolValue)
     {
         return;
     }
@@ -536,7 +538,31 @@ void AnnounceMultikillNow(int client, int kills)
 
 void AwardMultikillBonusPoints(int client, int kills)
 {
+    int points = 0;
     if (kills < 3)
+    {
+        return;
+    }
+    else if (kills >= WHALE_MULTIKILL_MAX_LEVEL)
+    {
+        points = 3;
+    }
+    else
+    {
+        points = 2;
+    }
+
+    if (GetFeatureStatus(FeatureType_Native, WHALETRACKER_BONUS_NATIVE) != FeatureStatus_Available)
+    {
+        return;
+    }
+
+    WhaleTracker_ApplyBonusPoints(client, points, true, true, 1.0, "multikill", kills, 3.0);
+}
+
+void AwardKillstreakBonusPoints(int client, int killstreak)
+{
+    if (killstreak < WHALE_KILLSTREAK_BONUS_INTERVAL || killstreak % WHALE_KILLSTREAK_BONUS_INTERVAL != 0)
     {
         return;
     }
@@ -546,7 +572,8 @@ void AwardMultikillBonusPoints(int client, int kills)
         return;
     }
 
-    WhaleTracker_ApplyBonusPoints(client, 1, true, true, 1.0, "multikill", kills, 3.0);
+    int points = killstreak > 10 ? 2 : 1;
+    WhaleTracker_ApplyBonusPoints(client, points, true, true, 1.0, "killstreak", killstreak, 3.0);
 }
 
 float GetMultikillRollupWindow()
