@@ -96,7 +96,7 @@ public void OnPluginStart()
     );
     g_cvMultikillsEnabled = CreateConVar(
         "announcers_multikills_enabled",
-        "0",
+        "1",
         "Enable multikill announcements.",
         FCVAR_NONE,
         true,
@@ -116,7 +116,7 @@ public void OnPluginStart()
     );
     g_cvMultikillsSound = CreateConVar(
         "announcers_multikills_sound",
-        "0",
+        "1",
         "Play SaySounds for multikill announcements.",
         FCVAR_NONE,
         true,
