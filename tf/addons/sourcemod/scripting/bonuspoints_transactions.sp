@@ -56,6 +56,8 @@ public void OnPluginStart()
 
     g_CvarDatabase = CreateConVar("sm_bonuspoints_transactions_database", BP_TRANS_DB_CONFIG_DEFAULT, "Databases.cfg entry for bonuspoints_transactions.");
     RegConsoleCmd("sm_shop", Command_Shop, "Open the Bonus Points Shop.");
+    RegConsoleCmd("sm_store", Command_Shop, "Open the Bonus Points Shop.");
+    RegConsoleCmd("sm_buy", Command_Shop, "Open the Bonus Points Shop.");
 
     LoadStoreItems();
     ConnectDatabase();
