@@ -424,8 +424,15 @@ void AnnounceMultikillNow(int client, int kills)
         return;
     }
 
-    char clientName[MAX_NAME_LENGTH];
-    GetClientName(client, clientName, sizeof(clientName));
+    char clientName[256];
+    if (g_cvMultikillsChat.BoolValue)
+    {
+        BuildDisplayName(client, clientName, sizeof(clientName));
+    }
+    else
+    {
+        GetClientName(client, clientName, sizeof(clientName));
+    }
 
     char message[128];
     Format(message, sizeof(message), "%s got a %s! (%d)", clientName, label, kills);
@@ -616,6 +623,45 @@ void GetClientChatDisplayName(int client, char[] buffer, int maxlen)
 
     GetClientName(client, buffer, maxlen);
     TrimString(buffer);
+}
+
+void BuildDisplayName(int client, char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+
+    if (GetFeatureStatus(FeatureType_Native, "Filters_GetChatName") == FeatureStatus_Available
+        && Filters_GetChatName(client, buffer, maxlen)
+        && buffer[0] != '\0')
+    {
+        ResolveTeamColorTag(client, buffer, maxlen);
+        return;
+    }
+
+    char colorTag[16];
+    BuildTeamColorTag(client, colorTag, sizeof(colorTag));
+    Format(buffer, maxlen, "%s%N{default}", colorTag, client);
+}
+
+void ResolveTeamColorTag(int client, char[] buffer, int maxlen)
+{
+    if (StrContains(buffer, "{teamcolor}", false) == -1)
+    {
+        return;
+    }
+
+    char colorTag[16];
+    BuildTeamColorTag(client, colorTag, sizeof(colorTag));
+    ReplaceString(buffer, maxlen, "{teamcolor}", colorTag, false);
+}
+
+void BuildTeamColorTag(int client, char[] colorTag, int length)
+{
+    switch (GetClientTeam(client))
+    {
+        case 2: strcopy(colorTag, length, "{red}");
+        case 3: strcopy(colorTag, length, "{blue}");
+        default: strcopy(colorTag, length, "{default}");
+    }
 }
 
 bool Announcer_ShouldPlaySound(bool playSound)
