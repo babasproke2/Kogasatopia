@@ -67,6 +67,9 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
     CreateNative("SaySounds_ShouldPlay", Native_ShouldPlay);
     CreateNative("SaySounds_PlaySoundToOptedIn", Native_PlaySoundToOptedIn);
     CreateNative("SaySounds_PlayCommand", Native_PlayCommand);
+    CreateNative("SaySounds_PlayCommandAs", Native_PlayCommandAs);
+    CreateNative("SaySounds_CanClientUseCommand", Native_CanClientUseCommand);
+    CreateNative("SaySounds_IsCommandPaid", Native_IsCommandPaid);
     return APLRes_Success;
 }
 
@@ -876,6 +879,41 @@ static bool CanClientUseSaySoundCommand(int client, const char[] commandName)
     }
 
     return CanClientUseSaySoundGroup(client, groupName);
+}
+
+static bool CanClientUseSaySoundInput(int client, const char[] inputName)
+{
+    bool restricted = false;
+    bool paidRestricted = false;
+    char chosen[MAX_COMMAND_NAME];
+    return GetCommandOptionForClient(client, inputName, chosen, sizeof(chosen), restricted, paidRestricted);
+}
+
+static bool IsSaySoundInputPaid(const char[] inputName)
+{
+    char normalizedName[MAX_COMMAND_NAME];
+    strcopy(normalizedName, sizeof(normalizedName), inputName);
+    TrimString(normalizedName);
+    ToLowercaseInPlace(normalizedName, sizeof(normalizedName));
+
+    if (!normalizedName[0])
+    {
+        return false;
+    }
+
+    char soundPath[PLATFORM_MAX_PATH];
+    if (gSoundMap.GetString(normalizedName, soundPath, sizeof(soundPath)))
+    {
+        char groupName[MAX_GROUP_NAME];
+        if (!gSoundGroupMap.GetString(normalizedName, groupName, sizeof(groupName)))
+        {
+            strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
+        }
+
+        return IsGroupPaid(groupName);
+    }
+
+    return IsKnownGroup(normalizedName) && IsGroupPaid(normalizedName);
 }
 
 static void EnsureClientGroupPreferenceMap(int client)
@@ -1871,6 +1909,74 @@ public int Native_PlayCommand(Handle plugin, int numParams)
 
     PrecacheSound(soundPath, true);
     return PlaySaySoundToTarget(client, soundPath, groupName, forcePlayback);
+}
+
+public int Native_PlayCommandAs(Handle plugin, int numParams)
+{
+    int sourceClient = GetNativeCell(1);
+    int targetClient = GetNativeCell(2);
+    if (sourceClient <= 0 || sourceClient > MaxClients || !IsClientInGame(sourceClient))
+    {
+        return 0;
+    }
+    if (targetClient < 0 || targetClient > MaxClients)
+    {
+        return 0;
+    }
+
+    bool forcePlayback = false;
+    if (numParams >= 4)
+    {
+        forcePlayback = view_as<bool>(GetNativeCell(4));
+    }
+
+    char commandName[MAX_COMMAND_NAME * 4];
+    GetNativeString(3, commandName, sizeof(commandName));
+    TrimString(commandName);
+    ToLowercaseInPlace(commandName, sizeof(commandName));
+
+    if (!commandName[0])
+    {
+        return 0;
+    }
+
+    char soundPath[PLATFORM_MAX_PATH];
+    char groupName[MAX_GROUP_NAME];
+    bool restricted = false;
+    bool paidRestricted = false;
+    if (!GetCommandSoundDataForClient(sourceClient, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted))
+    {
+        return 0;
+    }
+
+    PrecacheSound(soundPath, true);
+    return PlaySaySoundToTarget(targetClient, soundPath, groupName, forcePlayback);
+}
+
+public int Native_CanClientUseCommand(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    {
+        return 0;
+    }
+
+    char commandName[MAX_COMMAND_NAME * 4];
+    GetNativeString(2, commandName, sizeof(commandName));
+    TrimString(commandName);
+    ToLowercaseInPlace(commandName, sizeof(commandName));
+
+    return CanClientUseSaySoundInput(client, commandName);
+}
+
+public int Native_IsCommandPaid(Handle plugin, int numParams)
+{
+    char commandName[MAX_COMMAND_NAME * 4];
+    GetNativeString(1, commandName, sizeof(commandName));
+    TrimString(commandName);
+    ToLowercaseInPlace(commandName, sizeof(commandName));
+
+    return IsSaySoundInputPaid(commandName);
 }
 
 public Action Command_SetVolume(int client, int args)

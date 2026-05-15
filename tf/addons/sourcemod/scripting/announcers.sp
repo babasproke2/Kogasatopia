@@ -12,10 +12,16 @@
 #define MULTIKILL_LOG_FILE "logs/announcers_multikill.log"
 #define ANNOUNCER_SOUND_LIBRARY "saysounds"
 #define ANNOUNCER_SOUND_NATIVE "SaySounds_PlayCommand"
+#define ANNOUNCER_SOUND_PLAY_AS_NATIVE "SaySounds_PlayCommandAs"
+#define ANNOUNCER_SOUND_CAN_USE_NATIVE "SaySounds_CanClientUseCommand"
+#define ANNOUNCER_SOUND_IS_PAID_NATIVE "SaySounds_IsCommandPaid"
 #define DGM_CAPACITY_NATIVE "DGM_ServerCapacitycheck"
 #define WHALETRACKER_BONUS_NATIVE "WhaleTracker_ApplyBonusPoints"
 
 native bool SaySounds_PlayCommand(int client, const char[] commandName, bool ignoreOptIn = false);
+native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const char[] commandName, bool ignoreOptIn = false);
+native bool SaySounds_CanClientUseCommand(int client, const char[] commandName);
+native bool SaySounds_IsCommandPaid(const char[] commandName);
 native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50);
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 native bool WhaleTracker_ApplyBonusPoints(int client, int points, bool playSound, bool chatAlert, float randomChance, const char[] type, int target = 0, float delay = 3.0);
@@ -262,6 +268,9 @@ public void OnClientDisconnect(int client)
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
     MarkNativeAsOptional(ANNOUNCER_SOUND_NATIVE);
+    MarkNativeAsOptional(ANNOUNCER_SOUND_PLAY_AS_NATIVE);
+    MarkNativeAsOptional(ANNOUNCER_SOUND_CAN_USE_NATIVE);
+    MarkNativeAsOptional(ANNOUNCER_SOUND_IS_PAID_NATIVE);
     MarkNativeAsOptional(DGM_CAPACITY_NATIVE);
     MarkNativeAsOptional(WHALETRACKER_BONUS_NATIVE);
     MarkNativeAsOptional("Filters_GetChatName");
@@ -404,24 +413,20 @@ void PlayShutdownSound(int client, int killstreak)
 
 void PlayMedicDropSound(int medic)
 {
-    if (!IsValidAnnouncerClient(medic) || !Announcer_ShouldPlaySound(true))
+    if (!IsValidAnnouncerClient(medic)
+        || !Announcer_ShouldPlaySound(true)
+        || GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_PLAY_AS_NATIVE) != FeatureStatus_Available)
     {
         return;
     }
 
     char commandName[ANNOUNCER_MAX_COMMAND_NAME];
-    if (!GetAnnouncerSoundCommand(g_MedicDropSoundMap, 0, "", commandName, sizeof(commandName)))
+    if (!GetMedicDropSoundCommand(medic, commandName, sizeof(commandName)))
     {
         return;
     }
 
-    for (int i = 1; i <= MaxClients; i++)
-    {
-        if (IsHumanAnnouncerClient(i))
-        {
-            SaySounds_PlayCommand(i, commandName, false);
-        }
-    }
+    SaySounds_PlayCommandAs(medic, 0, commandName, false);
 }
 
 void QueueMultikillRollup(int client, int kills)
@@ -1040,6 +1045,68 @@ bool GetShutdownSoundCommand(int killstreak, char[] commandName, int commandLen)
     }
 
     return GetAnnouncerSoundCommand(g_ShutdownSoundMap, 0, "", commandName, commandLen);
+}
+
+bool GetMedicDropSoundCommand(int client, char[] commandName, int commandLen)
+{
+    commandName[0] = '\0';
+
+    if (g_MedicDropSoundMap == null
+        || GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_CAN_USE_NATIVE) != FeatureStatus_Available
+        || GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_IS_PAID_NATIVE) != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    any listValue;
+    if (!g_MedicDropSoundMap.GetValue("0", listValue))
+    {
+        return false;
+    }
+
+    ArrayList commands = view_as<ArrayList>(listValue);
+    if (commands == null || commands.Length <= 0)
+    {
+        return false;
+    }
+
+    ArrayList paidCommands = new ArrayList(ByteCountToCells(ANNOUNCER_MAX_COMMAND_NAME));
+    ArrayList freeCommands = new ArrayList(ByteCountToCells(ANNOUNCER_MAX_COMMAND_NAME));
+
+    char candidate[ANNOUNCER_MAX_COMMAND_NAME];
+    for (int i = 0; i < commands.Length; i++)
+    {
+        commands.GetString(i, candidate, sizeof(candidate));
+        if (!SaySounds_CanClientUseCommand(client, candidate))
+        {
+            continue;
+        }
+
+        if (SaySounds_IsCommandPaid(candidate))
+        {
+            paidCommands.PushString(candidate);
+        }
+        else
+        {
+            freeCommands.PushString(candidate);
+        }
+    }
+
+    bool found = false;
+    if (paidCommands.Length > 0)
+    {
+        paidCommands.GetString(GetRandomInt(0, paidCommands.Length - 1), commandName, commandLen);
+        found = true;
+    }
+    else if (freeCommands.Length > 0)
+    {
+        freeCommands.GetString(GetRandomInt(0, freeCommands.Length - 1), commandName, commandLen);
+        found = true;
+    }
+
+    delete paidCommands;
+    delete freeCommands;
+    return found && commandName[0] != '\0';
 }
 
 void ClearSoundMap(StringMap map)
