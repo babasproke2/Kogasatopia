@@ -472,14 +472,11 @@ void AnnounceMultikillNow(int client, int kills)
         broadcastMinimum = g_cvMultikillBroadcastMin.IntValue;
     }
 
-    if (kills < broadcastMinimum)
-    {
-        return;
-    }
+    bool broadcastToAll = kills >= broadcastMinimum;
 
-    if (kills == WHALE_MULTIKILL_MIN_LEVEL && !Announcer_ServerCapacityCheck())
+    if (broadcastToAll && kills == WHALE_MULTIKILL_MIN_LEVEL && !Announcer_ServerCapacityCheck())
     {
-        return;
+        broadcastToAll = false;
     }
 
     char clientName[256];
@@ -499,7 +496,7 @@ void AnnounceMultikillNow(int client, int kills)
     GetAnnouncerSoundCommand(g_MultikillSoundMap, kills, "", commandName, sizeof(commandName));
 
     bool useSound = g_cvMultikillsSound.BoolValue && commandName[0] != '\0';
-    Announcer_Announce(0, client, commandName, Announcer_ShouldPlaySound(useSound), g_cvMultikillsChat.BoolValue, message);
+    Announcer_Announce(broadcastToAll ? 0 : client, client, commandName, Announcer_ShouldPlaySound(useSound), g_cvMultikillsChat.BoolValue, message);
 }
 
 void AwardMultikillBonusPoints(int client, int kills)
