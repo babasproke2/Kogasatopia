@@ -13,10 +13,12 @@
 #define ANNOUNCER_SOUND_LIBRARY "saysounds"
 #define ANNOUNCER_SOUND_NATIVE "SaySounds_PlayCommand"
 #define DGM_CAPACITY_NATIVE "DGM_ServerCapacitycheck"
+#define WHALETRACKER_BONUS_NATIVE "WhaleTracker_ApplyBonusPoints"
 
 native bool SaySounds_PlayCommand(int client, const char[] commandName, bool ignoreOptIn = false);
 native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50);
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
+native bool WhaleTracker_ApplyBonusPoints(int client, int points, bool playSound, bool chatAlert, float randomChance, const char[] type, int target = 0, float delay = 3.0);
 
 static const char g_KillstreakLabels[][] =
 {
@@ -232,6 +234,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
     MarkNativeAsOptional(ANNOUNCER_SOUND_NATIVE);
     MarkNativeAsOptional(DGM_CAPACITY_NATIVE);
+    MarkNativeAsOptional(WHALETRACKER_BONUS_NATIVE);
     MarkNativeAsOptional("Filters_GetChatName");
     return APLRes_Success;
 }
@@ -399,6 +402,7 @@ void AnnounceMultikillNow(int client, int kills)
     }
 
     LogMultikillEvent(client, kills, label);
+    AwardMultikillBonusPoints(client, kills);
     if (!g_cvMultikillsEnabled.BoolValue)
     {
         return;
@@ -431,6 +435,21 @@ void AnnounceMultikillNow(int client, int kills)
 
     bool useSound = g_cvMultikillsSound.BoolValue && commandName[0] != '\0';
     Announcer_Announce(0, client, commandName, Announcer_ShouldPlaySound(useSound), g_cvMultikillsChat.BoolValue, message);
+}
+
+void AwardMultikillBonusPoints(int client, int kills)
+{
+    if (kills < 3)
+    {
+        return;
+    }
+
+    if (GetFeatureStatus(FeatureType_Native, WHALETRACKER_BONUS_NATIVE) != FeatureStatus_Available)
+    {
+        return;
+    }
+
+    WhaleTracker_ApplyBonusPoints(client, 1, true, true, 1.0, "multikill", kills, 3.0);
 }
 
 float GetMultikillRollupWindow()
