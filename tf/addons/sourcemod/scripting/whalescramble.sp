@@ -58,7 +58,6 @@ int g_iActiveSurrenderTeam = 0;
 bool scrambleCooldown = false;
 NativeVote g_hVote = null;
 Handle g_hScrambleCooldownTimer = null;
-Handle g_hAutoScrambleTimer = null;
 ConVar g_hLogEnabled = null;
 ConVar g_hAutoRounds = null;
 ConVar g_hVoteTime = null;
@@ -79,6 +78,8 @@ bool g_bAllowNextEngineScramble = false;
 float g_flAllowEngineScrambleUntil = 0.0;
 bool g_bWhaleEngineScramblePending = false;
 float g_flWhaleEngineScramblePendingUntil = 0.0;
+bool g_bAutoScramblePendingRoundStart = false;
+float g_flAutoScramblePendingRoundStartUntil = 0.0;
 bool g_bExecuteSwapImmediately = false;
 bool g_bSuppressSwapRespawn = false;
 
@@ -92,8 +93,6 @@ bool g_bSuppressSwapRespawn = false;
 #define FRAG_BALANCE_ENTRY_CLIENT0  1
 #define FRAG_BALANCE_ENTRY_CELLS  (FRAG_BALANCE_ENTRY_CLIENT0 + MAX_SWAP_BUFFER)
 #define SCRAMBLE_PLAYER_PERCENT_DIVISOR  5
-#define AUTO_SCRAMBLE_DELAY 3.0
-
 public Plugin myinfo =
 {
     name = "whalescramble",
@@ -146,6 +145,8 @@ public void OnPluginStart()
     AddCommandListener(SayListener, "say");
     AddCommandListener(SayListener, "say_team");
     HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_PostNoCopy);
+    HookEvent("teamplay_round_start", Event_RoundStart, EventHookMode_PostNoCopy);
+    HookEvent("teamplay_game_over", Event_GameOver, EventHookMode_PostNoCopy);
     HookEvent("player_team", Event_PlayerTeam, EventHookMode_Post);
 }
 
@@ -179,7 +180,7 @@ public void OnMapStart()
 {
     ResetVotes();
     ClearScrambleCooldown();
-    ClearAutoScrambleTimer();
+    ClearAutoScramblePending();
     ClearWhaleEngineScramblePending();
     InitEngineScrambleHook();
     HookEngineScrambleHandler();
@@ -196,7 +197,7 @@ public void OnMapEnd()
 {
     ResetVotes();
     ClearScrambleCooldown();
-    ClearAutoScrambleTimer();
+    ClearAutoScramblePending();
     ClearWhaleEngineScramblePending();
     UnhookEngineScrambleHandler();
     g_iRoundsSinceAuto = 0;
@@ -207,7 +208,7 @@ public void OnPluginEnd()
 {
     ResetVotes();
     ClearScrambleCooldown();
-    ClearAutoScrambleTimer();
+    ClearAutoScramblePending();
     ClearWhaleEngineScramblePending();
     UnhookEngineScrambleHandler();
     LogWhale("Plugin ended.");
@@ -339,14 +340,39 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
         return;
     }
 
-    if (g_hAutoScrambleTimer != null)
+    if (g_bAutoScramblePendingRoundStart)
     {
         LogWhale("Auto scramble already pending.");
         return;
     }
 
-    g_hAutoScrambleTimer = CreateTimer(AUTO_SCRAMBLE_DELAY, Timer_StartAutoScramble, _, TIMER_FLAG_NO_MAPCHANGE);
-    LogWhale("Auto scramble scheduled in %.1f seconds.", AUTO_SCRAMBLE_DELAY);
+    ArmAutoScrambleForNextRound();
+}
+
+public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
+{
+    if (!ConsumeAutoScramblePending())
+    {
+        return;
+    }
+
+    g_bExecuteSwapImmediately = true;
+    g_bSuppressSwapRespawn = true;
+    bool started = StartAutoScramble(true);
+    g_bSuppressSwapRespawn = false;
+    g_bExecuteSwapImmediately = false;
+
+    if (!started)
+    {
+        LogWhale("Pending auto scramble could not start on round start.");
+    }
+}
+
+public void Event_GameOver(Event event, const char[] name, bool dontBroadcast)
+{
+    ClearAutoScramblePending();
+    ClearWhaleEngineScramblePending();
+    LogWhale("Game over: auto scramble pending state cleared.");
 }
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
@@ -712,54 +738,27 @@ static void SetEngineScrambleTeams(bool value)
     SDKCall(g_hSetScrambleTeams, value);
 }
 
-static bool RequestEngineWhaleScramble()
-{
-    if (g_bVoteRunning || NativeVotes_IsVoteInProgress() || IsVoteInProgress())
-    {
-        LogWhale("Engine WhaleScramble request rejected: vote already running.");
-        return false;
-    }
-
-    if (scrambleCooldown)
-    {
-        LogWhale("Engine WhaleScramble request rejected: scramble cooldown active.");
-        return false;
-    }
-
-    if (g_hEngineHook == null || !g_hEngineHook.BoolValue || g_hSetScrambleTeams == null || g_iHandleScrambleHookId == INVALID_HOOK_ID)
-    {
-        LogWhale("Engine WhaleScramble handoff unavailable; starting directly.");
-        return StartAutoScramble(true);
-    }
-
-    g_bWhaleEngineScramblePending = true;
-    g_flWhaleEngineScramblePendingUntil = GetEngineTime() + 10.0;
-    SetEngineScrambleTeams(true);
-    LogWhale("Engine WhaleScramble pending flag set.");
-    return true;
-}
-
 static bool IsWhaleEngineScramblePending()
 {
-    if (!g_bWhaleEngineScramblePending)
-    {
-        return false;
-    }
+    return g_bWhaleEngineScramblePending
+        && GetEngineTime() <= g_flWhaleEngineScramblePendingUntil;
+}
 
-    if (GetEngineTime() > g_flWhaleEngineScramblePendingUntil)
-    {
-        ClearWhaleEngineScramblePending();
-        LogWhale("Engine WhaleScramble pending flag expired.");
-        return false;
-    }
-
-    return true;
+static bool IsWhaleEngineScramblePendingExpired()
+{
+    return g_bWhaleEngineScramblePending
+        && GetEngineTime() > g_flWhaleEngineScramblePendingUntil;
 }
 
 static void ClearWhaleEngineScramblePending()
 {
+    bool wasPending = g_bWhaleEngineScramblePending;
     g_bWhaleEngineScramblePending = false;
     g_flWhaleEngineScramblePendingUntil = 0.0;
+    if (wasPending)
+    {
+        SetEngineScrambleTeams(false);
+    }
 }
 
 public MRESReturn DHook_HandleScrambleTeams()
@@ -777,12 +776,18 @@ public MRESReturn DHook_HandleScrambleTeams()
 
     if (!IsWhaleEngineScramblePending())
     {
+        if (IsWhaleEngineScramblePendingExpired())
+        {
+            ClearWhaleEngineScramblePending();
+            LogWhale("Engine WhaleScramble pending flag expired; blocking stale TF2 handler.");
+            return MRES_Supercede;
+        }
+
         LogWhale("Engine scramble hook ignored: no WhaleScramble pending flag.");
         return MRES_Ignored;
     }
 
     ClearWhaleEngineScramblePending();
-    SetEngineScrambleTeams(false);
 
     g_bExecuteSwapImmediately = true;
     g_bSuppressSwapRespawn = true;
@@ -796,7 +801,7 @@ public MRESReturn DHook_HandleScrambleTeams()
     }
 
     g_iRoundsSinceAuto = 0;
-    ClearAutoScrambleTimer();
+    ClearAutoScramblePending();
 
     LogWhale("Engine scramble replaced with pending Whalescramble.");
     return MRES_Supercede;
@@ -1105,17 +1110,6 @@ static bool StartAutoScramble(bool suppressFeedback)
     return StartConfiguredWhaleScramble(0, !suppressFeedback, false, false);
 }
 
-public Action Timer_StartAutoScramble(Handle timer)
-{
-    if (timer == g_hAutoScrambleTimer)
-    {
-        g_hAutoScrambleTimer = null;
-    }
-
-    RequestEngineWhaleScramble();
-    return Plugin_Stop;
-}
-
 static bool StartConfiguredWhaleScramble(int issuer, bool broadcastFailures, bool allowLowPop, bool forced)
 {
     if (g_hTopSwap != null && g_hTopSwap.BoolValue)
@@ -1359,13 +1353,35 @@ static void ClearScrambleCooldown()
     }
 }
 
-static void ClearAutoScrambleTimer()
+static void ArmAutoScrambleForNextRound()
 {
-    if (g_hAutoScrambleTimer != null)
+    g_bAutoScramblePendingRoundStart = true;
+    g_flAutoScramblePendingRoundStartUntil = GetEngineTime() + 20.0;
+    LogWhale("Auto scramble armed for next round start.");
+}
+
+static bool ConsumeAutoScramblePending()
+{
+    if (!g_bAutoScramblePendingRoundStart)
     {
-        delete g_hAutoScrambleTimer;
-        g_hAutoScrambleTimer = null;
+        return false;
     }
+
+    if (GetEngineTime() > g_flAutoScramblePendingRoundStartUntil)
+    {
+        ClearAutoScramblePending();
+        LogWhale("Auto scramble pending state expired before round start.");
+        return false;
+    }
+
+    ClearAutoScramblePending();
+    return true;
+}
+
+static void ClearAutoScramblePending()
+{
+    g_bAutoScramblePendingRoundStart = false;
+    g_flAutoScramblePendingRoundStartUntil = 0.0;
 }
 
 static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLowPop, bool forced)
