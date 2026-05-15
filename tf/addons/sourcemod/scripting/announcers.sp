@@ -42,7 +42,8 @@ enum AnnouncerConfigMode
     AnnouncerConfig_None = 0,
     AnnouncerConfig_Killstreaks,
     AnnouncerConfig_Multikills,
-    AnnouncerConfig_Shutdown
+    AnnouncerConfig_Shutdown,
+    AnnouncerConfig_MedicDrops
 }
 
 ConVar g_cvMultikillsChat = null;
@@ -61,6 +62,7 @@ ConVar g_cvMultikillRollupWindow = null;
 StringMap g_KillstreakSoundMap = null;
 StringMap g_MultikillSoundMap = null;
 StringMap g_ShutdownSoundMap = null;
+StringMap g_MedicDropSoundMap = null;
 AnnouncerConfigMode g_ConfigMode = AnnouncerConfig_None;
 int g_ConfigDepth = 0;
 int g_ConfigLevel = 0;
@@ -83,6 +85,7 @@ public void OnPluginStart()
     g_KillstreakSoundMap = new StringMap();
     g_MultikillSoundMap = new StringMap();
     g_ShutdownSoundMap = new StringMap();
+    g_MedicDropSoundMap = new StringMap();
 
     g_cvKillstreaksEnabled = CreateConVar(
         "announcers_killstreaks_enabled",
@@ -219,6 +222,7 @@ public void OnPluginEnd()
     ClearSoundMap(g_KillstreakSoundMap);
     ClearSoundMap(g_MultikillSoundMap);
     ClearSoundMap(g_ShutdownSoundMap);
+    ClearSoundMap(g_MedicDropSoundMap);
 
     if (g_KillstreakSoundMap != null)
     {
@@ -236,6 +240,12 @@ public void OnPluginEnd()
     {
         delete g_ShutdownSoundMap;
         g_ShutdownSoundMap = null;
+    }
+
+    if (g_MedicDropSoundMap != null)
+    {
+        delete g_MedicDropSoundMap;
+        g_MedicDropSoundMap = null;
     }
 }
 
@@ -293,6 +303,11 @@ public void WhaleTracker_OnKillstreakEnd(int client, int killstreak)
 public void WhaleTracker_OnMultikill(int client, int kills)
 {
     QueueMultikillRollup(client, kills);
+}
+
+public void WhaleTracker_OnMedicDrop(int attacker, int medic)
+{
+    PlayMedicDropSound(medic);
 }
 
 void AnnounceKillstreakMilestone(int client, const char[] clientName, int killstreak, bool playSound = true)
@@ -375,6 +390,28 @@ void PlayShutdownSound(int client, int killstreak)
         {
             SaySounds_PlayCommand(client, commandName, false);
         }
+        return;
+    }
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (IsHumanAnnouncerClient(i))
+        {
+            SaySounds_PlayCommand(i, commandName, false);
+        }
+    }
+}
+
+void PlayMedicDropSound(int medic)
+{
+    if (!IsValidAnnouncerClient(medic) || !Announcer_ShouldPlaySound(true))
+    {
+        return;
+    }
+
+    char commandName[ANNOUNCER_MAX_COMMAND_NAME];
+    if (!GetAnnouncerSoundCommand(g_MedicDropSoundMap, 0, "", commandName, sizeof(commandName)))
+    {
         return;
     }
 
@@ -751,10 +788,15 @@ void LoadAnnouncerConfig()
     {
         g_ShutdownSoundMap = new StringMap();
     }
+    if (g_MedicDropSoundMap == null)
+    {
+        g_MedicDropSoundMap = new StringMap();
+    }
 
     ClearSoundMap(g_KillstreakSoundMap);
     ClearSoundMap(g_MultikillSoundMap);
     ClearSoundMap(g_ShutdownSoundMap);
+    ClearSoundMap(g_MedicDropSoundMap);
 
     g_ConfigDepth = 0;
     g_ConfigLevel = 0;
@@ -809,6 +851,10 @@ public SMCResult AnnouncerConfig_EnterSection(SMCParser parser, const char[] nam
         {
             g_ConfigMode = AnnouncerConfig_Shutdown;
         }
+        else if (StrEqual(sectionName, "medicdrops") || StrEqual(sectionName, "medicdrop") || StrEqual(sectionName, "medic_drops") || StrEqual(sectionName, "medic_drop"))
+        {
+            g_ConfigMode = AnnouncerConfig_MedicDrops;
+        }
         else
         {
             g_ConfigMode = AnnouncerConfig_None;
@@ -855,6 +901,22 @@ public SMCResult AnnouncerConfig_KeyValue(SMCParser parser, const char[] key, co
         if (commandName[0])
         {
             AddAnnouncerSoundCommand(g_ShutdownSoundMap, g_ConfigDepth == 3 ? g_ConfigLevel : 0, commandName);
+        }
+        return SMCParse_Continue;
+    }
+
+    if (g_ConfigMode == AnnouncerConfig_MedicDrops)
+    {
+        if (g_ConfigDepth != 2)
+        {
+            return SMCParse_Continue;
+        }
+
+        char commandName[ANNOUNCER_MAX_COMMAND_NAME];
+        GetConfigCommandName(key, value, commandName, sizeof(commandName));
+        if (commandName[0])
+        {
+            AddAnnouncerSoundCommand(g_MedicDropSoundMap, 0, commandName);
         }
         return SMCParse_Continue;
     }
