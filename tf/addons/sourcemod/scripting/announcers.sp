@@ -1,5 +1,6 @@
 #pragma semicolon 1
 #include <sourcemod>
+#include <clientprefs>
 #include <morecolors>
 #include <textparse>
 #pragma newdecls required
@@ -9,12 +10,16 @@
 #define WHALE_MULTIKILL_MAX_LEVEL 5
 #define ANNOUNCER_CONFIG_FILE "configs/announcers.cfg"
 #define ANNOUNCER_MAX_COMMAND_NAME 64
+#define ANNOUNCER_MAX_GROUP_NAME 32
+#define ANNOUNCER_GROUP_PREF_VALUE 512
+#define ANNOUNCER_GROUP_COOKIE "announcers_disabled_groups"
 #define MULTIKILL_LOG_FILE "logs/announcers_multikill.log"
 #define ANNOUNCER_SOUND_LIBRARY "saysounds"
 #define ANNOUNCER_SOUND_NATIVE "SaySounds_PlayCommand"
 #define ANNOUNCER_SOUND_PLAY_AS_NATIVE "SaySounds_PlayCommandAs"
 #define ANNOUNCER_SOUND_CAN_USE_NATIVE "SaySounds_CanClientUseCommand"
 #define ANNOUNCER_SOUND_IS_PAID_NATIVE "SaySounds_IsCommandPaid"
+#define ANNOUNCER_SOUND_GET_GROUP_NATIVE "SaySounds_GetCommandGroup"
 #define DGM_CAPACITY_NATIVE "DGM_ServerCapacitycheck"
 #define WHALETRACKER_BONUS_NATIVE "WhaleTracker_ApplyBonusPoints"
 
@@ -22,6 +27,7 @@ native bool SaySounds_PlayCommand(int client, const char[] commandName, bool ign
 native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const char[] commandName, bool ignoreOptIn = false);
 native bool SaySounds_CanClientUseCommand(int client, const char[] commandName);
 native bool SaySounds_IsCommandPaid(const char[] commandName);
+native bool SaySounds_GetCommandGroup(const char[] commandName, char[] groupName, int groupLen);
 native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50);
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 native bool WhaleTracker_ApplyBonusPoints(int client, int points, bool playSound, bool chatAlert, float randomChance, const char[] type, int target = 0, float delay = 3.0);
@@ -76,6 +82,8 @@ Handle g_hMultikillRollupTimer[MAXPLAYERS + 1];
 int g_iPendingMultikillKills[MAXPLAYERS + 1];
 int g_iPendingMultikillUserId[MAXPLAYERS + 1];
 int g_iPendingMultikillSerial[MAXPLAYERS + 1];
+Handle g_hAnnouncerGroupsCookie = INVALID_HANDLE;
+StringMap g_DisabledAnnouncerGroups[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
@@ -92,6 +100,19 @@ public void OnPluginStart()
     g_MultikillSoundMap = new StringMap();
     g_ShutdownSoundMap = new StringMap();
     g_MedicDropSoundMap = new StringMap();
+    g_hAnnouncerGroupsCookie = RegClientCookie(
+        ANNOUNCER_GROUP_COOKIE,
+        "Disabled paid announcer sound groups.",
+        CookieAccess_Private
+    );
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        g_DisabledAnnouncerGroups[i] = new StringMap();
+    }
+
+    RegConsoleCmd("sm_announcers", Command_Announcers, "Configure paid announcer sound packs.");
+    RegConsoleCmd("sm_announcer", Command_Announcers, "Configure paid announcer sound packs.");
 
     g_cvKillstreaksEnabled = CreateConVar(
         "announcers_killstreaks_enabled",
@@ -215,6 +236,14 @@ public void OnPluginStart()
     );
 
     LoadAnnouncerConfig();
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientInGame(client) && AreClientCookiesCached(client))
+        {
+            LoadAnnouncerGroupPreferences(client);
+        }
+    }
 }
 
 public void OnConfigsExecuted()
@@ -253,6 +282,15 @@ public void OnPluginEnd()
         delete g_MedicDropSoundMap;
         g_MedicDropSoundMap = null;
     }
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (g_DisabledAnnouncerGroups[i] != null)
+        {
+            delete g_DisabledAnnouncerGroups[i];
+            g_DisabledAnnouncerGroups[i] = null;
+        }
+    }
 }
 
 public void OnMapEnd()
@@ -263,6 +301,23 @@ public void OnMapEnd()
 public void OnClientDisconnect(int client)
 {
     ClearMultikillRollup(client);
+    ClearAnnouncerGroupPreferences(client);
+}
+
+public void OnClientPutInServer(int client)
+{
+    EnsureAnnouncerGroupPreferenceMap(client);
+    ClearAnnouncerGroupPreferences(client);
+
+    if (AreClientCookiesCached(client))
+    {
+        LoadAnnouncerGroupPreferences(client);
+    }
+}
+
+public void OnClientCookiesCached(int client)
+{
+    LoadAnnouncerGroupPreferences(client);
 }
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
@@ -271,10 +326,92 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional(ANNOUNCER_SOUND_PLAY_AS_NATIVE);
     MarkNativeAsOptional(ANNOUNCER_SOUND_CAN_USE_NATIVE);
     MarkNativeAsOptional(ANNOUNCER_SOUND_IS_PAID_NATIVE);
+    MarkNativeAsOptional(ANNOUNCER_SOUND_GET_GROUP_NATIVE);
     MarkNativeAsOptional(DGM_CAPACITY_NATIVE);
     MarkNativeAsOptional(WHALETRACKER_BONUS_NATIVE);
     MarkNativeAsOptional("Filters_GetChatName");
     return APLRes_Success;
+}
+
+public Action Command_Announcers(int client, int args)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (!AreClientCookiesCached(client))
+    {
+        PrintToChat(client, "[Announcers] Preferences are loading. Try again in a moment.");
+        return Plugin_Handled;
+    }
+
+    ShowAnnouncerGroupsMenu(client);
+    return Plugin_Handled;
+}
+
+void ShowAnnouncerGroupsMenu(int client)
+{
+    if (!CanInspectSaySoundGroups())
+    {
+        PrintToChat(client, "[Announcers] Saysound ownership info is not available right now.");
+        return;
+    }
+
+    ArrayList groups = new ArrayList(ByteCountToCells(ANNOUNCER_MAX_GROUP_NAME));
+    AddPurchasedAnnouncerGroupsFromMap(client, groups, g_KillstreakSoundMap);
+    AddPurchasedAnnouncerGroupsFromMap(client, groups, g_MultikillSoundMap);
+    AddPurchasedAnnouncerGroupsFromMap(client, groups, g_ShutdownSoundMap);
+    AddPurchasedAnnouncerGroupsFromMap(client, groups, g_MedicDropSoundMap);
+
+    if (groups.Length == 0)
+    {
+        delete groups;
+        PrintToChat(client, "[Announcers] No purchased announcer sound packs are available.");
+        return;
+    }
+
+    Menu menu = new Menu(MenuHandler_AnnouncerGroups);
+    menu.SetTitle("Announcers");
+
+    char groupName[ANNOUNCER_MAX_GROUP_NAME];
+    char display[96];
+    for (int i = 0; i < groups.Length; i++)
+    {
+        groups.GetString(i, groupName, sizeof(groupName));
+        Format(display, sizeof(display), "%s (%s)", groupName, IsAnnouncerGroupDisabled(client, groupName) ? "Disabled" : "Enabled");
+        menu.AddItem(groupName, display);
+    }
+
+    delete groups;
+    menu.ExitButton = true;
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int MenuHandler_AnnouncerGroups(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_Select)
+    {
+        if (client <= 0 || !IsClientInGame(client))
+        {
+            return 0;
+        }
+
+        char groupName[ANNOUNCER_MAX_GROUP_NAME];
+        menu.GetItem(item, groupName, sizeof(groupName));
+
+        bool disabled = !IsAnnouncerGroupDisabled(client, groupName);
+        SetAnnouncerGroupDisabled(client, groupName, disabled);
+        SaveAnnouncerGroupPreferences(client);
+        PrintToChat(client, "[Announcers] %s %s.", groupName, disabled ? "disabled" : "enabled");
+        ShowAnnouncerGroupsMenu(client);
+    }
+    else if (action == MenuAction_End)
+    {
+        delete menu;
+    }
+
+    return 0;
 }
 
 public void WhaleTracker_OnKillstreak(int client, int killstreak)
@@ -1035,6 +1172,79 @@ void AddAnnouncerSoundCommand(StringMap map, int level, const char[] commandName
     commands.PushString(commandName);
 }
 
+void AddPurchasedAnnouncerGroupsFromMap(int client, ArrayList groups, StringMap map)
+{
+    if (map == null || groups == null)
+    {
+        return;
+    }
+
+    StringMapSnapshot snapshot = map.Snapshot();
+    if (snapshot == null)
+    {
+        return;
+    }
+
+    for (int i = 0; i < snapshot.Length; i++)
+    {
+        char key[16];
+        snapshot.GetKey(i, key, sizeof(key));
+
+        any listValue;
+        if (!map.GetValue(key, listValue))
+        {
+            continue;
+        }
+
+        AddPurchasedAnnouncerGroupsFromCommands(client, groups, view_as<ArrayList>(listValue));
+    }
+
+    delete snapshot;
+}
+
+void AddPurchasedAnnouncerGroupsFromCommands(int client, ArrayList groups, ArrayList commands)
+{
+    if (commands == null)
+    {
+        return;
+    }
+
+    char commandName[ANNOUNCER_MAX_COMMAND_NAME];
+    char groupName[ANNOUNCER_MAX_GROUP_NAME];
+    for (int i = 0; i < commands.Length; i++)
+    {
+        commands.GetString(i, commandName, sizeof(commandName));
+        if (!SaySounds_IsCommandPaid(commandName)
+            || !SaySounds_GetCommandGroup(commandName, groupName, sizeof(groupName))
+            || !SaySounds_CanClientUseCommand(client, groupName))
+        {
+            continue;
+        }
+
+        AddUniqueAnnouncerGroup(groups, groupName);
+    }
+}
+
+void AddUniqueAnnouncerGroup(ArrayList groups, const char[] groupName)
+{
+    if (groups == null || !groupName[0])
+    {
+        return;
+    }
+
+    char current[ANNOUNCER_MAX_GROUP_NAME];
+    for (int i = 0; i < groups.Length; i++)
+    {
+        groups.GetString(i, current, sizeof(current));
+        if (StrEqual(current, groupName, false))
+        {
+            return;
+        }
+    }
+
+    groups.PushString(groupName);
+}
+
 bool GetAnnouncerSoundCommand(StringMap map, int level, const char[] fallbackCommand, int sourceClient, char[] commandName, int commandLen)
 {
     commandName[0] = '\0';
@@ -1051,7 +1261,7 @@ bool GetAnnouncerSoundCommand(StringMap map, int level, const char[] fallbackCom
     }
 
     if (CanUsePurchaseAwareSoundSelection(sourceClient)
-        && !SaySounds_CanClientUseCommand(sourceClient, fallbackCommand))
+        && (!SaySounds_CanClientUseCommand(sourceClient, fallbackCommand) || IsAnnouncerSoundCommandDisabled(sourceClient, fallbackCommand)))
     {
         return false;
     }
@@ -1107,6 +1317,11 @@ bool SelectAnnouncerSoundCommand(ArrayList commands, int sourceClient, char[] co
 
         if (SaySounds_IsCommandPaid(candidate))
         {
+            if (IsAnnouncerSoundCommandDisabled(sourceClient, candidate))
+            {
+                continue;
+            }
+
             paidCommands.PushString(candidate);
         }
         else
@@ -1137,6 +1352,29 @@ bool CanUsePurchaseAwareSoundSelection(int sourceClient)
     return IsValidAnnouncerClient(sourceClient)
         && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_CAN_USE_NATIVE) == FeatureStatus_Available
         && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_IS_PAID_NATIVE) == FeatureStatus_Available;
+}
+
+bool CanInspectSaySoundGroups()
+{
+    return GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_CAN_USE_NATIVE) == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_IS_PAID_NATIVE) == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, ANNOUNCER_SOUND_GET_GROUP_NATIVE) == FeatureStatus_Available;
+}
+
+bool IsAnnouncerSoundCommandDisabled(int client, const char[] commandName)
+{
+    if (!CanInspectSaySoundGroups() || !SaySounds_IsCommandPaid(commandName))
+    {
+        return false;
+    }
+
+    char groupName[ANNOUNCER_MAX_GROUP_NAME];
+    if (!SaySounds_GetCommandGroup(commandName, groupName, sizeof(groupName)))
+    {
+        return false;
+    }
+
+    return IsAnnouncerGroupDisabled(client, groupName);
 }
 
 bool GetMedicDropSoundCommand(int attacker, int medic, char[] commandName, int commandLen, int &sourceClient)
@@ -1188,7 +1426,9 @@ void AddEligiblePaidSoundCommands(ArrayList commands, int sourceClient, ArrayLis
     for (int i = 0; i < commands.Length; i++)
     {
         commands.GetString(i, candidate, sizeof(candidate));
-        if (SaySounds_CanClientUseCommand(sourceClient, candidate) && SaySounds_IsCommandPaid(candidate))
+        if (SaySounds_CanClientUseCommand(sourceClient, candidate)
+            && SaySounds_IsCommandPaid(candidate)
+            && !IsAnnouncerSoundCommandDisabled(sourceClient, candidate))
         {
             paidCommands.PushString(candidate);
             paidSources.Push(sourceClient);
@@ -1246,6 +1486,186 @@ void ClearSoundMap(StringMap map)
     }
 
     map.Clear();
+}
+
+void EnsureAnnouncerGroupPreferenceMap(int client)
+{
+    if (client < 1 || client > MaxClients)
+    {
+        return;
+    }
+
+    if (g_DisabledAnnouncerGroups[client] == null)
+    {
+        g_DisabledAnnouncerGroups[client] = new StringMap();
+    }
+}
+
+void ClearAnnouncerGroupPreferences(int client)
+{
+    if (client < 1 || client > MaxClients)
+    {
+        return;
+    }
+
+    EnsureAnnouncerGroupPreferenceMap(client);
+    g_DisabledAnnouncerGroups[client].Clear();
+}
+
+void LoadAnnouncerGroupPreferences(int client)
+{
+    if (client < 1 || client > MaxClients || g_hAnnouncerGroupsCookie == INVALID_HANDLE)
+    {
+        return;
+    }
+
+    ClearAnnouncerGroupPreferences(client);
+
+    char value[ANNOUNCER_GROUP_PREF_VALUE];
+    GetClientCookie(client, g_hAnnouncerGroupsCookie, value, sizeof(value));
+    ParseAnnouncerGroupPreferenceValue(client, value);
+}
+
+void SaveAnnouncerGroupPreferences(int client)
+{
+    if (client < 1 || client > MaxClients || g_hAnnouncerGroupsCookie == INVALID_HANDLE || !AreClientCookiesCached(client))
+    {
+        return;
+    }
+
+    char value[ANNOUNCER_GROUP_PREF_VALUE];
+    BuildAnnouncerGroupPreferenceValue(client, value, sizeof(value));
+    SetClientCookie(client, g_hAnnouncerGroupsCookie, value);
+}
+
+void ParseAnnouncerGroupPreferenceValue(int client, const char[] rawValue)
+{
+    if (!rawValue[0])
+    {
+        return;
+    }
+
+    char working[ANNOUNCER_GROUP_PREF_VALUE];
+    strcopy(working, sizeof(working), rawValue);
+    TrimString(working);
+    ToLowercaseInPlace(working, sizeof(working));
+
+    char token[ANNOUNCER_MAX_GROUP_NAME];
+    int start = 0;
+    int len = strlen(working);
+    while (start < len)
+    {
+        int commaPos = -1;
+        for (int i = start; i < len; i++)
+        {
+            if (working[i] == ',')
+            {
+                commaPos = i;
+                break;
+            }
+        }
+
+        int end = (commaPos == -1) ? len : commaPos;
+        int tokenLen = end - start;
+        if (tokenLen > 0 && tokenLen < sizeof(token))
+        {
+            for (int i = 0; i < tokenLen; i++)
+            {
+                token[i] = working[start + i];
+            }
+            token[tokenLen] = '\0';
+            TrimString(token);
+            if (token[0])
+            {
+                SetAnnouncerGroupDisabled(client, token, true);
+            }
+        }
+
+        start = end + 1;
+    }
+}
+
+void BuildAnnouncerGroupPreferenceValue(int client, char[] value, int valueLen)
+{
+    value[0] = '\0';
+    if (client < 1 || client > MaxClients || g_DisabledAnnouncerGroups[client] == null)
+    {
+        return;
+    }
+
+    StringMapSnapshot snapshot = g_DisabledAnnouncerGroups[client].Snapshot();
+    if (snapshot == null)
+    {
+        return;
+    }
+
+    char groupName[ANNOUNCER_MAX_GROUP_NAME];
+    for (int i = 0; i < snapshot.Length; i++)
+    {
+        snapshot.GetKey(i, groupName, sizeof(groupName));
+
+        int valueLenNow = strlen(value);
+        int needed = strlen(groupName) + (valueLenNow > 0 ? 1 : 0);
+        if (valueLenNow + needed >= valueLen)
+        {
+            break;
+        }
+
+        if (valueLenNow > 0)
+        {
+            StrCat(value, valueLen, ",");
+        }
+        StrCat(value, valueLen, groupName);
+    }
+
+    delete snapshot;
+}
+
+bool IsAnnouncerGroupDisabled(int client, const char[] groupName)
+{
+    if (client < 1 || client > MaxClients || !groupName[0])
+    {
+        return false;
+    }
+
+    EnsureAnnouncerGroupPreferenceMap(client);
+
+    char normalized[ANNOUNCER_MAX_GROUP_NAME];
+    strcopy(normalized, sizeof(normalized), groupName);
+    TrimString(normalized);
+    ToLowercaseInPlace(normalized, sizeof(normalized));
+
+    int disabled = 0;
+    return g_DisabledAnnouncerGroups[client].GetValue(normalized, disabled) && disabled != 0;
+}
+
+void SetAnnouncerGroupDisabled(int client, const char[] groupName, bool disabled)
+{
+    if (client < 1 || client > MaxClients || !groupName[0])
+    {
+        return;
+    }
+
+    EnsureAnnouncerGroupPreferenceMap(client);
+
+    char normalized[ANNOUNCER_MAX_GROUP_NAME];
+    strcopy(normalized, sizeof(normalized), groupName);
+    TrimString(normalized);
+    ToLowercaseInPlace(normalized, sizeof(normalized));
+
+    if (!normalized[0])
+    {
+        return;
+    }
+
+    if (disabled)
+    {
+        g_DisabledAnnouncerGroups[client].SetValue(normalized, 1);
+    }
+    else
+    {
+        g_DisabledAnnouncerGroups[client].Remove(normalized);
+    }
 }
 
 void ShiftStringLeft(char[] buffer, int maxlen, int positions)

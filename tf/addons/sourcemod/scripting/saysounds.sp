@@ -70,6 +70,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
     CreateNative("SaySounds_PlayCommandAs", Native_PlayCommandAs);
     CreateNative("SaySounds_CanClientUseCommand", Native_CanClientUseCommand);
     CreateNative("SaySounds_IsCommandPaid", Native_IsCommandPaid);
+    CreateNative("SaySounds_GetCommandGroup", Native_GetCommandGroup);
     return APLRes_Success;
 }
 
@@ -914,6 +915,43 @@ static bool IsSaySoundInputPaid(const char[] inputName)
     }
 
     return IsKnownGroup(normalizedName) && IsGroupPaid(normalizedName);
+}
+
+static bool GetSaySoundInputGroup(const char[] inputName, char[] groupName, int groupLen)
+{
+    if (groupLen > 0)
+    {
+        groupName[0] = '\0';
+    }
+
+    char normalizedName[MAX_COMMAND_NAME];
+    strcopy(normalizedName, sizeof(normalizedName), inputName);
+    TrimString(normalizedName);
+    ToLowercaseInPlace(normalizedName, sizeof(normalizedName));
+
+    if (!normalizedName[0])
+    {
+        return false;
+    }
+
+    if (IsKnownGroup(normalizedName))
+    {
+        strcopy(groupName, groupLen, normalizedName);
+        return true;
+    }
+
+    char soundPath[PLATFORM_MAX_PATH];
+    if (!gSoundMap.GetString(normalizedName, soundPath, sizeof(soundPath)))
+    {
+        return false;
+    }
+
+    if (!gSoundGroupMap.GetString(normalizedName, groupName, groupLen))
+    {
+        strcopy(groupName, groupLen, DEFAULT_GROUP);
+    }
+
+    return groupName[0] != '\0';
 }
 
 static void EnsureClientGroupPreferenceMap(int client)
@@ -1970,6 +2008,25 @@ public int Native_IsCommandPaid(Handle plugin, int numParams)
     ToLowercaseInPlace(commandName, sizeof(commandName));
 
     return IsSaySoundInputPaid(commandName);
+}
+
+public int Native_GetCommandGroup(Handle plugin, int numParams)
+{
+    char commandName[MAX_COMMAND_NAME * 4];
+    GetNativeString(1, commandName, sizeof(commandName));
+    TrimString(commandName);
+    ToLowercaseInPlace(commandName, sizeof(commandName));
+
+    char groupName[MAX_GROUP_NAME];
+    bool found = GetSaySoundInputGroup(commandName, groupName, sizeof(groupName));
+
+    int groupLen = GetNativeCell(3);
+    if (groupLen > 0)
+    {
+        SetNativeString(2, found ? groupName : "", groupLen);
+    }
+
+    return found;
 }
 
 public Action Command_SetVolume(int client, int args)

@@ -64,6 +64,16 @@ native bool SaySounds_CanClientUseCommand(int client, const char[] commandName);
  */
 native bool SaySounds_IsCommandPaid(const char[] commandName);
 
+/**
+ * Returns the group for a configured say sound command or known group input.
+ *
+ * @param commandName   Configured say sound command or group.
+ * @param groupName     Output group name.
+ * @param groupLen      Output buffer size.
+ * @return              True if the command/group resolved.
+ */
+native bool SaySounds_GetCommandGroup(const char[] commandName, char[] groupName, int groupLen);
+
 public SharedPlugin __pl_saysounds =
 {
     name = "saysounds",
@@ -84,5 +94,6 @@ public void __pl_saysounds_SetNTVOptional()
     MarkNativeAsOptional("SaySounds_PlayCommandAs");
     MarkNativeAsOptional("SaySounds_CanClientUseCommand");
     MarkNativeAsOptional("SaySounds_IsCommandPaid");
+    MarkNativeAsOptional("SaySounds_GetCommandGroup");
 }
 #endif
