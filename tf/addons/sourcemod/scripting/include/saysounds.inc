@@ -29,9 +29,11 @@ native void SaySounds_PlaySoundToOptedIn(const char[] soundPath, const char[] gr
  * @param client        Client index, or `0` for broadcast.
  * @param commandName   Configured say sound command, such as `xp_gain`.
  * @param force         If true, bypasses say sound opt-in checks.
+ * @param bypassAdminOnly
+ *                      If true, ignores AdminOnlyGroups for this API-triggered sound.
  * @return              True if the sound resolved and was emitted to at least one client.
  */
-native bool SaySounds_PlayCommand(int client, const char[] commandName, bool force = false);
+native bool SaySounds_PlayCommand(int client, const char[] commandName, bool force = false, bool bypassAdminOnly = true);
 
 /**
  * Plays a configured say sound command using sourceClient for admin/paid access
@@ -43,18 +45,22 @@ native bool SaySounds_PlayCommand(int client, const char[] commandName, bool for
  * @param targetClient  Client index, or `0` for broadcast.
  * @param commandName   Configured say sound command or group.
  * @param force         If true, bypasses listener opt-in checks.
+ * @param bypassAdminOnly
+ *                      If true, ignores AdminOnlyGroups for this API-triggered sound.
  * @return              True if the sound resolved and was emitted to at least one client.
  */
-native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const char[] commandName, bool force = false);
+native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const char[] commandName, bool force = false, bool bypassAdminOnly = true);
 
 /**
  * Returns whether a source client can use a configured say sound command or group.
  *
  * @param client        Source client index.
  * @param commandName   Configured say sound command or group.
+ * @param bypassAdminOnly
+ *                      If true, ignores AdminOnlyGroups while checking API-triggered eligibility.
  * @return              True if configured and usable by this client.
  */
-native bool SaySounds_CanClientUseCommand(int client, const char[] commandName);
+native bool SaySounds_CanClientUseCommand(int client, const char[] commandName, bool bypassAdminOnly = true);
 
 /**
  * Returns whether a configured say sound command or group belongs to a paid group.

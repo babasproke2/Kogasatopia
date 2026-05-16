@@ -829,8 +829,13 @@ static bool IsGroupPaid(const char[] groupName)
     return gPaidSaysoundGroups.GetValue(normalized, paid) && paid != 0;
 }
 
-static bool CanClientUseAdminOnlySaySoundGroup(int client, const char[] groupName)
+static bool CanClientUseAdminOnlySaySoundGroup(int client, const char[] groupName, bool bypassAdminOnly = false)
 {
+    if (bypassAdminOnly)
+    {
+        return true;
+    }
+
     if (!IsGroupAdminOnly(groupName))
     {
         return true;
@@ -864,13 +869,13 @@ static bool CanClientUsePaidSaysoundGroup(int client, const char[] groupName)
     return BonusPoints_HasPurchase(client, groupName);
 }
 
-static bool CanClientUseSaySoundGroup(int client, const char[] groupName)
+static bool CanClientUseSaySoundGroup(int client, const char[] groupName, bool bypassAdminOnly = false)
 {
-    return CanClientUseAdminOnlySaySoundGroup(client, groupName)
+    return CanClientUseAdminOnlySaySoundGroup(client, groupName, bypassAdminOnly)
         && CanClientUsePaidSaysoundGroup(client, groupName);
 }
 
-static bool CanClientUseSaySoundCommand(int client, const char[] commandName)
+static bool CanClientUseSaySoundCommand(int client, const char[] commandName, bool bypassAdminOnly = false)
 {
     char path[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
@@ -879,15 +884,15 @@ static bool CanClientUseSaySoundCommand(int client, const char[] commandName)
         return false;
     }
 
-    return CanClientUseSaySoundGroup(client, groupName);
+    return CanClientUseSaySoundGroup(client, groupName, bypassAdminOnly);
 }
 
-static bool CanClientUseSaySoundInput(int client, const char[] inputName)
+static bool CanClientUseSaySoundInput(int client, const char[] inputName, bool bypassAdminOnly = false)
 {
     bool restricted = false;
     bool paidRestricted = false;
     char chosen[MAX_COMMAND_NAME];
-    return GetCommandOptionForClient(client, inputName, chosen, sizeof(chosen), restricted, paidRestricted);
+    return GetCommandOptionForClient(client, inputName, chosen, sizeof(chosen), restricted, paidRestricted, bypassAdminOnly);
 }
 
 static bool IsSaySoundInputPaid(const char[] inputName)
@@ -1919,6 +1924,12 @@ public int Native_PlayCommand(Handle plugin, int numParams)
         forcePlayback = view_as<bool>(GetNativeCell(3));
     }
 
+    bool bypassAdminOnly = true;
+    if (numParams >= 4)
+    {
+        bypassAdminOnly = view_as<bool>(GetNativeCell(4));
+    }
+
     char commandName[MAX_COMMAND_NAME * 4];
     GetNativeString(2, commandName, sizeof(commandName));
     TrimString(commandName);
@@ -1933,7 +1944,7 @@ public int Native_PlayCommand(Handle plugin, int numParams)
     char groupName[MAX_GROUP_NAME];
     bool restricted = false;
     bool paidRestricted = false;
-    if (!GetCommandSoundDataForClient(client, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted))
+    if (!GetCommandSoundDataForClient(client, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, bypassAdminOnly))
     {
         return 0;
     }
@@ -1961,6 +1972,12 @@ public int Native_PlayCommandAs(Handle plugin, int numParams)
         forcePlayback = view_as<bool>(GetNativeCell(4));
     }
 
+    bool bypassAdminOnly = true;
+    if (numParams >= 5)
+    {
+        bypassAdminOnly = view_as<bool>(GetNativeCell(5));
+    }
+
     char commandName[MAX_COMMAND_NAME * 4];
     GetNativeString(3, commandName, sizeof(commandName));
     TrimString(commandName);
@@ -1975,7 +1992,7 @@ public int Native_PlayCommandAs(Handle plugin, int numParams)
     char groupName[MAX_GROUP_NAME];
     bool restricted = false;
     bool paidRestricted = false;
-    if (!GetCommandSoundDataForClient(sourceClient, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted))
+    if (!GetCommandSoundDataForClient(sourceClient, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, bypassAdminOnly))
     {
         return 0;
     }
@@ -1997,7 +2014,13 @@ public int Native_CanClientUseCommand(Handle plugin, int numParams)
     TrimString(commandName);
     ToLowercaseInPlace(commandName, sizeof(commandName));
 
-    return CanClientUseSaySoundInput(client, commandName);
+    bool bypassAdminOnly = true;
+    if (numParams >= 3)
+    {
+        bypassAdminOnly = view_as<bool>(GetNativeCell(3));
+    }
+
+    return CanClientUseSaySoundInput(client, commandName, bypassAdminOnly);
 }
 
 public int Native_IsCommandPaid(Handle plugin, int numParams)
@@ -2583,7 +2606,7 @@ static bool GetCommandSoundData(const char[] commandName, char[] soundPath, int 
     return true;
 }
 
-static bool GetRandomCommandInGroupForClient(int client, const char[] groupName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted)
+static bool GetRandomCommandInGroupForClient(int client, const char[] groupName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool bypassAdminOnly = false)
 {
     if (commandLen > 0)
     {
@@ -2600,7 +2623,7 @@ static bool GetRandomCommandInGroupForClient(int client, const char[] groupName,
         return false;
     }
 
-    if (!CanClientUseAdminOnlySaySoundGroup(client, normalizedGroup))
+    if (!CanClientUseAdminOnlySaySoundGroup(client, normalizedGroup, bypassAdminOnly))
     {
         restricted = true;
         return false;
@@ -2639,7 +2662,7 @@ static bool GetRandomCommandInGroupForClient(int client, const char[] groupName,
     return matchCount > 0 && commandName[0] != '\0';
 }
 
-static bool GetCommandOptionForClient(int client, const char[] inputName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted)
+static bool GetCommandOptionForClient(int client, const char[] inputName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool bypassAdminOnly = false)
 {
     if (commandLen > 0)
     {
@@ -2665,7 +2688,7 @@ static bool GetCommandOptionForClient(int client, const char[] inputName, char[]
             strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
         }
 
-        if (!CanClientUseAdminOnlySaySoundGroup(client, groupName))
+        if (!CanClientUseAdminOnlySaySoundGroup(client, groupName, bypassAdminOnly))
         {
             restricted = true;
             return false;
@@ -2681,10 +2704,10 @@ static bool GetCommandOptionForClient(int client, const char[] inputName, char[]
         return true;
     }
 
-    return GetRandomCommandInGroupForClient(client, normalizedName, commandName, commandLen, restricted, paidRestricted);
+    return GetRandomCommandInGroupForClient(client, normalizedName, commandName, commandLen, restricted, paidRestricted, bypassAdminOnly);
 }
 
-static bool GetCommandSoundDataForClient(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted, bool &paidRestricted)
+static bool GetCommandSoundDataForClient(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted, bool &paidRestricted, bool bypassAdminOnly = false)
 {
     restricted = false;
     paidRestricted = false;
@@ -2707,7 +2730,7 @@ static bool GetCommandSoundDataForClient(int client, const char[] commandNames, 
     if (StrContains(working, ",", false) == -1)
     {
         char chosen[MAX_COMMAND_NAME];
-        if (!GetCommandOptionForClient(client, working, chosen, sizeof(chosen), restricted, paidRestricted))
+        if (!GetCommandOptionForClient(client, working, chosen, sizeof(chosen), restricted, paidRestricted, bypassAdminOnly))
         {
             return false;
         }
@@ -2750,7 +2773,7 @@ static bool GetCommandSoundDataForClient(int client, const char[] commandNames, 
             if (token[0])
             {
                 char chosen[MAX_COMMAND_NAME];
-                if (GetCommandOptionForClient(client, token, chosen, sizeof(chosen), restricted, paidRestricted))
+                if (GetCommandOptionForClient(client, token, chosen, sizeof(chosen), restricted, paidRestricted, bypassAdminOnly))
                 {
                     strcopy(options[optionCount], sizeof(options[]), chosen);
                     optionCount++;

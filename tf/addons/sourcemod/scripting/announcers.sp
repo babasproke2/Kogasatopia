@@ -23,9 +23,9 @@
 #define DGM_CAPACITY_NATIVE "DGM_ServerCapacitycheck"
 #define WHALETRACKER_BONUS_NATIVE "WhaleTracker_ApplyBonusPoints"
 
-native bool SaySounds_PlayCommand(int client, const char[] commandName, bool ignoreOptIn = false);
-native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const char[] commandName, bool ignoreOptIn = false);
-native bool SaySounds_CanClientUseCommand(int client, const char[] commandName);
+native bool SaySounds_PlayCommand(int client, const char[] commandName, bool ignoreOptIn = false, bool bypassAdminOnly = true);
+native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const char[] commandName, bool ignoreOptIn = false, bool bypassAdminOnly = true);
+native bool SaySounds_CanClientUseCommand(int client, const char[] commandName, bool bypassAdminOnly = true);
 native bool SaySounds_IsCommandPaid(const char[] commandName);
 native bool SaySounds_GetCommandGroup(const char[] commandName, char[] groupName, int groupLen);
 native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50);
