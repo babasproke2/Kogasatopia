@@ -3,6 +3,7 @@
 
 #include <sourcemod>
 #include <multicolors>
+#include <saysounds>
 #include <whaletracker_api>
 
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
@@ -699,7 +700,18 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
         char displayName[256];
         BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
         CPrintToChatAllEx(client, "{magenta}[BP]{default} %s bought {gold}%s{default}!", displayName, itemName);
+        PlayPurchaseSound();
     }
+}
+
+static void PlayPurchaseSound()
+{
+    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
+    {
+        return;
+    }
+
+    SaySounds_PlayCommand(0, "xp_gain", false);
 }
 
 static void BuildPurchaseDisplayName(int client, char[] buffer, int maxlen)
