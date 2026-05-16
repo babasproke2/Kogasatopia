@@ -9,7 +9,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
 #define BP_TRANS_DB_CONFIG_DEFAULT "default"
 #define BP_TRANS_TABLE "bonuspoints_transactions"
-#define BP_BALANCE_TABLE "whaletracker"
+#define BP_BALANCE_TABLE "points_store_balances"
 #define BP_TRANS_ITEM_KEY_MAX 64
 #define BP_TRANS_ITEM_NAME_MAX 128
 #define BP_SOUND_COMMAND "xp_gain"
@@ -43,15 +43,12 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("SaySounds_PlayCommand");
     RegPluginLibrary("points_store");
-    RegPluginLibrary("bonuspoints_transactions");
     CreateNative("PointsStore_AreBonusPointsLoaded", Native_PointsStore_AreBonusPointsLoaded);
     CreateNative("PointsStore_GetBonusPoints", Native_PointsStore_GetBonusPoints);
     CreateNative("PointsStore_ApplyBonusPoints", Native_PointsStore_ApplyBonusPoints);
     CreateNative("PointsStore_SpendBonusPoints", Native_PointsStore_SpendBonusPoints);
     CreateNative("PointsStore_HasPurchase", Native_PointsStore_HasPurchase);
     CreateNative("PointsStore_GetPurchasePrice", Native_PointsStore_GetPurchasePrice);
-    CreateNative("BonusPoints_HasPurchase", Native_BonusPoints_HasPurchase);
-    CreateNative("BonusPoints_GetPurchasePrice", Native_BonusPoints_GetPurchasePrice);
     return APLRes_Success;
 }
 
@@ -192,6 +189,44 @@ void EnsureSchema()
             BP_TRANS_TABLE);
     }
 
+    g_Database.Query(SQL_OnPurchaseSchemaReady, query);
+}
+
+public void SQL_OnPurchaseSchemaReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Purchase schema creation failed: %s", error);
+        return;
+    }
+
+    if (!g_IsMySql)
+    {
+        g_Database.Query(SQL_OnIgnoredResult, "CREATE INDEX IF NOT EXISTS idx_bonuspoints_transactions_steamid64 ON bonuspoints_transactions (steamid64)");
+        g_Database.Query(SQL_OnIgnoredResult, "CREATE INDEX IF NOT EXISTS idx_bonuspoints_transactions_item_key ON bonuspoints_transactions (item_key)");
+    }
+
+    char query[512];
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "steamid64 VARCHAR(32) NOT NULL, "
+            ... "balance INT NOT NULL DEFAULT 0, "
+            ... "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, "
+            ... "PRIMARY KEY (steamid64))",
+            BP_BALANCE_TABLE);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "steamid64 VARCHAR(32) NOT NULL PRIMARY KEY, "
+            ... "balance INT NOT NULL DEFAULT 0, "
+            ... "updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            BP_BALANCE_TABLE);
+    }
+
     g_Database.Query(SQL_OnSchemaReady, query);
 }
 
@@ -199,16 +234,11 @@ public void SQL_OnSchemaReady(Database db, DBResultSet results, const char[] err
 {
     if (error[0] != '\0')
     {
-        LogError("[bonuspoints_transactions] Schema creation failed: %s", error);
+        LogError("[points_store] Balance schema creation failed: %s", error);
         return;
     }
 
     g_DatabaseReady = true;
-    if (!g_IsMySql)
-    {
-        g_Database.Query(SQL_OnIgnoredResult, "CREATE INDEX IF NOT EXISTS idx_bonuspoints_transactions_steamid64 ON bonuspoints_transactions (steamid64)");
-        g_Database.Query(SQL_OnIgnoredResult, "CREATE INDEX IF NOT EXISTS idx_bonuspoints_transactions_item_key ON bonuspoints_transactions (item_key)");
-    }
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -477,7 +507,7 @@ void LoadClientBonusPoints(int client)
 
     char query[256];
     Format(query, sizeof(query),
-        "SELECT bonusPoints FROM %s WHERE steamid = '%s'",
+        "SELECT balance FROM %s WHERE steamid64 = '%s'",
         BP_BALANCE_TABLE,
         escapedSteamId);
     g_Database.Query(SQL_OnClientBonusPointsLoaded, query, pack);
@@ -679,20 +709,15 @@ bool QueueBonusPointsDeltaSave(int client, int delta)
         return false;
     }
 
-    int now = GetTime();
     char query[512];
     Format(query, sizeof(query),
-        "INSERT INTO %s (steamid, first_seen, bonusPoints, last_seen) "
-        ... "VALUES ('%s', %d, %d, %d) "
+        "INSERT INTO %s (steamid64, balance) "
+        ... "VALUES ('%s', %d) "
         ... "ON DUPLICATE KEY UPDATE "
-        ... "first_seen = LEAST(first_seen, VALUES(first_seen)), "
-        ... "bonusPoints = GREATEST(0, bonusPoints + VALUES(bonusPoints)), "
-        ... "last_seen = GREATEST(last_seen, VALUES(last_seen))",
+        ... "balance = GREATEST(0, balance + VALUES(balance))",
         BP_BALANCE_TABLE,
         escapedSteamId,
-        now,
-        delta,
-        now);
+        delta);
 
     g_Database.Query(SQL_OnIgnoredResult, query);
     return true;
@@ -1369,14 +1394,4 @@ public any Native_PointsStore_GetPurchasePrice(Handle plugin, int numParams)
     char itemKey[BP_TRANS_ITEM_KEY_MAX];
     GetNativeString(2, itemKey, sizeof(itemKey));
     return GetCachedPurchasePrice(client, itemKey);
-}
-
-public any Native_BonusPoints_HasPurchase(Handle plugin, int numParams)
-{
-    return Native_PointsStore_HasPurchase(plugin, numParams);
-}
-
-public any Native_BonusPoints_GetPurchasePrice(Handle plugin, int numParams)
-{
-    return Native_PointsStore_GetPurchasePrice(plugin, numParams);
 }
