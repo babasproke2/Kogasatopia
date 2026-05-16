@@ -5,6 +5,8 @@
 #include <multicolors>
 #include <whaletracker_api>
 
+native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
+
 #define BP_TRANS_DB_CONFIG_DEFAULT "default"
 #define BP_TRANS_TABLE "bonuspoints_transactions"
 #define BP_TRANS_ITEM_KEY_MAX 64
@@ -25,7 +27,7 @@ bool g_IsMySql = false;
 
 public Plugin myinfo =
 {
-    name = "bonuspoints_transactions",
+    name = "points_store",
     author = "Kogasa",
     description = "Bonus points purchase receipts, shop UI, and ownership API.",
     version = "1.0.0",
@@ -34,6 +36,7 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
+    MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("WhaleTracker_SpendBonusPoints");
     MarkNativeAsOptional(WT_GET_BONUS_POINTS_NATIVE);
     RegPluginLibrary("bonuspoints_transactions");
@@ -693,7 +696,48 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
     g_ClientPurchases[client].SetValue(itemKey, price);
     if (IsClientInGameHuman(client))
     {
-        PrintToChat(client, "[Shop] Purchased %s for %d BP.", itemName, price);
+        char displayName[256];
+        BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
+        CPrintToChatAllEx(client, "{magenta}[BP]{default} %s bought {gold}%s{default}!", displayName, itemName);
+    }
+}
+
+static void BuildPurchaseDisplayName(int client, char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+
+    if (GetFeatureStatus(FeatureType_Native, "Filters_GetChatName") == FeatureStatus_Available
+        && Filters_GetChatName(client, buffer, maxlen)
+        && buffer[0] != '\0')
+    {
+        ResolveTeamColorTag(client, buffer, maxlen);
+        return;
+    }
+
+    char colorTag[16];
+    BuildTeamColorTag(client, colorTag, sizeof(colorTag));
+    Format(buffer, maxlen, "%s%N{default}", colorTag, client);
+}
+
+static void ResolveTeamColorTag(int client, char[] buffer, int maxlen)
+{
+    if (StrContains(buffer, "{teamcolor}", false) == -1)
+    {
+        return;
+    }
+
+    char colorTag[16];
+    BuildTeamColorTag(client, colorTag, sizeof(colorTag));
+    ReplaceString(buffer, maxlen, "{teamcolor}", colorTag, false);
+}
+
+static void BuildTeamColorTag(int client, char[] colorTag, int length)
+{
+    switch (GetClientTeam(client))
+    {
+        case 2: strcopy(colorTag, length, "{red}");
+        case 3: strcopy(colorTag, length, "{blue}");
+        default: strcopy(colorTag, length, "{default}");
     }
 }
 
