@@ -3,26 +3,20 @@
 #endif
 #define _bonuspoints_transactions_included
 
-#include <sourcemod>
+#include <points_store_api>
 
 /**
- * Returns whether a client owns a configured bonus-points shop item.
- *
- * This native only checks the in-memory client cache.
- *
- * @param client        Client index.
- * @param itemKey       Stable item database key.
- * @return              True if owned.
+ * Compatibility wrapper for the old bonuspoints_transactions API.
  */
-native bool BonusPoints_HasPurchase(int client, const char[] itemKey);
+stock bool BonusPoints_HasPurchase(int client, const char[] itemKey)
+{
+    return PointsStore_HasPurchase(client, itemKey);
+}
 
 /**
- * Returns the price paid for a configured bonus-points shop item.
- *
- * This native only checks the in-memory client cache.
- *
- * @param client        Client index.
- * @param itemKey       Stable item database key.
- * @return              Price paid, or 0 if not owned.
+ * Compatibility wrapper for the old bonuspoints_transactions API.
  */
-native int BonusPoints_GetPurchasePrice(int client, const char[] itemKey);
+stock int BonusPoints_GetPurchasePrice(int client, const char[] itemKey)
+{
+    return PointsStore_GetPurchasePrice(client, itemKey);
+}

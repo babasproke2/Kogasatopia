@@ -4,6 +4,7 @@
 #include <sourcemod>
 #include <morecolors>
 #include <tf2_stocks>
+#include <points_store_api>
 #include <whaletracker_api>
 
 #define PLUGIN_NAME               "Clans"
@@ -291,6 +292,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("Clans_GetTags", Native_Clans_GetTags);
     CreateNative("Clans_GetSameTeamClanMemberCount", Native_Clans_GetSameTeamClanMemberCount);
     MarkNativeAsOptional("Filters_GetChatName");
+    MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
     MarkNativeAsOptional("Tags_GetTag");
     MarkNativeAsOptional("Tags_SetSelectedTag");
     return APLRes_Success;
@@ -299,6 +301,16 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 native bool Tags_GetTag(int client, const char[] steamid64, char[] buffer, int maxlen);
 native bool Tags_SetSelectedTag(int client, const char[] tag);
+
+bool ApplyClanBonusPoints(int client, int points)
+{
+    if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    return PointsStore_ApplyBonusPoints(client, points, false, false, 1.0, "", 0, 0.0);
+}
 
 Database g_Database = null;
 bool g_bDatabaseReady = false;
@@ -6910,7 +6922,7 @@ public void SQL_OnClanCreateValidate(Database db, DBResultSet results, const cha
         return;
     }
 
-    if (!ApplyBonusPoints(client, -CLAN_CREATE_COST, false, false, 1.0, "", 0, 0.0))
+    if (!ApplyClanBonusPoints(client, -CLAN_CREATE_COST))
     {
         PrintToChat(client, "[Clans] You need %d bonus points to create a clan.", CLAN_CREATE_COST);
         return;
@@ -6919,7 +6931,7 @@ public void SQL_OnClanCreateValidate(Database db, DBResultSet results, const cha
     char steamid64[STEAMID64_MAXLEN];
     if (!GetClientSteam64(client, steamid64, sizeof(steamid64)))
     {
-        ApplyBonusPoints(client, CLAN_CREATE_COST, false, false, 1.0, "", 0, 0.0);
+        ApplyClanBonusPoints(client, CLAN_CREATE_COST);
         PrintToChat(client, "[Clans] Could not read your SteamID64.");
         return;
     }
@@ -7063,7 +7075,7 @@ public void SQLTxn_OnCreateClanFailure(Database db, any data, int numQueries, co
     int client = GetClientOfUserId(userId);
     if (client > 0 && IsClientInGame(client))
     {
-        ApplyBonusPoints(client, CLAN_CREATE_COST, false, false, 1.0, "", 0, 0.0);
+        ApplyClanBonusPoints(client, CLAN_CREATE_COST);
 
         if (StrContains(error, "Duplicate", false) != -1 || StrContains(error, "UNIQUE", false) != -1)
         {
@@ -7284,7 +7296,7 @@ public void SQLTxn_OnDeleteClanSuccess(Database db, any data, int numQueries, DB
     {
         if (refundOwner)
         {
-            ApplyBonusPoints(client, CLAN_CREATE_COST, false, false, 1.0, "", 0, 0.0);
+            ApplyClanBonusPoints(client, CLAN_CREATE_COST);
         }
 
         PrintToChat(client, "[Clans] Clan %d deleted.", clanId);

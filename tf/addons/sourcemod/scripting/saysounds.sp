@@ -5,7 +5,7 @@
 #include <sdktools_sound>
 #include <textparse>
 #include <tf_custom_attributes>
-#include <bonuspoints_transactions>
+#include <points_store_api>
 
 #define CONFIG_FILE "configs/saysounds.cfg"
 #define MAX_COMMAND_NAME 64
@@ -19,7 +19,7 @@
 #define TOUHOU_DEATH_SOUND_ATTR "touhou death sound"
 #define TOUHOU_DEATH_SOUND_PATH "touhou/pichuun.mp3"
 #define TOUHOU_DEATH_SOUND_FORCE_VOLUME 0.5
-#define BONUSPOINTS_HAS_PURCHASE_NATIVE "BonusPoints_HasPurchase"
+#define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
 
 public Plugin myinfo =
 {
@@ -62,7 +62,7 @@ const int MAX_SOUND_OPTIONS = 16;
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 {
-    MarkNativeAsOptional(BONUSPOINTS_HAS_PURCHASE_NATIVE);
+    MarkNativeAsOptional(POINTS_STORE_HAS_PURCHASE_NATIVE);
     RegPluginLibrary("saysounds");
     CreateNative("SaySounds_ShouldPlay", Native_ShouldPlay);
     CreateNative("SaySounds_PlaySoundToOptedIn", Native_PlaySoundToOptedIn);
@@ -861,12 +861,12 @@ static bool CanClientUsePaidSaysoundGroup(int client, const char[] groupName)
         return false;
     }
 
-    if (GetFeatureStatus(FeatureType_Native, BONUSPOINTS_HAS_PURCHASE_NATIVE) != FeatureStatus_Available)
+    if (GetFeatureStatus(FeatureType_Native, POINTS_STORE_HAS_PURCHASE_NATIVE) != FeatureStatus_Available)
     {
         return false;
     }
 
-    return BonusPoints_HasPurchase(client, groupName);
+    return PointsStore_HasPurchase(client, groupName);
 }
 
 static bool CanClientUseSaySoundGroup(int client, const char[] groupName, bool bypassAdminOnly = false)

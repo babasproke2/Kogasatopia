@@ -7,7 +7,7 @@
 #include <tf2_stocks>
 #include <morecolors>
 #include <saysounds>
-#include <whaletracker_api>
+#include <points_store_api>
 
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
@@ -24,6 +24,7 @@ float g_fLastHeadshotTime[MAXPLAYERS + 1];
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
 {
 	MarkNativeAsOptional("Filters_GetChatName");
+	MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
 	return APLRes_Success;
 }
 
@@ -155,7 +156,10 @@ public Action Timer_BroadcastAirshot(Handle timer, any userid)
 	CPrintToChatAll("%s airshot %s!", attackerName, victimName);
 	if (!IsPlayerAlive(victim))
 	{
-		ApplyBonusPoints(attacker, 1, true, true, 1.0, "airshot_kill");
+		if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+		{
+			PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "airshot_kill");
+		}
 		if (g_bSaySoundsAvailable)
 		{
 			SaySounds_PlayCommand(0, SAYSOUND_AIRSHOT_COMMAND);

@@ -21,7 +21,7 @@
 #define ANNOUNCER_SOUND_IS_PAID_NATIVE "SaySounds_IsCommandPaid"
 #define ANNOUNCER_SOUND_GET_GROUP_NATIVE "SaySounds_GetCommandGroup"
 #define DGM_CAPACITY_NATIVE "DGM_ServerCapacitycheck"
-#define WHALETRACKER_BONUS_NATIVE "WhaleTracker_ApplyBonusPoints"
+#define POINTS_STORE_BONUS_NATIVE "PointsStore_ApplyBonusPoints"
 
 native bool SaySounds_PlayCommand(int client, const char[] commandName, bool ignoreOptIn = false, bool bypassAdminOnly = true);
 native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const char[] commandName, bool ignoreOptIn = false, bool bypassAdminOnly = true);
@@ -30,7 +30,7 @@ native bool SaySounds_IsCommandPaid(const char[] commandName);
 native bool SaySounds_GetCommandGroup(const char[] commandName, char[] groupName, int groupLen);
 native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50);
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
-native bool WhaleTracker_ApplyBonusPoints(int client, int points, bool playSound, bool chatAlert, float randomChance, const char[] type, int target = 0, float delay = 3.0);
+native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound, bool chatAlert, float randomChance, const char[] type, int target = 0, float delay = 3.0);
 
 static const char g_KillstreakLabels[][] =
 {
@@ -328,7 +328,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional(ANNOUNCER_SOUND_IS_PAID_NATIVE);
     MarkNativeAsOptional(ANNOUNCER_SOUND_GET_GROUP_NATIVE);
     MarkNativeAsOptional(DGM_CAPACITY_NATIVE);
-    MarkNativeAsOptional(WHALETRACKER_BONUS_NATIVE);
+    MarkNativeAsOptional(POINTS_STORE_BONUS_NATIVE);
     MarkNativeAsOptional("Filters_GetChatName");
     return APLRes_Success;
 }
@@ -689,12 +689,12 @@ void AwardMultikillBonusPoints(int client, int kills)
         points = 2;
     }
 
-    if (GetFeatureStatus(FeatureType_Native, WHALETRACKER_BONUS_NATIVE) != FeatureStatus_Available)
+    if (GetFeatureStatus(FeatureType_Native, POINTS_STORE_BONUS_NATIVE) != FeatureStatus_Available)
     {
         return;
     }
 
-    WhaleTracker_ApplyBonusPoints(client, points, true, true, 1.0, "multikill", kills, 3.0);
+    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "multikill", kills, 3.0);
 }
 
 void AwardKillstreakBonusPoints(int client, int killstreak)
@@ -704,13 +704,13 @@ void AwardKillstreakBonusPoints(int client, int killstreak)
         return;
     }
 
-    if (GetFeatureStatus(FeatureType_Native, WHALETRACKER_BONUS_NATIVE) != FeatureStatus_Available)
+    if (GetFeatureStatus(FeatureType_Native, POINTS_STORE_BONUS_NATIVE) != FeatureStatus_Available)
     {
         return;
     }
 
     int points = killstreak > 10 ? 2 : 1;
-    WhaleTracker_ApplyBonusPoints(client, points, true, true, 1.0, "killstreak", killstreak, 3.0);
+    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "killstreak", killstreak, 3.0);
 }
 
 float GetMultikillRollupWindow()
