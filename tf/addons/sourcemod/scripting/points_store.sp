@@ -37,6 +37,10 @@ ConVar g_CvarCurrencyColor = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 char g_EventLogPath[PLATFORM_MAX_PATH];
+char g_CurrencyShortLabel[BP_CURRENCY_SHORT_MAX];
+char g_CurrencyLongLabel[BP_CURRENCY_LONG_MAX];
+char g_CurrencyColorTag[BP_CURRENCY_COLOR_MAX + 2];
+char g_CurrencyPrefix[96];
 
 public Plugin myinfo =
 {
@@ -63,6 +67,8 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 
 public void OnPluginStart()
 {
+    LoadTranslations("common.phrases");
+
     g_ItemKeys = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_KEY_MAX));
     g_ItemNames = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_NAME_MAX));
     g_ItemPrices = new ArrayList();
@@ -81,6 +87,10 @@ public void OnPluginStart()
     g_CvarCurrencyShort = CreateConVar("sm_points_store_currency_short", "BP", "Short currency label used in compact messages, e.g. BP or Gem.");
     g_CvarCurrencyLong = CreateConVar("sm_points_store_currency_long", "Bonus Points", "Long currency label used in menus and prose, e.g. Bonus Points or Gems.");
     g_CvarCurrencyColor = CreateConVar("sm_points_store_currency_color", "magenta", "Multicolors tag name used for the currency prefix, without braces.");
+    g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
+    g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
+    g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
+    RefreshCurrencyLabels();
     BuildPath(Path_SM, g_EventLogPath, sizeof(g_EventLogPath), BP_EVENT_LOG_FILE);
 
     RegConsoleCmd("sm_shop", Command_Shop, "Open the points store.");
@@ -648,36 +658,55 @@ int GetCachedBonusPoints(int client)
 
 void GetCurrencyShortLabel(char[] buffer, int maxlen)
 {
-    buffer[0] = '\0';
-    if (g_CvarCurrencyShort != null)
-    {
-        g_CvarCurrencyShort.GetString(buffer, maxlen);
-        TrimString(buffer);
-    }
-
-    if (buffer[0] == '\0')
-    {
-        strcopy(buffer, maxlen, "BP");
-    }
+    strcopy(buffer, maxlen, g_CurrencyShortLabel);
 }
 
 void GetCurrencyLongLabel(char[] buffer, int maxlen)
 {
-    buffer[0] = '\0';
-    if (g_CvarCurrencyLong != null)
-    {
-        g_CvarCurrencyLong.GetString(buffer, maxlen);
-        TrimString(buffer);
-    }
-
-    if (buffer[0] == '\0')
-    {
-        strcopy(buffer, maxlen, "Bonus Points");
-    }
+    strcopy(buffer, maxlen, g_CurrencyLongLabel);
 }
 
 void GetCurrencyColorTag(char[] buffer, int maxlen)
 {
+    strcopy(buffer, maxlen, g_CurrencyColorTag);
+}
+
+void GetCurrencyPrefix(char[] buffer, int maxlen)
+{
+    strcopy(buffer, maxlen, g_CurrencyPrefix);
+}
+
+public void OnCurrencyConVarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    RefreshCurrencyLabels();
+}
+
+void RefreshCurrencyLabels()
+{
+    g_CurrencyShortLabel[0] = '\0';
+    if (g_CvarCurrencyShort != null)
+    {
+        g_CvarCurrencyShort.GetString(g_CurrencyShortLabel, sizeof(g_CurrencyShortLabel));
+        TrimString(g_CurrencyShortLabel);
+    }
+
+    if (g_CurrencyShortLabel[0] == '\0')
+    {
+        strcopy(g_CurrencyShortLabel, sizeof(g_CurrencyShortLabel), "BP");
+    }
+
+    g_CurrencyLongLabel[0] = '\0';
+    if (g_CvarCurrencyLong != null)
+    {
+        g_CvarCurrencyLong.GetString(g_CurrencyLongLabel, sizeof(g_CurrencyLongLabel));
+        TrimString(g_CurrencyLongLabel);
+    }
+
+    if (g_CurrencyLongLabel[0] == '\0')
+    {
+        strcopy(g_CurrencyLongLabel, sizeof(g_CurrencyLongLabel), "Bonus Points");
+    }
+
     char color[BP_CURRENCY_COLOR_MAX];
     color[0] = '\0';
     if (g_CvarCurrencyColor != null)
@@ -693,21 +722,14 @@ void GetCurrencyColorTag(char[] buffer, int maxlen)
 
     if (color[0] == '{')
     {
-        strcopy(buffer, maxlen, color);
+        strcopy(g_CurrencyColorTag, sizeof(g_CurrencyColorTag), color);
     }
     else
     {
-        Format(buffer, maxlen, "{%s}", color);
+        Format(g_CurrencyColorTag, sizeof(g_CurrencyColorTag), "{%s}", color);
     }
-}
 
-void GetCurrencyPrefix(char[] buffer, int maxlen)
-{
-    char shortLabel[BP_CURRENCY_SHORT_MAX];
-    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
-    GetCurrencyShortLabel(shortLabel, sizeof(shortLabel));
-    GetCurrencyColorTag(colorTag, sizeof(colorTag));
-    Format(buffer, maxlen, "%s[%s]{default}", colorTag, shortLabel);
+    Format(g_CurrencyPrefix, sizeof(g_CurrencyPrefix), "%s[%s]{default}", g_CurrencyColorTag, g_CurrencyShortLabel);
 }
 
 void SanitizeLogField(char[] value, int maxlen)
