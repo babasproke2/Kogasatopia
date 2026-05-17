@@ -8,6 +8,7 @@
 #include <clans_api>
 #include <whaletracker_api>
 #include "include/dgm_api.inc"
+#include "include/plugin_statistics.inc"
 
 native int FilterAlerts_MarkAutobalance(int client);
 
@@ -35,7 +36,6 @@ ConVar  g_hMpAutoteamBalance;
 ConVar  g_hMpTeamsUnbalanceLimit;
 int     g_iSavedAutoteamBalance;
 int     g_iSavedUnbalanceLimit;
-char    g_sLogPath[PLATFORM_MAX_PATH];
 Handle  g_hAutoBalanceTimer = INVALID_HANDLE;
 
 public Plugin myinfo =
@@ -54,6 +54,9 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
     MarkNativeAsOptional("DGM_GetObjectiveLeaderTeam");
+    MarkNativeAsOptional("DGM_GetGameModeKey");
+    MarkNativeAsOptional("DGM_NormalizeMapName");
+    MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     return APLRes_Success;
 }
 
@@ -69,10 +72,12 @@ public void OnPluginStart()
     g_hSimpleSelection = CreateConVar("sm_autobalance_simple_selection", "1", "If enabled, autobalance prefers the most recently joined dead non-Engineer on the oversized team, then falls back to lower-priority eligible players by userID.", _, true, 0.0, true, 1.0);
     g_hIgnoreWinning = CreateConVar("sm_autobalance_ignore_winning", "3", "0 disables. 1 blocks losing-to-winning moves. Values above 1 allow losing-to-winning moves when value is >= current team-size diff.", _, true, 0.0);
     g_hDatabaseConfig = CreateConVar("sm_autobalance_database", "default", "Database config name from databases.cfg to use for persistent autobalance immunity.");
+    char dbConfig[64];
+    g_hDatabaseConfig.GetString(dbConfig, sizeof(dbConfig));
+    PluginStats_Init("autobalance_statistics_events", dbConfig);
     RegAdminCmd("sm_immune", Command_Immune, ADMFLAG_GENERIC, "sm_immune <name> - Toggle persistent autobalance immunity for a player.");
     RegConsoleCmd("sm_volunteer", Command_Volunteer, "sm_volunteer [name] - Toggle autobalance volunteer status.");
-    BuildPath(Path_SM, g_sLogPath, sizeof(g_sLogPath), "logs/autobalance.log");
-    LogToFileEx(g_sLogPath, "[autobalance_4teams] Plugin started.");
+    LogBalance("[autobalance_4teams] Plugin started.");
     g_hMapImmunity = new StringMap();
     g_hPersistentImmunity = new StringMap();
     g_hVolunteers = new StringMap();
@@ -83,6 +88,7 @@ public void OnPluginStart()
 
 public void OnMapStart()
 {
+    PluginStats_OnMapStart();
     if (g_hAutoBalanceTimer != INVALID_HANDLE)
     {
         KillTimer(g_hAutoBalanceTimer);
@@ -130,6 +136,8 @@ public void OnPluginEnd()
         delete g_hVolunteers;
         g_hVolunteers = null;
     }
+
+    PluginStats_Shutdown();
 }
 
 // ---------------------------------------------------------------------------
@@ -1331,7 +1339,7 @@ static void LogBalance(const char[] fmt, any ...)
 
     char buffer[512];
     VFormat(buffer, sizeof(buffer), fmt, 2);
-    LogToFileEx(g_sLogPath, "%s", buffer);
+    PluginStats_LogMessage(buffer);
 }
 
 static void ApplyServerBalanceCvars(bool pluginLoaded)

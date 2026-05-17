@@ -7,6 +7,7 @@
 #include <clans_api>
 #include <whaletracker_api>
 #include "include/dgm_api.inc"
+#include "include/plugin_statistics.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -67,7 +68,6 @@ ConVar g_hFragBalance = null;
 ConVar g_hDisableTfAuto = null;
 ConVar g_hMpScrambleTeamsAuto = null;
 int g_iRoundsSinceAuto = 0;
-char g_sLogPath[PLATFORM_MAX_PATH];
 StringMap g_hScrambleImmunity = null;
 bool g_bAutoScramblePendingRoundStart = false;
 float g_flAutoScramblePendingRoundStartUntil = 0.0;
@@ -100,6 +100,9 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
+    MarkNativeAsOptional("DGM_GetGameModeKey");
+    MarkNativeAsOptional("DGM_NormalizeMapName");
+    MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     return APLRes_Success;
 }
 
@@ -107,7 +110,7 @@ public void OnPluginStart()
 {
     UpdateNativeVotes();
     g_hLogEnabled = CreateConVar("sm_whalescramble_log", "1", "Enable whalescramble debug logging.", _, true, 0.0, true, 1.0);
-    BuildPath(Path_SM, g_sLogPath, sizeof(g_sLogPath), "logs/whalescramble.log");
+    PluginStats_Init("whalescramble_statistics_events");
     LogWhale("Plugin started.");
     g_hAutoRounds = CreateConVar("whalescramble_rounds", "2", "Automatically start a scramble vote every X rounds. 0/1 disables auto vote.", _, true, 0.0, true, 100.0);
     g_hVoteTime = CreateConVar("whalescramble_votetime", "4", "Scramble vote duration in seconds.", _, true, 1.0, true, 30.0);
@@ -168,6 +171,7 @@ public void OnLibraryRemoved(const char[] name)
 
 public void OnMapStart()
 {
+    PluginStats_OnMapStart();
     ResetVotes();
     ClearScrambleCooldown();
     ClearAutoScramblePending();
@@ -195,6 +199,7 @@ public void OnPluginEnd()
     ClearScrambleCooldown();
     ClearAutoScramblePending();
     LogWhale("Plugin ended.");
+    PluginStats_Shutdown();
 }
 
 public void OnClientDisconnect(int client)
@@ -2214,7 +2219,7 @@ static void LogWhale(const char[] fmt, any ...)
 
     char buffer[512];
     VFormat(buffer, sizeof(buffer), fmt, 2);
-    LogToFileEx(g_sLogPath, "%s", buffer);
+    PluginStats_LogMessage(buffer);
 }
 
 static bool GetFiltersNameOrEmpty(int client, char[] buffer, int maxlen)

@@ -4,6 +4,8 @@
 #include <sourcemod>
 #include <multicolors>
 #include <saysounds>
+#include "include/dgm_api.inc"
+#include "include/plugin_statistics.inc"
 
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
@@ -13,10 +15,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define BP_TRANS_ITEM_KEY_MAX 64
 #define BP_TRANS_ITEM_NAME_MAX 128
 #define BP_SOUND_COMMAND "xp_gain"
-#define BP_EVENT_LOG_FILE "logs/points_store_events.log"
-#define BP_EVENT_LOG_FLUSH_INTERVAL 30.0
 #define BP_EVENT_LOG_LINE_MAX 1024
-#define BP_EVENT_LOG_QUEUE_MAX 5000
 #define BP_CURRENCY_SHORT_MAX 32
 #define BP_CURRENCY_LONG_MAX 64
 #define BP_CURRENCY_COLOR_MAX 32
@@ -24,7 +23,6 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 ArrayList g_ItemKeys = null;
 ArrayList g_ItemNames = null;
 ArrayList g_ItemPrices = null;
-ArrayList g_EventLogQueue = null;
 
 StringMap g_ClientPurchases[MAXPLAYERS + 1];
 bool g_ClientPurchasesLoaded[MAXPLAYERS + 1];
@@ -39,11 +37,8 @@ ConVar g_CvarLogRandomMisses = null;
 ConVar g_CvarCurrencyShort = null;
 ConVar g_CvarCurrencyLong = null;
 ConVar g_CvarCurrencyColor = null;
-Handle g_EventLogFlushTimer = null;
-int g_EventLogDropped = 0;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
-char g_EventLogPath[PLATFORM_MAX_PATH];
 char g_CurrencyShortLabel[BP_CURRENCY_SHORT_MAX];
 char g_CurrencyLongLabel[BP_CURRENCY_LONG_MAX];
 char g_CurrencyColorTag[BP_CURRENCY_COLOR_MAX + 2];
@@ -62,6 +57,9 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("SaySounds_PlayCommand");
+    MarkNativeAsOptional("DGM_GetGameModeKey");
+    MarkNativeAsOptional("DGM_NormalizeMapName");
+    MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     RegPluginLibrary("points_store");
     CreateNative("PointsStore_AreBonusPointsLoaded", Native_PointsStore_AreBonusPointsLoaded);
     CreateNative("PointsStore_GetBonusPoints", Native_PointsStore_GetBonusPoints);
@@ -79,7 +77,6 @@ public void OnPluginStart()
     g_ItemKeys = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_KEY_MAX));
     g_ItemNames = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_NAME_MAX));
     g_ItemPrices = new ArrayList();
-    g_EventLogQueue = new ArrayList(ByteCountToCells(BP_EVENT_LOG_LINE_MAX));
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -91,7 +88,10 @@ public void OnPluginStart()
     }
 
     g_CvarDatabase = CreateConVar("sm_bonuspoints_transactions_database", BP_TRANS_DB_CONFIG_DEFAULT, "Databases.cfg entry for bonuspoints_transactions.");
-    g_CvarEventLogging = CreateConVar("sm_points_store_event_logging", "0", "Write structured currency economy events to logs/points_store_events.log.", _, true, 0.0, true, 1.0);
+    char dbConfig[64];
+    g_CvarDatabase.GetString(dbConfig, sizeof(dbConfig));
+    PluginStats_Init("points_store_statistics_events", dbConfig);
+    g_CvarEventLogging = CreateConVar("sm_points_store_event_logging", "0", "Write structured currency economy events to points_store_statistics_events.", _, true, 0.0, true, 1.0);
     g_CvarLogRandomMisses = CreateConVar("sm_points_store_log_random_misses", "0", "Log failed random-chance currency rolls when event logging is enabled.", _, true, 0.0, true, 1.0);
     g_CvarCurrencyShort = CreateConVar("sm_points_store_currency_short", "BP", "Short currency label used in compact messages, e.g. BP or Gem.");
     g_CvarCurrencyLong = CreateConVar("sm_points_store_currency_long", "Bonus Points", "Long currency label used in menus and prose, e.g. Bonus Points or Gems.");
@@ -100,8 +100,6 @@ public void OnPluginStart()
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
     RefreshCurrencyLabels();
-    BuildPath(Path_SM, g_EventLogPath, sizeof(g_EventLogPath), BP_EVENT_LOG_FILE);
-    g_EventLogFlushTimer = CreateTimer(BP_EVENT_LOG_FLUSH_INTERVAL, Timer_FlushPointsEventLog, _, TIMER_REPEAT);
 
     RegConsoleCmd("sm_shop", Command_Shop, "Open the points store.");
     RegConsoleCmd("sm_store", Command_Shop, "Open the points store.");
@@ -122,14 +120,11 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
-    delete g_EventLogFlushTimer;
-    g_EventLogFlushTimer = null;
-    FlushPointsEventLogQueue();
+    PluginStats_Flush();
 
     delete g_ItemKeys;
     delete g_ItemNames;
     delete g_ItemPrices;
-    delete g_EventLogQueue;
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -139,11 +134,17 @@ public void OnPluginEnd()
 
     delete g_Database;
     g_Database = null;
+    PluginStats_Shutdown();
+}
+
+public void OnMapStart()
+{
+    PluginStats_OnMapStart();
 }
 
 public void OnMapEnd()
 {
-    FlushPointsEventLogQueue();
+    PluginStats_Flush();
 }
 
 public void OnClientAuthorized(int client, const char[] auth)
@@ -801,63 +802,9 @@ bool IsPointsEventLoggingEnabled()
     return g_CvarEventLogging != null && g_CvarEventLogging.BoolValue;
 }
 
-public Action Timer_FlushPointsEventLog(Handle timer)
-{
-    FlushPointsEventLogQueue();
-    return Plugin_Continue;
-}
-
 void QueuePointsStoreEvent(const char[] message)
 {
-    if (g_EventLogQueue == null)
-    {
-        return;
-    }
-
-    if (g_EventLogQueue.Length >= BP_EVENT_LOG_QUEUE_MAX)
-    {
-        g_EventLogDropped++;
-        return;
-    }
-
-    g_EventLogQueue.PushString(message);
-}
-
-void FlushPointsEventLogQueue()
-{
-    if (g_EventLogQueue == null)
-    {
-        return;
-    }
-
-    int queued = g_EventLogQueue.Length;
-    if (queued == 0 && g_EventLogDropped == 0)
-    {
-        return;
-    }
-
-    File file = OpenFile(g_EventLogPath, "a");
-    if (file == null)
-    {
-        LogError("Unable to open points store event log for writing: %s", g_EventLogPath);
-        return;
-    }
-
-    char message[BP_EVENT_LOG_LINE_MAX];
-    for (int i = 0; i < queued; i++)
-    {
-        g_EventLogQueue.GetString(i, message, sizeof(message));
-        file.WriteLine("%s", message);
-    }
-
-    if (g_EventLogDropped > 0)
-    {
-        file.WriteLine("event=log_dropped|time=%d|dropped=%d|queue_limit=%d", GetTime(), g_EventLogDropped, BP_EVENT_LOG_QUEUE_MAX);
-    }
-
-    delete file;
-    g_EventLogQueue.Clear();
-    g_EventLogDropped = 0;
+    PluginStats_LogMessage(message);
 }
 
 void LogPointsStoreEvent(const char[] format, any ...)
