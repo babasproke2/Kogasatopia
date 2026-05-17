@@ -29,6 +29,8 @@ VoteOption g_CurrentVote;
 bool g_VoteInProgress = false;
 ConVar g_CvarShop = null;
 ConVar g_CvarShopCost = null;
+ConVar g_CvarAdmins = null;
+ConVar g_CvarAdminsFree = null;
 
 public Plugin myinfo =
 {
@@ -40,9 +42,11 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
-    RegAdminCmd("sm_votemenu", Command_VoteMenu, ADMFLAG_GENERIC, "Open the vote menu");
+    RegConsoleCmd("sm_votemenu", Command_VoteMenu, "Open the vote menu");
     g_CvarShop = CreateConVar("sm_votemenu_shop", "1", "Require points_store currency to start a votemenu vote when points_store is available.", _, true, 0.0, true, 1.0);
     g_CvarShopCost = CreateConVar("sm_votemenu_shop_cost", "25", "points_store currency cost to start a votemenu vote. 0 disables currency integration.", _, true, 0.0);
+    g_CvarAdmins = CreateConVar("sm_votemenu_admins", "0", "Restrict votemenu usage to admins.", _, true, 0.0, true, 1.0);
+    g_CvarAdminsFree = CreateConVar("sm_votemenu_admins_free", "0", "Let admins use votemenu without points_store currency integration.", _, true, 0.0, true, 1.0);
     g_VoteOptions = new ArrayList(sizeof(VoteOption));
     LoadVoteMenuConfig();
 }
@@ -56,6 +60,12 @@ public Action Command_VoteMenu(int client, int args)
 {
     if (client <= 0 || !IsClientInGame(client))
     {
+        return Plugin_Handled;
+    }
+
+    if (AreVoteMenuAdminsRequired() && !IsVoteMenuAdmin(client))
+    {
+        CPrintToChat(client, "{red}[Vote]{default} You do not have access to the vote menu.");
         return Plugin_Handled;
     }
 
@@ -92,7 +102,7 @@ public Action Command_VoteMenu(int client, int args)
             strcopy(display, sizeof(display), opt.id);
         }
 
-        FormatVoteMenuLabel(display, label, sizeof(label));
+        FormatVoteMenuLabel(client, display, label, sizeof(label));
         menu.AddItem(opt.id, label);
     }
     menu.ExitButton = true;
@@ -139,6 +149,21 @@ static bool IsPointsStoreAvailable()
     return GetFeatureStatus(FeatureType_Native, "PointsStore_SpendBonusPoints") == FeatureStatus_Available;
 }
 
+static bool IsVoteMenuAdmin(int client)
+{
+    return client > 0 && CheckCommandAccess(client, "sm_votemenu", ADMFLAG_GENERIC, true);
+}
+
+static bool AreVoteMenuAdminsRequired()
+{
+    return g_CvarAdmins != null && g_CvarAdmins.BoolValue;
+}
+
+static bool AreVoteMenuAdminsFree()
+{
+    return g_CvarAdminsFree != null && g_CvarAdminsFree.BoolValue;
+}
+
 static int GetVoteMenuCost()
 {
     if (g_CvarShopCost == null)
@@ -167,19 +192,24 @@ static void GetVoteMenuCurrencyShort(char[] buffer, int maxlen)
     }
 }
 
-static bool IsVoteMenuShopEnabled()
+static bool IsVoteMenuShopEnabled(int client)
 {
+    if (AreVoteMenuAdminsFree() && IsVoteMenuAdmin(client))
+    {
+        return false;
+    }
+
     return g_CvarShop != null && g_CvarShop.BoolValue && GetVoteMenuCost() > 0 && IsPointsStoreAvailable();
 }
 
-static bool ShouldShowVoteMenuCost()
+static bool ShouldShowVoteMenuCost(int client)
 {
-    return IsVoteMenuShopEnabled();
+    return IsVoteMenuShopEnabled(client);
 }
 
-static void FormatVoteMenuLabel(const char[] display, char[] label, int maxlen)
+static void FormatVoteMenuLabel(int client, const char[] display, char[] label, int maxlen)
 {
-    if (!ShouldShowVoteMenuCost())
+    if (!ShouldShowVoteMenuCost(client))
     {
         Format(label, maxlen, "%s", display);
         return;
@@ -192,7 +222,7 @@ static void FormatVoteMenuLabel(const char[] display, char[] label, int maxlen)
 
 static bool ChargeVoteMenuCost(int client)
 {
-    if (!IsVoteMenuShopEnabled())
+    if (!IsVoteMenuShopEnabled(client))
     {
         return true;
     }
