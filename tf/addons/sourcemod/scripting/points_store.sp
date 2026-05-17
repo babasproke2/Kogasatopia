@@ -31,6 +31,7 @@ bool g_ClientBonusPointsPending[MAXPLAYERS + 1];
 Database g_Database = null;
 ConVar g_CvarDatabase = null;
 ConVar g_CvarEventLogging = null;
+ConVar g_CvarLogRandomMisses = null;
 ConVar g_CvarCurrencyShort = null;
 ConVar g_CvarCurrencyLong = null;
 ConVar g_CvarCurrencyColor = null;
@@ -84,6 +85,7 @@ public void OnPluginStart()
 
     g_CvarDatabase = CreateConVar("sm_bonuspoints_transactions_database", BP_TRANS_DB_CONFIG_DEFAULT, "Databases.cfg entry for bonuspoints_transactions.");
     g_CvarEventLogging = CreateConVar("sm_points_store_event_logging", "0", "Write structured currency economy events to logs/points_store_events.log.", _, true, 0.0, true, 1.0);
+    g_CvarLogRandomMisses = CreateConVar("sm_points_store_log_random_misses", "0", "Log failed random-chance currency rolls when event logging is enabled.", _, true, 0.0, true, 1.0);
     g_CvarCurrencyShort = CreateConVar("sm_points_store_currency_short", "BP", "Short currency label used in compact messages, e.g. BP or Gem.");
     g_CvarCurrencyLong = CreateConVar("sm_points_store_currency_long", "Bonus Points", "Long currency label used in menus and prose, e.g. Bonus Points or Gems.");
     g_CvarCurrencyColor = CreateConVar("sm_points_store_currency_color", "magenta", "Multicolors tag name used for the currency prefix, without braces.");
@@ -772,9 +774,14 @@ bool IsBonusPointsNumericTargetType(const char[] type)
     return StrEqual(type, "killstreak", false) || StrEqual(type, "multikill", false);
 }
 
+bool IsPointsEventLoggingEnabled()
+{
+    return g_CvarEventLogging != null && g_CvarEventLogging.BoolValue;
+}
+
 void LogPointsStoreEvent(const char[] format, any ...)
 {
-    if (g_CvarEventLogging == null || !g_CvarEventLogging.BoolValue)
+    if (!IsPointsEventLoggingEnabled())
     {
         return;
     }
@@ -786,6 +793,11 @@ void LogPointsStoreEvent(const char[] format, any ...)
 
 void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAfter, const char[] type, int target, bool playSound, bool chatAlert, float randomChance, bool saveQueued)
 {
+    if (!IsPointsEventLoggingEnabled())
+    {
+        return;
+    }
+
     char steamId[32];
     char clientName[MAX_NAME_LENGTH];
     GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
@@ -829,6 +841,11 @@ void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAf
 
 void LogBonusPointsRejected(const char[] reason, int client, int points, const char[] type, int target, int balance, float randomChance, float randomRoll)
 {
+    if (!IsPointsEventLoggingEnabled())
+    {
+        return;
+    }
+
     char steamId[32];
     char clientName[MAX_NAME_LENGTH];
     GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
@@ -857,6 +874,11 @@ void LogBonusPointsRejected(const char[] reason, int client, int points, const c
 
 void LogBonusPointsDeferredQueue(int client, int points, const char[] type, int target, float delay, bool playSound, bool chatAlert, float randomChance)
 {
+    if (!IsPointsEventLoggingEnabled())
+    {
+        return;
+    }
+
     char steamId[32];
     char clientName[MAX_NAME_LENGTH];
     GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
@@ -882,6 +904,11 @@ void LogBonusPointsDeferredQueue(int client, int points, const char[] type, int 
 
 void LogPurchaseEvent(const char[] eventName, const char[] reason, int client, const char[] itemKey, const char[] itemName, int price, int balance)
 {
+    if (!IsPointsEventLoggingEnabled())
+    {
+        return;
+    }
+
     char steamId[32];
     char clientName[MAX_NAME_LENGTH];
     GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
@@ -915,6 +942,11 @@ void LogPurchaseEvent(const char[] eventName, const char[] reason, int client, c
 
 void LogTransferEvent(const char[] eventName, const char[] reason, int sender, int target, int amount)
 {
+    if (!IsPointsEventLoggingEnabled())
+    {
+        return;
+    }
+
     char senderSteamId[32];
     char senderName[MAX_NAME_LENGTH];
     char targetSteamId[32];
@@ -1074,7 +1106,10 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
     float randomRoll = GetRandomFloat(0.0, 1.0);
     if (randomRoll > randomChance)
     {
-        LogBonusPointsRejected("random_chance_failed", client, points, type, target, GetCachedBonusPoints(client), randomChance, randomRoll);
+        if (g_CvarLogRandomMisses != null && g_CvarLogRandomMisses.BoolValue)
+        {
+            LogBonusPointsRejected("random_chance_failed", client, points, type, target, GetCachedBonusPoints(client), randomChance, randomRoll);
+        }
         return false;
     }
 
