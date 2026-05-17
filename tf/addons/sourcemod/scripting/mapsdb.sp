@@ -7,6 +7,7 @@
 #define MAPSDB_DEFAULT_CFG "default"
 #define MAPSDB_SECRET_CFG "secrets"
 #define MAPSDB_SAMPLE_INTERVAL 600.0
+#define MAPSDB_POPULATION_SAMPLE_INTERVAL_DEFAULT 30.0
 #define MAPSDB_DB_CONFIG "default"
 
 char g_sCurrentMap[PLATFORM_MAX_PATH];
@@ -14,7 +15,13 @@ char g_sCurrentGamemode[32];
 
 Database g_hDb = null;
 Handle g_hSampleTimer = null;
+Handle g_hPopulationSampleTimer = null;
+ConVar g_cvPopulationSampleInterval = null;
+ConVar g_cvSampleDebug = null;
 bool g_bLateLoad = false;
+int g_iMapStartedAt = 0;
+int g_iRoundStartedAt = 0;
+bool g_bRoundRunning = false;
 
 public Plugin myinfo =
 {
@@ -32,11 +39,36 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     MarkNativeAsOptional("DGM_RealPlayerCount");
+    MarkNativeAsOptional("DGM_RealTeamPlayerCount");
+    MarkNativeAsOptional("DGM_GetServerCapacity");
+    MarkNativeAsOptional("DGM_IsRoundRunning");
     return APLRes_Success;
 }
 
 public void OnPluginStart()
 {
+    g_cvPopulationSampleInterval = CreateConVar(
+        "sm_mapsdb_population_sample_interval",
+        "30.0",
+        "Seconds between detailed MapsDB server_population_samples writes.",
+        _,
+        true,
+        10.0);
+    g_cvSampleDebug = CreateConVar(
+        "sm_mapsdb_sample_debug",
+        "0",
+        "Print MapsDB sample writes to server console.",
+        _,
+        true,
+        0.0,
+        true,
+        1.0);
+
+    HookEvent("teamplay_round_start", Event_RoundStart, EventHookMode_PostNoCopy);
+    HookEvent("teamplay_round_win", Event_RoundEnd, EventHookMode_PostNoCopy);
+    HookEvent("teamplay_round_stalemate", Event_RoundEnd, EventHookMode_PostNoCopy);
+    HookEvent("teamplay_game_over", Event_RoundEnd, EventHookMode_PostNoCopy);
+
     ConnectMapsDb();
 
     if (g_bLateLoad)
@@ -58,6 +90,10 @@ public void OnPluginEnd()
 
 public void OnMapStart()
 {
+    g_iMapStartedAt = GetTime();
+    g_iRoundStartedAt = 0;
+    g_bRoundRunning = false;
+
     UpdateCurrentMapName(g_sCurrentMap, sizeof(g_sCurrentMap));
     UpdateGamemodeKey();
 
@@ -65,11 +101,23 @@ public void OnMapStart()
 
     StopSampleTimer();
     g_hSampleTimer = CreateTimer(MAPSDB_SAMPLE_INTERVAL, Timer_RecordPopularitySample, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+    StartPopulationSampleTimer();
 }
 
 public void OnMapEnd()
 {
     StopSampleTimer();
+}
+
+public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
+{
+    g_iRoundStartedAt = GetTime();
+    g_bRoundRunning = true;
+}
+
+public void Event_RoundEnd(Event event, const char[] name, bool dontBroadcast)
+{
+    g_bRoundRunning = false;
 }
 
 public void OnConfigsExecuted()
@@ -155,7 +203,86 @@ public Action Timer_RecordPopularitySample(Handle timer)
         escapedMap, playerCount, playerCount);
     SQL_TQuery(g_hDb, SQL_OnWriteComplete, query);
 
-    PrintToServer("[MapsDB] Recorded popularity sample for '%s' (+%d)", mapName, playerCount);
+    if (IsSampleDebugEnabled())
+    {
+        PrintToServer("[MapsDB] Recorded popularity sample for '%s' (+%d)", mapName, playerCount);
+    }
+
+    return Plugin_Continue;
+}
+
+public Action Timer_RecordPopulationSample(Handle timer)
+{
+    if (g_hDb == null)
+    {
+        ConnectMapsDb();
+        return Plugin_Continue;
+    }
+
+    char mapName[128];
+    UpdateCurrentMapName(mapName, sizeof(mapName));
+    if (!mapName[0])
+    {
+        strcopy(mapName, sizeof(mapName), "unknown");
+    }
+
+    if (StrContains(mapName, "mge_", false) != -1)
+    {
+        return Plugin_Continue;
+    }
+
+    char gamemode[32];
+    UpdateGamemodeKey();
+    strcopy(gamemode, sizeof(gamemode), g_sCurrentGamemode);
+    if (!gamemode[0])
+    {
+        strcopy(gamemode, sizeof(gamemode), "default");
+    }
+
+    int now = GetTime();
+    int playerCount = GetPopularityPlayerCount();
+    int visibleMax = GetServerCapacity();
+    int redCount = GetRealTeamPlayerCount(2);
+    int bluCount = GetRealTeamPlayerCount(3);
+    int spectatorCount = CountSpectatorPlayers();
+    bool roundRunning = IsRoundRunning();
+    int mapElapsed = GetMapElapsedSeconds(now);
+    int roundElapsed = GetRoundElapsedSeconds(now, roundRunning);
+    int hostPort = GetHostPort();
+
+    char escapedMap[256];
+    char escapedGamemode[96];
+    SQL_EscapeString(g_hDb, mapName, escapedMap, sizeof(escapedMap));
+    SQL_EscapeString(g_hDb, gamemode, escapedGamemode, sizeof(escapedGamemode));
+
+    char query[1536];
+    FormatEx(query, sizeof(query),
+        "INSERT INTO server_population_samples (sampled_at, host_port, map_name, gamemode, player_count, visible_max, red_count, blu_count, spectator_count, map_elapsed_seconds, round_elapsed_seconds, round_running) VALUES (%d, %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d)",
+        now,
+        hostPort,
+        escapedMap,
+        escapedGamemode,
+        playerCount,
+        visibleMax,
+        redCount,
+        bluCount,
+        spectatorCount,
+        mapElapsed,
+        roundElapsed,
+        roundRunning ? 1 : 0);
+    SQL_TQuery(g_hDb, SQL_OnWriteComplete, query);
+
+    if (IsSampleDebugEnabled())
+    {
+        PrintToServer("[MapsDB] Recorded population sample for '%s' pop=%d red=%d blu=%d spec=%d elapsed=%d",
+            mapName,
+            playerCount,
+            redCount,
+            bluCount,
+            spectatorCount,
+            mapElapsed);
+    }
+
     return Plugin_Continue;
 }
 
@@ -188,11 +315,54 @@ public void SQL_OnConnect(Handle owner, Handle hndl, const char[] error, any dat
     }
 
     g_hDb = view_as<Database>(hndl);
+    EnsurePopulationSampleSchema();
 }
 
 static void ConnectMapsDb()
 {
     SQL_TConnect(SQL_OnConnect, MAPSDB_DB_CONFIG);
+}
+
+static void EnsurePopulationSampleSchema()
+{
+    if (g_hDb == null)
+    {
+        return;
+    }
+
+    char query[2048];
+    query[0] = '\0';
+    StrCat(query, sizeof(query), "CREATE TABLE IF NOT EXISTS server_population_samples (");
+    StrCat(query, sizeof(query), "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,");
+    StrCat(query, sizeof(query), "sampled_at INT NOT NULL,");
+    StrCat(query, sizeof(query), "host_port INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "map_name VARCHAR(128) NOT NULL,");
+    StrCat(query, sizeof(query), "gamemode VARCHAR(32) NOT NULL,");
+    StrCat(query, sizeof(query), "player_count INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "visible_max INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "red_count INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "blu_count INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "spectator_count INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "map_elapsed_seconds INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "round_elapsed_seconds INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "round_running TINYINT(1) NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "KEY idx_sampled_at (sampled_at),");
+    StrCat(query, sizeof(query), "KEY idx_map_name (map_name),");
+    StrCat(query, sizeof(query), "KEY idx_host_port (host_port),");
+    StrCat(query, sizeof(query), "KEY idx_map_sampled_at (map_name, sampled_at),");
+    StrCat(query, sizeof(query), "KEY idx_host_sampled_at (host_port, sampled_at)");
+    StrCat(query, sizeof(query), ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, query);
+}
+
+public void SQL_OnSchemaComplete(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (!error[0])
+    {
+        return;
+    }
+
+    LogError("[MapsDB] SQL schema update failed: %s", error);
 }
 
 static void StopSampleTimer()
@@ -202,8 +372,29 @@ static void StopSampleTimer()
         KillTimer(g_hSampleTimer);
         g_hSampleTimer = null;
     }
+
+    if (g_hPopulationSampleTimer != null)
+    {
+        KillTimer(g_hPopulationSampleTimer);
+        g_hPopulationSampleTimer = null;
+    }
 }
 
+static void StartPopulationSampleTimer()
+{
+    float interval = MAPSDB_POPULATION_SAMPLE_INTERVAL_DEFAULT;
+    if (g_cvPopulationSampleInterval != null)
+    {
+        interval = g_cvPopulationSampleInterval.FloatValue;
+    }
+
+    if (interval < 10.0)
+    {
+        interval = 10.0;
+    }
+
+    g_hPopulationSampleTimer = CreateTimer(interval, Timer_RecordPopulationSample, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+}
 
 static int GetPopularityPlayerCount()
 {
@@ -213,6 +404,72 @@ static int GetPopularityPlayerCount()
     }
 
     return CountHumanPlayers();
+}
+
+static int GetRealTeamPlayerCount(int team)
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_RealTeamPlayerCount") == FeatureStatus_Available)
+    {
+        return DGM_RealTeamPlayerCount(team);
+    }
+
+    return CountHumanPlayersOnTeam(team, false);
+}
+
+static int GetServerCapacity()
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetServerCapacity") == FeatureStatus_Available)
+    {
+        return DGM_GetServerCapacity();
+    }
+
+    return MaxClients;
+}
+
+static bool IsRoundRunning()
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_IsRoundRunning") == FeatureStatus_Available)
+    {
+        return DGM_IsRoundRunning();
+    }
+
+    return g_bRoundRunning;
+}
+
+static int GetMapElapsedSeconds(int now)
+{
+    if (g_iMapStartedAt <= 0 || now < g_iMapStartedAt)
+    {
+        return 0;
+    }
+
+    return now - g_iMapStartedAt;
+}
+
+static int GetRoundElapsedSeconds(int now, bool roundRunning)
+{
+    if (!roundRunning || g_iRoundStartedAt <= 0 || now < g_iRoundStartedAt)
+    {
+        return 0;
+    }
+
+    return now - g_iRoundStartedAt;
+}
+
+static int GetHostPort()
+{
+    ConVar hostPort = FindConVar("hostport");
+    if (hostPort == null)
+    {
+        return 0;
+    }
+
+    return hostPort.IntValue;
+}
+
+static bool IsSampleDebugEnabled()
+{
+    return g_cvSampleDebug != null && g_cvSampleDebug.BoolValue;
 }
 
 static void UpdateCurrentMapName(char[] output, int outputLen)
@@ -242,6 +499,32 @@ static int CountHumanPlayers()
     }
 
     return count;
+}
+
+static int CountHumanPlayersOnTeam(int team, bool includeUnassigned)
+{
+    int count = 0;
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client) || IsFakeClient(client))
+        {
+            continue;
+        }
+
+        int clientTeam = GetClientTeam(client);
+        if (clientTeam == team || (includeUnassigned && team == 1 && clientTeam <= 1))
+        {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+static int CountSpectatorPlayers()
+{
+    return CountHumanPlayersOnTeam(1, true);
 }
 
 static void UpdateNormalizedMapName(const char[] input, char[] output, int outputLen)
