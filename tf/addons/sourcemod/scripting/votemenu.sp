@@ -42,7 +42,7 @@ public void OnPluginStart()
 {
     RegAdminCmd("sm_votemenu", Command_VoteMenu, ADMFLAG_GENERIC, "Open the vote menu");
     g_CvarShop = CreateConVar("sm_votemenu_shop", "1", "Require points_store currency to start a votemenu vote when points_store is available.", _, true, 0.0, true, 1.0);
-    g_CvarShopCost = CreateConVar("sm_votemenu_shop_cost", "25", "points_store currency cost to start a votemenu vote.", _, true, 0.0);
+    g_CvarShopCost = CreateConVar("sm_votemenu_shop_cost", "25", "points_store currency cost to start a votemenu vote. 0 disables currency integration.", _, true, 0.0);
     g_VoteOptions = new ArrayList(sizeof(VoteOption));
     LoadVoteMenuConfig();
 }
@@ -167,9 +167,14 @@ static void GetVoteMenuCurrencyShort(char[] buffer, int maxlen)
     }
 }
 
-static bool ShouldShowVoteMenuCost()
+static bool IsVoteMenuShopEnabled()
 {
     return g_CvarShop != null && g_CvarShop.BoolValue && GetVoteMenuCost() > 0 && IsPointsStoreAvailable();
+}
+
+static bool ShouldShowVoteMenuCost()
+{
+    return IsVoteMenuShopEnabled();
 }
 
 static void FormatVoteMenuLabel(const char[] display, char[] label, int maxlen)
@@ -187,17 +192,12 @@ static void FormatVoteMenuLabel(const char[] display, char[] label, int maxlen)
 
 static bool ChargeVoteMenuCost(int client)
 {
-    if (g_CvarShop == null || !g_CvarShop.BoolValue || !IsPointsStoreAvailable())
+    if (!IsVoteMenuShopEnabled())
     {
         return true;
     }
 
     int cost = GetVoteMenuCost();
-    if (cost <= 0)
-    {
-        return true;
-    }
-
     if (GetFeatureStatus(FeatureType_Native, "PointsStore_AreBonusPointsLoaded") == FeatureStatus_Available
         && !PointsStore_AreBonusPointsLoaded(client))
     {
