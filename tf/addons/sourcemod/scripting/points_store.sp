@@ -13,6 +13,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define BP_TRANS_ITEM_KEY_MAX 64
 #define BP_TRANS_ITEM_NAME_MAX 128
 #define BP_SOUND_COMMAND "xp_gain"
+#define BP_EVENT_LOG_FILE "logs/points_store_events.log"
 
 ArrayList g_ItemKeys = null;
 ArrayList g_ItemNames = null;
@@ -26,8 +27,10 @@ bool g_ClientBonusPointsPending[MAXPLAYERS + 1];
 
 Database g_Database = null;
 ConVar g_CvarDatabase = null;
+ConVar g_CvarEventLogging = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
+char g_EventLogPath[PLATFORM_MAX_PATH];
 
 public Plugin myinfo =
 {
@@ -68,6 +71,9 @@ public void OnPluginStart()
     }
 
     g_CvarDatabase = CreateConVar("sm_bonuspoints_transactions_database", BP_TRANS_DB_CONFIG_DEFAULT, "Databases.cfg entry for bonuspoints_transactions.");
+    g_CvarEventLogging = CreateConVar("sm_points_store_event_logging", "1", "Write structured Bonus Points economy events to logs/points_store_events.log.", _, true, 0.0, true, 1.0);
+    BuildPath(Path_SM, g_EventLogPath, sizeof(g_EventLogPath), BP_EVENT_LOG_FILE);
+
     RegConsoleCmd("sm_shop", Command_Shop, "Open the Bonus Points Shop.");
     RegConsoleCmd("sm_store", Command_Shop, "Open the Bonus Points Shop.");
     RegConsoleCmd("sm_buy", Command_Shop, "Open the Bonus Points Shop.");
@@ -631,6 +637,219 @@ int GetCachedBonusPoints(int client)
     return g_ClientBonusPoints[client] > 0 ? g_ClientBonusPoints[client] : 0;
 }
 
+void SanitizeLogField(char[] value, int maxlen)
+{
+    ReplaceString(value, maxlen, "|", "/", false);
+    ReplaceString(value, maxlen, "\r", " ", false);
+    ReplaceString(value, maxlen, "\n", " ", false);
+    ReplaceString(value, maxlen, "\t", " ", false);
+    ReplaceString(value, maxlen, "\"", "'", false);
+}
+
+void GetClientLogIdentity(int client, char[] steamId, int steamLen, char[] name, int nameLen)
+{
+    steamId[0] = '\0';
+    name[0] = '\0';
+
+    if (client <= 0 || client > MaxClients || !IsClientConnected(client))
+    {
+        strcopy(steamId, steamLen, "none");
+        strcopy(name, nameLen, "none");
+        return;
+    }
+
+    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, steamLen, true))
+    {
+        strcopy(steamId, steamLen, "unknown");
+    }
+
+    if (!GetClientName(client, name, nameLen) || name[0] == '\0')
+    {
+        strcopy(name, nameLen, "unknown");
+    }
+
+    SanitizeLogField(steamId, steamLen);
+    SanitizeLogField(name, nameLen);
+}
+
+bool IsBonusPointsNumericTargetType(const char[] type)
+{
+    return StrEqual(type, "killstreak", false) || StrEqual(type, "multikill", false);
+}
+
+void LogPointsStoreEvent(const char[] format, any ...)
+{
+    if (g_CvarEventLogging == null || !g_CvarEventLogging.BoolValue)
+    {
+        return;
+    }
+
+    char message[1024];
+    VFormat(message, sizeof(message), format, 2);
+    LogToFileEx(g_EventLogPath, "%s", message);
+}
+
+void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAfter, const char[] type, int target, bool playSound, bool chatAlert, float randomChance, bool saveQueued)
+{
+    char steamId[32];
+    char clientName[MAX_NAME_LENGTH];
+    GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
+
+    char safeType[64];
+    strcopy(safeType, sizeof(safeType), type);
+    SanitizeLogField(safeType, sizeof(safeType));
+
+    int targetValue = target;
+    int targetClient = 0;
+    char targetSteamId[32];
+    char targetName[MAX_NAME_LENGTH];
+    strcopy(targetSteamId, sizeof(targetSteamId), "none");
+    strcopy(targetName, sizeof(targetName), "none");
+
+    if (!IsBonusPointsNumericTargetType(type) && target > 0 && target <= MaxClients && IsClientConnected(target))
+    {
+        targetClient = target;
+        GetClientLogIdentity(target, targetSteamId, sizeof(targetSteamId), targetName, sizeof(targetName));
+    }
+
+    LogPointsStoreEvent(
+        "event=bp_delta|time=%d|client=%d|steamid64=%s|name=\"%s\"|delta=%d|balance_before=%d|balance_after=%d|type=%s|target_value=%d|target_client=%d|target_steamid64=%s|target_name=\"%s\"|play_sound=%d|chat_alert=%d|random_chance=%.3f|save_queued=%d",
+        GetTime(),
+        client,
+        steamId,
+        clientName,
+        delta,
+        balanceBefore,
+        balanceAfter,
+        safeType,
+        targetValue,
+        targetClient,
+        targetSteamId,
+        targetName,
+        playSound ? 1 : 0,
+        chatAlert ? 1 : 0,
+        randomChance,
+        saveQueued ? 1 : 0);
+}
+
+void LogBonusPointsRejected(const char[] reason, int client, int points, const char[] type, int target, int balance, float randomChance, float randomRoll)
+{
+    char steamId[32];
+    char clientName[MAX_NAME_LENGTH];
+    GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
+
+    char safeReason[64];
+    char safeType[64];
+    strcopy(safeReason, sizeof(safeReason), reason);
+    strcopy(safeType, sizeof(safeType), type);
+    SanitizeLogField(safeReason, sizeof(safeReason));
+    SanitizeLogField(safeType, sizeof(safeType));
+
+    LogPointsStoreEvent(
+        "event=bp_rejected|time=%d|reason=%s|client=%d|steamid64=%s|name=\"%s\"|requested_delta=%d|balance=%d|type=%s|target_value=%d|random_chance=%.3f|random_roll=%.3f",
+        GetTime(),
+        safeReason,
+        client,
+        steamId,
+        clientName,
+        points,
+        balance,
+        safeType,
+        target,
+        randomChance,
+        randomRoll);
+}
+
+void LogBonusPointsDeferredQueue(int client, int points, const char[] type, int target, float delay, bool playSound, bool chatAlert, float randomChance)
+{
+    char steamId[32];
+    char clientName[MAX_NAME_LENGTH];
+    GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
+
+    char safeType[64];
+    strcopy(safeType, sizeof(safeType), type);
+    SanitizeLogField(safeType, sizeof(safeType));
+
+    LogPointsStoreEvent(
+        "event=bp_deferred_queue|time=%d|client=%d|steamid64=%s|name=\"%s\"|requested_delta=%d|type=%s|target_value=%d|delay=%.2f|play_sound=%d|chat_alert=%d|random_chance=%.3f",
+        GetTime(),
+        client,
+        steamId,
+        clientName,
+        points,
+        safeType,
+        target,
+        delay,
+        playSound ? 1 : 0,
+        chatAlert ? 1 : 0,
+        randomChance);
+}
+
+void LogPurchaseEvent(const char[] eventName, const char[] reason, int client, const char[] itemKey, const char[] itemName, int price, int balance)
+{
+    char steamId[32];
+    char clientName[MAX_NAME_LENGTH];
+    GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
+
+    char safeEvent[64];
+    char safeReason[64];
+    char safeItemKey[BP_TRANS_ITEM_KEY_MAX];
+    char safeItemName[BP_TRANS_ITEM_NAME_MAX];
+    strcopy(safeEvent, sizeof(safeEvent), eventName);
+    strcopy(safeReason, sizeof(safeReason), reason);
+    strcopy(safeItemKey, sizeof(safeItemKey), itemKey);
+    strcopy(safeItemName, sizeof(safeItemName), itemName);
+    SanitizeLogField(safeEvent, sizeof(safeEvent));
+    SanitizeLogField(safeReason, sizeof(safeReason));
+    SanitizeLogField(safeItemKey, sizeof(safeItemKey));
+    SanitizeLogField(safeItemName, sizeof(safeItemName));
+
+    LogPointsStoreEvent(
+        "event=%s|time=%d|reason=%s|client=%d|steamid64=%s|name=\"%s\"|item_key=%s|item_name=\"%s\"|price=%d|balance=%d",
+        safeEvent,
+        GetTime(),
+        safeReason,
+        client,
+        steamId,
+        clientName,
+        safeItemKey,
+        safeItemName,
+        price,
+        balance);
+}
+
+void LogTransferEvent(const char[] eventName, const char[] reason, int sender, int target, int amount)
+{
+    char senderSteamId[32];
+    char senderName[MAX_NAME_LENGTH];
+    char targetSteamId[32];
+    char targetName[MAX_NAME_LENGTH];
+    GetClientLogIdentity(sender, senderSteamId, sizeof(senderSteamId), senderName, sizeof(senderName));
+    GetClientLogIdentity(target, targetSteamId, sizeof(targetSteamId), targetName, sizeof(targetName));
+
+    char safeEvent[64];
+    char safeReason[64];
+    strcopy(safeEvent, sizeof(safeEvent), eventName);
+    strcopy(safeReason, sizeof(safeReason), reason);
+    SanitizeLogField(safeEvent, sizeof(safeEvent));
+    SanitizeLogField(safeReason, sizeof(safeReason));
+
+    LogPointsStoreEvent(
+        "event=%s|time=%d|reason=%s|sender=%d|sender_steamid64=%s|sender_name=\"%s\"|target=%d|target_steamid64=%s|target_name=\"%s\"|amount=%d|sender_balance=%d|target_balance=%d",
+        safeEvent,
+        GetTime(),
+        safeReason,
+        sender,
+        senderSteamId,
+        senderName,
+        target,
+        targetSteamId,
+        targetName,
+        amount,
+        GetCachedBonusPoints(sender),
+        GetCachedBonusPoints(target));
+}
+
 void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
 {
     label[0] = '\0';
@@ -737,12 +956,14 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
 {
     if (!IsClientInGameHuman(client) || points == 0)
     {
+        LogBonusPointsRejected(!IsClientInGameHuman(client) ? "invalid_client" : "zero_delta", client, points, type, target, 0, randomChance, 0.0);
         return false;
     }
 
     if (!AreBonusPointsReady(client))
     {
         LoadClientBonusPoints(client);
+        LogBonusPointsRejected("balance_not_loaded", client, points, type, target, 0, randomChance, 0.0);
         return false;
     }
 
@@ -755,23 +976,32 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
         randomChance = 1.0;
     }
 
-    if (GetRandomFloat(0.0, 1.0) > randomChance)
+    float randomRoll = GetRandomFloat(0.0, 1.0);
+    if (randomRoll > randomChance)
     {
+        LogBonusPointsRejected("random_chance_failed", client, points, type, target, GetCachedBonusPoints(client), randomChance, randomRoll);
         return false;
     }
 
     if (points < 0 && g_ClientBonusPoints[client] < -points)
     {
+        LogBonusPointsRejected("insufficient_points", client, points, type, target, g_ClientBonusPoints[client], randomChance, randomRoll);
         return false;
     }
 
+    int balanceBefore = g_ClientBonusPoints[client];
     g_ClientBonusPoints[client] += points;
     if (g_ClientBonusPoints[client] < 0)
     {
         g_ClientBonusPoints[client] = 0;
     }
 
-    QueueBonusPointsDeltaSave(client, points);
+    bool saveQueued = QueueBonusPointsDeltaSave(client, points);
+    LogBonusPointsDelta(client, points, balanceBefore, g_ClientBonusPoints[client], type, target, playSound, chatAlert, randomChance, saveQueued);
+    if (!saveQueued)
+    {
+        LogBonusPointsRejected("save_not_queued", client, points, type, target, g_ClientBonusPoints[client], randomChance, randomRoll);
+    }
 
     if (playSound)
     {
@@ -801,8 +1031,11 @@ bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool ch
 
     if (!IsClientInGameHuman(client) || points == 0)
     {
+        LogBonusPointsRejected(!IsClientInGameHuman(client) ? "deferred_invalid_client" : "deferred_zero_delta", client, points, type, target, 0, randomChance, 0.0);
         return false;
     }
+
+    LogBonusPointsDeferredQueue(client, points, type, target, delay, playSound, chatAlert, randomChance);
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
@@ -831,7 +1064,17 @@ bool SpendBonusPoints(int client, int points)
         return false;
     }
 
-    return ApplyBonusPoints(client, -points, false, false, 1.0, "", 0, 0.0);
+    return ApplyBonusPoints(client, -points, false, false, 1.0, "spend", 0, 0.0);
+}
+
+bool SpendBonusPointsWithContext(int client, int points, const char[] type, int target = 0)
+{
+    if (points <= 0)
+    {
+        return false;
+    }
+
+    return ApplyBonusPoints(client, -points, false, false, 1.0, type, target, 0.0);
 }
 
 public Action Timer_DeferredApplyBonusPoints(Handle timer, any data)
@@ -1056,20 +1299,22 @@ public Action Command_SendBonusPoints(int client, int args)
         return Plugin_Handled;
     }
 
-    if (!ApplyBonusPoints(client, -amount, false, false, 1.0, "", 0, 0.0))
+    if (!ApplyBonusPoints(client, -amount, false, false, 1.0, "transfer_out", target, 0.0))
     {
         CPrintToChat(client, "{magenta}[BP]{default} Could not spend your Bonus Points.");
         return Plugin_Handled;
     }
 
-    if (!ApplyBonusPoints(target, amount, false, false, 1.0, "", 0, 0.0))
+    if (!ApplyBonusPoints(target, amount, false, false, 1.0, "transfer_in", client, 0.0))
     {
-        ApplyBonusPoints(client, amount, false, false, 1.0, "", 0, 0.0);
+        ApplyBonusPoints(client, amount, false, false, 1.0, "transfer_refund", target, 0.0);
+        LogTransferEvent("transfer_failed", "target_credit_failed", client, target, amount);
         CPrintToChat(client, "{magenta}[BP]{default} Could not give Bonus Points to %N.", target);
         return Plugin_Handled;
     }
 
     PlayBonusPointsSound(0, true);
+    LogTransferEvent("transfer_success", "ok", client, target, amount);
 
     char senderDisplay[256];
     char targetDisplay[256];
@@ -1152,12 +1397,14 @@ void AttemptPurchase(int client, const char[] itemKey)
 {
     if (!g_DatabaseReady || g_Database == null)
     {
+        LogPurchaseEvent("purchase_rejected", "database_not_ready", client, itemKey, "", 0, GetCachedBonusPoints(client));
         PrintToChat(client, "[Shop] The shop database is not ready.");
         return;
     }
 
     if (!g_ClientPurchasesLoaded[client])
     {
+        LogPurchaseEvent("purchase_rejected", "purchases_not_loaded", client, itemKey, "", 0, GetCachedBonusPoints(client));
         PrintToChat(client, "[Shop] Your purchases are loading. Try again in a moment.");
         return;
     }
@@ -1165,6 +1412,7 @@ void AttemptPurchase(int client, const char[] itemKey)
     if (!AreBonusPointsReady(client))
     {
         LoadClientBonusPoints(client);
+        LogPurchaseEvent("purchase_rejected", "balance_not_loaded", client, itemKey, "", 0, GetCachedBonusPoints(client));
         PrintToChat(client, "[Shop] Your Bonus Points are loading. Try again in a moment.");
         return;
     }
@@ -1172,12 +1420,18 @@ void AttemptPurchase(int client, const char[] itemKey)
     int itemIndex = FindStoreItem(itemKey);
     if (itemIndex == -1)
     {
+        LogPurchaseEvent("purchase_rejected", "item_not_found", client, itemKey, "", 0, GetCachedBonusPoints(client));
         PrintToChat(client, "[Shop] That item is no longer available.");
         return;
     }
 
+    char itemName[BP_TRANS_ITEM_NAME_MAX];
+    g_ItemNames.GetString(itemIndex, itemName, sizeof(itemName));
+    int price = g_ItemPrices.Get(itemIndex);
+
     if (GetCachedPurchasePrice(client, itemKey) > 0)
     {
+        LogPurchaseEvent("purchase_rejected", "already_owned", client, itemKey, itemName, price, GetCachedBonusPoints(client));
         PrintToChat(client, "[Shop] You already own this item.");
         return;
     }
@@ -1193,24 +1447,19 @@ void AttemptPurchase(int client, const char[] itemKey)
     char escapedItemKey[(BP_TRANS_ITEM_KEY_MAX * 2) + 1];
     if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)) || !EscapeSql(itemKey, escapedItemKey, sizeof(escapedItemKey)))
     {
+        LogPurchaseEvent("purchase_rejected", "sql_escape_failed", client, itemKey, itemName, price, GetCachedBonusPoints(client));
         PrintToChat(client, "[Shop] Could not prepare your purchase.");
         return;
     }
 
-    int price = g_ItemPrices.Get(itemIndex);
-    if (!SpendBonusPoints(client, price))
+    if (!SpendBonusPointsWithContext(client, price, "shop_purchase", 0))
     {
-        char itemName[BP_TRANS_ITEM_NAME_MAX];
-        g_ItemNames.GetString(itemIndex, itemName, sizeof(itemName));
-
+        LogPurchaseEvent("purchase_rejected", "insufficient_points", client, itemKey, itemName, price, GetCachedBonusPoints(client));
         CPrintToChat(client, "{magenta}[BP]{default} You can't afford {gold}%s;", itemName);
         CPrintToChat(client, "{default}Your balance: {lightgreen}%dBP", GetCachedBonusPoints(client));
         CPrintToChat(client, "{default}Earn bonus points through gameplay; see {magenta}!bp");
         return;
     }
-
-    char itemName[BP_TRANS_ITEM_NAME_MAX];
-    g_ItemNames.GetString(itemIndex, itemName, sizeof(itemName));
 
     g_ClientPurchases[client].SetValue(itemKey, price);
 
@@ -1273,6 +1522,7 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
     if (error[0] != '\0')
     {
         LogError("[bonuspoints_transactions] Failed to insert purchase for %s/%s: %s", expectedSteamId, itemKey, error);
+        LogPurchaseEvent("purchase_save_failed", error, client, itemKey, itemName, price, GetCachedBonusPoints(client));
         g_ClientPurchases[client].Remove(itemKey);
         if (IsClientInGameHuman(client))
         {
@@ -1282,6 +1532,7 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
     }
 
     g_ClientPurchases[client].SetValue(itemKey, price);
+    LogPurchaseEvent("purchase_success", "ok", client, itemKey, itemName, price, GetCachedBonusPoints(client));
     if (IsClientInGameHuman(client))
     {
         char displayName[256];
