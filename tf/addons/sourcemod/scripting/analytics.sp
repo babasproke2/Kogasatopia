@@ -30,13 +30,11 @@ enum struct PlayerStats
 bool clientIsAdmin[MAXPLAYERS+1] = { false, ... };
 bool clientConnected[MAXPLAYERS+1] = { false, ... };
 
-ConVar g_cvLogSensitiveData;
-
 public Plugin myinfo =
 {
     name = "analytics",
     author = "Xander, IT-KiLLER, Dosergen, Hombre",
-    description = "This plugin logs players' connect and disconnect times, capturing their Name, SteamID, IP Address and Country.",
+    description = "Logs player connection analytics with country and masked IP subnet data.",
     version = PLUGIN_VERSION,
     url = "https://forums.alliedmods.net/showthread.php?t=201967"
 }
@@ -44,17 +42,12 @@ public Plugin myinfo =
 public void OnPluginStart()
 {
     CreateConVar("sm_log_connections_version", PLUGIN_VERSION, "Log Connections version.", FCVAR_NOTIFY|FCVAR_DONTRECORD);
-    
-    // Create the sensitive data logging ConVar to disable these features
-    g_cvLogSensitiveData = CreateConVar("sm_log_sensitive_data", "0", "Log sensitive data (IP and country). 0 = Disabled, 1 = Enabled", FCVAR_NOTIFY);
 
-    // Initialize paths
     InitializeLogPath(admin_filepath, sizeof(admin_filepath), ADMIN_LOG_PATH);
     InitializeLogPath(player_filepath, sizeof(player_filepath), PLAYER_LOG_PATH);
     
     HookEvent("player_disconnect", Event_PlayerDisconnect, EventHookMode_Pre);
     
-    // Initialize clients
     for (int client = 1; client <= MaxClients; client++)
     {
         if (IsClientInGame(client))
@@ -324,19 +317,12 @@ public void Event_PlayerDisconnect(Event event, char[] name, bool dontBroadcast)
 
 void LogClientAction(int client, bool isConnecting, Event event = null)
 {
-    char playerName[64], authId[64], ipAddress[64] = "Hidden", country[64] = "Hidden", formatedTime[64];
+    char playerName[64], authId[64], ipAddress[64], maskedIp[64], country[64], formatedTime[64];
     GetClientName(client, playerName, sizeof(playerName));
     if (!GetClientAuthId(client, AuthId_Steam2, authId, sizeof(authId), false))
         strcopy(authId, sizeof(authId), "Unknown");
 
-    // Only log IP and country if the ConVar is enabled
-    if (g_cvLogSensitiveData.BoolValue)
-    {
-        if (!GetClientIP(client, ipAddress, sizeof(ipAddress)))
-            strcopy(ipAddress, sizeof(ipAddress), "Unknown");
-        if (!GeoipCountry(ipAddress, country, sizeof(country)))
-            strcopy(country, sizeof(country), "Unknown");
-    }
+    GetClientNetworkInfo(client, ipAddress, sizeof(ipAddress), maskedIp, sizeof(maskedIp), country, sizeof(country));
 
     FormatTime(formatedTime, sizeof(formatedTime), "%H:%M:%S", GetTime());
     char logFilePath[PLATFORM_MAX_PATH];
@@ -347,29 +333,85 @@ void LogClientAction(int client, bool isConnecting, Event event = null)
         LogError("Could not open log file: %s", logFilePath);
         return;
     }
+
     if (isConnecting)
-        logFile.WriteLine("%s - <%s> <%s> <%s> CONNECTED from <%s>", formatedTime, playerName, authId, ipAddress, country);
+    {
+        logFile.WriteLine("%s - <%s> <%s> <%s> CONNECTED from <%s>", formatedTime, playerName, authId, maskedIp, country);
+    }
     else
     {
         int connectionTime = RoundToCeil(GetClientTime(client) / 60);
         char reason[128] = "Unknown";
         if (event != null)
             event.GetString("reason", reason, sizeof(reason));
-        logFile.WriteLine("%s - <%s> <%s> <%s> DISCONNECTED after %d minutes. <%s>", formatedTime, playerName, authId, ipAddress, connectionTime, reason);
+        logFile.WriteLine("%s - <%s> <%s> <%s> DISCONNECTED after %d minutes. <%s>", formatedTime, playerName, authId, maskedIp, connectionTime, reason);
     }
+
     delete logFile;
+}
+
+void GetClientNetworkInfo(int client, char[] rawIp, int rawLen, char[] maskedIp, int maskedLen, char[] country, int countryLen)
+{
+    if (!GetClientIP(client, rawIp, rawLen, false))
+    {
+        strcopy(rawIp, rawLen, "Unknown");
+        strcopy(maskedIp, maskedLen, "Unknown");
+        strcopy(country, countryLen, "Unknown");
+        return;
+    }
+
+    if (!GeoipCountry(rawIp, country, countryLen))
+    {
+        strcopy(country, countryLen, "Unknown");
+    }
+
+    MaskIPv4LastOctet(rawIp, maskedIp, maskedLen);
+}
+
+void MaskIPv4LastOctet(const char[] ipAddress, char[] output, int maxlen)
+{
+    int firstDot = -1;
+    int secondDot = -1;
+    int thirdDot = -1;
+
+    for (int i = 0; ipAddress[i] != '\0'; i++)
+    {
+        if (ipAddress[i] != '.')
+        {
+            continue;
+        }
+
+        if (firstDot == -1)
+        {
+            firstDot = i;
+        }
+        else if (secondDot == -1)
+        {
+            secondDot = i;
+        }
+        else if (thirdDot == -1)
+        {
+            thirdDot = i;
+        }
+        else
+        {
+            strcopy(output, maxlen, "Unknown");
+            return;
+        }
+    }
+
+    if (firstDot == -1 || secondDot == -1 || thirdDot == -1 || ipAddress[thirdDot + 1] == '\0')
+    {
+        strcopy(output, maxlen, "Unknown");
+        return;
+    }
+
+    strcopy(output, maxlen, ipAddress);
+    output[thirdDot + 1] = '\0';
+    StrCat(output, maxlen, "0");
 }
 
 bool IsPlayerAdmin(int client)
 {
 	return CheckCommandAccess(client, "Generic_admin", ADMFLAG_GENERIC, false);
-}
-
-public void ConvertSecondsToTime(int seconds, char[] result, int maxLength)
-{
-    int hours = seconds / 3600;
-    int minutes = (seconds % 3600) / 60;
-    int remainingSeconds = seconds % 60;
-
-    Format(result, maxLength, "%02d:%02d:%02d", hours, minutes, remainingSeconds);
 }
