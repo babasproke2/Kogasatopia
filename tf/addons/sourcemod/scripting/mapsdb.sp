@@ -9,9 +9,11 @@
 #define MAPSDB_SAMPLE_INTERVAL 600.0
 #define MAPSDB_POPULATION_SAMPLE_INTERVAL_DEFAULT 30.0
 #define MAPSDB_DB_CONFIG "default"
+#define MAPSDB_QUERY_MAX 4096
 
 char g_sCurrentMap[PLATFORM_MAX_PATH];
 char g_sCurrentGamemode[32];
+char g_sMapSessionId[64];
 
 Database g_hDb = null;
 Handle g_hSampleTimer = null;
@@ -21,6 +23,10 @@ ConVar g_cvSampleDebug = null;
 bool g_bLateLoad = false;
 int g_iMapStartedAt = 0;
 int g_iRoundStartedAt = 0;
+int g_iLastPopulationSampleAt = 0;
+int g_iSampleSequence = 0;
+int g_iJoiningPlayers = 0;
+int g_iLeavingPlayers = 0;
 bool g_bRoundRunning = false;
 
 public Plugin myinfo =
@@ -92,10 +98,15 @@ public void OnMapStart()
 {
     g_iMapStartedAt = GetTime();
     g_iRoundStartedAt = 0;
+    g_iLastPopulationSampleAt = g_iMapStartedAt;
+    g_iSampleSequence = 0;
+    g_iJoiningPlayers = 0;
+    g_iLeavingPlayers = 0;
     g_bRoundRunning = false;
 
     UpdateCurrentMapName(g_sCurrentMap, sizeof(g_sCurrentMap));
     UpdateGamemodeKey();
+    BuildMapSessionId(g_sMapSessionId, sizeof(g_sMapSessionId));
 
     CreateTimer(5.0, Timer_RunDefaultConfig, _, TIMER_FLAG_NO_MAPCHANGE);
 
@@ -107,6 +118,22 @@ public void OnMapStart()
 public void OnMapEnd()
 {
     StopSampleTimer();
+}
+
+public void OnClientPutInServer(int client)
+{
+    if (!IsFakeClient(client))
+    {
+        g_iJoiningPlayers++;
+    }
+}
+
+public void OnClientDisconnect(int client)
+{
+    if (!IsFakeClient(client))
+    {
+        g_iLeavingPlayers++;
+    }
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
@@ -249,17 +276,38 @@ public Action Timer_RecordPopulationSample(Handle timer)
     int mapElapsed = GetMapElapsedSeconds(now);
     int roundElapsed = GetRoundElapsedSeconds(now, roundRunning);
     int hostPort = GetHostPort();
+    int sampleSequence = ++g_iSampleSequence;
+    int sampleDelta = GetPopulationSampleDeltaSeconds(now);
+    int playerSecondsDelta = playerCount * sampleDelta;
+    int joiningPlayers = g_iJoiningPlayers;
+    int leavingPlayers = g_iLeavingPlayers;
+    int weekday;
+    int hourOfDay;
+    GetWeekdayHour(now, weekday, hourOfDay);
+
+    g_iJoiningPlayers = 0;
+    g_iLeavingPlayers = 0;
+    g_iLastPopulationSampleAt = now;
+
+    if (!g_sMapSessionId[0])
+    {
+        BuildMapSessionId(g_sMapSessionId, sizeof(g_sMapSessionId));
+    }
 
     char escapedMap[256];
     char escapedGamemode[96];
+    char escapedSessionId[128];
     SQL_EscapeString(g_hDb, mapName, escapedMap, sizeof(escapedMap));
     SQL_EscapeString(g_hDb, gamemode, escapedGamemode, sizeof(escapedGamemode));
+    SQL_EscapeString(g_hDb, g_sMapSessionId, escapedSessionId, sizeof(escapedSessionId));
 
-    char query[1536];
+    char query[2048];
     FormatEx(query, sizeof(query),
-        "INSERT INTO server_population_samples (sampled_at, host_port, map_name, gamemode, player_count, visible_max, red_count, blu_count, spectator_count, map_elapsed_seconds, round_elapsed_seconds, round_running) VALUES (%d, %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d)",
+        "INSERT INTO server_population_samples (sampled_at, host_port, map_session_id, sample_sequence, map_name, gamemode, player_count, visible_max, red_count, blu_count, spectator_count, map_elapsed_seconds, round_elapsed_seconds, round_running, weekday, hour_of_day, joining_players, leaving_players, player_seconds_delta) VALUES (%d, %d, '%s', %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
         now,
         hostPort,
+        escapedSessionId,
+        sampleSequence,
         escapedMap,
         escapedGamemode,
         playerCount,
@@ -269,17 +317,26 @@ public Action Timer_RecordPopulationSample(Handle timer)
         spectatorCount,
         mapElapsed,
         roundElapsed,
-        roundRunning ? 1 : 0);
+        roundRunning ? 1 : 0,
+        weekday,
+        hourOfDay,
+        joiningPlayers,
+        leavingPlayers,
+        playerSecondsDelta);
     SQL_TQuery(g_hDb, SQL_OnWriteComplete, query);
 
     if (IsSampleDebugEnabled())
     {
-        PrintToServer("[MapsDB] Recorded population sample for '%s' pop=%d red=%d blu=%d spec=%d elapsed=%d",
+        PrintToServer("[MapsDB] Recorded population sample for '%s' session=%s seq=%d pop=%d red=%d blu=%d spec=%d joins=%d leaves=%d elapsed=%d",
             mapName,
+            g_sMapSessionId,
+            sampleSequence,
             playerCount,
             redCount,
             bluCount,
             spectatorCount,
+            joiningPlayers,
+            leavingPlayers,
             mapElapsed);
     }
 
@@ -330,12 +387,14 @@ static void EnsurePopulationSampleSchema()
         return;
     }
 
-    char query[2048];
+    char query[MAPSDB_QUERY_MAX];
     query[0] = '\0';
     StrCat(query, sizeof(query), "CREATE TABLE IF NOT EXISTS server_population_samples (");
     StrCat(query, sizeof(query), "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,");
     StrCat(query, sizeof(query), "sampled_at INT NOT NULL,");
     StrCat(query, sizeof(query), "host_port INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "map_session_id VARCHAR(64) NOT NULL DEFAULT '',");
+    StrCat(query, sizeof(query), "sample_sequence INT NOT NULL DEFAULT 0,");
     StrCat(query, sizeof(query), "map_name VARCHAR(128) NOT NULL,");
     StrCat(query, sizeof(query), "gamemode VARCHAR(32) NOT NULL,");
     StrCat(query, sizeof(query), "player_count INT NOT NULL DEFAULT 0,");
@@ -346,13 +405,34 @@ static void EnsurePopulationSampleSchema()
     StrCat(query, sizeof(query), "map_elapsed_seconds INT NOT NULL DEFAULT 0,");
     StrCat(query, sizeof(query), "round_elapsed_seconds INT NOT NULL DEFAULT 0,");
     StrCat(query, sizeof(query), "round_running TINYINT(1) NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "weekday TINYINT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "hour_of_day TINYINT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "joining_players INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "leaving_players INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "player_seconds_delta INT NOT NULL DEFAULT 0,");
     StrCat(query, sizeof(query), "KEY idx_sampled_at (sampled_at),");
     StrCat(query, sizeof(query), "KEY idx_map_name (map_name),");
     StrCat(query, sizeof(query), "KEY idx_host_port (host_port),");
     StrCat(query, sizeof(query), "KEY idx_map_sampled_at (map_name, sampled_at),");
-    StrCat(query, sizeof(query), "KEY idx_host_sampled_at (host_port, sampled_at)");
+    StrCat(query, sizeof(query), "KEY idx_host_sampled_at (host_port, sampled_at),");
+    StrCat(query, sizeof(query), "KEY idx_map_session (map_session_id),");
+    StrCat(query, sizeof(query), "KEY idx_weekday_hour (weekday, hour_of_day)");
     StrCat(query, sizeof(query), ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
     SQL_TQuery(g_hDb, SQL_OnSchemaComplete, query);
+
+    query[0] = '\0';
+    StrCat(query, sizeof(query), "ALTER TABLE server_population_samples ");
+    StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS map_session_id VARCHAR(64) NOT NULL DEFAULT '', ");
+    StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS sample_sequence INT NOT NULL DEFAULT 0, ");
+    StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS weekday TINYINT NOT NULL DEFAULT 0, ");
+    StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS hour_of_day TINYINT NOT NULL DEFAULT 0, ");
+    StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS joining_players INT NOT NULL DEFAULT 0, ");
+    StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS leaving_players INT NOT NULL DEFAULT 0, ");
+    StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS player_seconds_delta INT NOT NULL DEFAULT 0");
+    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, query);
+
+    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, "CREATE INDEX IF NOT EXISTS idx_map_session ON server_population_samples (map_session_id)");
+    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, "CREATE INDEX IF NOT EXISTS idx_weekday_hour ON server_population_samples (weekday, hour_of_day)");
 }
 
 public void SQL_OnSchemaComplete(Database db, DBResultSet results, const char[] error, any data)
@@ -446,6 +526,16 @@ static int GetMapElapsedSeconds(int now)
     return now - g_iMapStartedAt;
 }
 
+static int GetPopulationSampleDeltaSeconds(int now)
+{
+    if (g_iLastPopulationSampleAt <= 0 || now <= g_iLastPopulationSampleAt)
+    {
+        return 0;
+    }
+
+    return now - g_iLastPopulationSampleAt;
+}
+
 static int GetRoundElapsedSeconds(int now, bool roundRunning)
 {
     if (!roundRunning || g_iRoundStartedAt <= 0 || now < g_iRoundStartedAt)
@@ -465,6 +555,28 @@ static int GetHostPort()
     }
 
     return hostPort.IntValue;
+}
+
+static void BuildMapSessionId(char[] output, int maxlen)
+{
+    int mapStartedAt = g_iMapStartedAt;
+    if (mapStartedAt <= 0)
+    {
+        mapStartedAt = GetTime();
+    }
+
+    Format(output, maxlen, "%d-%d", GetHostPort(), mapStartedAt);
+}
+
+static void GetWeekdayHour(int timestamp, int &weekday, int &hourOfDay)
+{
+    char buffer[8];
+
+    FormatTime(buffer, sizeof(buffer), "%w", timestamp);
+    weekday = StringToInt(buffer);
+
+    FormatTime(buffer, sizeof(buffer), "%H", timestamp);
+    hourOfDay = StringToInt(buffer);
 }
 
 static bool IsSampleDebugEnabled()
