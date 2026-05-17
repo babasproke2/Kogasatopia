@@ -15,7 +15,6 @@
 #define ADMIN_ONLY_GROUPS_SECTION "adminonlygroups"
 #define PAID_SAYSOUND_GROUPS_SECTION "paidsaysoundgroups"
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
-#define DEFAULT_DEATH_COMMAND "doh"
 #define TOUHOU_DEATH_SOUND_ATTR "touhou death sound"
 #define TOUHOU_DEATH_SOUND_PATH "touhou/pichuun.mp3"
 #define TOUHOU_DEATH_SOUND_FORCE_VOLUME 0.5
@@ -52,6 +51,7 @@ Handle g_hDeathCookie = INVALID_HANDLE;
 Handle g_hKillCookie = INVALID_HANDLE;
 Handle g_hDisabledGroupsCookie = INVALID_HANDLE;
 ConVar g_hForce;
+ConVar g_hDefaultDeathSound;
 
 const float DEFAULT_VOLUME = 0.5;
 const float MIN_VOLUME = 0.0;
@@ -88,6 +88,7 @@ public void OnPluginStart()
     gGroupNames = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
 
     g_hForce = CreateConVar("saysounds_force", "0", "Force everyone to hear saysounds");
+    g_hDefaultDeathSound = CreateConVar("saysounds_default_death_sound", "doh", "Saysound command/group used when a victim has no death sound set and the attacker has no kill sound.");
     g_hVolumeCookie = RegClientCookie("saysounds_volume", "Preferred say sound volume", CookieAccess_Public);
     g_hDeathCookie = RegClientCookie("saysounds_death", "Preferred saysound on death", CookieAccess_Public);
     g_hKillCookie = RegClientCookie("saysounds_kill", "Preferred saysound on kill", CookieAccess_Public);
@@ -2958,7 +2959,12 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
         }
         else if (!haveAttacker)
         {
-            haveVictim = GetCommandSoundDataForClient(victim, DEFAULT_DEATH_COMMAND, victimPath, sizeof(victimPath), victimGroup, sizeof(victimGroup), restricted, paidRestricted);
+            char defaultDeathCommand[MAX_COMMAND_NAME * 4];
+            GetDefaultDeathSound(defaultDeathCommand, sizeof(defaultDeathCommand));
+            if (defaultDeathCommand[0])
+            {
+                haveVictim = GetCommandSoundDataForClient(victim, defaultDeathCommand, victimPath, sizeof(victimPath), victimGroup, sizeof(victimGroup), restricted, paidRestricted);
+            }
         }
     }
 
@@ -2982,6 +2988,16 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
     else if (haveAttacker)
     {
         PlaySaySound(attackerPath, attackerGroup);
+    }
+}
+
+void GetDefaultDeathSound(char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+    if (g_hDefaultDeathSound != null)
+    {
+        g_hDefaultDeathSound.GetString(buffer, maxlen);
+        TrimString(buffer);
     }
 }
 
