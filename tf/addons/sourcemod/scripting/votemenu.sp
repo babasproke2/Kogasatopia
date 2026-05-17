@@ -44,7 +44,7 @@ public void OnPluginStart()
 {
     RegConsoleCmd("sm_votemenu", Command_VoteMenu, "Open the vote menu");
     g_CvarShop = CreateConVar("sm_votemenu_shop", "1", "Require points_store currency to start a votemenu vote when points_store is available.", _, true, 0.0, true, 1.0);
-    g_CvarShopCost = CreateConVar("sm_votemenu_shop_cost", "25", "points_store currency cost to start a votemenu vote. 0 disables currency integration.", _, true, 0.0);
+    g_CvarShopCost = CreateConVar("sm_votemenu_shop_cost", "50", "points_store currency cost to start a votemenu vote. 0 disables currency integration.", _, true, 0.0);
     g_CvarAdmins = CreateConVar("sm_votemenu_admins_only", "0", "Restrict votemenu usage to admins.", _, true, 0.0, true, 1.0);
     g_CvarAdminsFree = CreateConVar("sm_votemenu_admins_free", "0", "Let admins use votemenu without points_store currency integration.", _, true, 0.0, true, 1.0);
     g_VoteOptions = new ArrayList(sizeof(VoteOption));
@@ -82,7 +82,9 @@ public Action Command_VoteMenu(int client, int args)
     }
 
     Menu menu = new Menu(VoteMenuHandler);
-    menu.SetTitle("Start a vote");
+    char title[128];
+    FormatVoteMenuTitle(client, title, sizeof(title));
+    menu.SetTitle("%s", title);
     char label[256];
     VoteOption opt;
     for (int i = 0; i < g_VoteOptions.Length; i++)
@@ -102,7 +104,7 @@ public Action Command_VoteMenu(int client, int args)
             strcopy(display, sizeof(display), opt.id);
         }
 
-        FormatVoteMenuLabel(client, display, label, sizeof(label));
+        Format(label, sizeof(label), "%s", display);
         menu.AddItem(opt.id, label);
     }
     menu.ExitButton = true;
@@ -202,22 +204,17 @@ static bool IsVoteMenuShopEnabled(int client)
     return g_CvarShop != null && g_CvarShop.BoolValue && GetVoteMenuCost() > 0 && IsPointsStoreAvailable();
 }
 
-static bool ShouldShowVoteMenuCost(int client)
+static void FormatVoteMenuTitle(int client, char[] title, int maxlen)
 {
-    return IsVoteMenuShopEnabled(client);
-}
-
-static void FormatVoteMenuLabel(int client, const char[] display, char[] label, int maxlen)
-{
-    if (!ShouldShowVoteMenuCost(client))
+    if (!IsVoteMenuShopEnabled(client))
     {
-        Format(label, maxlen, "%s", display);
+        strcopy(title, maxlen, "Start a vote");
         return;
     }
 
     char currency[VOTEMENU_CURRENCY_SHORT_MAX];
     GetVoteMenuCurrencyShort(currency, sizeof(currency));
-    Format(label, maxlen, "%s (%d %s)", display, GetVoteMenuCost(), currency);
+    Format(title, maxlen, "Start a vote (%d %s)", GetVoteMenuCost(), currency);
 }
 
 static bool ChargeVoteMenuCost(int client)
