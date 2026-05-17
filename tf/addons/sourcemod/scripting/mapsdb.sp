@@ -8,6 +8,7 @@
 #define MAPSDB_SECRET_CFG "secrets"
 #define MAPSDB_SAMPLE_INTERVAL 600.0
 #define MAPSDB_POPULATION_SAMPLE_INTERVAL_DEFAULT 30.0
+#define MAPSDB_PLUGIN_STATS_FLUSH_INTERVAL_DEFAULT "30.0"
 #define MAPSDB_DB_CONFIG "default"
 #define MAPSDB_QUERY_MAX 4096
 
@@ -60,6 +61,13 @@ public void OnPluginStart()
         _,
         true,
         10.0);
+    CreateConVar(
+        "sm_mapsdb_plugin_statistics_flush_interval",
+        MAPSDB_PLUGIN_STATS_FLUSH_INTERVAL_DEFAULT,
+        "Seconds between plugin statistics SQL queue flushes.",
+        _,
+        true,
+        1.0);
     g_cvSampleDebug = CreateConVar(
         "sm_mapsdb_sample_debug",
         "0",

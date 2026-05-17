@@ -5,6 +5,7 @@
 
 #define PLUGIN_STATS_DB_CONFIG_DEFAULT "default"
 #define PLUGIN_STATS_FLUSH_INTERVAL 30.0
+#define PLUGIN_STATS_FLUSH_INTERVAL_CVAR "sm_mapsdb_plugin_statistics_flush_interval"
 #define PLUGIN_STATS_QUERY_MAX 8192
 #define PLUGIN_STATS_EVENT_NAME_MAX 64
 #define PLUGIN_STATS_MESSAGE_MAX 512
@@ -43,7 +44,7 @@ stock void PluginStats_Init(const char[] tableName, const char[] dbConfig = PLUG
 
     if (g_PluginStatsFlushTimer == null)
     {
-        g_PluginStatsFlushTimer = CreateTimer(PLUGIN_STATS_FLUSH_INTERVAL, PluginStats_TimerFlush, _, TIMER_REPEAT);
+        PluginStats_ScheduleFlushTimer();
     }
 
     PluginStats_OnMapStart();
@@ -104,8 +105,40 @@ stock void PluginStats_LogMessage(const char[] message)
 
 stock Action PluginStats_TimerFlush(Handle timer)
 {
+    g_PluginStatsFlushTimer = null;
     PluginStats_Flush();
-    return Plugin_Continue;
+    if (g_PluginStatsQueue != null)
+    {
+        PluginStats_ScheduleFlushTimer();
+    }
+    return Plugin_Stop;
+}
+
+stock void PluginStats_ScheduleFlushTimer()
+{
+    if (g_PluginStatsFlushTimer != null)
+    {
+        return;
+    }
+
+    g_PluginStatsFlushTimer = CreateTimer(PluginStats_GetFlushInterval(), PluginStats_TimerFlush);
+}
+
+stock float PluginStats_GetFlushInterval()
+{
+    ConVar interval = FindConVar(PLUGIN_STATS_FLUSH_INTERVAL_CVAR);
+    if (interval == null)
+    {
+        return PLUGIN_STATS_FLUSH_INTERVAL;
+    }
+
+    float value = interval.FloatValue;
+    if (value < 1.0)
+    {
+        return 1.0;
+    }
+
+    return value;
 }
 
 stock void PluginStats_Flush()
