@@ -14,6 +14,9 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define BP_TRANS_ITEM_NAME_MAX 128
 #define BP_SOUND_COMMAND "xp_gain"
 #define BP_EVENT_LOG_FILE "logs/points_store_events.log"
+#define BP_EVENT_LOG_FLUSH_INTERVAL 30.0
+#define BP_EVENT_LOG_LINE_MAX 1024
+#define BP_EVENT_LOG_QUEUE_MAX 5000
 #define BP_CURRENCY_SHORT_MAX 32
 #define BP_CURRENCY_LONG_MAX 64
 #define BP_CURRENCY_COLOR_MAX 32
@@ -21,6 +24,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 ArrayList g_ItemKeys = null;
 ArrayList g_ItemNames = null;
 ArrayList g_ItemPrices = null;
+ArrayList g_EventLogQueue = null;
 
 StringMap g_ClientPurchases[MAXPLAYERS + 1];
 bool g_ClientPurchasesLoaded[MAXPLAYERS + 1];
@@ -35,6 +39,8 @@ ConVar g_CvarLogRandomMisses = null;
 ConVar g_CvarCurrencyShort = null;
 ConVar g_CvarCurrencyLong = null;
 ConVar g_CvarCurrencyColor = null;
+Handle g_EventLogFlushTimer = null;
+int g_EventLogDropped = 0;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 char g_EventLogPath[PLATFORM_MAX_PATH];
@@ -73,6 +79,7 @@ public void OnPluginStart()
     g_ItemKeys = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_KEY_MAX));
     g_ItemNames = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_NAME_MAX));
     g_ItemPrices = new ArrayList();
+    g_EventLogQueue = new ArrayList(ByteCountToCells(BP_EVENT_LOG_LINE_MAX));
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -94,6 +101,7 @@ public void OnPluginStart()
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
     RefreshCurrencyLabels();
     BuildPath(Path_SM, g_EventLogPath, sizeof(g_EventLogPath), BP_EVENT_LOG_FILE);
+    g_EventLogFlushTimer = CreateTimer(BP_EVENT_LOG_FLUSH_INTERVAL, Timer_FlushPointsEventLog, _, TIMER_REPEAT);
 
     RegConsoleCmd("sm_shop", Command_Shop, "Open the points store.");
     RegConsoleCmd("sm_store", Command_Shop, "Open the points store.");
@@ -110,9 +118,14 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
+    delete g_EventLogFlushTimer;
+    g_EventLogFlushTimer = null;
+    FlushPointsEventLogQueue();
+
     delete g_ItemKeys;
     delete g_ItemNames;
     delete g_ItemPrices;
+    delete g_EventLogQueue;
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -122,6 +135,11 @@ public void OnPluginEnd()
 
     delete g_Database;
     g_Database = null;
+}
+
+public void OnMapEnd()
+{
+    FlushPointsEventLogQueue();
 }
 
 public void OnClientAuthorized(int client, const char[] auth)
@@ -779,6 +797,65 @@ bool IsPointsEventLoggingEnabled()
     return g_CvarEventLogging != null && g_CvarEventLogging.BoolValue;
 }
 
+public Action Timer_FlushPointsEventLog(Handle timer)
+{
+    FlushPointsEventLogQueue();
+    return Plugin_Continue;
+}
+
+void QueuePointsStoreEvent(const char[] message)
+{
+    if (g_EventLogQueue == null)
+    {
+        return;
+    }
+
+    if (g_EventLogQueue.Length >= BP_EVENT_LOG_QUEUE_MAX)
+    {
+        g_EventLogDropped++;
+        return;
+    }
+
+    g_EventLogQueue.PushString(message);
+}
+
+void FlushPointsEventLogQueue()
+{
+    if (g_EventLogQueue == null)
+    {
+        return;
+    }
+
+    int queued = g_EventLogQueue.Length;
+    if (queued == 0 && g_EventLogDropped == 0)
+    {
+        return;
+    }
+
+    File file = OpenFile(g_EventLogPath, "a");
+    if (file == null)
+    {
+        LogError("Unable to open points store event log for writing: %s", g_EventLogPath);
+        return;
+    }
+
+    char message[BP_EVENT_LOG_LINE_MAX];
+    for (int i = 0; i < queued; i++)
+    {
+        g_EventLogQueue.GetString(i, message, sizeof(message));
+        file.WriteLine("%s", message);
+    }
+
+    if (g_EventLogDropped > 0)
+    {
+        file.WriteLine("event=log_dropped|time=%d|dropped=%d|queue_limit=%d", GetTime(), g_EventLogDropped, BP_EVENT_LOG_QUEUE_MAX);
+    }
+
+    delete file;
+    g_EventLogQueue.Clear();
+    g_EventLogDropped = 0;
+}
+
 void LogPointsStoreEvent(const char[] format, any ...)
 {
     if (!IsPointsEventLoggingEnabled())
@@ -786,9 +863,9 @@ void LogPointsStoreEvent(const char[] format, any ...)
         return;
     }
 
-    char message[1024];
+    char message[BP_EVENT_LOG_LINE_MAX];
     VFormat(message, sizeof(message), format, 2);
-    LogToFileEx(g_EventLogPath, "%s", message);
+    QueuePointsStoreEvent(message);
 }
 
 void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAfter, const char[] type, int target, bool playSound, bool chatAlert, float randomChance, bool saveQueued)
