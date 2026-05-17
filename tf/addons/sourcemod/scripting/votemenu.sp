@@ -45,7 +45,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_votemenu", Command_VoteMenu, "Open the vote menu");
     g_CvarShop = CreateConVar("sm_votemenu_shop", "1", "Require points_store currency to start a votemenu vote when points_store is available.", _, true, 0.0, true, 1.0);
     g_CvarShopCost = CreateConVar("sm_votemenu_shop_cost", "25", "points_store currency cost to start a votemenu vote. 0 disables currency integration.", _, true, 0.0);
-    g_CvarAdmins = CreateConVar("sm_votemenu_admins", "0", "Restrict votemenu usage to admins.", _, true, 0.0, true, 1.0);
+    g_CvarAdmins = CreateConVar("sm_votemenu_admins_only", "0", "Restrict votemenu usage to admins.", _, true, 0.0, true, 1.0);
     g_CvarAdminsFree = CreateConVar("sm_votemenu_admins_free", "0", "Let admins use votemenu without points_store currency integration.", _, true, 0.0, true, 1.0);
     g_VoteOptions = new ArrayList(sizeof(VoteOption));
     LoadVoteMenuConfig();
