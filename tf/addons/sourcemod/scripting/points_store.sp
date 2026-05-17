@@ -109,8 +109,12 @@ public void OnPluginStart()
     RegConsoleCmd("sm_bonus", Command_ShowBonusPoints, "Show your currency balance.");
     RegConsoleCmd("sm_bonuspoints", Command_ShowBonusPoints, "Show your currency balance.");
     RegConsoleCmd("sm_bp", Command_ShowBonusPoints, "Show your currency balance.");
+    RegConsoleCmd("sm_send", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_sendbp", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_bpsend", Command_SendBonusPoints, "Send currency to another player.");
+    RegConsoleCmd("sm_gem", Command_ShowBonusPoints, "Show your currency balance.");
+    RegConsoleCmd("sm_sendgem", Command_SendBonusPoints, "Send currency to another player.");
+    RegConsoleCmd("sm_gemsend", Command_SendBonusPoints, "Send currency to another player.");
 
     LoadStoreItems();
     ConnectDatabase();
