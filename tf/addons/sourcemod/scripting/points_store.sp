@@ -14,6 +14,9 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define BP_TRANS_ITEM_NAME_MAX 128
 #define BP_SOUND_COMMAND "xp_gain"
 #define BP_EVENT_LOG_FILE "logs/points_store_events.log"
+#define BP_CURRENCY_SHORT_MAX 32
+#define BP_CURRENCY_LONG_MAX 64
+#define BP_CURRENCY_COLOR_MAX 32
 
 ArrayList g_ItemKeys = null;
 ArrayList g_ItemNames = null;
@@ -28,6 +31,9 @@ bool g_ClientBonusPointsPending[MAXPLAYERS + 1];
 Database g_Database = null;
 ConVar g_CvarDatabase = null;
 ConVar g_CvarEventLogging = null;
+ConVar g_CvarCurrencyShort = null;
+ConVar g_CvarCurrencyLong = null;
+ConVar g_CvarCurrencyColor = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 char g_EventLogPath[PLATFORM_MAX_PATH];
@@ -36,7 +42,7 @@ public Plugin myinfo =
 {
     name = "points_store",
     author = "Kogasa",
-    description = "Bonus points purchase receipts, shop UI, and ownership API.",
+    description = "Currency purchase receipts, shop UI, and ownership API.",
     version = "1.0.0",
     url = "https://kogasa.tf"
 };
@@ -71,17 +77,20 @@ public void OnPluginStart()
     }
 
     g_CvarDatabase = CreateConVar("sm_bonuspoints_transactions_database", BP_TRANS_DB_CONFIG_DEFAULT, "Databases.cfg entry for bonuspoints_transactions.");
-    g_CvarEventLogging = CreateConVar("sm_points_store_event_logging", "1", "Write structured Bonus Points economy events to logs/points_store_events.log.", _, true, 0.0, true, 1.0);
+    g_CvarEventLogging = CreateConVar("sm_points_store_event_logging", "1", "Write structured currency economy events to logs/points_store_events.log.", _, true, 0.0, true, 1.0);
+    g_CvarCurrencyShort = CreateConVar("sm_points_store_currency_short", "BP", "Short currency label used in compact messages, e.g. BP or Gem.");
+    g_CvarCurrencyLong = CreateConVar("sm_points_store_currency_long", "Bonus Points", "Long currency label used in menus and prose, e.g. Bonus Points or Gems.");
+    g_CvarCurrencyColor = CreateConVar("sm_points_store_currency_color", "magenta", "Multicolors tag name used for the currency prefix, without braces.");
     BuildPath(Path_SM, g_EventLogPath, sizeof(g_EventLogPath), BP_EVENT_LOG_FILE);
 
-    RegConsoleCmd("sm_shop", Command_Shop, "Open the Bonus Points Shop.");
-    RegConsoleCmd("sm_store", Command_Shop, "Open the Bonus Points Shop.");
-    RegConsoleCmd("sm_buy", Command_Shop, "Open the Bonus Points Shop.");
-    RegConsoleCmd("sm_bonus", Command_ShowBonusPoints, "Show your total Bonus Points.");
-    RegConsoleCmd("sm_bonuspoints", Command_ShowBonusPoints, "Show your total Bonus Points.");
-    RegConsoleCmd("sm_bp", Command_ShowBonusPoints, "Show your total Bonus Points.");
-    RegConsoleCmd("sm_sendbp", Command_SendBonusPoints, "Send Bonus Points to another player.");
-    RegConsoleCmd("sm_bpsend", Command_SendBonusPoints, "Send Bonus Points to another player.");
+    RegConsoleCmd("sm_shop", Command_Shop, "Open the points store.");
+    RegConsoleCmd("sm_store", Command_Shop, "Open the points store.");
+    RegConsoleCmd("sm_buy", Command_Shop, "Open the points store.");
+    RegConsoleCmd("sm_bonus", Command_ShowBonusPoints, "Show your currency balance.");
+    RegConsoleCmd("sm_bonuspoints", Command_ShowBonusPoints, "Show your currency balance.");
+    RegConsoleCmd("sm_bp", Command_ShowBonusPoints, "Show your currency balance.");
+    RegConsoleCmd("sm_sendbp", Command_SendBonusPoints, "Send currency to another player.");
+    RegConsoleCmd("sm_bpsend", Command_SendBonusPoints, "Send currency to another player.");
 
     LoadStoreItems();
     ConnectDatabase();
@@ -637,6 +646,70 @@ int GetCachedBonusPoints(int client)
     return g_ClientBonusPoints[client] > 0 ? g_ClientBonusPoints[client] : 0;
 }
 
+void GetCurrencyShortLabel(char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+    if (g_CvarCurrencyShort != null)
+    {
+        g_CvarCurrencyShort.GetString(buffer, maxlen);
+        TrimString(buffer);
+    }
+
+    if (buffer[0] == '\0')
+    {
+        strcopy(buffer, maxlen, "BP");
+    }
+}
+
+void GetCurrencyLongLabel(char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+    if (g_CvarCurrencyLong != null)
+    {
+        g_CvarCurrencyLong.GetString(buffer, maxlen);
+        TrimString(buffer);
+    }
+
+    if (buffer[0] == '\0')
+    {
+        strcopy(buffer, maxlen, "Bonus Points");
+    }
+}
+
+void GetCurrencyColorTag(char[] buffer, int maxlen)
+{
+    char color[BP_CURRENCY_COLOR_MAX];
+    color[0] = '\0';
+    if (g_CvarCurrencyColor != null)
+    {
+        g_CvarCurrencyColor.GetString(color, sizeof(color));
+        TrimString(color);
+    }
+
+    if (color[0] == '\0')
+    {
+        strcopy(color, sizeof(color), "magenta");
+    }
+
+    if (color[0] == '{')
+    {
+        strcopy(buffer, maxlen, color);
+    }
+    else
+    {
+        Format(buffer, maxlen, "{%s}", color);
+    }
+}
+
+void GetCurrencyPrefix(char[] buffer, int maxlen)
+{
+    char shortLabel[BP_CURRENCY_SHORT_MAX];
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyShortLabel(shortLabel, sizeof(shortLabel));
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    Format(buffer, maxlen, "%s[%s]{default}", colorTag, shortLabel);
+}
+
 void SanitizeLogField(char[] value, int maxlen)
 {
     ReplaceString(value, maxlen, "|", "/", false);
@@ -1098,9 +1171,14 @@ public Action Timer_DeferredApplyBonusPoints(Handle timer, any data)
 
 void PrintBonusPointsDelta(int client, int points, const char[] type, int target)
 {
+    char prefix[96];
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyPrefix(prefix, sizeof(prefix));
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
     if (points < 0)
     {
-        CPrintToChat(client, "{magenta}[BP]{limegreen}%i", points);
+        CPrintToChat(client, "%s{limegreen}%i", prefix, points);
         return;
     }
 
@@ -1112,7 +1190,7 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
     {
         char targetName[256];
         BuildPurchaseDisplayName(target, targetName, sizeof(targetName));
-        CPrintToChat(client, "{magenta}[BP] {limegreen}%s%i{default} for killing %s", sign, points, targetName);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for killing %s", prefix, sign, points, targetName);
         return;
     }
 
@@ -1120,25 +1198,25 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
     {
         char targetName[256];
         BuildPurchaseDisplayName(target, targetName, sizeof(targetName));
-        CPrintToChat(client, "{magenta}[BP] {limegreen}%s%i{default} for killing {magenta}MVP %s", sign, points, targetName);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for killing %sMVP %s", prefix, sign, points, colorTag, targetName);
         return;
     }
 
     if (StrEqual(type, "player_dom", false) && IsClientInGameHuman(target))
     {
-        CPrintToChat(client, "{magenta}[BP] {limegreen}%s%i{default} for Dominating %N", sign, points, target);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for Dominating %N", prefix, sign, points, target);
         return;
     }
 
     if (StrEqual(type, "player_revenge", false) && IsClientInGameHuman(target))
     {
-        CPrintToChat(client, "{magenta}[BP] {limegreen}%s%i{default} for Revenge on %N", sign, points, target);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for Revenge on %N", prefix, sign, points, target);
         return;
     }
 
     if (StrEqual(type, "killstreak", false))
     {
-        CPrintToChat(client, "{magenta}[BP] {limegreen}%s%i{default} for Killstreak: %d", sign, points, target);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for Killstreak: %d", prefix, sign, points, target);
         return;
     }
 
@@ -1148,11 +1226,11 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
         GetMultikillBonusPointsLabel(target, multikillLabel, sizeof(multikillLabel));
         if (multikillLabel[0] != '\0')
         {
-            CPrintToChat(client, "{magenta}[BP] {limegreen}%s%i{default} for {gold}%s", sign, points, multikillLabel);
+            CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s", prefix, sign, points, multikillLabel);
         }
         else
         {
-            CPrintToChat(client, "{magenta}[BP] {limegreen}%s%i{default} for Multikill: %d", sign, points, target);
+            CPrintToChat(client, "%s {limegreen}%s%i{default} for Multikill: %d", prefix, sign, points, target);
         }
         return;
     }
@@ -1161,11 +1239,11 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
     GetBonusPointsTypeLabel(type, label, sizeof(label));
     if (label[0] != '\0')
     {
-        CPrintToChat(client, "{magenta}[BP] {limegreen}%s%i{default} for {gold}%s", sign, points, label);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s", prefix, sign, points, label);
         return;
     }
 
-    CPrintToChat(client, "{magenta}[BP] {limegreen}%s%i", sign, points);
+    CPrintToChat(client, "%s {limegreen}%s%i", prefix, sign, points);
 }
 
 public Action Command_Shop(int client, int args)
@@ -1199,6 +1277,11 @@ public Action Command_ShowBonusPoints(int client, int args)
         return Plugin_Handled;
     }
 
+    char prefix[96];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    GetCurrencyPrefix(prefix, sizeof(prefix));
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+
     int target = client;
     if (args >= 1)
     {
@@ -1214,7 +1297,7 @@ public Action Command_ShowBonusPoints(int client, int args)
             }
             else
             {
-                CPrintToChat(client, "{magenta}[BP]{default} Could not find player '%s'.", targetArg);
+                CPrintToChat(client, "%s Could not find player '%s'.", prefix, targetArg);
                 return Plugin_Handled;
             }
         }
@@ -1223,17 +1306,18 @@ public Action Command_ShowBonusPoints(int client, int args)
     if (!AreBonusPointsReady(target))
     {
         LoadClientBonusPoints(target);
-        CPrintToChat(client, "{magenta}[BP]{default} %N's Bonus Points are loading. Try again in a moment.", target);
+        CPrintToChat(client, "%s %N's %s are loading. Try again in a moment.", prefix, target, currencyLong);
         return Plugin_Handled;
     }
 
     char msg[512];
     FormatEx(msg, sizeof(msg),
-        "%N's Bonus Points: {lightgreen}%i{default}\n"
+        "%N's %s: {lightgreen}%i{default}\n"
         ... "{lightgreen}+3{default}: Medic drops, penta-kills\n"
         ... "{lightgreen}+2{default}: Triple-kills, quadra-kills, killstreaks above 10\n"
         ... "{lightgreen}+1:{default} Airshot kills, market garden kills, ubers, killstreaks, dominations, revenge",
         target,
+        currencyLong,
         GetCachedBonusPoints(target));
 
     CPrintToChat(client, "%s", msg);
@@ -1247,9 +1331,18 @@ public Action Command_SendBonusPoints(int client, int args)
         return Plugin_Handled;
     }
 
+    char prefix[96];
+    char currencyShort[BP_CURRENCY_SHORT_MAX];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyPrefix(prefix, sizeof(prefix));
+    GetCurrencyShortLabel(currencyShort, sizeof(currencyShort));
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
     if (args < 2)
     {
-        CPrintToChat(client, "{magenta}[BP]{default} Usage: !sendbp <player> <amount>");
+        CPrintToChat(client, "%s Usage: !sendbp <player> <amount>", prefix);
         return Plugin_Handled;
     }
 
@@ -1260,13 +1353,13 @@ public Action Command_SendBonusPoints(int client, int args)
     int target = FindTarget(client, targetArg, true, false);
     if (target <= 0 || !IsClientInGameHuman(target))
     {
-        CPrintToChat(client, "{magenta}[BP]{default} Could not find player '%s'.", targetArg);
+        CPrintToChat(client, "%s Could not find player '%s'.", prefix, targetArg);
         return Plugin_Handled;
     }
 
     if (target == client)
     {
-        CPrintToChat(client, "{magenta}[BP]{default} You cannot send Bonus Points to yourself.");
+        CPrintToChat(client, "%s You cannot send %s to yourself.", prefix, currencyLong);
         return Plugin_Handled;
     }
 
@@ -1275,33 +1368,33 @@ public Action Command_SendBonusPoints(int client, int args)
     int amount = StringToInt(amountArg);
     if (amount <= 0)
     {
-        CPrintToChat(client, "{magenta}[BP]{default} Amount must be greater than 0.");
+        CPrintToChat(client, "%s Amount must be greater than 0.", prefix);
         return Plugin_Handled;
     }
 
     if (!AreBonusPointsReady(client))
     {
         LoadClientBonusPoints(client);
-        CPrintToChat(client, "{magenta}[BP]{default} Your Bonus Points are loading. Try again in a moment.");
+        CPrintToChat(client, "%s Your %s are loading. Try again in a moment.", prefix, currencyLong);
         return Plugin_Handled;
     }
 
     if (!AreBonusPointsReady(target))
     {
         LoadClientBonusPoints(target);
-        CPrintToChat(client, "{magenta}[BP]{default} %N's Bonus Points are loading. Try again in a moment.", target);
+        CPrintToChat(client, "%s %N's %s are loading. Try again in a moment.", prefix, target, currencyLong);
         return Plugin_Handled;
     }
 
     if (GetCachedBonusPoints(client) < amount)
     {
-        CPrintToChat(client, "{magenta}[BP]{default} You only have {lightgreen}%i{default}BP.", GetCachedBonusPoints(client));
+        CPrintToChat(client, "%s You only have {lightgreen}%i{default}%s.", prefix, GetCachedBonusPoints(client), currencyShort);
         return Plugin_Handled;
     }
 
     if (!ApplyBonusPoints(client, -amount, false, false, 1.0, "transfer_out", target, 0.0))
     {
-        CPrintToChat(client, "{magenta}[BP]{default} Could not spend your Bonus Points.");
+        CPrintToChat(client, "%s Could not spend your %s.", prefix, currencyLong);
         return Plugin_Handled;
     }
 
@@ -1309,7 +1402,7 @@ public Action Command_SendBonusPoints(int client, int args)
     {
         ApplyBonusPoints(client, amount, false, false, 1.0, "transfer_refund", target, 0.0);
         LogTransferEvent("transfer_failed", "target_credit_failed", client, target, amount);
-        CPrintToChat(client, "{magenta}[BP]{default} Could not give Bonus Points to %N.", target);
+        CPrintToChat(client, "%s Could not give %s to %N.", prefix, currencyLong, target);
         return Plugin_Handled;
     }
 
@@ -1328,7 +1421,7 @@ public Action Command_SendBonusPoints(int client, int args)
             continue;
         }
 
-        CPrintToChatEx(i, client, "{magenta}[BP]{default} %s sent %s %i {magenta}BP{default}!", senderDisplay, targetDisplay, amount);
+        CPrintToChatEx(i, client, "%s %s sent %s %i %s%s{default}!", prefix, senderDisplay, targetDisplay, amount, colorTag, currencyShort);
     }
     return Plugin_Handled;
 }
@@ -1336,7 +1429,14 @@ public Action Command_SendBonusPoints(int client, int args)
 void ShowShopMenu(int client)
 {
     Menu menu = new Menu(MenuHandler_Shop);
-    menu.SetTitle("Bonus Points Shop");
+    char currencyShort[BP_CURRENCY_SHORT_MAX];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    GetCurrencyShortLabel(currencyShort, sizeof(currencyShort));
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+
+    char title[BP_CURRENCY_LONG_MAX + 16];
+    Format(title, sizeof(title), "%s Shop", currencyLong);
+    menu.SetTitle(title);
 
     char itemKey[BP_TRANS_ITEM_KEY_MAX];
     char itemName[BP_TRANS_ITEM_NAME_MAX];
@@ -1356,7 +1456,7 @@ void ShowShopMenu(int client)
         }
         else
         {
-            Format(display, sizeof(display), "%s (%dBP)", itemName, price);
+            Format(display, sizeof(display), "%s (%d%s)", itemName, price, currencyShort);
             menu.AddItem(itemKey, display);
         }
     }
@@ -1395,6 +1495,15 @@ public int MenuHandler_Shop(Menu menu, MenuAction action, int client, int item)
 
 void AttemptPurchase(int client, const char[] itemKey)
 {
+    char prefix[96];
+    char currencyShort[BP_CURRENCY_SHORT_MAX];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyPrefix(prefix, sizeof(prefix));
+    GetCurrencyShortLabel(currencyShort, sizeof(currencyShort));
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
     if (!g_DatabaseReady || g_Database == null)
     {
         LogPurchaseEvent("purchase_rejected", "database_not_ready", client, itemKey, "", 0, GetCachedBonusPoints(client));
@@ -1413,7 +1522,7 @@ void AttemptPurchase(int client, const char[] itemKey)
     {
         LoadClientBonusPoints(client);
         LogPurchaseEvent("purchase_rejected", "balance_not_loaded", client, itemKey, "", 0, GetCachedBonusPoints(client));
-        PrintToChat(client, "[Shop] Your Bonus Points are loading. Try again in a moment.");
+        PrintToChat(client, "[Shop] Your %s are loading. Try again in a moment.", currencyLong);
         return;
     }
 
@@ -1455,9 +1564,9 @@ void AttemptPurchase(int client, const char[] itemKey)
     if (!SpendBonusPointsWithContext(client, price, "shop_purchase", 0))
     {
         LogPurchaseEvent("purchase_rejected", "insufficient_points", client, itemKey, itemName, price, GetCachedBonusPoints(client));
-        CPrintToChat(client, "{magenta}[BP]{default} You can't afford {gold}%s;", itemName);
-        CPrintToChat(client, "{default}Your balance: {lightgreen}%dBP", GetCachedBonusPoints(client));
-        CPrintToChat(client, "{default}Earn bonus points through gameplay; see {magenta}!bp");
+        CPrintToChat(client, "%s You can't afford {gold}%s;", prefix, itemName);
+        CPrintToChat(client, "{default}Your balance: {lightgreen}%d%s", GetCachedBonusPoints(client), currencyShort);
+        CPrintToChat(client, "{default}Earn %s through gameplay; see %s!bp", currencyLong, colorTag);
         return;
     }
 
@@ -1535,9 +1644,12 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
     LogPurchaseEvent("purchase_success", "ok", client, itemKey, itemName, price, GetCachedBonusPoints(client));
     if (IsClientInGameHuman(client))
     {
+        char prefix[96];
+        GetCurrencyPrefix(prefix, sizeof(prefix));
+
         char displayName[256];
         BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
-        CPrintToChatAllEx(client, "{magenta}[BP]{default} %s bought {gold}%s{default}!", displayName, itemName);
+        CPrintToChatAllEx(client, "%s %s bought {gold}%s{default}!", prefix, displayName, itemName);
         PlayPurchaseSound();
     }
 }

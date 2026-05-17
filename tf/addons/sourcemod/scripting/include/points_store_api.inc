@@ -6,7 +6,7 @@
 #include <sourcemod>
 
 /**
- * Returns whether a client's bonus-point balance cache is loaded.
+ * Returns whether a client's currency balance cache is loaded.
  *
  * @param client        Client index.
  * @return              True if the balance is ready.
@@ -14,20 +14,20 @@
 native bool PointsStore_AreBonusPointsLoaded(int client);
 
 /**
- * Returns a client's current Bonus Points total.
+ * Returns a client's current currency balance.
  *
  * @param client        Client index.
- * @return              Bonus Points, or 0 if unavailable.
+ * @return              Currency balance, or 0 if unavailable.
  */
 native int PointsStore_GetBonusPoints(int client);
 
 /**
- * Applies bonus points with the standard BP sound/chat behavior.
+ * Applies currency with the standard points-store sound/chat behavior.
  *
  * @param client        Client index.
  * @param points        Points delta. Negative spends.
- * @param playSound     Play the BP sound through SaySounds.
- * @param chatAlert     Print BP chat line.
+ * @param playSound     Play the reward sound through SaySounds.
+ * @param chatAlert     Print currency chat line.
  * @param randomChance  Chance, clamped to 0.1..1.0.
  * @param type          Message type key.
  * @param target        Optional target client or event value.
@@ -37,7 +37,7 @@ native int PointsStore_GetBonusPoints(int client);
 native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0);
 
 /**
- * Spends bonus points immediately without sound or chat output.
+ * Spends currency immediately without sound or chat output.
  *
  * @param client        Client index.
  * @param points        Positive number of points to spend.
