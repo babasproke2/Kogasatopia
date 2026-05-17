@@ -11,6 +11,7 @@
 #define VOTEMENU_CFG_PREFIX  ""          // Files are expected to be relative to tf/cfg
 
 #define VOTE_DURATION 20
+#define VOTEMENU_CURRENCY_SHORT_MAX 32
 
 enum struct VoteOption
 {
@@ -91,7 +92,7 @@ public Action Command_VoteMenu(int client, int args)
             strcopy(display, sizeof(display), opt.id);
         }
 
-        Format(label, sizeof(label), "%s", display);
+        FormatVoteMenuLabel(display, label, sizeof(label));
         menu.AddItem(opt.id, label);
     }
     menu.ExitButton = true;
@@ -149,6 +150,41 @@ static int GetVoteMenuCost()
     return cost > 0 ? cost : 0;
 }
 
+static void GetVoteMenuCurrencyShort(char[] buffer, int maxlen)
+{
+    ConVar currency = FindConVar("sm_points_store_currency_short");
+    if (currency == null)
+    {
+        strcopy(buffer, maxlen, "BP");
+        return;
+    }
+
+    currency.GetString(buffer, maxlen);
+    TrimString(buffer);
+    if (buffer[0] == '\0')
+    {
+        strcopy(buffer, maxlen, "BP");
+    }
+}
+
+static bool ShouldShowVoteMenuCost()
+{
+    return g_CvarShop != null && g_CvarShop.BoolValue && GetVoteMenuCost() > 0 && IsPointsStoreAvailable();
+}
+
+static void FormatVoteMenuLabel(const char[] display, char[] label, int maxlen)
+{
+    if (!ShouldShowVoteMenuCost())
+    {
+        Format(label, maxlen, "%s", display);
+        return;
+    }
+
+    char currency[VOTEMENU_CURRENCY_SHORT_MAX];
+    GetVoteMenuCurrencyShort(currency, sizeof(currency));
+    Format(label, maxlen, "%s (%d %s)", display, GetVoteMenuCost(), currency);
+}
+
 static bool ChargeVoteMenuCost(int client)
 {
     if (g_CvarShop == null || !g_CvarShop.BoolValue || !IsPointsStoreAvailable())
@@ -174,7 +210,9 @@ static bool ChargeVoteMenuCost(int client)
         int balance = PointsStore_GetBonusPoints(client);
         if (balance < cost)
         {
-            CPrintToChat(client, "{red}[Vote]{default} Starting a vote costs {gold}%d{default}; your balance is {lightgreen}%d{default}.", cost, balance);
+            char currency[VOTEMENU_CURRENCY_SHORT_MAX];
+            GetVoteMenuCurrencyShort(currency, sizeof(currency));
+            CPrintToChat(client, "{red}[Vote]{default} Starting a vote costs {gold}%d %s{default}; your balance is {lightgreen}%d %s{default}.", cost, currency, balance, currency);
             return false;
         }
     }
@@ -185,7 +223,9 @@ static bool ChargeVoteMenuCost(int client)
         return false;
     }
 
-    CPrintToChat(client, "{green}[Vote]{default} Spent {gold}%d{default} to start the vote.", cost);
+    char currency[VOTEMENU_CURRENCY_SHORT_MAX];
+    GetVoteMenuCurrencyShort(currency, sizeof(currency));
+    CPrintToChat(client, "{green}[Vote]{default} Spent {gold}%d %s{default} to start the vote.", cost, currency);
     return true;
 }
 
