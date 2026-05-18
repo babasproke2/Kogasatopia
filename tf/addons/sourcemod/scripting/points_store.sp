@@ -1497,7 +1497,7 @@ public Action Command_SendBonusPoints(int client, int args)
     {
         char balanceCurrencyShort[BP_CURRENCY_SHORT_MAX];
         GetCurrencyShortLabelForAmount(GetCachedBonusPoints(client), balanceCurrencyShort, sizeof(balanceCurrencyShort));
-        CPrintToChat(client, "%s You only have {lightgreen}%i{default}%s.", prefix, GetCachedBonusPoints(client), balanceCurrencyShort);
+        CPrintToChat(client, "%s You only have {lightgreen}%i{default} %s.", prefix, GetCachedBonusPoints(client), balanceCurrencyShort);
         return Plugin_Handled;
     }
 
