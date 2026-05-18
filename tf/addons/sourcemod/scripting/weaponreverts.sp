@@ -500,6 +500,53 @@ public Action Accuracy_Timer_RemoveChargeCount(Handle timer, int client)
 	return Plugin_Stop;
 }
 
+static void Accuracy_OnMeatshot(int attacker, int victim)
+{
+	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
+		return;
+	if (g_bAccuracyExploding[attacker])
+		return;
+
+	int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
+	if (!Accuracy_IsValidShotgun(weapon))
+		return;
+
+	int maxClip = GetWeaponMaxClip(weapon);
+	if (maxClip > 0)
+	{
+		int clip = GetClip(weapon);
+		if (clip >= 0 && clip < maxClip)
+		{
+			SetClip_Weapon(weapon, clip + 1);
+		}
+	}
+
+	float eye[3];
+	GetClientEyePosition(attacker, eye);
+
+	tf2_players[victim].accuracyStreak++;
+	CreateTimer(4.0, Accuracy_Timer_RemoveChargeCount, victim, TIMER_FLAG_NO_MAPCHANGE);
+	if (tf2_players[victim].accuracyStreak >= ACC_STREAK_TARGET)
+	{
+		float boomPos[3];
+		GetClientAbsOrigin(victim, boomPos);
+		boomPos[2] -= Accuracy_GetClassSubtractionValue(victim);
+
+		if (IsPlayerAlive(victim))
+		{
+			TF2_IgnitePlayer(victim, attacker, 4.0);
+		}
+		Accuracy_Explode(attacker, victim, boomPos, ACC_EXPLODE_DAMAGE, ACC_EXPLODE_RADIUS);
+		EmitAmbientSound(ACC_NOTIFY_2, eye, attacker, SNDLEVEL_NORMAL);
+
+		tf2_players[victim].accuracyStreak = 0;
+	}
+	else
+	{
+		EmitAmbientSound(ACC_NOTIFY_SOUND, eye, attacker, SNDLEVEL_NORMAL);
+	}
+}
+
 static void ScatterPellets_Debug(const char[] format, any ...)
 {
 	if (g_hScattergunPelletsDebug == null || !GetConVarBool(g_hScattergunPelletsDebug))
@@ -586,6 +633,8 @@ public void TF2Scatter_OnPelletKill(int attacker, int victim, int pellets, int t
 		ScatterPellets_Debug("ignored: not a full pellet kill");
 		return;
 	}
+
+	Accuracy_OnMeatshot(attacker, victim);
 
 	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 	{
