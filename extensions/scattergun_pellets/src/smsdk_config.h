@@ -4,7 +4,7 @@
 #define SMEXT_CONF_NAME         "Scattergun Pellets"
 #define SMEXT_CONF_DESCRIPTION  "Reports TF2 scattergun pellet counts to SourcePawn"
 #define SMEXT_CONF_VERSION      "1.0.0"
-#define SMEXT_CONF_AUTHOR       "Scattergun Pellets contributors"
+#define SMEXT_CONF_AUTHOR       "Hombre"
 #define SMEXT_CONF_URL          ""
 #define SMEXT_CONF_LOGTAG       "SCATTERPELLETS"
 #define SMEXT_CONF_LICENSE      "GPL"
