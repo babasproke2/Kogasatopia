@@ -435,12 +435,14 @@ public void WhaleTracker_OnKillstreak(int client, int killstreak)
 
 public void WhaleTracker_OnKillstreakEnd(int client, int killstreak)
 {
-    if (!g_cvKillstreaksEnabled.BoolValue)
+    if (!IsValidAnnouncerClient(client))
     {
         return;
     }
 
-    if (!IsValidAnnouncerClient(client))
+    AwardKillstreakEndBonusPoints(client, killstreak);
+
+    if (!g_cvKillstreaksEnabled.BoolValue)
     {
         return;
     }
@@ -711,6 +713,35 @@ void AwardKillstreakBonusPoints(int client, int killstreak)
 
     int points = killstreak > 10 ? 2 : 1;
     PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "killstreak", killstreak, 3.0);
+}
+
+void AwardKillstreakEndBonusPoints(int client, int killstreak)
+{
+    int points = 0;
+    if (killstreak > 19)
+    {
+        points = 3;
+    }
+    else if (killstreak > 14)
+    {
+        points = 2;
+    }
+    else if (killstreak > 6)
+    {
+        points = 1;
+    }
+
+    if (points <= 0)
+    {
+        return;
+    }
+
+    if (GetFeatureStatus(FeatureType_Native, POINTS_STORE_BONUS_NATIVE) != FeatureStatus_Available)
+    {
+        return;
+    }
+
+    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "killstreak_end", killstreak, 3.0);
 }
 
 float GetMultikillRollupWindow()
