@@ -111,6 +111,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_sendbp", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_bpsend", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_gem", Command_ShowBonusPoints, "Show your currency balance.");
+    RegConsoleCmd("sm_gems", Command_ShowBonusPoints, "Show your currency balance.");
     RegConsoleCmd("sm_sendgem", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_gemsend", Command_SendBonusPoints, "Send currency to another player.");
 
@@ -1398,7 +1399,7 @@ public Action Command_ShowBonusPoints(int client, int args)
     char msg[512];
     FormatEx(msg, sizeof(msg),
         "%N's %s: {lightgreen}%i{default}\n"
-        ... "{lightgreen}+3{default}: Medic drops, penta-kills\n"
+        ... "{lightgreen}+3{default}: Medic drops, penta-kills, ending killstreaks\n"
         ... "{lightgreen}+2{default}: Triple-kills, quadra-kills, killstreaks above 10\n"
         ... "{lightgreen}+1:{default} Airshot kills, market garden kills, ubers, killstreaks, dominations, revenge",
         target,
