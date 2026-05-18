@@ -17,6 +17,7 @@
 #define ACC_THRESH_NEAR		  32.0
 #define ACC_THRESH_FAR		  12.0
 #define ACC_STREAK_TARGET	   2
+#define SHOTGUN_MEATSHOT_PELLETS 10
 #define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
 
 #define ACC_EXPLODE_DAMAGE	 50.0
@@ -81,6 +82,10 @@ Handle g_SDKGetMaxClip1 = null;
 int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
 bool g_bAccuracyExploding[MAXPLAYERS + 1];
+int g_iShotgunPelletTick[MAXPLAYERS + 1][MAXPLAYERS + 1];
+int g_iShotgunPelletCount[MAXPLAYERS + 1][MAXPLAYERS + 1];
+int g_iShotgunPelletWeaponRef[MAXPLAYERS + 1][MAXPLAYERS + 1];
+bool g_bShotgunMeatshotHandled[MAXPLAYERS + 1][MAXPLAYERS + 1];
 
 #include <weaponreverts>
  
@@ -112,6 +117,22 @@ public Plugin myinfo =
 	url = "https://kogasa.tf"
 };
 
+static void ResetShotgunPelletState(int client)
+{
+	for (int other = 1; other <= MaxClients; other++)
+	{
+		g_iShotgunPelletTick[client][other] = 0;
+		g_iShotgunPelletCount[client][other] = 0;
+		g_iShotgunPelletWeaponRef[client][other] = INVALID_ENT_REFERENCE;
+		g_bShotgunMeatshotHandled[client][other] = false;
+
+		g_iShotgunPelletTick[other][client] = 0;
+		g_iShotgunPelletCount[other][client] = 0;
+		g_iShotgunPelletWeaponRef[other][client] = INVALID_ENT_REFERENCE;
+		g_bShotgunMeatshotHandled[other][client] = false;
+	}
+}
+
 stock void ResetClientArrays(int client)
 {
 	if (client <= 0 || client > MaxClients) return;
@@ -135,6 +156,7 @@ stock void ResetClientArrays(int client)
 	{
 		tf2_players[client].markVictims[i] = -1;
 	}
+	ResetShotgunPelletState(client);
 }
 
 public void OnPluginStart() {
@@ -500,14 +522,17 @@ public Action Accuracy_Timer_RemoveChargeCount(Handle timer, int client)
 	return Plugin_Stop;
 }
 
-static void Accuracy_OnMeatshot(int attacker, int victim)
+static void Accuracy_OnMeatshot(int attacker, int victim, int weapon = -1)
 {
 	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
 		return;
 	if (g_bAccuracyExploding[attacker])
 		return;
 
-	int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
+	if (weapon <= MaxClients || !IsValidEntity(weapon))
+	{
+		weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
+	}
 	if (!Accuracy_IsValidShotgun(weapon))
 		return;
 
@@ -644,6 +669,58 @@ public void TF2Scatter_OnPelletKill(int attacker, int victim, int pellets, int t
 	else
 	{
 		ScatterPellets_Debug("ignored: PointsStore_ApplyBonusPoints native unavailable");
+	}
+}
+
+public void TF2Shotgun_OnPelletHit(int attacker, int victim, int weapon)
+{
+	ScatterPellets_Debug("shotgun pellet hit: attacker=%d victim=%d weapon=%d", attacker, victim, weapon);
+
+	if (!GetConVarBool(g_sEnabled))
+	{
+		ScatterPellets_Debug("shotgun ignored: reverts_enabled is 0");
+		return;
+	}
+
+	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
+	{
+		ScatterPellets_Debug("shotgun ignored: invalid attacker/victim");
+		return;
+	}
+	if (g_bAccuracyExploding[attacker])
+	{
+		ScatterPellets_Debug("shotgun ignored: accuracy explosion in progress");
+		return;
+	}
+	if (!Accuracy_IsValidShotgun(weapon))
+	{
+		ScatterPellets_Debug("shotgun ignored: weapon lacks flame shotgun attributes");
+		return;
+	}
+
+	int tick = GetGameTickCount();
+	int weaponRef = EntIndexToEntRef(weapon);
+	if (g_iShotgunPelletTick[attacker][victim] != tick
+		|| g_iShotgunPelletWeaponRef[attacker][victim] != weaponRef)
+	{
+		g_iShotgunPelletTick[attacker][victim] = tick;
+		g_iShotgunPelletCount[attacker][victim] = 0;
+		g_iShotgunPelletWeaponRef[attacker][victim] = weaponRef;
+		g_bShotgunMeatshotHandled[attacker][victim] = false;
+	}
+
+	if (g_bShotgunMeatshotHandled[attacker][victim])
+	{
+		return;
+	}
+
+	g_iShotgunPelletCount[attacker][victim]++;
+	if (g_iShotgunPelletCount[attacker][victim] >= SHOTGUN_MEATSHOT_PELLETS)
+	{
+		g_bShotgunMeatshotHandled[attacker][victim] = true;
+		ScatterPellets_Debug("shotgun meatshot confirmed: attacker=%d victim=%d weapon=%d pellets=%d",
+			attacker, victim, weapon, g_iShotgunPelletCount[attacker][victim]);
+		Accuracy_OnMeatshot(attacker, victim, weapon);
 	}
 }
 

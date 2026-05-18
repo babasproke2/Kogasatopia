@@ -14,6 +14,15 @@
 forward void TF2Scatter_OnPelletKill(int attacker, int victim, int pellets, int total);
 
 /**
+ * Called when a deduplicated pellet trace from exact class tf_weapon_shotgun_pyro hits a player.
+ *
+ * @param attacker  Client index of the shooter.
+ * @param victim    Client index of the player hit by the pellet.
+ * @param weapon    Entity index of the tf_weapon_shotgun_pyro weapon.
+ */
+forward void TF2Shotgun_OnPelletHit(int attacker, int victim, int weapon);
+
+/**
  * Returns the stored pellet count for the last scattergun kill from attacker to victim.
  */
 native int TF2Scatter_GetLastKillPellets(int attacker, int victim);
