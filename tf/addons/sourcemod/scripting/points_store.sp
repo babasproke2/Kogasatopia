@@ -1419,15 +1419,15 @@ public Action Command_ShowBonusPoints(int client, int args)
     char msg1[384];
     FormatEx(msg1, sizeof(msg1),
         "%N's %s: {lightgreen}%i{default}\n"
-        ... "{lightgreen}+3{default}: Medic drops, penta-kills, ending killstreaks\n"
-        ... "{lightgreen}+2{default}: Triple-kills, quadra-kills, killstreaks above 10",
+        ... "{lightgreen}+3{default}: Medic drops, penta-kills, ending 20+ killstreaks\n"
+        ... "{lightgreen}+2{default}: Triple-kills, quadra-kills, ending 10+ killstreaks",
         target,
         currencyLong,
         GetCachedBonusPoints(target));
 
     char msg2[256];
     FormatEx(msg2, sizeof(msg2),
-        "{lightgreen}+1:{default} Airshot kills, market garden kills, ubers, killstreaks, dominations, revenge");
+        "{lightgreen}+1:{default} Airshot kills, market garden kills, ubers, killstreaks, dominations, revenge, meatshot kills");
 
     CPrintToChat(client, "%s", msg1);
     CPrintToChat(client, "%s", msg2);
