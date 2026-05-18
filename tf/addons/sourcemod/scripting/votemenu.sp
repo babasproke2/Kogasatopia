@@ -377,7 +377,12 @@ static bool StartYesNoVote(int initiator)
         strcopy(detail, sizeof(detail), g_CurrentVote.id);
     }
 
-    Format(startMsg, sizeof(startMsg), "%s {default}%s", announcer, detail);
+    if (StrContains(detail, "has started ", false) == 0)
+    {
+        ReplaceStringEx(detail, sizeof(detail), "has started ", "started ", -1, -1, false);
+    }
+
+    Format(startMsg, sizeof(startMsg), "%s {default}%s Required: {gold}%d%%{default}", announcer, detail, GetVoteRequiredPercent(g_CurrentVote.ratio));
     CPrintToChatAll("%s", startMsg);
 
     Menu vote = new Menu(YesNoVoteHandler, MENU_ACTIONS_ALL);
@@ -619,6 +624,20 @@ static void AnnounceVoteResult(int yesVotes, int noVotes, float ratio, bool pass
     {
         CPrintToChatAll("{red}[Vote]{default} Vote failed.");
     }
+}
+
+static int GetVoteRequiredPercent(float ratio)
+{
+    if (ratio < 0.0)
+    {
+        ratio = 0.0;
+    }
+    else if (ratio > 1.0)
+    {
+        ratio = 1.0;
+    }
+
+    return RoundToCeil(ratio * 100.0);
 }
 
 static void ExecuteVoteOutcome(bool passed)
