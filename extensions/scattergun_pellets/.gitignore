@@ -1,0 +1,26 @@
+build/
+build-*/
+.venv/
+__pycache__/
+*.pyc
+*.pdb
+*.obj
+*.o
+*.d
+*.a
+*.lib
+*.dll
+*.dylib
+*.suo
+*.use
+*.sdf
+*.opensdf
+*.ipch
+.vs/
+
+# Keep the shipped Linux extension artifact in this repo, but ignore other ad-hoc binaries.
+*.so
+!tf/addons/sourcemod/extensions/scattergun_pellets.ext.2.tf2.so
+
+# Compiled SourcePawn plugins should be release artifacts, not source commits.
+*.smx

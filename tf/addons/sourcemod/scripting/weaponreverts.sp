@@ -9,6 +9,7 @@
 #include <addplayerhealth>
 #include <sourcescramble>
 #include <dhooks>
+#include <scattergun_pellets>
 #include <points_store_api>
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
@@ -16,6 +17,7 @@
 #define ACC_THRESH_NEAR		  32.0
 #define ACC_THRESH_FAR		  12.0
 #define ACC_STREAK_TARGET	   2
+#define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
 
 #define ACC_EXPLODE_DAMAGE	 50.0
 #define ACC_EXPLODE_RADIUS	 180.0
@@ -30,8 +32,6 @@
 #define ATTR_SECONDARY_AMMO_REFILL "secondary damage ammo refill"
 #define ATTR_SECONDARY_REFILL_SOUND "tools/ifm/beep.wav"
 #define ATTR_RELOAD_ON_HIT "reload on hit"
-#define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
-#define MEATSHOT_PENDING_WINDOW 0.5
 
 #define SPROKE_ATTR_NAME		"sproke attribute"
 #define SPROKE_PRIMARY_ATTR		"mod max primary clip override"
@@ -81,18 +81,13 @@ Handle g_SDKGetMaxClip1 = null;
 int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
 bool g_bAccuracyExploding[MAXPLAYERS + 1];
-int g_iPendingMeatshotAttacker[MAXPLAYERS + 1];
-float g_fPendingMeatshotDamage[MAXPLAYERS + 1];
-float g_fPendingMeatshotTime[MAXPLAYERS + 1];
-int g_iPendingMeatshotWeaponRef[MAXPLAYERS + 1];
 
 #include <weaponreverts>
  
 ConVar g_sEnabled;
 ConVar g_hPomsonDamageMult;
 ConVar g_hBisonDamageMult;
-ConVar g_hMeatshotPercent;
-ConVar g_hScattergunMaxDamage;
+ConVar g_hScattergunPelletsDebug;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 Handle g_hHealTimer = INVALID_HANDLE;
 
@@ -112,7 +107,7 @@ public Plugin myinfo =
 {
 	name = "WeaponReverts",
 	author = "Hombre",
-	description = "Weapon changes plugin for Kogasatopia, very specific, this includes custom attribute code such as recoil jumping",
+	description = "Weapon changes plugin with custom attribute code such as recoil jumping",
 	version = "6.0",
 	url = "https://kogasa.tf"
 };
@@ -130,7 +125,6 @@ stock void ResetClientArrays(int client)
 	tf2_players[client].jump_status = TF2_JUMP_NONE;
 	tf2_players[client].holdingJump = false;
 	tf2_players[client].oldHealth = 0;
-	Meatshot_ResetClient(client);
 	if (tf2_players[client].sprokeTimer != null)
 	{
 		KillTimer(tf2_players[client].sprokeTimer);
@@ -148,8 +142,8 @@ public void OnPluginStart() {
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
 	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
-	g_hMeatshotPercent = CreateConVar("reverts_meatshot_percent", "0.9", "Percent of configured scattergun max damage required to count as a meatshot.", FCVAR_NONE, true, 0.1, true, 1.0);
-	g_hScattergunMaxDamage = CreateConVar("reverts_scattergun_max_damage", "105.0", "Configured max damage for meatshot detection on scatterguns.", FCVAR_NONE, true, 1.0);
+	g_hScattergunPelletsDebug = CreateConVar("reverts_scattergun_pellets_debug", "0", "Log scattergun pellet forward diagnostics.");
+	RegAdminCmd("sm_scatterpellets_status", Command_ScatterPelletsStatus, ADMFLAG_GENERIC, "Print scattergun pellet integration status.");
 	if (GetConVarInt(g_sEnabled)) {
 		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
 	// This is used to ignore clients without the m_iAmmo netprop
@@ -169,7 +163,6 @@ public void OnPluginStart() {
 				SDKHook(i, SDKHook_OnTakeDamage, OnTakeDamage);
 				SDKHook(i, SDKHook_WeaponSwitch, OnWeaponSwitch);
 				SDKHook(i, SDKHook_TraceAttack, OnTraceAttack);
-				SDKHook(i, SDKHook_OnTakeDamagePost, Accuracy_OnTakeDamagePost);
 				SDKHook(i, SDKHook_OnTakeDamageAlive, OnTakeDamageAlive);
 			}
 		}
@@ -296,7 +289,6 @@ public OnClientPutInServer(client)
 		SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 		SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
 		SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
-		SDKHook(client, SDKHook_OnTakeDamagePost, Accuracy_OnTakeDamagePost);
 		SDKHook(client, SDKHook_OnTakeDamageAlive, OnTakeDamageAlive);
 		ResetClientArrays(client);
 	}
@@ -362,110 +354,6 @@ static bool Accuracy_IsValidShotgun(int weapon)
 	return (weapon > MaxClients && IsValidEntity(weapon) && TF2CustAttr_GetInt(weapon, "flame shotgun attributes") != 0);
 }
 
-static void Meatshot_ResetClient(int client)
-{
-	if (client <= 0 || client > MaxClients)
-		return;
-
-	g_iPendingMeatshotAttacker[client] = 0;
-	g_fPendingMeatshotDamage[client] = 0.0;
-	g_fPendingMeatshotTime[client] = 0.0;
-	g_iPendingMeatshotWeaponRef[client] = INVALID_ENT_REFERENCE;
-
-	for (int victim = 1; victim <= MaxClients; victim++)
-	{
-		if (g_iPendingMeatshotAttacker[victim] == client)
-		{
-			g_iPendingMeatshotAttacker[victim] = 0;
-			g_fPendingMeatshotDamage[victim] = 0.0;
-			g_fPendingMeatshotTime[victim] = 0.0;
-			g_iPendingMeatshotWeaponRef[victim] = INVALID_ENT_REFERENCE;
-		}
-	}
-}
-
-static bool Meatshot_IsScattergun(int weapon)
-{
-	if (weapon <= MaxClients || !IsValidEntity(weapon))
-		return false;
-
-	char classname[64];
-	GetEntityClassname(weapon, classname, sizeof(classname));
-	if (StrEqual(classname, "tf_weapon_scattergun", false))
-		return true;
-
-	int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
-	switch (defIndex)
-	{
-		case 13, 200, 669, 799, 808, 888, 897, 906, 915, 964, 973, 1078, 1103:
-			return true;
-	}
-
-	return false;
-}
-
-static int Meatshot_GetDamageThreshold()
-{
-	float maxDamage = (g_hScattergunMaxDamage == null) ? 105.0 : g_hScattergunMaxDamage.FloatValue;
-	float percent = (g_hMeatshotPercent == null) ? 0.9 : g_hMeatshotPercent.FloatValue;
-
-	if (maxDamage < 1.0)
-		maxDamage = 105.0;
-	if (percent < 0.1)
-		percent = 0.1;
-	else if (percent > 1.0)
-		percent = 1.0;
-
-	int threshold = RoundToNearest(maxDamage * percent);
-	return threshold < 1 ? 1 : threshold;
-}
-
-static void Meatshot_RecordDamage(int victim, int attacker, int weapon, float damage)
-{
-	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
-		return;
-	if (IsFakeClient(attacker) || IsFakeClient(victim))
-		return;
-	if (GetClientTeam(attacker) == GetClientTeam(victim))
-		return;
-	if (!Meatshot_IsScattergun(weapon))
-		return;
-
-	int roundedDamage = RoundToNearest(damage);
-	if (roundedDamage < Meatshot_GetDamageThreshold())
-		return;
-
-	g_iPendingMeatshotAttacker[victim] = attacker;
-	g_fPendingMeatshotDamage[victim] = damage;
-	g_fPendingMeatshotTime[victim] = GetGameTime();
-	g_iPendingMeatshotWeaponRef[victim] = EntIndexToEntRef(weapon);
-}
-
-static void Meatshot_AwardIfQualifyingKill(int victim, int attacker)
-{
-	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
-		return;
-	if (g_iPendingMeatshotAttacker[victim] != attacker)
-		return;
-	if (GetGameTime() - g_fPendingMeatshotTime[victim] > MEATSHOT_PENDING_WINDOW)
-	{
-		Meatshot_ResetClient(victim);
-		return;
-	}
-	if (EntRefToEntIndex(g_iPendingMeatshotWeaponRef[victim]) == INVALID_ENT_REFERENCE)
-	{
-		Meatshot_ResetClient(victim);
-		return;
-	}
-
-	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
-	{
-		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, MEATSHOT_KILL_BONUS_TYPE);
-	}
-
-	Meatshot_ResetClient(victim);
-}
-
 static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float &damage, int &damagetype)
 {
 	if (!IsValidEntity(entity) || attacker <= 0 || attacker > MaxClients || !IsClientInGame(attacker))
@@ -527,20 +415,6 @@ public void Event_PlayerBuiltObject(Event event, const char[] name, bool dontBro
 {
 	int ent = event.GetInt("index");
 	HookBuildingEntity(ent);
-}
-
-static float Accuracy_RequiredDamageForDistance(float dist)
-{
-	if (dist < 0.0) dist = 0.0;
-	if (dist > ACC_MAX_DIST) dist = ACC_MAX_DIST;
-
-	float t = dist / ACC_MAX_DIST;
-	return ACC_THRESH_NEAR + (ACC_THRESH_FAR - ACC_THRESH_NEAR) * t;
-}
-
-static bool Accuracy_IsAccurateHit(float damage, float dist)
-{
-	return (damage >= Accuracy_RequiredDamageForDistance(dist));
 }
 
 static void Accuracy_Explode(int attacker, int victim, float position[3], float damage, float radius)
@@ -626,60 +500,101 @@ public Action Accuracy_Timer_RemoveChargeCount(Handle timer, int client)
 	return Plugin_Stop;
 }
 
-public void Accuracy_OnTakeDamagePost(int victim, int attacker, int inflictor, float damage,
-									  int damagetype, int weapon, const float damageForce[3],
-									  const float damagePosition[3])
+static void ScatterPellets_Debug(const char[] format, any ...)
 {
-	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
-		return;
-	if (g_bAccuracyExploding[attacker])
-		return;
-	if (!Accuracy_IsValidShotgun(weapon))
+	if (g_hScattergunPelletsDebug == null || !GetConVarBool(g_hScattergunPelletsDebug))
 		return;
 
-	float eye[3], pos[3];
-	GetClientEyePosition(attacker, eye);
-	GetClientAbsOrigin(victim, pos);
-	pos[2] += Accuracy_GetClassSubtractionValue(victim);
+	char message[256];
+	VFormat(message, sizeof(message), format, 2);
+	LogMessage("[scattergun_pellets] %s", message);
+}
 
-	float dist = GetVectorDistance(eye, pos);
-	if (dist > ACC_MAX_DIST) return;
-
-	bool accurate = Accuracy_IsAccurateHit(damage, dist);
-
-	if (accurate)
+static void ScatterPellets_GetFeatureStatusName(FeatureStatus status, char[] buffer, int maxlen)
+{
+	switch (status)
 	{
-		if (accurate)
+		case FeatureStatus_Available:
 		{
-			int maxClip = GetWeaponMaxClip(weapon);
-			if (maxClip > 0)
-			{
-				int clip = GetClip(weapon);
-				if (clip >= 0 && clip < maxClip)
-				{
-					SetClip_Weapon(weapon, clip + 1);
-				}
-			}
+			strcopy(buffer, maxlen, "available");
 		}
-
-		tf2_players[victim].accuracyStreak++;
-		CreateTimer(4.0, Accuracy_Timer_RemoveChargeCount, victim, TIMER_FLAG_NO_MAPCHANGE);
-		if (tf2_players[victim].accuracyStreak >= ACC_STREAK_TARGET)
+		case FeatureStatus_Unavailable:
 		{
-			float boomPos[3];
-			GetClientAbsOrigin(victim, boomPos);
-			boomPos[2] -= Accuracy_GetClassSubtractionValue(victim);
-
-			TF2_IgnitePlayer(victim, attacker, 4.0);
-			Accuracy_Explode(attacker, victim, boomPos, ACC_EXPLODE_DAMAGE, ACC_EXPLODE_RADIUS);
-			EmitAmbientSound(ACC_NOTIFY_2, eye, attacker, SNDLEVEL_NORMAL);
-
-			tf2_players[victim].accuracyStreak = 0;
+			strcopy(buffer, maxlen, "unavailable");
 		}
-		else
+		case FeatureStatus_Unknown:
 		{
-			EmitAmbientSound(ACC_NOTIFY_SOUND, eye, attacker, SNDLEVEL_NORMAL);
+			strcopy(buffer, maxlen, "unknown");
 		}
+		default:
+		{
+			strcopy(buffer, maxlen, "invalid");
+		}
+	}
+}
+
+public Action Command_ScatterPelletsStatus(int client, int args)
+{
+	FeatureStatus pelletNative = GetFeatureStatus(FeatureType_Native, "TF2Scatter_GetLastKillPellets");
+	FeatureStatus pointsNative = GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints");
+	char pelletStatus[16];
+	char pointsStatus[16];
+	ScatterPellets_GetFeatureStatusName(pelletNative, pelletStatus, sizeof(pelletStatus));
+	ScatterPellets_GetFeatureStatusName(pointsNative, pointsStatus, sizeof(pointsStatus));
+
+	ReplyToCommand(client, "[WeaponReverts] scattergun_pellets native: %s", pelletStatus);
+	ReplyToCommand(client, "[WeaponReverts] points_store native: %s", pointsStatus);
+
+	if (Accuracy_IsValidClient(client))
+	{
+		int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+		char classname[64];
+		classname[0] = '\0';
+		if (weapon > MaxClients && IsValidEntity(weapon))
+		{
+			GetEntityClassname(weapon, classname, sizeof(classname));
+		}
+		ReplyToCommand(client, "[WeaponReverts] active weapon: ent=%d class=%s", weapon, classname);
+	}
+
+	return Plugin_Handled;
+}
+
+public void TF2Scatter_OnPelletKill(int attacker, int victim, int pellets, int total)
+{
+	ScatterPellets_Debug("forward fired: attacker=%d victim=%d pellets=%d total=%d", attacker, victim, pellets, total);
+
+	if (!GetConVarBool(g_sEnabled))
+	{
+		ScatterPellets_Debug("ignored: reverts_enabled is 0");
+		return;
+	}
+
+	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
+	{
+		ScatterPellets_Debug("ignored: invalid attacker/victim");
+		return;
+	}
+	if (g_bAccuracyExploding[attacker])
+	{
+		ScatterPellets_Debug("ignored: accuracy explosion in progress");
+		return;
+	}
+
+	if (pellets != total)
+	{
+		ScatterPellets_Debug("ignored: not a full pellet kill");
+		return;
+	}
+
+	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+	{
+		bool awarded = PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, MEATSHOT_KILL_BONUS_TYPE);
+		ScatterPellets_Debug("points_store award result: %d", awarded ? 1 : 0);
+	}
+	else
+	{
+		ScatterPellets_Debug("ignored: PointsStore_ApplyBonusPoints native unavailable");
 	}
 }
 
@@ -748,7 +663,6 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	{
 		return Plugin_Continue;
 	}
-	Meatshot_AwardIfQualifyingKill(client, attacker);
 
 	if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
 	{
@@ -963,10 +877,10 @@ public Action Timer_HealTimer(Handle timer)
 
 	// Distance-based rampup
 	// Example: base at 300 units, scales linearly, capped at +100% (2.0) or adjust as needed
-	float rampup = (distance - 300.0) * 0.001; // scaling factor
+	float rampup = (distance - 300.0) * 0.001; // scaling facto
 	rampup = clamp(rampup, 0.0, 1.0);		   // cap at +100%
 
-	float calculated = 1.0 + rampup;		   // final multiplier
+	float calculated = 1.0 + rampup;		   // final multiplie
 
 	return calculated;
 }*/
@@ -1129,7 +1043,6 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 
 	if (attackerIsPlayer && damageWeapon > MaxClients && IsValidEntity(damageWeapon))
 	{
-		Meatshot_RecordDamage(client, attacker, damageWeapon, damage);
 		SecondaryDamageRefill_OnDamage(attacker, damageWeapon, damage);
 		ReloadOnHit_OnDamage(damageWeapon);
 
@@ -1595,9 +1508,9 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			} 
 			case 317: //The Candy Cane
 			{
-				TF2Attrib_SetByName(entity, "health from packs increased", 1.40); // Add the backscratcher
+				TF2Attrib_SetByName(entity, "health from packs increased", 1.40); // Add the backscratche
 			}
-			case 355: //Fan-o-War
+			case 355: //Fan-o-Wa
 			{
 				TF2Attrib_SetByName(entity, "switch from wep deploy time decreased", 0.80);
 				TF2Attrib_SetByName(entity, "single wep deploy time decreased", 0.80);
@@ -1609,7 +1522,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2Attrib_SetByName(entity, "lose hype on take damage", 0.0); // Removed
 				TF2Attrib_SetByName(entity, "move speed penalty", 0.80); // Increased to 20%
 			}
-			case 1103: //The Back Scatter
+			case 1103: //The Back Scatte
 			{
 				TF2Attrib_SetByName(entity, "weapon spread bonus", 0.90); // Self explanatory
 				TF2Attrib_SetByName(entity, "spread penalty", 1.00); // Remove this attribute
@@ -1618,7 +1531,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "minicrit vs burning player", 1.00); //Add this attribute for lossy
 			}
-			case 265: //The Sticky Jumper
+			case 265: //The Sticky Jumpe
 			{
 				TF2Attrib_SetByName(entity, "max pipebombs decreased", 0.0); // Remove pipebomb restriction
 			}
@@ -1630,7 +1543,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "fire rate bonus", 0.90); // Increase RoF
 			}
-			case 1101: //The K.E.Y.E. Jumper
+			case 1101: //The K.E.Y.E. Jumpe
 			{
 				TF2Attrib_SetByName(entity, "rocket jump damage reduction", 0.75); // Half of the gunboats protection
 			}
@@ -1646,7 +1559,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "Blast radius decreased", 1.00); // Set explosion radius debuff to 0
 			}
-			case 128: //The Equalizer
+			case 128: //The Equalize
 			{
 				TF2Attrib_SetByName(entity, "dmg from ranged reduced", 0.80); // Less damage from ranged while held
 			}
@@ -1662,7 +1575,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2Attrib_SetByName(entity, "move speed bonus", 1.10); // Add this attribute
 				//TF2Attrib_SetByName(entity, "boots falling stomp", 1.00); // Add this property	
 			}
-			case 327: //The Claidheahm Mohr
+			case 327: //The Claidheahm Moh
 			{
 				TF2Attrib_SetByName(entity, "heal on kill", 25.00); // Re-add this attribute
 			}
@@ -1687,9 +1600,9 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			case 426: //The Eviction Notice
 			{
 				TF2Attrib_SetByName(entity, "mod_maxhealth_drain_rate", 0.0); // Disable max health drain
-				TF2Attrib_SetByName(entity, "fire rate bonus", 0.40); // Fire 60% faster
+				TF2Attrib_SetByName(entity, "fire rate bonus", 0.40); // Fire 60% faste
 			}
-			case 811, 832: //The Huo Long Heater
+			case 811, 832: //The Huo Long Heate
 			{
 				TF2Attrib_SetByName(entity, "damage penalty", 1.00); // Remove the damage penalty
 			}
@@ -1698,7 +1611,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2Attrib_SetByName(entity, "slow enemy on hit", 0.0); // Remove slowdown
 				TF2Attrib_SetByName(entity, "aiming movespeed increased", 1.15); // Increased move speed when revved
 			}
-			case 998: //The Vaccinator
+			case 998: //The Vaccinato
 			{
 				TF2Attrib_SetByName(entity, "ubercharge rate penalty", 0.05);
 			}
@@ -1735,22 +1648,22 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "fire rate bonus", 0.50); // Increase firing rate
 			}
-			case 1179: //The Thermal Thruster
+			case 1179: //The Thermal Thruste
 			{
 				TF2Attrib_SetByName(entity, "thermal_thruster_air_launch", 1.0); // Able to re-launch while already in-flight 
 				TF2Attrib_SetByName(entity, "dmg taken increased", 1.15); // Take 15% more damage
 			}
-			case 351: //The Detonator
+			case 351: //The Detonato
 			{
 				TF2Attrib_SetByName(entity, "blast dmg to self increased", 0.75); // Halve the blast damage penalty
 			}
-			case 215: // The Degreaser
+			case 215: // The Degrease
 			{
 				TF2Attrib_SetByName(entity, "deploy time decreased", 0.65); // Modify all swap speeds
 				TF2Attrib_SetByName(entity, "switch from wep deploy time decreased", 1.00); // Remove the holster bonus
 				TF2Attrib_SetByName(entity, "single wep deploy time decreased", 1.00); // Remove the deploy bonus
 			}
-			case 595: // The Manmelter
+			case 595: // The Manmelte
 			{
 				TF2Attrib_SetByName(entity, "damage bonus", 1.20);
 			}
@@ -1775,7 +1688,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			{
 				TF2Attrib_SetByName(entity, "sniper charge per sec", 1.20) // Increased by 20%
 			}
-			case 460: // The Enforcer
+			case 460: // The Enforce
 			{
 				TF2Attrib_SetByName(entity, "weapon spread bonus", 0.60); // 40% more accurate
 				TF2Attrib_SetByName(entity, "damage bonus while disguised", 1.00); // Remove this bonus
@@ -1786,7 +1699,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 				TF2Attrib_SetByName(entity, "mult cloak meter consume rate", 1.00); // Self explanatory
 				TF2Attrib_SetByName(entity, "fire rate bonus", 0.90); // Increase RoF
 			}
-			case 461: // The Big Earner
+			case 461: // The Big Earne
 			{
 				TF2Attrib_SetByName(entity, "add cloak on kill", 50.0); // Increase the cloak gain from 30 to 50
 				TF2Attrib_SetByName(entity, "max health additive penalty", -20.0); // Change the penalty from -25 to 20
