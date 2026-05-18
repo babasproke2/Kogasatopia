@@ -496,21 +496,19 @@ public Action Command_TagMenu(int client, int args)
     Menu menu = new Menu(MenuHandler_TagMenu);
     menu.SetTitle("Select Chat Tag");
 
-    char indexInfo[16];
     char tag[TAG_VALUE_MAXLEN];
     for (int i = 0; i < tags.Length; i++)
     {
-        IntToString(i, indexInfo, sizeof(indexInfo));
         tags.GetString(i, tag, sizeof(tag));
-        menu.AddItem(indexInfo, tag);
+        menu.AddItem(tag, tag);
     }
 
     if (tags.Length == 0)
     {
-        menu.AddItem("unavailable", "No tags available", ITEMDRAW_DISABLED);
+        menu.AddItem("action:unavailable", "No tags available", ITEMDRAW_DISABLED);
     }
 
-    menu.AddItem("clear", "Clear Tag");
+    menu.AddItem("action:clear", "Clear Tag");
     menu.Display(client, MENU_TIME_FOREVER);
 
     delete tags;
@@ -536,33 +534,46 @@ public int MenuHandler_TagMenu(Menu menu, MenuAction action, int param1, int par
         return 0;
     }
 
-    char info[16];
-    menu.GetItem(param2, info, sizeof(info));
+    char selectedTag[TAG_VALUE_MAXLEN];
+    menu.GetItem(param2, selectedTag, sizeof(selectedTag));
 
-    if (StrEqual(info, "clear", false))
+    if (StrEqual(selectedTag, "action:clear", false))
     {
         ClearClientSelectedTag(client);
         PrintToChat(client, "[Tags] Your chat tag has been cleared.");
         return 0;
     }
 
-    int index = StringToInt(info);
-    ArrayList tags = new ArrayList(ByteCountToCells(TAG_VALUE_MAXLEN));
-    CollectAvailableClientTags(client, tags);
-
-    if (index < 0 || index >= tags.Length)
+    if (StrEqual(selectedTag, "action:unavailable", false))
     {
-        PrintToChat(client, "[Tags] That tag is no longer available.");
-        delete tags;
         return 0;
     }
 
-    char tag[TAG_VALUE_MAXLEN];
-    tags.GetString(index, tag, sizeof(tag));
+    ArrayList tags = new ArrayList(ByteCountToCells(TAG_VALUE_MAXLEN));
+    CollectAvailableClientTags(client, tags);
+
+    char availableTag[TAG_VALUE_MAXLEN];
+    bool found = false;
+    for (int i = 0; i < tags.Length; i++)
+    {
+        tags.GetString(i, availableTag, sizeof(availableTag));
+        if (StrEqual(availableTag, selectedTag, false))
+        {
+            found = true;
+            break;
+        }
+    }
+
     delete tags;
 
-    SetClientSelectedTag(client, tag);
-    PrintToChat(client, "[Tags] Your chat tag is now %s.", tag);
+    if (!found)
+    {
+        PrintToChat(client, "[Tags] That tag is no longer available.");
+        return 0;
+    }
+
+    SetClientSelectedTag(client, selectedTag);
+    PrintToChat(client, "[Tags] Your chat tag is now %s.", selectedTag);
     return 0;
 }
 

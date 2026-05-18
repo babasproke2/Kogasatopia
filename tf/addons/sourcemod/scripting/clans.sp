@@ -904,15 +904,15 @@ static void TrySetClanJoinSelectedTag(int client, const char[] clanTag)
         return;
     }
 
-    char trimmedTag[CLAN_TAG_STORE_MAXLEN];
-    strcopy(trimmedTag, sizeof(trimmedTag), clanTag);
-    TrimString(trimmedTag);
-    if (!trimmedTag[0])
+    char selectedTag[CLAN_TAG_STORE_MAXLEN];
+    ExtractRawClanTag(clanTag, selectedTag, sizeof(selectedTag));
+    TrimString(selectedTag);
+    if (!selectedTag[0] || !IsExportableClanTagText(selectedTag))
     {
         return;
     }
 
-    Tags_SetSelectedTag(client, trimmedTag);
+    Tags_SetSelectedTag(client, selectedTag);
 }
 
 static void BuildClanDisplayTag(const char[] rawTag, char[] buffer, int maxlen)
