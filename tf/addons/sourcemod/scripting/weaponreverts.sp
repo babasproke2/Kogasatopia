@@ -9,6 +9,7 @@
 #include <addplayerhealth>
 #include <sourcescramble>
 #include <dhooks>
+#include <points_store_api>
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
 #define ACC_MAX_DIST		768.0
@@ -29,6 +30,8 @@
 #define ATTR_SECONDARY_AMMO_REFILL "secondary damage ammo refill"
 #define ATTR_SECONDARY_REFILL_SOUND "tools/ifm/beep.wav"
 #define ATTR_RELOAD_ON_HIT "reload on hit"
+#define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
+#define MEATSHOT_PENDING_WINDOW 0.5
 
 #define SPROKE_ATTR_NAME		"sproke attribute"
 #define SPROKE_PRIMARY_ATTR		"mod max primary clip override"
@@ -78,12 +81,18 @@ Handle g_SDKGetMaxClip1 = null;
 int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
 bool g_bAccuracyExploding[MAXPLAYERS + 1];
+int g_iPendingMeatshotAttacker[MAXPLAYERS + 1];
+float g_fPendingMeatshotDamage[MAXPLAYERS + 1];
+float g_fPendingMeatshotTime[MAXPLAYERS + 1];
+int g_iPendingMeatshotWeaponRef[MAXPLAYERS + 1];
 
 #include <weaponreverts>
  
 ConVar g_sEnabled;
 ConVar g_hPomsonDamageMult;
 ConVar g_hBisonDamageMult;
+ConVar g_hMeatshotPercent;
+ConVar g_hScattergunMaxDamage;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 Handle g_hHealTimer = INVALID_HANDLE;
 
@@ -121,6 +130,7 @@ stock void ResetClientArrays(int client)
 	tf2_players[client].jump_status = TF2_JUMP_NONE;
 	tf2_players[client].holdingJump = false;
 	tf2_players[client].oldHealth = 0;
+	Meatshot_ResetClient(client);
 	if (tf2_players[client].sprokeTimer != null)
 	{
 		KillTimer(tf2_players[client].sprokeTimer);
@@ -138,6 +148,8 @@ public void OnPluginStart() {
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
 	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
+	g_hMeatshotPercent = CreateConVar("reverts_meatshot_percent", "0.9", "Percent of configured scattergun max damage required to count as a meatshot.", FCVAR_NONE, true, 0.1, true, 1.0);
+	g_hScattergunMaxDamage = CreateConVar("reverts_scattergun_max_damage", "105.0", "Configured max damage for meatshot detection on scatterguns.", FCVAR_NONE, true, 1.0);
 	if (GetConVarInt(g_sEnabled)) {
 		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
 	// This is used to ignore clients without the m_iAmmo netprop
@@ -348,6 +360,110 @@ static bool Accuracy_IsValidClient(int client)
 static bool Accuracy_IsValidShotgun(int weapon)
 {
 	return (weapon > MaxClients && IsValidEntity(weapon) && TF2CustAttr_GetInt(weapon, "flame shotgun attributes") != 0);
+}
+
+static void Meatshot_ResetClient(int client)
+{
+	if (client <= 0 || client > MaxClients)
+		return;
+
+	g_iPendingMeatshotAttacker[client] = 0;
+	g_fPendingMeatshotDamage[client] = 0.0;
+	g_fPendingMeatshotTime[client] = 0.0;
+	g_iPendingMeatshotWeaponRef[client] = INVALID_ENT_REFERENCE;
+
+	for (int victim = 1; victim <= MaxClients; victim++)
+	{
+		if (g_iPendingMeatshotAttacker[victim] == client)
+		{
+			g_iPendingMeatshotAttacker[victim] = 0;
+			g_fPendingMeatshotDamage[victim] = 0.0;
+			g_fPendingMeatshotTime[victim] = 0.0;
+			g_iPendingMeatshotWeaponRef[victim] = INVALID_ENT_REFERENCE;
+		}
+	}
+}
+
+static bool Meatshot_IsScattergun(int weapon)
+{
+	if (weapon <= MaxClients || !IsValidEntity(weapon))
+		return false;
+
+	char classname[64];
+	GetEntityClassname(weapon, classname, sizeof(classname));
+	if (StrEqual(classname, "tf_weapon_scattergun", false))
+		return true;
+
+	int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
+	switch (defIndex)
+	{
+		case 13, 200, 669, 799, 808, 888, 897, 906, 915, 964, 973, 1078, 1103:
+			return true;
+	}
+
+	return false;
+}
+
+static int Meatshot_GetDamageThreshold()
+{
+	float maxDamage = (g_hScattergunMaxDamage == null) ? 105.0 : g_hScattergunMaxDamage.FloatValue;
+	float percent = (g_hMeatshotPercent == null) ? 0.9 : g_hMeatshotPercent.FloatValue;
+
+	if (maxDamage < 1.0)
+		maxDamage = 105.0;
+	if (percent < 0.1)
+		percent = 0.1;
+	else if (percent > 1.0)
+		percent = 1.0;
+
+	int threshold = RoundToNearest(maxDamage * percent);
+	return threshold < 1 ? 1 : threshold;
+}
+
+static void Meatshot_RecordDamage(int victim, int attacker, int weapon, float damage)
+{
+	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
+		return;
+	if (IsFakeClient(attacker) || IsFakeClient(victim))
+		return;
+	if (GetClientTeam(attacker) == GetClientTeam(victim))
+		return;
+	if (!Meatshot_IsScattergun(weapon))
+		return;
+
+	int roundedDamage = RoundToNearest(damage);
+	if (roundedDamage < Meatshot_GetDamageThreshold())
+		return;
+
+	g_iPendingMeatshotAttacker[victim] = attacker;
+	g_fPendingMeatshotDamage[victim] = damage;
+	g_fPendingMeatshotTime[victim] = GetGameTime();
+	g_iPendingMeatshotWeaponRef[victim] = EntIndexToEntRef(weapon);
+}
+
+static void Meatshot_AwardIfQualifyingKill(int victim, int attacker)
+{
+	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
+		return;
+	if (g_iPendingMeatshotAttacker[victim] != attacker)
+		return;
+	if (GetGameTime() - g_fPendingMeatshotTime[victim] > MEATSHOT_PENDING_WINDOW)
+	{
+		Meatshot_ResetClient(victim);
+		return;
+	}
+	if (EntRefToEntIndex(g_iPendingMeatshotWeaponRef[victim]) == INVALID_ENT_REFERENCE)
+	{
+		Meatshot_ResetClient(victim);
+		return;
+	}
+
+	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+	{
+		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, MEATSHOT_KILL_BONUS_TYPE);
+	}
+
+	Meatshot_ResetClient(victim);
 }
 
 static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float &damage, int &damagetype)
@@ -632,6 +748,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	{
 		return Plugin_Continue;
 	}
+	Meatshot_AwardIfQualifyingKill(client, attacker);
 
 	if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
 	{
@@ -1012,6 +1129,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 
 	if (attackerIsPlayer && damageWeapon > MaxClients && IsValidEntity(damageWeapon))
 	{
+		Meatshot_RecordDamage(client, attacker, damageWeapon, damage);
 		SecondaryDamageRefill_OnDamage(attacker, damageWeapon, damage);
 		ReloadOnHit_OnDamage(damageWeapon);
 
