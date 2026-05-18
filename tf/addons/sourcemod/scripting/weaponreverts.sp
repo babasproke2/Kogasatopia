@@ -570,7 +570,7 @@ public void TF2Scatter_OnPelletKill(int attacker, int victim, int pellets, int t
 		return;
 	}
 
-	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
+	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || IsFakeClient(attacker) || IsFakeClient(victim) || attacker == victim)
 	{
 		ScatterPellets_Debug("ignored: invalid attacker/victim");
 		return;
