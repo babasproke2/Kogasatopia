@@ -37,12 +37,14 @@ ConVar g_CvarLogRandomMisses = null;
 ConVar g_CvarCurrencyShort = null;
 ConVar g_CvarCurrencyLong = null;
 ConVar g_CvarCurrencyColor = null;
+ConVar g_CvarSendCooldown = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 char g_CurrencyShortLabel[BP_CURRENCY_SHORT_MAX];
 char g_CurrencyLongLabel[BP_CURRENCY_LONG_MAX];
 char g_CurrencyColorTag[BP_CURRENCY_COLOR_MAX + 2];
 char g_CurrencyPrefix[96];
+float g_NextSendAllowedAt[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
@@ -96,6 +98,7 @@ public void OnPluginStart()
     g_CvarCurrencyShort = CreateConVar("sm_points_store_currency_short", "BP", "Short currency label used in compact messages, e.g. BP or Gem.");
     g_CvarCurrencyLong = CreateConVar("sm_points_store_currency_long", "Bonus Points", "Long currency label used in menus and prose, e.g. Bonus Points or Gems.");
     g_CvarCurrencyColor = CreateConVar("sm_points_store_currency_color", "magenta", "Multicolors tag name used for the currency prefix, without braces.");
+    g_CvarSendCooldown = CreateConVar("sm_points_store_send_cooldown", "15.0", "Seconds a client must wait between successful !send currency transfers.", _, true, 0.0);
     g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
@@ -150,6 +153,7 @@ public void OnMapEnd()
 
 public void OnClientAuthorized(int client, const char[] auth)
 {
+    g_NextSendAllowedAt[client] = 0.0;
     ClearClientStoreCache(client);
     LoadClientPurchases(client);
     LoadClientBonusPoints(client);
@@ -157,6 +161,7 @@ public void OnClientAuthorized(int client, const char[] auth)
 
 public void OnClientDisconnect(int client)
 {
+    g_NextSendAllowedAt[client] = 0.0;
     ClearClientStoreCache(client);
 }
 
@@ -1426,6 +1431,13 @@ public Action Command_SendBonusPoints(int client, int args)
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
 
+    float cooldownRemaining = (GetSendBonusPointsCooldown() > 0.0) ? (g_NextSendAllowedAt[client] - GetEngineTime()) : 0.0;
+    if (cooldownRemaining > 0.0)
+    {
+        CPrintToChat(client, "%s Wait {gold}%d{default} seconds before sending %s again.", prefix, RoundToCeil(cooldownRemaining), currencyLong);
+        return Plugin_Handled;
+    }
+
     if (args < 2)
     {
         CPrintToChat(client, "%s Usage: !sendbp <player> <amount>", prefix);
@@ -1494,6 +1506,7 @@ public Action Command_SendBonusPoints(int client, int args)
 
     PlayBonusPointsSound(0, true);
     LogTransferEvent("transfer_success", "ok", client, target, amount);
+    StartSendBonusPointsCooldown(client);
 
     char senderDisplay[256];
     char targetDisplay[256];
@@ -1510,6 +1523,28 @@ public Action Command_SendBonusPoints(int client, int args)
         CPrintToChatEx(i, client, "%s %s sent %s %i %s%s{default}!", prefix, senderDisplay, targetDisplay, amount, colorTag, currencyShort);
     }
     return Plugin_Handled;
+}
+
+float GetSendBonusPointsCooldown()
+{
+    if (g_CvarSendCooldown == null)
+    {
+        return 0.0;
+    }
+
+    float cooldown = g_CvarSendCooldown.FloatValue;
+    return cooldown > 0.0 ? cooldown : 0.0;
+}
+
+void StartSendBonusPointsCooldown(int client)
+{
+    float cooldown = GetSendBonusPointsCooldown();
+    if (cooldown <= 0.0 || client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+
+    g_NextSendAllowedAt[client] = GetEngineTime() + cooldown;
 }
 
 void ShowShopMenu(int client)
