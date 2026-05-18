@@ -692,6 +692,17 @@ void GetCurrencyShortLabel(char[] buffer, int maxlen)
     strcopy(buffer, maxlen, g_CurrencyShortLabel);
 }
 
+void GetCurrencyShortLabelForAmount(int amount, char[] buffer, int maxlen)
+{
+    GetCurrencyShortLabel(buffer, maxlen);
+
+    int len = strlen(buffer);
+    if (amount == 1 && len > 0 && buffer[len - 1] == 's')
+    {
+        buffer[len - 1] = '\0';
+    }
+}
+
 void GetCurrencyLongLabel(char[] buffer, int maxlen)
 {
     strcopy(buffer, maxlen, g_CurrencyLongLabel);
@@ -1423,11 +1434,9 @@ public Action Command_SendBonusPoints(int client, int args)
     }
 
     char prefix[96];
-    char currencyShort[BP_CURRENCY_SHORT_MAX];
     char currencyLong[BP_CURRENCY_LONG_MAX];
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyPrefix(prefix, sizeof(prefix));
-    GetCurrencyShortLabel(currencyShort, sizeof(currencyShort));
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
 
@@ -1486,7 +1495,9 @@ public Action Command_SendBonusPoints(int client, int args)
 
     if (GetCachedBonusPoints(client) < amount)
     {
-        CPrintToChat(client, "%s You only have {lightgreen}%i{default}%s.", prefix, GetCachedBonusPoints(client), currencyShort);
+        char balanceCurrencyShort[BP_CURRENCY_SHORT_MAX];
+        GetCurrencyShortLabelForAmount(GetCachedBonusPoints(client), balanceCurrencyShort, sizeof(balanceCurrencyShort));
+        CPrintToChat(client, "%s You only have {lightgreen}%i{default}%s.", prefix, GetCachedBonusPoints(client), balanceCurrencyShort);
         return Plugin_Handled;
     }
 
@@ -1510,8 +1521,10 @@ public Action Command_SendBonusPoints(int client, int args)
 
     char senderDisplay[256];
     char targetDisplay[256];
+    char sentCurrencyShort[BP_CURRENCY_SHORT_MAX];
     BuildPurchaseDisplayName(client, senderDisplay, sizeof(senderDisplay));
     BuildPurchaseDisplayName(target, targetDisplay, sizeof(targetDisplay));
+    GetCurrencyShortLabelForAmount(amount, sentCurrencyShort, sizeof(sentCurrencyShort));
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -1520,7 +1533,7 @@ public Action Command_SendBonusPoints(int client, int args)
             continue;
         }
 
-        CPrintToChatEx(i, client, "%s %s sent %s %i %s%s{default}!", prefix, senderDisplay, targetDisplay, amount, colorTag, currencyShort);
+        CPrintToChatEx(i, client, "%s %s sent %s %i %s%s{default}!", prefix, senderDisplay, targetDisplay, amount, colorTag, sentCurrencyShort);
     }
     return Plugin_Handled;
 }
