@@ -12,6 +12,8 @@
 
 #define VOTE_DURATION 20
 #define VOTEMENU_CURRENCY_SHORT_MAX 32
+#define VOTEMENU_DB_CONFIG_DEFAULT "default"
+#define POINTS_STORE_BALANCE_TABLE "points_store_balances"
 
 enum struct VoteOption
 {
@@ -27,10 +29,19 @@ enum struct VoteOption
 ArrayList g_VoteOptions = null;
 VoteOption g_CurrentVote;
 bool g_VoteInProgress = false;
+bool g_VoteOutcomePending = false;
 ConVar g_CvarShop = null;
 ConVar g_CvarShopCost = null;
 ConVar g_CvarAdmins = null;
 ConVar g_CvarAdminsFree = null;
+ConVar g_CvarDatabase = null;
+Database g_Database = null;
+bool g_DatabaseReady = false;
+bool g_PendingVoteCharge = false;
+int g_PendingChargeUserId = 0;
+int g_PendingChargeCost = 0;
+char g_PendingChargeSteamId64[32];
+char g_PendingChargeName[MAX_NAME_LENGTH];
 
 public Plugin myinfo =
 {
@@ -47,8 +58,18 @@ public void OnPluginStart()
     g_CvarShopCost = CreateConVar("sm_votemenu_shop_cost", "50", "points_store currency cost to start a votemenu vote. 0 disables currency integration.", _, true, 0.0);
     g_CvarAdmins = CreateConVar("sm_votemenu_admins_only", "0", "Restrict votemenu usage to admins.", _, true, 0.0, true, 1.0);
     g_CvarAdminsFree = CreateConVar("sm_votemenu_admins_free", "0", "Let admins use votemenu without points_store currency integration.", _, true, 0.0, true, 1.0);
+    g_CvarDatabase = CreateConVar("sm_votemenu_database", VOTEMENU_DB_CONFIG_DEFAULT, "Database config used for offline paid-vote charges.");
+    g_CvarDatabase.AddChangeHook(OnVoteMenuDatabaseChanged);
     g_VoteOptions = new ArrayList(sizeof(VoteOption));
     LoadVoteMenuConfig();
+    ConnectVoteMenuDatabase();
+}
+
+public void OnPluginEnd()
+{
+    delete g_Database;
+    g_Database = null;
+    g_DatabaseReady = false;
 }
 
 public void OnMapStart()
@@ -69,7 +90,7 @@ public Action Command_VoteMenu(int client, int args)
         return Plugin_Handled;
     }
 
-    if (g_VoteInProgress || !IsNewVoteAllowed())
+    if (IsVoteMenuBusy() || !IsNewVoteAllowed())
     {
         CPrintToChat(client, "{red}[Vote]{default} A vote is already running or cooling down.");
         return Plugin_Handled;
@@ -129,21 +150,81 @@ public int VoteMenuHandler(Menu menu, MenuAction action, int param1, int param2)
             return 0;
         }
 
-        if (g_VoteInProgress || !IsNewVoteAllowed())
+        if (IsVoteMenuBusy() || !IsNewVoteAllowed())
         {
             CPrintToChat(param1, "{red}[Vote]{default} A vote is already running or cooling down.");
             return 0;
         }
 
-        if (!ChargeVoteMenuCost(param1))
+        if (!PrepareVoteMenuCharge(param1))
         {
             return 0;
         }
 
         g_VoteOptions.GetArray(index, g_CurrentVote);
-        StartYesNoVote(param1);
+        if (!StartYesNoVote(param1))
+        {
+            ClearPendingVoteCharge();
+        }
     }
     return 0;
+}
+
+public void OnVoteMenuDatabaseChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    ConnectVoteMenuDatabase();
+}
+
+public void SQL_OnVoteMenuDatabaseConnected(Handle owner, Handle hndl, const char[] error, any data)
+{
+    if (hndl == null)
+    {
+        g_DatabaseReady = false;
+        LogError("[votemenu] Database connection failed: %s", error[0] ? error : "unknown error");
+        return;
+    }
+
+    if (g_Database != null)
+    {
+        delete g_Database;
+    }
+
+    g_Database = view_as<Database>(hndl);
+    g_DatabaseReady = true;
+}
+
+static void ConnectVoteMenuDatabase()
+{
+    g_DatabaseReady = false;
+    if (g_Database != null)
+    {
+        delete g_Database;
+        g_Database = null;
+    }
+
+    char dbConfig[64];
+    if (g_CvarDatabase != null)
+    {
+        g_CvarDatabase.GetString(dbConfig, sizeof(dbConfig));
+        TrimString(dbConfig);
+    }
+    if (!dbConfig[0])
+    {
+        strcopy(dbConfig, sizeof(dbConfig), VOTEMENU_DB_CONFIG_DEFAULT);
+    }
+
+    if (!SQL_CheckConfig(dbConfig))
+    {
+        LogError("[votemenu] Database config '%s' not found.", dbConfig);
+        return;
+    }
+
+    SQL_TConnect(SQL_OnVoteMenuDatabaseConnected, dbConfig);
+}
+
+static bool IsVoteMenuBusy()
+{
+    return g_VoteInProgress || g_VoteOutcomePending;
 }
 
 static bool IsPointsStoreAvailable()
@@ -217,14 +298,30 @@ static void FormatVoteMenuTitle(int client, char[] title, int maxlen)
     Format(title, maxlen, "Start a vote (%d %s)", GetVoteMenuCost(), currency);
 }
 
-static bool ChargeVoteMenuCost(int client)
+static bool PrepareVoteMenuCharge(int client)
 {
+    ClearPendingVoteCharge();
+
     if (!IsVoteMenuShopEnabled(client))
     {
         return true;
     }
 
     int cost = GetVoteMenuCost();
+    if (!g_DatabaseReady || g_Database == null)
+    {
+        CPrintToChat(client, "{red}[Vote]{default} Vote payments are not ready yet.");
+        ConnectVoteMenuDatabase();
+        return false;
+    }
+
+    char steamId[32];
+    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId), true))
+    {
+        CPrintToChat(client, "{red}[Vote]{default} Could not read your SteamID64 for the vote charge.");
+        return false;
+    }
+
     if (GetFeatureStatus(FeatureType_Native, "PointsStore_AreBonusPointsLoaded") == FeatureStatus_Available
         && !PointsStore_AreBonusPointsLoaded(client))
     {
@@ -244,24 +341,20 @@ static bool ChargeVoteMenuCost(int client)
         }
     }
 
-    if (!PointsStore_SpendBonusPoints(client, cost))
-    {
-        CPrintToChat(client, "{red}[Vote]{default} Could not spend the vote cost.");
-        return false;
-    }
-
-    char currency[VOTEMENU_CURRENCY_SHORT_MAX];
-    GetVoteMenuCurrencyShort(currency, sizeof(currency));
-    CPrintToChat(client, "{green}[Vote]{default} Spent {gold}%d %s{default} to start the vote.", cost, currency);
+    g_PendingVoteCharge = true;
+    g_PendingChargeUserId = GetClientUserId(client);
+    g_PendingChargeCost = cost;
+    strcopy(g_PendingChargeSteamId64, sizeof(g_PendingChargeSteamId64), steamId);
+    GetClientName(client, g_PendingChargeName, sizeof(g_PendingChargeName));
     return true;
 }
 
-static void StartYesNoVote(int initiator)
+static bool StartYesNoVote(int initiator)
 {
-    if (g_VoteInProgress || !IsNewVoteAllowed())
+    if (IsVoteMenuBusy() || !IsNewVoteAllowed())
     {
         CPrintToChat(initiator, "{red}[Vote]{default} A vote is already running or cooling down.");
-        return;
+        return false;
     }
 
     char startMsg[384];
@@ -303,8 +396,14 @@ static void StartYesNoVote(int initiator)
     vote.ExitButton = false;
     vote.ExitBackButton = false;
 
+    if (!vote.DisplayVoteToAll(VOTE_DURATION))
+    {
+        delete vote;
+        return false;
+    }
+
     g_VoteInProgress = true;
-    vote.DisplayVoteToAll(VOTE_DURATION);
+    return true;
 }
 
 public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2)
@@ -339,11 +438,20 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
         bool passed = (totalVotes > 0) && (ratio >= g_CurrentVote.ratio);
 
         AnnounceVoteResult(yesVotes, noVotes, ratio, passed);
-        ExecuteVoteOutcome(passed);
+        if (passed)
+        {
+            ChargePassedVoteAndExecuteOutcome();
+        }
+        else
+        {
+            ClearPendingVoteCharge();
+            ExecuteVoteOutcome(false);
+        }
     }
     else if (action == MenuAction_VoteCancel)
     {
         g_VoteInProgress = false;
+        ClearPendingVoteCharge();
         int reason = param1;
         if (reason == VoteCancel_NoVotes)
         {
@@ -355,6 +463,146 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
         }
     }
     return 0;
+}
+
+static void ChargePassedVoteAndExecuteOutcome()
+{
+    if (!g_PendingVoteCharge)
+    {
+        ExecuteVoteOutcome(true);
+        return;
+    }
+
+    int client = GetClientOfUserId(g_PendingChargeUserId);
+    if (client > 0 && IsClientInGame(client) && IsPendingChargeClient(client) && IsPointsStoreAvailable())
+    {
+        if (!PointsStore_SpendBonusPoints(client, g_PendingChargeCost))
+        {
+            AnnounceVoteChargeFailure("payment could not be collected");
+            ClearPendingVoteCharge();
+            return;
+        }
+
+        char currency[VOTEMENU_CURRENCY_SHORT_MAX];
+        GetVoteMenuCurrencyShort(currency, sizeof(currency));
+        CPrintToChat(client, "{green}[Vote]{default} Vote passed; spent {gold}%d %s{default}.", g_PendingChargeCost, currency);
+        ClearPendingVoteCharge();
+        ExecuteVoteOutcome(true);
+        return;
+    }
+
+    ChargeOfflinePendingVoteAndExecute();
+}
+
+static bool IsPendingChargeClient(int client)
+{
+    char steamId[32];
+    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId), true))
+    {
+        return false;
+    }
+
+    return StrEqual(steamId, g_PendingChargeSteamId64, false);
+}
+
+static void ChargeOfflinePendingVoteAndExecute()
+{
+    if (!g_DatabaseReady || g_Database == null)
+    {
+        AnnounceVoteChargeFailure("payment database is unavailable");
+        ClearPendingVoteCharge();
+        ConnectVoteMenuDatabase();
+        return;
+    }
+
+    char escapedSteamId[65];
+    if (!EscapeVoteMenuSql(g_PendingChargeSteamId64, escapedSteamId, sizeof(escapedSteamId)))
+    {
+        AnnounceVoteChargeFailure("payment identity could not be escaped");
+        ClearPendingVoteCharge();
+        return;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteString(g_CurrentVote.winFile);
+    pack.WriteString(g_PendingChargeSteamId64);
+    pack.WriteString(g_PendingChargeName);
+    pack.WriteCell(g_PendingChargeCost);
+
+    char query[512];
+    Format(query, sizeof(query),
+        "UPDATE %s SET balance = balance - %d WHERE steamid64 = '%s' AND balance >= %d",
+        POINTS_STORE_BALANCE_TABLE,
+        g_PendingChargeCost,
+        escapedSteamId,
+        g_PendingChargeCost);
+
+    g_VoteOutcomePending = true;
+    ClearPendingVoteCharge();
+    g_Database.Query(SQL_OnOfflineVoteChargeComplete, query, pack);
+}
+
+public void SQL_OnOfflineVoteChargeComplete(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+
+    char winFile[128];
+    char steamId[32];
+    char playerName[MAX_NAME_LENGTH];
+    pack.ReadString(winFile, sizeof(winFile));
+    pack.ReadString(steamId, sizeof(steamId));
+    pack.ReadString(playerName, sizeof(playerName));
+    int cost = pack.ReadCell();
+    delete pack;
+
+    g_VoteOutcomePending = false;
+
+    if (error[0] != '\0')
+    {
+        LogError("[votemenu] Offline vote charge failed for %s: %s", steamId, error);
+        AnnounceVoteChargeFailure("payment query failed");
+        return;
+    }
+
+    if (results == null || results.AffectedRows <= 0)
+    {
+        char currency[VOTEMENU_CURRENCY_SHORT_MAX];
+        GetVoteMenuCurrencyShort(currency, sizeof(currency));
+        CPrintToChatAll("{red}[Vote]{default} Vote passed, but {gold}%s{default} could not be charged {gold}%d %s{default}; no action was taken.", playerName, cost, currency);
+        return;
+    }
+
+    char currency[VOTEMENU_CURRENCY_SHORT_MAX];
+    GetVoteMenuCurrencyShort(currency, sizeof(currency));
+    CPrintToChatAll("{green}[Vote]{default} Charged {gold}%s{default} {gold}%d %s{default} for the passed vote.", playerName, cost, currency);
+    ExecuteVoteScript(winFile);
+}
+
+static void AnnounceVoteChargeFailure(const char[] reason)
+{
+    CPrintToChatAll("{red}[Vote]{default} Vote passed, but %s; no action was taken.", reason);
+}
+
+static void ClearPendingVoteCharge()
+{
+    g_PendingVoteCharge = false;
+    g_PendingChargeUserId = 0;
+    g_PendingChargeCost = 0;
+    g_PendingChargeSteamId64[0] = '\0';
+    g_PendingChargeName[0] = '\0';
+}
+
+static bool EscapeVoteMenuSql(const char[] input, char[] output, int maxlen)
+{
+    if (g_Database == null)
+    {
+        strcopy(output, maxlen, input);
+        return false;
+    }
+
+    int written = 0;
+    return g_Database.Escape(input, output, maxlen, written);
 }
 
 static void AnnounceVoteResult(int yesVotes, int noVotes, float ratio, bool passed)
@@ -385,6 +633,16 @@ static void ExecuteVoteOutcome(bool passed)
         strcopy(script, sizeof(script), g_CurrentVote.loseFile);
     }
 
+    if (!script[0])
+    {
+        return;
+    }
+
+    ExecuteVoteScript(script);
+}
+
+static void ExecuteVoteScript(const char[] script)
+{
     if (!script[0])
     {
         return;
