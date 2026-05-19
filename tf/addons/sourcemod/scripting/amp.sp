@@ -58,6 +58,7 @@ float AmplifierDistance[ME];
 TFCond AmplifierCondition[ME];
 int BuildingRef[ME];
 float AmplifierFill[ME];
+int g_ActiveAmplifiers[ME];
 
 // ConVars
 ConVar cvarMetal;
@@ -513,207 +514,291 @@ public MenuHandler_Amplifier(Handle:menu, MenuAction:action, param1, param2)
 	}
 }
 
+bool IsAmplifierModel(int ent)
+{
+	if (ent <= 0 || !IsValidEntity(ent))
+		return false;
+
+	char modelname[256];
+	GetEntPropString(ent, Prop_Data, "m_ModelName", modelname, sizeof(modelname));
+	return StrContains(modelname, "plifier") != -1;
+}
+
+bool IsActiveAmplifier(int ent)
+{
+	return ent > 0 && IsValidEntity(ent) && AmplifierOn[ent] && !AmplifierSapped[ent] && IsAmplifierModel(ent);
+}
+
+bool GetAmplifierMetal(int ent, int &metal, char[] buildingClass, int classSize)
+{
+	GetEdictClassname(ent, buildingClass, classSize);
+
+	if (!strcmp(buildingClass, "obj_dispenser"))
+	{
+		metal = GetEntProp(ent, Prop_Send, "m_iAmmoMetal");
+		return true;
+	}
+
+	if (!strcmp(buildingClass, "obj_sentrygun"))
+	{
+		metal = GetEntProp(ent, Prop_Send, "m_iAmmoShells");
+		return true;
+	}
+
+	metal = 0;
+	return false;
+}
+
+void SetAmplifierMetal(int ent, const char[] buildingClass, int metal)
+{
+	if (!strcmp(buildingClass, "obj_dispenser"))
+		SetEntProp(ent, Prop_Send, "m_iAmmoMetal", metal);
+	else if (!strcmp(buildingClass, "obj_sentrygun"))
+		SetEntProp(ent, Prop_Send, "m_iAmmoShells", metal);
+}
+
+void UpdateAmplifierFill(int ent, int metal, int metalMax)
+{
+	if (metalMax <= 0)
+	{
+		AmplifierFill[ent] = 0.0;
+		return;
+	}
+
+	float fill = float(metal) / float(metalMax);
+	if (fill < 0.0)
+		fill = 0.0;
+	if (fill < 0.4)
+		fill = (fill / 0.4) + 0.6; // Taking a percentage and adding a minimum
+	else
+		fill = 1.0;
+	if (fill > 1.0)
+		fill = 1.0;
+
+	AmplifierFill[ent] = fill;
+}
+
+void ClearAmplifierConditionForClient(int client, int maxEntities)
+{
+	for (int ent = 1; ent < maxEntities; ent++)
+	{
+		ConditionApplied[ent][client] = false;
+	}
+}
+
+void ClearAmplifierConditionForBuilding(int ent)
+{
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		ConditionApplied[ent][client] = false;
+	}
+}
+
+int CollectActiveAmplifiers(int maxEntities, int activeAmps[ME])
+{
+	int activeCount = 0;
+
+	for (int slot = 1; slot < maxEntities; slot++)
+	{
+		int ref = BuildingRef[slot];
+		if (ref == 0)
+			continue;
+
+		int ent = EntRefToEntIndex(ref);
+		if (ent <= 0)
+		{
+			BuildingRef[slot] = 0;
+			ClearAmplifierConditionForBuilding(slot);
+			continue;
+		}
+
+		if (IsActiveAmplifier(ent))
+		{
+			activeAmps[activeCount++] = ent;
+		}
+	}
+
+	return activeCount;
+}
+
+bool TryApplyAmplifierToClient(int client, int amp, int metalPerPlayer, int metalMax, float zapDamage)
+{
+	if (!IsActiveAmplifier(amp))
+		return false;
+
+	char buildingClass[64];
+	int metal;
+	if (!GetAmplifierMetal(amp, metal, buildingClass, sizeof(buildingClass)))
+		return false;
+
+	UpdateAmplifierFill(amp, metal, metalMax);
+
+	if (metal < metalPerPlayer && metalPerPlayer > 0)
+		return false;
+
+	float clientPos[3];
+	float amplifierPos[3];
+	GetEntPropVector(client, Prop_Send, "m_vecOrigin", clientPos);
+	GetEntPropVector(amp, Prop_Send, "m_vecOrigin", amplifierPos);
+
+	if (GetVectorDistance(clientPos, amplifierPos) > AmplifierDistance[amp])
+		return false;
+	if (!TraceTargetIndex(amp, client, amplifierPos, clientPos))
+		return false;
+
+	TFTeam clientTeam = TFTeam:GetClientTeam(client);
+	TFTeam team = TFTeam:GetEntProp(amp, Prop_Send, "m_iTeamNum");
+
+	if (TF2_GetPlayerClass(client) == TFClass_Spy && TF2_IsPlayerInCondition(client, TFCond_Disguised) && !TF2_IsPlayerInCondition(client, TFCond_Cloaked))
+		team = clientTeam;
+
+	TFCond Condition = DefaultCondition;
+	new Action:res = Plugin_Continue;
+	new builder = GetEntPropEnt(amp, Prop_Send, "m_hBuilder");
+	Call_StartForward(fwdOnAmplify);
+	Call_PushCell(builder);
+	Call_PushCell(client);
+	Call_PushCell(Condition);
+	Call_Finish(res);
+	if (res != Plugin_Continue)
+		return false;
+
+	if (clientTeam == team)
+	{
+		AddAmplifierEffect(client);
+		if (!ConditionApplied[amp][client])
+		{
+			EmitSoundToClient(client, AMPLIFIER_BUFF_SOUND, amp, _, SNDLEVEL_NORMAL, SND_NOFLAGS, 0.5, SNDPITCH_HIGH);
+		}
+		ConditionApplied[amp][client] = true;
+	}
+	else if (zapDamage > 0.0)
+	{
+		DealElectricDamage(client, builder, clientPos, zapDamage);
+	}
+
+	g_PlayerState[client].nearAmplifier = true;
+	if (metalPerPlayer > 0)
+	{
+		SetAmplifierMetal(amp, buildingClass, metal - metalPerPlayer);
+	}
+
+	return true;
+}
+
+void ApplyAmplifierEffectsToPlayers(int activeAmps[ME], int activeCount, int maxEntities, int metalPerPlayer, int metalMax, float zapDamage)
+{
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		if (!IsClientInGame(client))
+			continue;
+
+		g_PlayerState[client].nearAmplifier = false;
+
+		if (!IsPlayerAlive(client) || !IsValidEdict(client))
+			continue;
+
+		for (int slot = 0; slot < activeCount; slot++)
+		{
+			int amp = activeAmps[slot];
+			if (TryApplyAmplifierToClient(client, amp, metalPerPlayer, metalMax, zapDamage))
+				break;
+		}
+
+		if (!g_PlayerState[client].nearAmplifier)
+		{
+			ClearAmplifierConditionForClient(client, maxEntities);
+		}
+	}
+}
+
+void PulseAmplifierBuilding(int ent, int metalPerPlayer, int metalMax)
+{
+	if (!IsActiveAmplifier(ent))
+		return;
+
+	if (GetEntProp(ent, Prop_Send, "m_bDisabled") == 0)
+		SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
+
+	char buildingClass[64];
+	int oldMetal;
+	if (!GetAmplifierMetal(ent, oldMetal, buildingClass, sizeof(buildingClass)))
+		return;
+
+	int upgradeMetal = GetEntProp(ent, Prop_Send, "m_iUpgradeMetal");
+	int refillMetal = 0;
+	if (metalMax > 0)
+		refillMetal = (upgradeMetal * metalMax) / 200;
+
+	float pos[3];
+	GetEntPropVector(ent, Prop_Send, "m_vecOrigin", pos);
+	pos[2] += 90;
+
+	new beamColor[4];
+	if (TFTeam:GetEntProp(ent, Prop_Send, "m_iTeamNum") == TFTeam_Red)
+		beamColor = {255, 75, 75, 255};
+	else
+		beamColor = {75, 75, 255, 255};
+
+	float colorScale = AmplifierFill[ent];
+	beamColor[0] = RoundFloat(float(beamColor[0]) * colorScale);
+	beamColor[1] = RoundFloat(float(beamColor[1]) * colorScale);
+	beamColor[2] = RoundFloat(float(beamColor[2]) * colorScale);
+	beamColor[3] = RoundFloat(float(beamColor[3]) * colorScale);
+
+	if (oldMetal > metalPerPlayer)
+	{
+		EmitAmbientSound(AMPLIFIER_SOUND, pos, ent, SNDLEVEL_CAR, SND_NOFLAGS, 0.6, RoundToCeil(SNDPITCH_NORMAL * colorScale));
+	}
+	else
+	{
+		EmitAmbientSound(AMPLIFIER_EMPTY_SOUND, pos, ent, SNDLEVEL_CAR, SND_NOFLAGS, 0.5, SNDPITCH_NORMAL);
+	}
+
+	if (oldMetal > 0)
+	{
+		TE_SetupBeamRingPoint(pos, 10.0, colorScale * (AmplifierDistance[ent] * 0.8), g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, beamColor, 3, 0);
+		TE_SendToAll();
+	}
+	else
+	{
+		new emptyColor[4] = {75, 75, 75, 100};
+		TE_SetupBeamRingPoint(pos, 10.0, 144.0, g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, emptyColor, 3, 0); // 144 is the final value at colorscale 0
+		TE_SendToAll();
+	}
+
+	if (refillMetal > 0)
+	{
+		int newMetal = oldMetal + refillMetal;
+		if (newMetal > metalMax)
+			newMetal = metalMax;
+
+		SetAmplifierMetal(ent, buildingClass, newMetal);
+		SetEntProp(ent, Prop_Send, "m_iUpgradeMetal", 0);
+		EmitAmbientSound(AMPLIFIER_FILL_SOUND, pos);
+	}
+}
+
+void PulseAmplifierBuildings(int activeAmps[ME], int activeCount, int metalPerPlayer, int metalMax)
+{
+	for (int slot = 0; slot < activeCount; slot++)
+	{
+		int ent = activeAmps[slot];
+		PulseAmplifierBuilding(ent, metalPerPlayer, metalMax);
+	}
+}
+
 public Action:Timer_amplifier(Handle hTimer)
 {
-	float Pos[3];
-	float AmplifierPos[3];
-	new TFTeam:clientTeam;
-	new TFTeam:team;
-	new maxEntities = GetMaxEntities();
-	new String:modelname[256];
+	int maxEntities = GetMaxEntities();
 	int metalPerPlayer = GetConVarInt(cvarMetal);
 	int metalMax = GetConVarInt(cvarMetalMax);
 	float zapDamage = GetConVarFloat(cvarEnableZap);
+	int activeCount = CollectActiveAmplifiers(maxEntities, g_ActiveAmplifiers);
 
-	for (new client = 1; client <= MaxClients; client++)
-	{
-		if (!IsClientInGame(client)) continue;
+	ApplyAmplifierEffectsToPlayers(g_ActiveAmplifiers, activeCount, maxEntities, metalPerPlayer, metalMax, zapDamage);
+	PulseAmplifierBuildings(g_ActiveAmplifiers, activeCount, metalPerPlayer, metalMax);
 
-	g_PlayerState[client].nearAmplifier = false;
-
-		if (IsPlayerAlive(client) && IsValidEdict(client))
-		{
-			GetEntPropVector(client, Prop_Send, "m_vecOrigin", Pos);
-			clientTeam = TFTeam:GetClientTeam(client);
-
-			for (new i = 1; i < maxEntities; i++)
-			{
-				new amp = EntRefToEntIndex(BuildingRef[i]);
-				if (amp <= 0) continue;
-
-				GetEntPropString(i, Prop_Data, "m_ModelName", modelname, 128);
-				if (StrContains(modelname, "plifier") == -1) continue;
-				if (!AmplifierOn[amp] || AmplifierSapped[amp]) continue;
-
-				new String:buildingClass[64];
-				GetEdictClassname(amp, buildingClass, sizeof(buildingClass));
-				new metal;
-		if (!strcmp(buildingClass, "obj_dispenser"))
-			metal = GetEntProp(amp, Prop_Send, "m_iAmmoMetal");
-		else if (!strcmp(buildingClass, "obj_sentrygun"))
-			metal = GetEntProp(amp, Prop_Send, "m_iAmmoShells");
-		else
-			continue;
-
-			if (metalMax > 0)
-			{
-				float fill = float(metal) / float(metalMax);
-				if (fill < 0.0)
-					fill = 0.0;
-				if (fill < 0.4)
-				fill = (fill / 0.4) + 0.6; // Taking a percentage and adding a minimum
-			else fill = 1.0;
-			if (fill > 1.0)
-				fill = 1.0;
-				AmplifierFill[amp] = fill;
-			}
-
-			if (metal < metalPerPlayer && metalPerPlayer > 0) continue;
-
-		TFCond Condition = DefaultCondition;
-		team = TFTeam:GetEntProp(amp, Prop_Send, "m_iTeamNum");
-
-		if (TF2_GetPlayerClass(client) == TFClass_Spy && TF2_IsPlayerInCondition(client, TFCond_Disguised) && !TF2_IsPlayerInCondition(client, TFCond_Cloaked))
-			team = clientTeam;
-
-		GetEntPropVector(amp, Prop_Send, "m_vecOrigin", AmplifierPos);
-
-		if (GetVectorDistance(Pos, AmplifierPos) <= AmplifierDistance[amp] && (TraceTargetIndex(amp, client, AmplifierPos, Pos)))
-		{
-			new Action:res = Plugin_Continue;
-			new builder = GetEntPropEnt(amp, Prop_Send, "m_hBuilder");
-			Call_StartForward(fwdOnAmplify);
-			Call_PushCell(builder);
-			Call_PushCell(client);
-			Call_PushCell(Condition);
-			Call_Finish(res);
-			if (res != Plugin_Continue) continue;
-			if (clientTeam == team)
-			{
-				AddAmplifierEffect(client);
-				if (!ConditionApplied[amp][client])
-				{
-					EmitSoundToClient(client, AMPLIFIER_BUFF_SOUND, amp, _, SNDLEVEL_NORMAL, SND_NOFLAGS, 0.5, SNDPITCH_HIGH);
-				}
-				ConditionApplied[amp][client] = true;
-				} else if (zapDamage > 0.0) {
-					DealElectricDamage(client, builder, Pos, zapDamage);
-				}
-				g_PlayerState[client].nearAmplifier = true;
-				if (metalPerPlayer > 0)
-				{
-					metal -= metalPerPlayer;
-					if (!strcmp(buildingClass, "obj_dispenser"))
-						SetEntProp(amp, Prop_Send, "m_iAmmoMetal", metal);
-				else if (!strcmp(buildingClass, "obj_sentrygun"))
-					SetEntProp(amp, Prop_Send, "m_iAmmoShells", metal);
-			}
-			break;
-		}
-			}
-
-		if (!g_PlayerState[client].nearAmplifier)
-			{
-				for (new i = 1; i < maxEntities; i++)
-				{
-					if (ConditionApplied[i][client])
-					{
-						ConditionApplied[i][client] = false;
-					}
-				}
-			}
-		}
-	}
-
-	for (new i = 1; i < maxEntities; i++)
-	{
-		new ref = BuildingRef[i];
-		if (ref == 0) continue;
-
-		new ent = EntRefToEntIndex(ref);
-		if (ent <= 0)
-		{
-			BuildingRef[i] = 0;
-			for (new client = 1; client <= MaxClients; client++)
-			{
-				if (ConditionApplied[i][client])
-				{
-					ConditionApplied[i][client] = false;
-				}
-			}
-			continue;
-		}
-
-		GetEntPropString(ent, Prop_Data, "m_ModelName", modelname, 128);
-		if (!AmplifierOn[ent] || AmplifierSapped[ent] || StrContains(modelname, "plifier") == -1) continue;
-
-		if (GetEntProp(ent, Prop_Send, "m_bDisabled") == 0)
-			SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
-
-		new String:buildingClass[64];
-		GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
-
-			new metal = GetEntProp(ent, Prop_Send, "m_iUpgradeMetal") * (metalMax / 200);
-		new oldMetal;
-		if (!strcmp(buildingClass, "obj_dispenser"))
-			oldMetal = GetEntProp(ent, Prop_Send, "m_iAmmoMetal");
-		else if (!strcmp(buildingClass, "obj_sentrygun"))
-			oldMetal = GetEntProp(ent, Prop_Send, "m_iAmmoShells");
-
-		GetEntPropVector(ent, Prop_Send, "m_vecOrigin", Pos);
-		Pos[2] += 90;
-
-		new beamColor[4];
-		if (TFTeam:GetEntProp(ent, Prop_Send, "m_iTeamNum") == TFTeam_Red)
-			beamColor = {255, 75, 75, 255};
-		else
-			beamColor = {75, 75, 255, 255};
-
-		float colorScale = AmplifierFill[ent];
-		beamColor[0] = RoundFloat(float(beamColor[0]) * colorScale);
-		beamColor[1] = RoundFloat(float(beamColor[1]) * colorScale);
-		beamColor[2] = RoundFloat(float(beamColor[2]) * colorScale);
-		beamColor[3] = RoundFloat(float(beamColor[3]) * colorScale);
-
-			if (oldMetal > metalPerPlayer)
-		{
-			float clampedFill = AmplifierFill[ent];
-			EmitAmbientSound(AMPLIFIER_SOUND, Pos, ent, SNDLEVEL_CAR, SND_NOFLAGS, 0.6, RoundToCeil(SNDPITCH_NORMAL * clampedFill));
-		} else
-			EmitAmbientSound(AMPLIFIER_EMPTY_SOUND, Pos, ent, SNDLEVEL_CAR, SND_NOFLAGS, 0.5, SNDPITCH_NORMAL);
-
-		if (oldMetal > 0)
-		{
-			TE_SetupBeamRingPoint(Pos, 10.0, colorScale * (AmplifierDistance[ent]*0.8), g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, beamColor, 3, 0);
-			TE_SendToAll();
-		}
-		else
-		{
-			new emptyColor[4] = {75, 75, 75, 100};
-			TE_SetupBeamRingPoint(Pos, 10.0, 144.0, g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, emptyColor, 3, 0); // 144 is the final value at colorscale 0
-			TE_SendToAll();
-		}
-
-		if (metal > 0)
-		{
-			if (!strcmp(buildingClass, "obj_dispenser"))
-			{
-					if (GetEntProp(ent, Prop_Send, "m_iAmmoMetal") < metalMax - metal)
-						SetEntProp(ent, Prop_Send, "m_iAmmoMetal", GetEntProp(ent, Prop_Send, "m_iAmmoMetal") + metal);
-					else
-						SetEntProp(ent, Prop_Send, "m_iAmmoMetal", metalMax);
-				}
-				else if (!strcmp(buildingClass, "obj_sentrygun"))
-				{
-					if (GetEntProp(ent, Prop_Send, "m_iAmmoShells") < metalMax - metal)
-						SetEntProp(ent, Prop_Send, "m_iAmmoShells", GetEntProp(ent, Prop_Send, "m_iAmmoShells") + metal);
-					else
-						SetEntProp(ent, Prop_Send, "m_iAmmoShells", metalMax);
-				}
-			SetEntProp(ent, Prop_Send, "m_iUpgradeMetal", 0);
-			EmitAmbientSound(AMPLIFIER_FILL_SOUND, AmplifierPos);
-		}
-	}
 	return Plugin_Continue;
 }
 
