@@ -5,7 +5,9 @@
 #include <sdktools_sound>
 #include <textparse>
 #include <tf_custom_attributes>
+#undef REQUIRE_PLUGIN
 #include <points_store_api>
+#define REQUIRE_PLUGIN
 
 #define CONFIG_FILE "configs/saysounds.cfg"
 #define MAX_COMMAND_NAME 64

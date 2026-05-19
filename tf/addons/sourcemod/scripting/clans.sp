@@ -4,7 +4,9 @@
 #include <sourcemod>
 #include <morecolors>
 #include <tf2_stocks>
+#undef REQUIRE_PLUGIN
 #include <points_store_api>
+#define REQUIRE_PLUGIN
 #include <whaletracker_api>
 
 #define PLUGIN_NAME               "Clans"
@@ -293,6 +295,8 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("Clans_GetSameTeamClanMemberCount", Native_Clans_GetSameTeamClanMemberCount);
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
+    MarkNativeAsOptional("WhaleTracker_GetLastRecordedName");
+    MarkNativeAsOptional("WhaleTracker_ComputeWhalePoints");
     MarkNativeAsOptional("Tags_GetTag");
     MarkNativeAsOptional("Tags_SetSelectedTag");
     return APLRes_Success;
@@ -302,9 +306,14 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 native bool Tags_GetTag(int client, const char[] steamid64, char[] buffer, int maxlen);
 native bool Tags_SetSelectedTag(int client, const char[] tag);
 
+bool IsClanPointsStoreAvailable()
+{
+    return GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available;
+}
+
 bool ApplyClanBonusPoints(int client, int points)
 {
-    if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") != FeatureStatus_Available)
+    if (!IsClanPointsStoreAvailable())
     {
         return false;
     }
@@ -802,7 +811,8 @@ void ResolvePlayerDisplayName(const char[] steamid64, char[] buffer, int maxlen)
         return;
     }
 
-    if (WhaleTracker_GetLastRecordedName(steamid64, buffer, maxlen) && buffer[0] != '\0')
+    if (GetFeatureStatus(FeatureType_Native, "WhaleTracker_GetLastRecordedName") == FeatureStatus_Available
+        && WhaleTracker_GetLastRecordedName(steamid64, buffer, maxlen) && buffer[0] != '\0')
     {
         return;
     }
@@ -4596,9 +4606,17 @@ void ShowClanMainMenu(int client, int clanId, ClanRank rank, const char[] clanNa
 
         menu.SetTitle(title);
 
-        char createLabel[64];
-        FormatEx(createLabel, sizeof(createLabel), "Create clan (-%d points)", CLAN_CREATE_COST);
-        menu.AddItem("create", createLabel);
+        char createLabel[96];
+        if (IsClanPointsStoreAvailable())
+        {
+            FormatEx(createLabel, sizeof(createLabel), "Create clan (-%d points)", CLAN_CREATE_COST);
+            menu.AddItem("create", createLabel);
+        }
+        else
+        {
+            FormatEx(createLabel, sizeof(createLabel), "Create clan (points store unavailable)");
+            menu.AddItem("create_disabled", createLabel, ITEMDRAW_DISABLED);
+        }
         menu.AddItem("join", "Join open clan");
 
         if (inviteCount > 0)
@@ -6435,6 +6453,12 @@ public void SQL_OnClanPointsById(Database db, DBResultSet results, const char[] 
     char clanName[CLAN_NAME_MAXLEN + 1];
     results.FetchString(1, clanName, sizeof(clanName));
 
+    if (GetFeatureStatus(FeatureType_Native, "WhaleTracker_ComputeWhalePoints") != FeatureStatus_Available)
+    {
+        PrintToChat(client, "[Clans] WhaleTracker is not available for merged points.");
+        return;
+    }
+
     int points = WhaleTracker_ComputeWhalePoints(
         results.FetchInt(2),
         results.FetchInt(3),
@@ -6834,6 +6858,12 @@ public Action Command_ClanCreate(int client, int args)
     if (client <= 0)
     {
         ReplyToCommand(client, "[Clans] This command can only be used by players.");
+        return Plugin_Handled;
+    }
+
+    if (!IsClanPointsStoreAvailable())
+    {
+        PrintToChat(client, "[Clans] Clan creation requires the points store.");
         return Plugin_Handled;
     }
 

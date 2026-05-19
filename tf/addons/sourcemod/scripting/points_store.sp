@@ -3,7 +3,9 @@
 
 #include <sourcemod>
 #include <multicolors>
+#undef REQUIRE_PLUGIN
 #include <saysounds>
+#define REQUIRE_PLUGIN
 #include "include/dgm_api.inc"
 #include "include/plugin_statistics.inc"
 
