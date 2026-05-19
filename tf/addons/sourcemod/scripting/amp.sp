@@ -220,6 +220,11 @@ public OnMapStart()
 	PrecacheGeneric("particles/powerups.pcf", true);
 }
 
+public OnMapEnd()
+{
+	g_hAmplifierTimer = INVALID_HANDLE;
+}
+
 public OnClientPostAdminCheck(client)
 {
 	if (IsFakeClient(client)) return;
