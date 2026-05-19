@@ -32,6 +32,7 @@
 #define BEGGARS_BAZOOKA 730
 #define AMPLIFIER_HEALTH 150
 #define AMPLIFIER_MINI_HEALTH 100
+#define AMPLIFIER_MINI_MODIFIER 0.75
 
 // Sprites
 int g_BeamSprite;
@@ -592,6 +593,28 @@ float GetAmplifierWaveRadius(int ent, float colorScale)
 	return colorScale * (AmplifierDistance[ent] / (1.0 + radiusGap));
 }
 
+float GetEmptyAmplifierWaveRadius(int ent)
+{
+	float radius = 144.0;
+	if (ent > 0 && ent < ME && AmplifierMini[ent])
+		radius *= AMPLIFIER_MINI_MODIFIER;
+
+	return radius;
+}
+
+float GetAmplifierEffectLength(int ent)
+{
+	float effectLength = GetConVarFloat(cvarEffectLength);
+	if (ent > 0 && ent < ME && AmplifierMini[ent])
+	{
+		effectLength = float(RoundToFloor(effectLength * AMPLIFIER_MINI_MODIFIER));
+		if (effectLength < 1.0)
+			effectLength = 1.0;
+	}
+
+	return effectLength;
+}
+
 void ClearAmplifierConditionForClient(int client, int maxEntities)
 {
 	for (int ent = 1; ent < maxEntities; ent++)
@@ -679,7 +702,7 @@ bool TryApplyAmplifierToClient(int client, int amp, int metalPerPlayer, int meta
 
 	if (clientTeam == team)
 	{
-		if (!AddAmplifierEffect(client))
+		if (!AddAmplifierEffect(client, amp))
 			return false;
 
 		if (!ConditionApplied[amp][client])
@@ -784,7 +807,7 @@ void PulseAmplifierBuilding(int ent, int metalPerPlayer, int metalMax)
 	else
 	{
 		new emptyColor[4] = {75, 75, 75, 100};
-		TE_SetupBeamRingPoint(pos, 10.0, 144.0, g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, emptyColor, 3, 0); // 144 is the final value at colorscale 0
+		TE_SetupBeamRingPoint(pos, 10.0, GetEmptyAmplifierWaveRadius(ent), g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, emptyColor, 3, 0); // 144 is the final non-mini value at colorscale 0.
 		TE_SendToAll();
 	}
 
@@ -938,6 +961,11 @@ CheckBuilding(ent)
 			AmplifierCondition[ent] = DefaultCondition;
 		}
 
+		if (AmplifierMini[ent])
+		{
+			AmplifierDistance[ent] *= AMPLIFIER_MINI_MODIFIER;
+		}
+
 		new String:s[128];
 		Format(s, 128, "%s.mdl", AmplifierModel);
 		SetEntityModel(ent, s);
@@ -1054,14 +1082,14 @@ public Action:SapperCheckStage2(Handle:hTimer, any:ref)
 	return Plugin_Continue;
 }
 
-stock bool AddAmplifierEffect(int client)
+stock bool AddAmplifierEffect(int client, int amp)
 {
     if (client < 1 || client > MaxClients || !IsClientInGame(client))
         return false;
 
     StopAmplifierEffect(client, false);
 
-	float effectLength = GetConVarFloat(cvarEffectLength);
+	float effectLength = GetAmplifierEffectLength(amp);
 	TF2ConchNoSpeed_AddRegenBuff(client, effectLength, client);
     // Apply to first 3 slots
     for (int slot = 0; slot < 3; slot++)
