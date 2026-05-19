@@ -7,6 +7,7 @@
 #undef REQUIRE_PLUGIN
 #include <clans_api>
 #include <whaletracker_api>
+#include <points_store_api>
 #define REQUIRE_PLUGIN
 #include "include/dgm_api.inc"
 #include "include/plugin_statistics.inc"
@@ -86,6 +87,7 @@ bool g_bSuppressSwapRespawn = false;
 #define FRAG_BALANCE_ENTRY_CLIENT0  1
 #define FRAG_BALANCE_ENTRY_CELLS  (FRAG_BALANCE_ENTRY_CLIENT0 + MAX_SWAP_BUFFER)
 #define SCRAMBLE_PLAYER_PERCENT_DIVISOR  5
+#define POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM "scramImmunity24h"
 public Plugin myinfo =
 {
     name = "whalescramble",
@@ -101,6 +103,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
+    MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
     MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_NormalizeMapName");
@@ -1217,6 +1220,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
         int team = GetClientTeam(i);
         if (team != TEAM_RED && team != TEAM_BLU) continue;
 
+        if (HasScramblePurchaseImmunity(i)) continue;
         if (!ignoreImmunity && IsScrambleImmune(i)) continue;
 
         if (team == TEAM_RED) redEligible++;
@@ -1258,6 +1262,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
 
             int team = GetClientTeam(i);
             if (team != TEAM_RED && team != TEAM_BLU) continue;
+            if (HasScramblePurchaseImmunity(i)) continue;
             if (!ignoreImmunity && IsScrambleImmune(i)) continue;
 
             if (team == TEAM_RED) redEligible++;
@@ -1364,6 +1369,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
         int team = GetClientTeam(i);
         if (team != TEAM_RED && team != TEAM_BLU) continue;
 
+        if (HasScramblePurchaseImmunity(i)) continue;
         if (!ignoreImmunity && IsScrambleImmune(i)) continue;
         if (!IsSimpleScrambleEligibleClass(i, forced)) continue;
 
@@ -1404,6 +1410,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
 
             int team = GetClientTeam(i);
             if (team != TEAM_RED && team != TEAM_BLU) continue;
+            if (HasScramblePurchaseImmunity(i)) continue;
             if (!ignoreImmunity && IsScrambleImmune(i)) continue;
 
             if (team == TEAM_RED)
@@ -1540,6 +1547,8 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
             bluFragTotal += frags;
         }
 
+        if (HasScramblePurchaseImmunity(i))
+            continue;
         if (!ignoreImmunity && IsScrambleImmune(i))
             continue;
         if (!IsSimpleScrambleEligibleClass(i, forced))
@@ -1595,6 +1604,8 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
 
             int team = GetClientTeam(i);
             if (team != TEAM_RED && team != TEAM_BLU)
+                continue;
+            if (HasScramblePurchaseImmunity(i))
                 continue;
             if (!ignoreImmunity && IsScrambleImmune(i))
                 continue;
@@ -1945,6 +1956,11 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         if (r <= 0 || b <= 0) continue;
         if (!IsClientInGame(r) || !IsClientInGame(b)) continue;
         if (GetClientTeam(r) != TEAM_RED || GetClientTeam(b) != TEAM_BLU) continue;
+        if (HasScramblePurchaseImmunity(r) || HasScramblePurchaseImmunity(b))
+        {
+            LogWhale("Skipping scramble pair due to paid immunity: red=%N blu=%N.", r, b);
+            continue;
+        }
 
         if (pairCount < MAX_SWAP_BUFFER)
         {
@@ -2160,6 +2176,11 @@ static bool IsScrambleImmune(int client)
         return true;
     }
 
+    if (HasScramblePurchaseImmunity(client))
+    {
+        return true;
+    }
+
     if (HasClanTeammateProtection(client))
     {
         return true;
@@ -2173,6 +2194,21 @@ static bool IsScrambleImmune(int client)
 
     int dummy = 0;
     return g_hScrambleImmunity.GetValue(steamId, dummy);
+}
+
+static bool HasScramblePurchaseImmunity(int client)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return false;
+    }
+
+    if (GetFeatureStatus(FeatureType_Native, "PointsStore_HasPurchase") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    return PointsStore_HasPurchase(client, POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM);
 }
 
 static bool IsClientCurrentRoundMvpSafe(int client)

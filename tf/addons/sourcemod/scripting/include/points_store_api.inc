@@ -67,6 +67,17 @@ native bool PointsStore_HasPurchase(int client, const char[] itemKey);
  */
 native int PointsStore_GetPurchasePrice(int client, const char[] itemKey);
 
+/**
+ * Returns when a configured shop item expires for a client.
+ *
+ * This native only checks the in-memory client cache.
+ *
+ * @param client        Client index.
+ * @param itemKey       Stable item database key.
+ * @return              Unix expiry timestamp, 0 for permanent, or -1 if not owned.
+ */
+native int PointsStore_GetPurchaseExpiresAt(int client, const char[] itemKey);
+
 public SharedPlugin __pl_points_store =
 {
     name = "points_store",
@@ -82,4 +93,5 @@ public void __pl_points_store_SetNTVOptional()
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("PointsStore_GetPurchasePrice");
+    MarkNativeAsOptional("PointsStore_GetPurchaseExpiresAt");
 }

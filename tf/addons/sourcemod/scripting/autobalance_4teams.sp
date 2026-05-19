@@ -8,6 +8,7 @@
 #undef REQUIRE_PLUGIN
 #include <clans_api>
 #include <whaletracker_api>
+#include <points_store_api>
 #define REQUIRE_PLUGIN
 #include "include/dgm_api.inc"
 #include "include/plugin_statistics.inc"
@@ -21,6 +22,7 @@ native int FilterAlerts_MarkAutobalance(int client);
 #define TEAM_YELLOW         5
 #define GAME_TEAM_COUNT     4
 #define MEDIC_AUTOBALANCE_UBER_FLOOR 0.05
+#define POINTS_STORE_AB_IMMUNITY_ITEM "abImmunity24h"
 
 StringMap g_hMapImmunity = null;            // SteamID64 set for map-long immunity.
 StringMap g_hPersistentImmunity = null;     // SteamID64 set for persistent admin immunity.
@@ -54,6 +56,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("FilterAlerts_MarkAutobalance");
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
+    MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
     MarkNativeAsOptional("DGM_GetObjectiveLeaderTeam");
     MarkNativeAsOptional("DGM_GetGameModeKey");
@@ -501,6 +504,7 @@ static bool IsBasicBalanceCandidate(int client, int team)
     if (client <= 0 || client > MaxClients) return false;
     if (!IsClientInGame(client) || IsFakeClient(client)) return false;
     if (GetClientTeam(client) != team) return false;
+    if (HasAutobalancePurchaseImmunity(client)) return false;
     if (ClientHasDecapitationHeads(client)) return false;
 
     return true;
@@ -667,7 +671,22 @@ static int SelectVolunteerPlayer(int team, int &nonMedicCount, int &medicCount, 
 
 static bool IsClientImmune(int client)
 {
-    return IsClientMapImmune(client) || IsClientPersistentlyImmune(client);
+    return IsClientMapImmune(client) || IsClientPersistentlyImmune(client) || HasAutobalancePurchaseImmunity(client);
+}
+
+static bool HasAutobalancePurchaseImmunity(int client)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return false;
+    }
+
+    if (GetFeatureStatus(FeatureType_Native, "PointsStore_HasPurchase") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    return PointsStore_HasPurchase(client, POINTS_STORE_AB_IMMUNITY_ITEM);
 }
 
 static bool IsClientPersistentlyImmune(int client)
