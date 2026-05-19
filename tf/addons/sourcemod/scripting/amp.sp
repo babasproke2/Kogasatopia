@@ -137,7 +137,7 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 public OnPluginStart()
 {
 	CreateConVar("amplifier_version", PLUGIN_VERSION, "The Amplifier Version", FCVAR_REPLICATED|FCVAR_NOTIFY);
-	cvarEffectLength = CreateConVar("amplifier_effect_length", "5.0", "Length in seconds for the Amplifier condition to last", FCVAR_PLUGIN);
+	cvarEffectLength = CreateConVar("amplifier_effect_length", "3.0", "Length in seconds for the Amplifier condition to last", FCVAR_PLUGIN);
 	cvarDistance = CreateConVar("amplifier_distance", "400.0", "Distance the amplifier works.", FCVAR_PLUGIN);
 	cvarWaveRadiusGap = CreateConVar("amplifier_wave_radius_gap", "0.10", "How much larger the effect radius is than the visible wave radius. 0.10 means the effect reaches 10% past the wave.", FCVAR_PLUGIN, true, 0.0, true, 1.0);
 	cvarMetalMax = CreateConVar("amplifier_max", "200.0", "Maximum amount of metal an amplifier can hold.", FCVAR_PLUGIN);
@@ -381,7 +381,7 @@ public Action:HelpPanel(client, Args)
 	new Handle:panel = CreatePanel();
 
 	SetPanelTitle(panel, "=== Amplifier Info ===");
-	DrawPanelText(panel, "Amplifiers consume metal to provide a combat buff to nearby teammates for 5 seconds");
+	DrawPanelText(panel, "Amplifiers consume metal to provide a short combat buff to nearby teammates");
 	DrawPanelText(panel, "It applies the Concheror effect and a 25% bonus to reload speed.");
 	DrawPanelText(panel, "Hit with wrench to refill");
 	DrawPanelText(panel, "=== Jump/Speed Pad Info ===");
