@@ -10,6 +10,7 @@
 #include <tf_custom_attributes>
 #include <clientprefs>
 #include <tf2attributes>
+#include <conch_no_speed>
 #include "include/dgm_api.inc"
 
 #define MP 34
@@ -1049,7 +1050,7 @@ stock void AddAmplifierEffect(int client)
     StopAmplifierEffect(client, false);
 
 	float effectLength = GetConVarFloat(cvarEffectLength);
-	TF2_AddCondition(client, TFCond_RegenBuffed, effectLength);
+	TF2ConchNoSpeed_AddRegenBuff(client, effectLength, client);
     // Apply to first 3 slots
     for (int slot = 0; slot < 3; slot++)
     {
@@ -1075,6 +1076,8 @@ void RemoveAmplifierWeaponEffects(int client)
 {
 	if (client < 1 || client > MaxClients || !IsClientInGame(client))
 		return;
+
+	TF2ConchNoSpeed_RemoveRegenBuff(client);
 
 	for (int slot = 0; slot < 3; slot++)
 	{
