@@ -21,6 +21,7 @@
 #define ACC_THRESH_NEAR		  32.0
 #define ACC_THRESH_FAR		  12.0
 #define ACC_STREAK_TARGET	   2
+#define ACC_STREAK_WINDOW	   4.0
 #define SHOTGUN_MEATSHOT_PELLETS 10
 #define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
 
@@ -71,6 +72,7 @@ enum struct tf2_player
 	float lastUber;
 	int engiMetal;
 	int accuracyStreak;
+	float accuracyStreakExpiresAt;
 	float secondaryDamageProgress;
 	Handle sprokeTimer;
 	int sprokePrimaryRef;
@@ -146,6 +148,7 @@ stock void ResetClientArrays(int client)
 	tf2_players[client].lastUber = 0.0;
 	tf2_players[client].engiMetal = 0;
 	tf2_players[client].accuracyStreak = 0;
+	tf2_players[client].accuracyStreakExpiresAt = 0.0;
 	tf2_players[client].secondaryDamageProgress = 0.0;
 	tf2_players[client].jump_status = TF2_JUMP_NONE;
 	tf2_players[client].holdingJump = false;
@@ -515,17 +518,6 @@ public Action Accuracy_Timer_RemoveEntity(Handle timer, int ref)
 	return Plugin_Stop;
 }
 
-public Action Accuracy_Timer_RemoveChargeCount(Handle timer, int client)
-{
-	if (!Accuracy_IsValidClient(client))
-		return Plugin_Stop;
-
-	if (tf2_players[client].accuracyStreak > 0)
-		tf2_players[client].accuracyStreak -= 1;
-
-	return Plugin_Stop;
-}
-
 static void Accuracy_OnMeatshot(int attacker, int victim, int weapon = -1)
 {
 	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
@@ -553,8 +545,14 @@ static void Accuracy_OnMeatshot(int attacker, int victim, int weapon = -1)
 	float eye[3];
 	GetClientEyePosition(attacker, eye);
 
+	float now = GetGameTime();
+	if (tf2_players[victim].accuracyStreakExpiresAt <= now)
+	{
+		tf2_players[victim].accuracyStreak = 0;
+	}
+
 	tf2_players[victim].accuracyStreak++;
-	CreateTimer(4.0, Accuracy_Timer_RemoveChargeCount, victim, TIMER_FLAG_NO_MAPCHANGE);
+	tf2_players[victim].accuracyStreakExpiresAt = now + ACC_STREAK_WINDOW;
 	if (tf2_players[victim].accuracyStreak >= ACC_STREAK_TARGET)
 	{
 		float boomPos[3];
@@ -569,6 +567,7 @@ static void Accuracy_OnMeatshot(int attacker, int victim, int weapon = -1)
 		EmitAmbientSound(ACC_NOTIFY_2, eye, attacker, SNDLEVEL_NORMAL);
 
 		tf2_players[victim].accuracyStreak = 0;
+		tf2_players[victim].accuracyStreakExpiresAt = 0.0;
 	}
 	else
 	{
@@ -783,6 +782,8 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	Sproke_ClearEffect(client, false, true);
 	tf2_players[client].healCount = 0;
 	tf2_players[client].shockCharge = 30;
+	tf2_players[client].accuracyStreak = 0;
+	tf2_players[client].accuracyStreakExpiresAt = 0.0;
 
 	if (GetEntProp(GetPlayerWeaponSlot(client, 2), Prop_Send, "m_iItemDefinitionIndex") == 173)
 		tf2_players[client].lastUber = GetEntPropFloat(GetPlayerWeaponSlot(client, 1), Prop_Send, "m_flChargeLevel");
