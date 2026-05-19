@@ -140,7 +140,7 @@ static const char g_EngineerCustom[][] = {
 
 static const char g_MedicReverts[][] = {
     "\x01Syringe guns:{green} +1.25% uber on hit, reload on holster\n",
-    "\x01The Vita-Saw:{chartreuse} Retain up to 20% uber after death regardless of organs, wall climbing\n",
+    "\x01The Vita-Saw:{chartreuse} Retain up to 20% uber after death regardless of organs\n",
     "\x01The Vaccinator:{red}} +20% damage taken while held\n"
 };
 
