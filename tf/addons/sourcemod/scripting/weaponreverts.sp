@@ -59,6 +59,8 @@
 #define LUNCHBOX_CHOCOLATE_BAR 1
 #define LUNCHBOX_FISHCAKE 7
 #define DALOKOHS_OVERHEAL 450
+#define VITASAW_ITEMDEF 173
+#define VITASAW_MAX_PRESERVED_CHARGE 0.20
 
 tf2_player tf2_players[MAXPLAYERS + 1];
 
@@ -69,6 +71,7 @@ enum struct tf2_player
 	int shockCharge;
 	int healCount;
 	float lastUber;
+	int lastUberMedigunDefIndex;
 	int engiMetal;
 	int accuracyStreak;
 	float accuracyStreakExpiresAt;
@@ -125,6 +128,7 @@ stock void ResetClientArrays(int client)
 	tf2_players[client].shockCharge = 30;
 	tf2_players[client].healCount = 0;
 	tf2_players[client].lastUber = 0.0;
+	tf2_players[client].lastUberMedigunDefIndex = 0;
 	tf2_players[client].engiMetal = 0;
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
@@ -343,6 +347,8 @@ public void OnGameFrame()
 		{
 			if (IsClientInGame(client) && IsPlayerAlive(client))
 			{
+				VitaSaw_CacheCharge(client);
+
 				if (TF2_IsPlayerInCondition(client, TFCond_Bonked)) {
 					tf2_players[client].bonkFrame = GetGameTickCount();
 				}
@@ -356,9 +362,94 @@ static bool Accuracy_IsValidClient(int client)
 	return (client > 0 && client <= MaxClients && IsClientInGame(client));
 }
 
+static bool IsValidWeaponEntity(int weapon)
+{
+	return (weapon > MaxClients && IsValidEntity(weapon));
+}
+
+static void VitaSaw_ClearStoredCharge(int client)
+{
+	if (client <= 0 || client > MaxClients)
+		return;
+
+	tf2_players[client].lastUber = 0.0;
+	tf2_players[client].lastUberMedigunDefIndex = 0;
+}
+
+static bool VitaSaw_IsEquipped(int client)
+{
+	int melee = GetPlayerWeaponSlot(client, TFWeaponSlot_Melee);
+	return IsValidWeaponEntity(melee) && GetEntProp(melee, Prop_Send, "m_iItemDefinitionIndex") == VITASAW_ITEMDEF;
+}
+
+static bool VitaSaw_GetMedigun(int client, int &medigun)
+{
+	medigun = GetPlayerWeaponSlot(client, TFWeaponSlot_Secondary);
+	return IsValidWeaponEntity(medigun);
+}
+
+static void VitaSaw_CacheCharge(int client, bool requireAlive = true)
+{
+	if (!Accuracy_IsValidClient(client) || TF2_GetPlayerClass(client) != TFClass_Medic)
+	{
+		VitaSaw_ClearStoredCharge(client);
+		return;
+	}
+
+	if (requireAlive && !IsPlayerAlive(client))
+		return;
+
+	int medigun;
+	if (!VitaSaw_IsEquipped(client) || !VitaSaw_GetMedigun(client, medigun))
+	{
+		if (requireAlive)
+		{
+			VitaSaw_ClearStoredCharge(client);
+		}
+		return;
+	}
+
+	tf2_players[client].lastUber = GetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel");
+	tf2_players[client].lastUberMedigunDefIndex = GetEntProp(medigun, Prop_Send, "m_iItemDefinitionIndex");
+}
+
+static void VitaSaw_ApplyStoredCharge(int client)
+{
+	if (!Accuracy_IsValidClient(client) || !IsPlayerAlive(client) || TF2_GetPlayerClass(client) != TFClass_Medic)
+		return;
+
+	int medigun;
+	if (!VitaSaw_IsEquipped(client) || !VitaSaw_GetMedigun(client, medigun))
+		return;
+
+	int storedDefIndex = tf2_players[client].lastUberMedigunDefIndex;
+	if (storedDefIndex <= 0)
+		return;
+
+	if (GetEntProp(medigun, Prop_Send, "m_iItemDefinitionIndex") != storedDefIndex)
+	{
+		VitaSaw_ClearStoredCharge(client);
+		return;
+	}
+
+	float preservedCharge = tf2_players[client].lastUber;
+	if (preservedCharge > VITASAW_MAX_PRESERVED_CHARGE)
+	{
+		preservedCharge = VITASAW_MAX_PRESERVED_CHARGE;
+	}
+
+	float currentCharge = GetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel");
+	if (preservedCharge > currentCharge)
+	{
+		SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", preservedCharge);
+	}
+
+	VitaSaw_ClearStoredCharge(client);
+}
+
 static bool Accuracy_IsValidShotgun(int weapon)
 {
-	return (weapon > MaxClients && IsValidEntity(weapon) && TF2CustAttr_GetInt(weapon, "flame shotgun attributes") != 0);
+	return (IsValidWeaponEntity(weapon) && TF2CustAttr_GetInt(weapon, "flame shotgun attributes") != 0);
 }
 
 static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float &damage, int &damagetype)
@@ -722,6 +813,8 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 {
 	int userId = event.GetInt("userid");
 	int client = GetClientOfUserId(userId);
+	if (client <= 0 || !IsClientInGame(client))
+		return Plugin_Continue;
 
 	Sproke_ClearEffect(client, false, true);
 	tf2_players[client].healCount = 0;
@@ -729,8 +822,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
 
-	if (GetEntProp(GetPlayerWeaponSlot(client, 2), Prop_Send, "m_iItemDefinitionIndex") == 173)
-		tf2_players[client].lastUber = GetEntPropFloat(GetPlayerWeaponSlot(client, 1), Prop_Send, "m_flChargeLevel");
+	VitaSaw_CacheCharge(client, false);
 
 	int attackerId = event.GetInt("attacker");
 	int attacker = GetClientOfUserId(attackerId);
@@ -791,6 +883,10 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 {
 	int userId = event.GetInt("userid");
 	int client = GetClientOfUserId(userId);
+	if (client <= 0 || !IsClientInGame(client))
+		return Plugin_Continue;
+
+	VitaSaw_ApplyStoredCharge(client);
 
 	if (tf2_players[client].shockCharge != 30)
 	{
@@ -820,30 +916,7 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
 
-	int medigun = GetPlayerWeaponSlot(client, 1);
-	int melee = GetPlayerWeaponSlot(client, 2);
-
-	// Validate weapon entities before using them
-	if (medigun == -1 || melee == -1)
-		return Plugin_Continue;
-
-	// Check if melee weapon index is 173
-	if (GetEntProp(melee, Prop_Send, "m_iItemDefinitionIndex") == 173)
-	{
-		float charge = GetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel");
-
-		if (charge < 0.2)
-		{
-			if (tf2_players[client].lastUber > 0.2)
-			{
-				tf2_players[client].lastUber = 0.2;
-			}
-
-			SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", tf2_players[client].lastUber);
-			tf2_players[client].lastUber = 0.0;
-			return Plugin_Changed;
-		}
-	}
+	VitaSaw_ApplyStoredCharge(client);
 
 	return Plugin_Continue;
 }
