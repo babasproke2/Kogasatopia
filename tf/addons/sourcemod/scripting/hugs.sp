@@ -507,12 +507,14 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 			return Plugin_Handled;
 		}
 
-		char query[512];
+		char query[1024];
 		Format(query, sizeof(query),
 			"SELECT h.name, h.rapes_given, h.rapes_received, h.hugs_given, h.hugs_received, h.steamid, "
-			... "(SELECT personaname FROM whaletracker WHERE steamid = "
-			... "CAST(76561197960265728 + (SUBSTRING_INDEX(h.steamid, ':', -1) * 2) + SUBSTRING_INDEX(SUBSTRING_INDEX(h.steamid, ':', 2), ':', -1) AS CHAR) "
-			... "AND personaname != '' LIMIT 1) AS wt_name "
+			... "(SELECT COALESCE(NULLIF(pc.prename, ''), NULLIF(pc.name, ''), NULLIF(w.cached_personaname, '')) "
+			... "FROM whaletracker w "
+			... "LEFT JOIN whaletracker_points_cache pc ON pc.steamid = w.steamid "
+			... "WHERE w.steamid = CAST(76561197960265728 + (SUBSTRING_INDEX(h.steamid, ':', -1) * 2) + SUBSTRING_INDEX(SUBSTRING_INDEX(h.steamid, ':', 2), ':', -1) AS CHAR) "
+			... "LIMIT 1) AS wt_name "
 			... "FROM %s h ORDER BY h.rapes_given DESC LIMIT 10",
 			HUGS_DB_TABLE);
 		SQL_TQuery(g_hDatabase, SQL_OnLeaderboardLoaded, query, GetClientUserId(client));
