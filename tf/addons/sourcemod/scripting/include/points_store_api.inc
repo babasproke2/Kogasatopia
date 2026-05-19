@@ -71,14 +71,9 @@ public SharedPlugin __pl_points_store =
 {
     name = "points_store",
     file = "points_store.smx",
-#if defined REQUIRE_PLUGIN
-    required = 1,
-#else
     required = 0,
-#endif
 };
 
-#if !defined REQUIRE_PLUGIN
 public void __pl_points_store_SetNTVOptional()
 {
     MarkNativeAsOptional("PointsStore_AreBonusPointsLoaded");
@@ -88,4 +83,3 @@ public void __pl_points_store_SetNTVOptional()
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("PointsStore_GetPurchasePrice");
 }
-#endif

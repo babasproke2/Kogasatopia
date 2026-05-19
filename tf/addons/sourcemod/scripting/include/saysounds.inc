@@ -84,14 +84,9 @@ public SharedPlugin __pl_saysounds =
 {
     name = "saysounds",
     file = "saysounds.smx",
-#if defined REQUIRE_PLUGIN
-    required = 1,
-#else
     required = 0,
-#endif
 };
 
-#if !defined REQUIRE_PLUGIN
 public void __pl_saysounds_SetNTVOptional()
 {
     MarkNativeAsOptional("SaySounds_ShouldPlay");
@@ -102,4 +97,3 @@ public void __pl_saysounds_SetNTVOptional()
     MarkNativeAsOptional("SaySounds_IsCommandPaid");
     MarkNativeAsOptional("SaySounds_GetCommandGroup");
 }
-#endif
