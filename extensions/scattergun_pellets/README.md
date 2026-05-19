@@ -1,8 +1,8 @@
 # Scattergun Pellets
 
-SourceMod native extension for stock Linux TF2 servers. It counts how many scattergun pellets hit the victim on the killing shot, exposes that result to SourcePawn, and also forwards Pyro shotgun pellet hits from `tf_weapon_shotgun_pyro`.
+SourceMod native extension for stock Linux TF2 servers. It counts deduplicated pellets from `tf_weapon_scattergun` and weapon classes containing `tf_weapon_shotgun`, then exposes completed shot events to SourcePawn.
 
-This package also includes the current `weaponreverts.sp` integration. The integration awards the `meatshot_kill` bonus through `PointsStore_ApplyBonusPoints` when the extension reports a full pellet kill.
+This package also includes the current `weaponreverts.sp` integration. The integration awards the `meatshot_kill` bonus through `PointsStore_ApplyBonusPoints` when the extension reports a full pellet kill, and uses full non-kill shotgun hits for the flame shotgun custom attribute.
 
 ## Repository Layout
 
@@ -60,8 +60,7 @@ SourceMod strips the Linux `.so` suffix when resolving the extension key.
 ## SourcePawn API
 
 ```sourcepawn
-forward void TF2Scatter_OnPelletKill(int attacker, int victim, int pellets, int total);
-forward void TF2Shotgun_OnPelletHit(int attacker, int victim, int weapon);
+forward void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int total, bool kill);
 native int TF2Scatter_GetLastKillPellets(int attacker, int victim);
 native bool TF2Scatter_WasLastKillFull(int attacker, int victim);
 ```
@@ -72,8 +71,7 @@ The full-pellet check is:
 pellets == total
 ```
 
-For stock scattergun kills, `total` is currently `10`.
-`TF2Shotgun_OnPelletHit` fires for deduplicated pellet traces from exact class `tf_weapon_shotgun_pyro`.
+For tracked scattergun and shotgun classes, `total` is currently `10`. `kill` is true when the shot produced the `player_death` event. Non-kill shots are emitted on the next game frame so the extension does not fire both a non-kill and kill event for the same shot.
 
 ## weaponreverts Integration
 
@@ -84,7 +82,7 @@ For stock scattergun kills, `total` is currently `10`.
 #include <points_store_api>
 ```
 
-When the extension fires `TF2Scatter_OnPelletKill`, the plugin checks for a full pellet kill and calls:
+When the extension fires `TF2Shotgun_OnPelletShot` with `kill=true`, the plugin checks for a full pellet kill and calls:
 
 ```sourcepawn
 PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "meatshot_kill");
@@ -145,6 +143,7 @@ build/scattergun_pellets.ext.2.tf2/linux-x86/scattergun_pellets.ext.2.tf2.so
 
 - Hooks `CTFPlayer::TraceAttack` on TF2 players.
 - Uses SourceMod gamedata for the `TraceAttack` virtual offset.
-- Counts scattergun damage from `tf_weapon_scattergun` and forwards pellet hits from exact class `tf_weapon_shotgun_pyro`.
+- Counts buckshot damage from `tf_weapon_scattergun` and any weapon class containing `tf_weapon_shotgun`.
+- Emits one SourcePawn forward per completed tracked shot instead of one forward per pellet.
 - Falls back to the attacker's active weapon when TF2 does not populate the damage-info weapon handle.
 - Deduplicates repeated `TraceAttack` callbacks for the same pellet trace so a 10/10 shot is reported as `pellets=10`, not `pellets=20`.

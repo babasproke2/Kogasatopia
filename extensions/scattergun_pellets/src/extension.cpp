@@ -9,7 +9,7 @@
 #include <shareddefs.h>
 #include <takedamageinfo.h>
 
-static constexpr int kScattergunPelletsPerShot = 10;
+static constexpr int kPelletsPerShot = 10;
 static constexpr int kPelletKillTickWindow = 8;
 ScattergunPellets g_ScattergunPellets;
 SMEXT_LINK(&g_ScattergunPellets);
@@ -17,6 +17,11 @@ SMEXT_LINK(&g_ScattergunPellets);
 CGlobalVars *gpGlobals = nullptr;
 
 SH_DECL_MANUALHOOK4_void(TraceAttack, 0, 0, 0, const CTakeDamageInfo &, const Vector &, CGameTrace *, CDmgAccumulator *);
+
+static void ScattergunPellets_GameFrameHook(bool simulating)
+{
+	g_ScattergunPellets.OnGameFrame(simulating);
+}
 
 class CTakeDamageInfoPelletView : public CTakeDamageInfo
 {
@@ -74,10 +79,9 @@ bool ScattergunPellets::SDK_OnLoad(char *error, size_t maxlen, bool late)
 	sharesys->RegisterLibrary(myself, "scattergun_pellets");
 
 	playerhelpers->AddClientListener(this);
-	m_pelletKillForward = forwards->CreateForward("TF2Scatter_OnPelletKill",
-		ET_Ignore, 4, nullptr, Param_Cell, Param_Cell, Param_Cell, Param_Cell);
-	m_shotgunPelletHitForward = forwards->CreateForward("TF2Shotgun_OnPelletHit",
-		ET_Ignore, 3, nullptr, Param_Cell, Param_Cell, Param_Cell);
+	m_pelletShotForward = forwards->CreateForward("TF2Shotgun_OnPelletShot",
+		ET_Ignore, 5, nullptr, Param_Cell, Param_Cell, Param_Cell, Param_Cell, Param_Cell);
+	g_pSM->AddGameFrameHook(&ScattergunPellets_GameFrameHook);
 
 	ClearPelletState();
 
@@ -103,17 +107,12 @@ void ScattergunPellets::SDK_OnUnload()
 	}
 
 	playerhelpers->RemoveClientListener(this);
+	g_pSM->RemoveGameFrameHook(&ScattergunPellets_GameFrameHook);
 
-	if (m_pelletKillForward)
+	if (m_pelletShotForward)
 	{
-		forwards->ReleaseForward(m_pelletKillForward);
-		m_pelletKillForward = nullptr;
-	}
-
-	if (m_shotgunPelletHitForward)
-	{
-		forwards->ReleaseForward(m_shotgunPelletHitForward);
-		m_shotgunPelletHitForward = nullptr;
+		forwards->ReleaseForward(m_pelletShotForward);
+		m_pelletShotForward = nullptr;
 	}
 
 	if (m_gameConf)
@@ -243,15 +242,21 @@ bool ScattergunPellets::IsValidClientIndex(int client) const
 	return client >= 1 && client <= SM_MAXPLAYERS;
 }
 
-bool ScattergunPellets::IsWeaponClass(CBaseEntity *weapon, const char *classname) const
+bool ScattergunPellets::IsTrackedPelletWeapon(CBaseEntity *weapon) const
 {
-	if (!weapon || !classname)
+	if (!weapon)
 	{
 		return false;
 	}
 
 	const char *actualClassname = gamehelpers->GetEntityClassname(weapon);
-	return actualClassname && strcmp(actualClassname, classname) == 0;
+	if (!actualClassname)
+	{
+		return false;
+	}
+
+	return strcmp(actualClassname, "tf_weapon_scattergun") == 0
+		|| strstr(actualClassname, "tf_weapon_shotgun") != nullptr;
 }
 
 CBaseEntity *ScattergunPellets::GetActiveWeapon(int client) const
@@ -277,7 +282,7 @@ CBaseEntity *ScattergunPellets::GetActiveWeapon(int client) const
 	return weaponEdict->GetUnknown()->GetBaseEntity();
 }
 
-bool ScattergunPellets::IsDamageFromWeaponClass(const CTakeDamageInfo &info, int attacker, const char *classname, int &weaponIndex) const
+bool ScattergunPellets::IsTrackedPelletDamage(const CTakeDamageInfo &info, int attacker) const
 {
 	if ((info.GetDamageType() & DMG_BUCKSHOT) == 0)
 	{
@@ -285,32 +290,16 @@ bool ScattergunPellets::IsDamageFromWeaponClass(const CTakeDamageInfo &info, int
 	}
 
 	const CTakeDamageInfoPelletView &view = reinterpret_cast<const CTakeDamageInfoPelletView &>(info);
-	weaponIndex = view.GetWeaponIndex();
+	int weaponIndex = view.GetWeaponIndex();
 
 	CBaseEntity *weapon = gamehelpers->ReferenceToEntity(weaponIndex);
-	if (IsWeaponClass(weapon, classname))
+	if (IsTrackedPelletWeapon(weapon))
 	{
 		return true;
 	}
 
 	weapon = GetActiveWeapon(attacker);
-	if (!IsWeaponClass(weapon, classname))
-	{
-		return false;
-	}
-
-	weaponIndex = gamehelpers->EntityToBCompatRef(weapon);
-	return true;
-}
-
-bool ScattergunPellets::IsScattergunDamage(const CTakeDamageInfo &info, int attacker, int &weaponIndex) const
-{
-	return IsDamageFromWeaponClass(info, attacker, "tf_weapon_scattergun", weaponIndex);
-}
-
-bool ScattergunPellets::IsShotgunDamage(const CTakeDamageInfo &info, int attacker, int &weaponIndex) const
-{
-	return IsDamageFromWeaponClass(info, attacker, "tf_weapon_shotgun_pyro", weaponIndex);
+	return IsTrackedPelletWeapon(weapon);
 }
 
 void ScattergunPellets::Hook_TraceAttack(const CTakeDamageInfo &info, const Vector &vecDir, CGameTrace *trace, CDmgAccumulator *accumulator)
@@ -321,14 +310,7 @@ void ScattergunPellets::Hook_TraceAttack(const CTakeDamageInfo &info, const Vect
 	const CTakeDamageInfoPelletView &view = reinterpret_cast<const CTakeDamageInfoPelletView &>(info);
 	int attacker = view.GetAttackerIndex();
 
-	int weapon = -1;
-	bool isScattergunDamage = IsScattergunDamage(info, attacker, weapon);
-	bool isShotgunDamage = false;
-	if (!isScattergunDamage)
-	{
-		isShotgunDamage = IsShotgunDamage(info, attacker, weapon);
-	}
-	if (!isScattergunDamage && !isShotgunDamage)
+	if (!IsTrackedPelletDamage(info, attacker))
 	{
 		RETURN_META(MRES_IGNORED);
 	}
@@ -342,16 +324,6 @@ void ScattergunPellets::Hook_TraceAttack(const CTakeDamageInfo &info, const Vect
 	int victim = gamehelpers->EntityToBCompatRef(victimEntity);
 	if (!IsValidClientIndex(attacker) || !IsValidClientIndex(victim) || attacker == victim)
 	{
-		RETURN_META(MRES_IGNORED);
-	}
-
-	if (isShotgunDamage)
-	{
-		int tick = gpGlobals ? gpGlobals->tickcount : 0;
-		if (RememberPelletTrace(attacker, victim, trace, tick))
-		{
-			DispatchShotgunPelletHitForward(attacker, victim, weapon);
-		}
 		RETURN_META(MRES_IGNORED);
 	}
 
@@ -411,6 +383,32 @@ void ScattergunPellets::RecordPelletHit(int attacker, int victim, CGameTrace *tr
 	++m_pelletCount[attacker][victim];
 }
 
+void ScattergunPellets::OnGameFrame(bool simulating)
+{
+	if (!simulating)
+	{
+		return;
+	}
+
+	int tick = gpGlobals ? gpGlobals->tickcount : 0;
+	int maxClients = playerhelpers->GetMaxClients();
+	for (int attacker = 1; attacker <= maxClients; ++attacker)
+	{
+		for (int victim = 1; victim <= maxClients; ++victim)
+		{
+			int pelletTick = m_pelletTick[attacker][victim];
+			int pellets = m_pelletCount[attacker][victim];
+			if (pelletTick <= 0 || pellets <= 0 || tick <= pelletTick)
+			{
+				continue;
+			}
+
+			DispatchPelletShotForward(attacker, victim, pellets, false);
+			ClearPelletShot(attacker, victim);
+		}
+	}
+}
+
 void ScattergunPellets::FireGameEvent(IGameEvent *event)
 {
 	if (!event || strcmp(event->GetName(), "player_death") != 0)
@@ -441,36 +439,30 @@ void ScattergunPellets::FireGameEvent(IGameEvent *event)
 	m_lastKillTick[attacker][victim] = tick;
 	m_lastKillPellets[attacker][victim] = pellets;
 
-	DispatchPelletKillForward(attacker, victim, pellets);
+	DispatchPelletShotForward(attacker, victim, pellets, true);
 
+	ClearPelletShot(attacker, victim);
+}
+
+void ScattergunPellets::ClearPelletShot(int attacker, int victim)
+{
+	m_pelletTick[attacker][victim] = 0;
 	m_pelletCount[attacker][victim] = 0;
 }
 
-void ScattergunPellets::DispatchPelletKillForward(int attacker, int victim, int pellets)
+void ScattergunPellets::DispatchPelletShotForward(int attacker, int victim, int pellets, bool kill)
 {
-	if (!m_pelletKillForward)
+	if (!m_pelletShotForward)
 	{
 		return;
 	}
 
-	m_pelletKillForward->PushCell(attacker);
-	m_pelletKillForward->PushCell(victim);
-	m_pelletKillForward->PushCell(pellets);
-	m_pelletKillForward->PushCell(kScattergunPelletsPerShot);
-	m_pelletKillForward->Execute(nullptr);
-}
-
-void ScattergunPellets::DispatchShotgunPelletHitForward(int attacker, int victim, int weapon)
-{
-	if (!m_shotgunPelletHitForward)
-	{
-		return;
-	}
-
-	m_shotgunPelletHitForward->PushCell(attacker);
-	m_shotgunPelletHitForward->PushCell(victim);
-	m_shotgunPelletHitForward->PushCell(weapon);
-	m_shotgunPelletHitForward->Execute(nullptr);
+	m_pelletShotForward->PushCell(attacker);
+	m_pelletShotForward->PushCell(victim);
+	m_pelletShotForward->PushCell(pellets);
+	m_pelletShotForward->PushCell(kPelletsPerShot);
+	m_pelletShotForward->PushCell(kill ? 1 : 0);
+	m_pelletShotForward->Execute(nullptr);
 }
 
 int ScattergunPellets::GetLastKillPellets(int attacker, int victim) const
@@ -485,7 +477,7 @@ int ScattergunPellets::GetLastKillPellets(int attacker, int victim) const
 
 bool ScattergunPellets::WasLastKillFull(int attacker, int victim) const
 {
-	return GetLastKillPellets(attacker, victim) >= kScattergunPelletsPerShot;
+	return GetLastKillPellets(attacker, victim) >= kPelletsPerShot;
 }
 
 void ScattergunPellets::ClearPelletState()

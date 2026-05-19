@@ -4,31 +4,24 @@
 #define _scattergun_pellets_included
 
 /**
- * Called after a player_death caused by tf_weapon_scattergun.
- *
- * @param attacker  Client index of the killer.
- * @param victim    Client index of the killed player.
- * @param pellets   Number of scattergun pellets that hit this victim on the killing shot.
- * @param total     Full pellet count for the stock scattergun, currently 10.
- */
-forward void TF2Scatter_OnPelletKill(int attacker, int victim, int pellets, int total);
-
-/**
- * Called when a deduplicated pellet trace from exact class tf_weapon_shotgun_pyro hits a player.
+ * Called once for a completed buckshot hit from tf_weapon_scattergun or any
+ * weapon class containing tf_weapon_shotgun.
  *
  * @param attacker  Client index of the shooter.
- * @param victim    Client index of the player hit by the pellet.
- * @param weapon    Entity index of the tf_weapon_shotgun_pyro weapon.
+ * @param victim    Client index of the player hit or killed.
+ * @param pellets   Number of deduplicated pellets that hit this victim.
+ * @param total     Full pellet count for the tracked weapon family, currently 10.
+ * @param kill      True if this shot produced the player_death event.
  */
-forward void TF2Shotgun_OnPelletHit(int attacker, int victim, int weapon);
+forward void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int total, bool kill);
 
 /**
- * Returns the stored pellet count for the last scattergun kill from attacker to victim.
+ * Returns the stored pellet count for the last tracked buckshot kill from attacker to victim.
  */
 native int TF2Scatter_GetLastKillPellets(int attacker, int victim);
 
 /**
- * Returns true when the stored last scattergun kill from attacker to victim was 10/10.
+ * Returns true when the stored last tracked buckshot kill from attacker to victim was 10/10.
  */
 native bool TF2Scatter_WasLastKillFull(int attacker, int victim);
 

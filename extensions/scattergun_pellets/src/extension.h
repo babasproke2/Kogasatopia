@@ -20,6 +20,7 @@ public:
 	void OnClientPutInServer(int client) override;
 	void OnClientDisconnecting(int client) override;
 	void FireGameEvent(IGameEvent *event) override;
+	void OnGameFrame(bool simulating);
 
 	void Hook_TraceAttack(const CTakeDamageInfo &info, const Vector &vecDir, CGameTrace *trace, CDmgAccumulator *accumulator);
 
@@ -32,23 +33,20 @@ private:
 	void UnhookClient(int client);
 	void HookExistingClients();
 	bool IsValidClientIndex(int client) const;
-	bool IsDamageFromWeaponClass(const CTakeDamageInfo &info, int attacker, const char *classname, int &weapon) const;
-	bool IsScattergunDamage(const CTakeDamageInfo &info, int attacker, int &weapon) const;
-	bool IsShotgunDamage(const CTakeDamageInfo &info, int attacker, int &weapon) const;
-	bool IsWeaponClass(CBaseEntity *weapon, const char *classname) const;
+	bool IsTrackedPelletDamage(const CTakeDamageInfo &info, int attacker) const;
+	bool IsTrackedPelletWeapon(CBaseEntity *weapon) const;
 	CBaseEntity *GetActiveWeapon(int client) const;
 	bool IsDuplicatePelletTrace(int attacker, int victim, CGameTrace *trace, int tick) const;
 	bool RememberPelletTrace(int attacker, int victim, CGameTrace *trace, int tick);
 	void RecordPelletHit(int attacker, int victim, CGameTrace *trace);
+	void ClearPelletShot(int attacker, int victim);
 	void ClearPelletState();
-	void DispatchPelletKillForward(int attacker, int victim, int pellets);
-	void DispatchShotgunPelletHitForward(int attacker, int victim, int weapon);
+	void DispatchPelletShotForward(int attacker, int victim, int pellets, bool kill);
 
 private:
 	IGameEventManager2 *m_gameEvents = nullptr;
 	IGameConfig *m_gameConf = nullptr;
-	IForward *m_pelletKillForward = nullptr;
-	IForward *m_shotgunPelletHitForward = nullptr;
+	IForward *m_pelletShotForward = nullptr;
 	int m_activeWeaponOffset = -1;
 
 	int m_clientTraceHooks[SM_MAXPLAYERS + 1] = {};

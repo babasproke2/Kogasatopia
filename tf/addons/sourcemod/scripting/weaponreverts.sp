@@ -22,7 +22,6 @@
 #define ACC_THRESH_FAR		  12.0
 #define ACC_STREAK_TARGET	   2
 #define ACC_STREAK_WINDOW	   4.0
-#define SHOTGUN_MEATSHOT_PELLETS 10
 #define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
 
 #define ACC_EXPLODE_DAMAGE	 50.0
@@ -88,10 +87,6 @@ Handle g_SDKGetMaxClip1 = null;
 int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
 bool g_bAccuracyExploding[MAXPLAYERS + 1];
-int g_iShotgunPelletTick[MAXPLAYERS + 1][MAXPLAYERS + 1];
-int g_iShotgunPelletCount[MAXPLAYERS + 1][MAXPLAYERS + 1];
-int g_iShotgunPelletWeaponRef[MAXPLAYERS + 1][MAXPLAYERS + 1];
-bool g_bShotgunMeatshotHandled[MAXPLAYERS + 1][MAXPLAYERS + 1];
 
 #include <weaponreverts>
  
@@ -123,22 +118,6 @@ public Plugin myinfo =
 	url = "https://kogasa.tf"
 };
 
-static void ResetShotgunPelletState(int client)
-{
-	for (int other = 1; other <= MaxClients; other++)
-	{
-		g_iShotgunPelletTick[client][other] = 0;
-		g_iShotgunPelletCount[client][other] = 0;
-		g_iShotgunPelletWeaponRef[client][other] = INVALID_ENT_REFERENCE;
-		g_bShotgunMeatshotHandled[client][other] = false;
-
-		g_iShotgunPelletTick[other][client] = 0;
-		g_iShotgunPelletCount[other][client] = 0;
-		g_iShotgunPelletWeaponRef[other][client] = INVALID_ENT_REFERENCE;
-		g_bShotgunMeatshotHandled[other][client] = false;
-	}
-}
-
 stock void ResetClientArrays(int client)
 {
 	if (client <= 0 || client > MaxClients) return;
@@ -163,7 +142,6 @@ stock void ResetClientArrays(int client)
 	{
 		tf2_players[client].markVictims[i] = -1;
 	}
-	ResetShotgunPelletState(client);
 }
 
 public void OnPluginStart() {
@@ -171,7 +149,7 @@ public void OnPluginStart() {
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
 	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
-	g_hScattergunPelletsDebug = CreateConVar("reverts_scattergun_pellets_debug", "0", "Log scattergun pellet forward diagnostics.");
+	g_hScattergunPelletsDebug = CreateConVar("reverts_scattergun_pellets_debug", "0", "Log tracked shotgun/scattergun pellet forward diagnostics.");
 	RegAdminCmd("sm_scatterpellets_status", Command_ScatterPelletsStatus, ADMFLAG_GENERIC, "Print scattergun pellet integration status.");
 	if (GetConVarInt(g_sEnabled)) {
 		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
@@ -529,8 +507,18 @@ static void Accuracy_OnMeatshot(int attacker, int victim, int weapon = -1)
 	{
 		weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
 	}
-	if (!Accuracy_IsValidShotgun(weapon))
+	if (weapon <= MaxClients || !IsValidEntity(weapon))
+	{
+		ScatterPellets_Debug("meatshot ignored: no valid active weapon");
 		return;
+	}
+	if (!Accuracy_IsValidShotgun(weapon))
+	{
+		char classname[64];
+		GetEntityClassname(weapon, classname, sizeof(classname));
+		ScatterPellets_Debug("meatshot ignored: weapon lacks flame shotgun attributes weapon=%d class=%s", weapon, classname);
+		return;
+	}
 
 	int maxClip = GetWeaponMaxClip(weapon);
 	if (maxClip > 0)
@@ -610,14 +598,11 @@ static void ScatterPellets_GetFeatureStatusName(FeatureStatus status, char[] buf
 
 public Action Command_ScatterPelletsStatus(int client, int args)
 {
-	FeatureStatus pelletNative = GetFeatureStatus(FeatureType_Native, "TF2Scatter_GetLastKillPellets");
 	FeatureStatus pointsNative = GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints");
-	char pelletStatus[16];
 	char pointsStatus[16];
-	ScatterPellets_GetFeatureStatusName(pelletNative, pelletStatus, sizeof(pelletStatus));
 	ScatterPellets_GetFeatureStatusName(pointsNative, pointsStatus, sizeof(pointsStatus));
 
-	ReplyToCommand(client, "[WeaponReverts] scattergun_pellets native: %s", pelletStatus);
+	ReplyToCommand(client, "[WeaponReverts] scattergun_pellets extension: %s", LibraryExists("scattergun_pellets") ? "available" : "unavailable");
 	ReplyToCommand(client, "[WeaponReverts] points_store native: %s", pointsStatus);
 
 	if (Accuracy_IsValidClient(client))
@@ -635,9 +620,9 @@ public Action Command_ScatterPelletsStatus(int client, int args)
 	return Plugin_Handled;
 }
 
-public void TF2Scatter_OnPelletKill(int attacker, int victim, int pellets, int total)
+public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int total, bool kill)
 {
-	ScatterPellets_Debug("forward fired: attacker=%d victim=%d pellets=%d total=%d", attacker, victim, pellets, total);
+	ScatterPellets_Debug("pellet shot: attacker=%d victim=%d pellets=%d total=%d kill=%d", attacker, victim, pellets, total, kill ? 1 : 0);
 
 	if (!GetConVarBool(g_sEnabled))
 	{
@@ -645,7 +630,7 @@ public void TF2Scatter_OnPelletKill(int attacker, int victim, int pellets, int t
 		return;
 	}
 
-	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || IsFakeClient(attacker) || IsFakeClient(victim) || attacker == victim)
+	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
 	{
 		ScatterPellets_Debug("ignored: invalid attacker/victim");
 		return;
@@ -656,13 +641,24 @@ public void TF2Scatter_OnPelletKill(int attacker, int victim, int pellets, int t
 		return;
 	}
 
-	if (pellets != total)
+	if (total <= 0 || pellets < total)
 	{
-		ScatterPellets_Debug("ignored: not a full pellet kill");
+		ScatterPellets_Debug("ignored: not a full pellet shot");
 		return;
 	}
 
 	Accuracy_OnMeatshot(attacker, victim);
+
+	if (!kill)
+	{
+		return;
+	}
+
+	if (IsFakeClient(attacker) || IsFakeClient(victim))
+	{
+		ScatterPellets_Debug("points ignored: bots do not award meatshot currency");
+		return;
+	}
 
 	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 	{
@@ -672,58 +668,6 @@ public void TF2Scatter_OnPelletKill(int attacker, int victim, int pellets, int t
 	else
 	{
 		ScatterPellets_Debug("ignored: PointsStore_ApplyBonusPoints native unavailable");
-	}
-}
-
-public void TF2Shotgun_OnPelletHit(int attacker, int victim, int weapon)
-{
-	ScatterPellets_Debug("shotgun pellet hit: attacker=%d victim=%d weapon=%d", attacker, victim, weapon);
-
-	if (!GetConVarBool(g_sEnabled))
-	{
-		ScatterPellets_Debug("shotgun ignored: reverts_enabled is 0");
-		return;
-	}
-
-	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
-	{
-		ScatterPellets_Debug("shotgun ignored: invalid attacker/victim");
-		return;
-	}
-	if (g_bAccuracyExploding[attacker])
-	{
-		ScatterPellets_Debug("shotgun ignored: accuracy explosion in progress");
-		return;
-	}
-	if (!Accuracy_IsValidShotgun(weapon))
-	{
-		ScatterPellets_Debug("shotgun ignored: weapon lacks flame shotgun attributes");
-		return;
-	}
-
-	int tick = GetGameTickCount();
-	int weaponRef = EntIndexToEntRef(weapon);
-	if (g_iShotgunPelletTick[attacker][victim] != tick
-		|| g_iShotgunPelletWeaponRef[attacker][victim] != weaponRef)
-	{
-		g_iShotgunPelletTick[attacker][victim] = tick;
-		g_iShotgunPelletCount[attacker][victim] = 0;
-		g_iShotgunPelletWeaponRef[attacker][victim] = weaponRef;
-		g_bShotgunMeatshotHandled[attacker][victim] = false;
-	}
-
-	if (g_bShotgunMeatshotHandled[attacker][victim])
-	{
-		return;
-	}
-
-	g_iShotgunPelletCount[attacker][victim]++;
-	if (g_iShotgunPelletCount[attacker][victim] >= SHOTGUN_MEATSHOT_PELLETS)
-	{
-		g_bShotgunMeatshotHandled[attacker][victim] = true;
-		ScatterPellets_Debug("shotgun meatshot confirmed: attacker=%d victim=%d weapon=%d pellets=%d",
-			attacker, victim, weapon, g_iShotgunPelletCount[attacker][victim]);
-		Accuracy_OnMeatshot(attacker, victim, weapon);
 	}
 }
 
