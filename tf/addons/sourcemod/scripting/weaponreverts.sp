@@ -9,8 +9,12 @@
 #include <addplayerhealth>
 #include <sourcescramble>
 #include <dhooks>
+#undef REQUIRE_EXTENSIONS
 #include <scattergun_pellets>
+#define REQUIRE_EXTENSIONS
+#undef REQUIRE_PLUGIN
 #include <points_store_api>
+#define REQUIRE_PLUGIN
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
 #define ACC_MAX_DIST		768.0

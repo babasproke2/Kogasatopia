@@ -5,8 +5,10 @@
 #include <clientprefs>
 #include <morecolors>
 #include <tf2_stocks>
+#undef REQUIRE_PLUGIN
 #include <clans_api>
 #include <whaletracker_api>
+#define REQUIRE_PLUGIN
 #include "include/dgm_api.inc"
 #include "include/plugin_statistics.inc"
 

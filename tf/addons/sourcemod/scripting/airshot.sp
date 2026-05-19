@@ -6,8 +6,10 @@
 #include <tf2>
 #include <tf2_stocks>
 #include <morecolors>
+#undef REQUIRE_PLUGIN
 #include <saysounds>
 #include <points_store_api>
+#define REQUIRE_PLUGIN
 
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 

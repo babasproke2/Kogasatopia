@@ -4,7 +4,9 @@
 #include <sourcemod>
 #include <morecolors>
 #include <adt_array>
+#undef REQUIRE_PLUGIN
 #include <points_store_api>
+#define REQUIRE_PLUGIN
 
 // Configuration locations
 #define VOTEMENU_CONFIG      "configs/votemenu.cfg"
