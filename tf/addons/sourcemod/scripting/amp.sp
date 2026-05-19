@@ -101,12 +101,7 @@ static void ResetPlayerState(int client, bool resetPreferences = true)
     if (client <= 0 || client >= sizeof(g_PlayerState))
         return;
 
-    if (g_PlayerState[client].effectTimer != INVALID_HANDLE)
-    {
-        delete g_PlayerState[client].effectTimer;
-    }
-
-    g_PlayerState[client].effectTimer = INVALID_HANDLE;
+    StopAmplifierEffect(client, false);
 
     g_PlayerState[client].nearAmplifier = false;
     g_PlayerState[client].engiAssists = 0;
@@ -194,6 +189,11 @@ public OnPluginEnd()
 	{
 		delete fwdOnAmplify;
 		fwdOnAmplify = null;
+	}
+
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		StopAmplifierEffect(client);
 	}
 
 	ConvertAllAmplifiersToBuildings();
@@ -1046,12 +1046,7 @@ stock void AddAmplifierEffect(int client)
     if (client < 1 || client > MaxClients || !IsClientInGame(client))
         return;
 
-    // Kill existing timer
-    if (g_PlayerState[client].effectTimer != INVALID_HANDLE)
-    {
-        delete g_PlayerState[client].effectTimer;
-        g_PlayerState[client].effectTimer = INVALID_HANDLE;
-    }
+    StopAmplifierEffect(client, false);
 
 	float effectLength = GetConVarFloat(cvarEffectLength);
 	TF2_AddCondition(client, TFCond_RegenBuffed, effectLength);
@@ -1076,33 +1071,59 @@ stock void AddAmplifierEffect(int client)
     g_PlayerState[client].effectTimer = CreateTimer(effectLength, Timer_RemoveAmplifierEffect, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
 }
 
+void RemoveAmplifierWeaponEffects(int client)
+{
+	if (client < 1 || client > MaxClients || !IsClientInGame(client))
+		return;
+
+	for (int slot = 0; slot < 3; slot++)
+	{
+		int weapon = GetPlayerWeaponSlot(client, slot);
+		if (weapon <= MaxClients || !IsValidEntity(weapon))
+			continue;
+
+		int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
+		if (defIndex == BEGGARS_BAZOOKA)
+		{
+			//TF2Attrib_SetByName(weapon, ATTR_FIRE_RATE, 0.30);
+			TF2Attrib_SetByName(weapon, ATTR_RELOAD_RATE, 1.30);
+		}
+		else
+		{
+			//TF2Attrib_RemoveByName(weapon, ATTR_FIRE_RATE);
+			TF2Attrib_RemoveByName(weapon, ATTR_RELOAD_RATE);
+		}
+	}
+}
+
+void StopAmplifierEffect(int client, bool removeWeaponEffects = true)
+{
+	if (client < 1 || client > MaxClients)
+		return;
+
+	bool hadEffect = g_PlayerState[client].effectTimer != INVALID_HANDLE;
+	if (g_PlayerState[client].effectTimer != INVALID_HANDLE)
+	{
+		delete g_PlayerState[client].effectTimer;
+		g_PlayerState[client].effectTimer = INVALID_HANDLE;
+	}
+
+	if (removeWeaponEffects && hadEffect)
+	{
+		RemoveAmplifierWeaponEffects(client);
+	}
+}
+
 public Action Timer_RemoveAmplifierEffect(Handle timer, int userid)
 {
     int client = GetClientOfUserId(userid);
     if (client > 0 && client <= MaxClients)
     {
-        g_PlayerState[client].effectTimer = INVALID_HANDLE;
-        if (IsClientInGame(client))
-        {
-            for (int slot = 0; slot < 3; slot++)
-            {
-                int weapon = GetPlayerWeaponSlot(client, slot);
-                if (weapon > MaxClients && IsValidEntity(weapon))
-                {
-                    int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
-                    if (defIndex == BEGGARS_BAZOOKA)
-                    {
-                        //TF2Attrib_SetByName(weapon, ATTR_FIRE_RATE, 0.30);
-						TF2Attrib_SetByName(weapon, ATTR_RELOAD_RATE, 1.30);
-                    }
-                    else
-                    {
-                        //TF2Attrib_RemoveByName(weapon, ATTR_FIRE_RATE);
-                        TF2Attrib_RemoveByName(weapon, ATTR_RELOAD_RATE);
-                    }
-                }
-            }
-        }
+		if (g_PlayerState[client].effectTimer == timer)
+		{
+			g_PlayerState[client].effectTimer = INVALID_HANDLE;
+			RemoveAmplifierWeaponEffects(client);
+		}
     }
     return Plugin_Stop;
 }
