@@ -69,16 +69,7 @@ ConVar cvarForcePlayercount;
 ConVar cvarEnableExplosion;
 ConVar cvarEnableZap;
 
-// Cached ConVar Values
-int MetalPerPlayer = 5;
-int MetalMax = 200;
 TFCond DefaultCondition = TFCond_RuneHaste; // Formerly TFCond_Buffed
-float DefaultDistance = 400.0;
-float DefaultEffectLength = 5.0;
-int ForceAmplifier = 0; // 0=nothing, 1=dispenser, 2=sentry, 3=both
-int ForcePlayercount = 0;
-int EnableExplosion = 65;
-int EnableZap = 0; // I prefer 20
 
 // Forward
 Handle fwdOnAmplify;
@@ -148,19 +139,20 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 public OnPluginStart()
 {
 	CreateConVar("amplifier_version", PLUGIN_VERSION, "The Amplifier Version", FCVAR_REPLICATED|FCVAR_NOTIFY);
-	cvarEffectLength = CreateConVar("amplifier_effect_length", "4.0", "Length in seconds for the Amplifier condition to last", FCVAR_PLUGIN);
-	cvarDistance = CreateConVar("amplifier_distance", "300.0", "Distance the amplifier works.", FCVAR_PLUGIN);
+	cvarEffectLength = CreateConVar("amplifier_effect_length", "5.0", "Length in seconds for the Amplifier condition to last", FCVAR_PLUGIN);
+	cvarDistance = CreateConVar("amplifier_distance", "400.0", "Distance the amplifier works.", FCVAR_PLUGIN);
 	cvarMetalMax = CreateConVar("amplifier_max", "200.0", "Maximum amount of metal an amplifier can hold.", FCVAR_PLUGIN);
 	cvarMetal = CreateConVar("amplifier_metal", "5.0", "Amount of metal to use to apply a condition to a player (per second).", FCVAR_PLUGIN);
 	cvarForceAmplifier = CreateConVar("amplifier_force", "0", "Force amplifier mode: 0=nothing, 1=dispenser, 2=sentry, 3=both", FCVAR_PLUGIN, true, 0.0, true, 3.0);
 	cvarForcePlayercount = CreateConVar("amplifier_force_playercount", "0", "If >0 and human player count is below this value, treat amplifier_force as 2 (sentry only).", FCVAR_PLUGIN, true, 0.0);
-	cvarEnableExplosion = CreateConVar("amplifier_explode", "65", "Enable Amplifier death explosions? >0 for damage value.", FCVAR_PLUGIN, true, 0.0, true, 1.0);
-	cvarEnableZap = CreateConVar("amplifier_zap", "20.0", "Should Amplifier pulses harm the enemy team? 0 to disable, >0 for damage.", FCVAR_PLUGIN, true, 0.0, true, 50.0);
+	cvarEnableExplosion = CreateConVar("amplifier_explode", "65", "Enable Amplifier death explosions? >0 for damage value.", FCVAR_PLUGIN, true, 0.0);
+	SetConVarBounds(cvarEnableExplosion, ConVarBound_Upper, false);
+	cvarEnableZap = CreateConVar("amplifier_zap", "0.0", "Should Amplifier pulses harm the enemy team? 0 to disable, >0 for damage.", FCVAR_PLUGIN, true, 0.0, true, 50.0);
 
 	HookEvent("player_builtobject", Event_Build);
     HookEvent("object_destroyed", Event_ObjectDestroyed);
 	HookEvent("player_death", event_player_death);
-	
+
 	RegConsoleCmd("sm_amplifier", CallPanel, "Select engineer's building type");
 	RegConsoleCmd("sm_a", CallPanel, "Select engineer's building type");
 	RegConsoleCmd("sm_p", CallPanel, "Select engineer's building type");
@@ -174,18 +166,11 @@ public OnPluginStart()
 	g_hPadCookie = FindClientCookie("engipads_toggle");
 
 	AutoExecConfig(true, "amplifier");
-	
+
 	// Cookies
 	g_hCookieDisp = RegClientCookie("amplifier_dispenser", "Dispenser Amplifier preference", CookieAccess_Public);
 	g_hCookieSentry = RegClientCookie("amplifier_sentry", "Sentry Amplifier preference", CookieAccess_Public);
-	
-	HookConVarChange(cvarMetal, CvarChange);
-	HookConVarChange(cvarMetalMax, CvarChange);
-	HookConVarChange(cvarEffectLength, CvarChange);
-	HookConVarChange(cvarDistance, CvarChange);
-	HookConVarChange(cvarForceAmplifier, CvarChange);
-	HookConVarChange(cvarForcePlayercount, CvarChange);
-	
+
 	for (new i = 1; i <= MaxClients; i++)
 	{
 		ResetPlayerState(i);
@@ -211,29 +196,12 @@ public OnPluginEnd()
 	ConvertAllAmplifiersToBuildings();
 }
 
-public CvarChange(Handle:convar, const String:oldValue[], const String:newValue[])
-{
-	if (convar == cvarMetal) MetalPerPlayer = StringToInt(newValue);
-	else if (convar == cvarMetalMax) MetalMax = StringToInt(newValue);
-	else if (convar == cvarDistance) DefaultDistance = StringToFloat(newValue);
-	else if (convar == cvarEffectLength) DefaultEffectLength = StringToFloat(newValue);
-	else if (convar == cvarEnableExplosion) EnableExplosion = StringToInt(newValue);
-	else if (convar == cvarEnableZap) EnableZap = StringToInt(newValue);
-	else if (convar == cvarForceAmplifier) ForceAmplifier = StringToInt(newValue);
-	else if (convar == cvarForcePlayercount) ForcePlayercount = StringToInt(newValue);
-}
-
 public OnConfigsExecuted()
 {
-	DefaultDistance = GetConVarFloat(cvarDistance);
-	DefaultEffectLength = GetConVarFloat(cvarEffectLength);
-	EnableExplosion = GetConVarInt(cvarEnableExplosion);
-	EnableZap = GetConVarInt(cvarEnableZap);
-	MetalPerPlayer = GetConVarInt(cvarMetal);
-	MetalMax = GetConVarInt(cvarMetalMax);
-	ForceAmplifier = GetConVarInt(cvarForceAmplifier);
-	ForcePlayercount = GetConVarInt(cvarForcePlayercount);
-	g_hAmplifierTimer = CreateTimer(1.0, Timer_amplifier, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+	if (g_hAmplifierTimer == INVALID_HANDLE)
+	{
+		g_hAmplifierTimer = CreateTimer(1.0, Timer_amplifier, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+	}
 }
 
 public OnMapStart()
@@ -252,7 +220,7 @@ public OnClientPostAdminCheck(client)
 {
 	if (IsFakeClient(client)) return;
 	ResetPlayerState(client, false);
-	
+
 	if (AreClientCookiesCached(client))
 	{
 		LoadClientPreferences(client);
@@ -272,7 +240,7 @@ public OnClientDisconnect(client)
 void LoadClientPreferences(client)
 {
 	new String:szValue[8];
-	
+
 	GetClientCookie(client, g_hCookieDisp, szValue, sizeof(szValue));
 	if (szValue[0] != '\0')
 		g_PlayerState[client].useDispenser = bool:StringToInt(szValue);
@@ -285,12 +253,12 @@ void LoadClientPreferences(client)
 void SaveClientPreferences(client)
 {
 	if (!AreClientCookiesCached(client)) return;
-	
+
 	new String:szValue[8];
-	
+
 	IntToString(g_PlayerState[client].useDispenser, szValue, sizeof(szValue));
 	SetClientCookie(client, g_hCookieDisp, szValue);
-	
+
 	IntToString(g_PlayerState[client].useSentry, szValue, sizeof(szValue));
 	SetClientCookie(client, g_hCookieSentry, szValue);
 }
@@ -302,12 +270,14 @@ int GetEffectiveForceAmplifier()
 		return 2;
 	}
 
-	return ForceAmplifier;
+	return GetConVarInt(cvarForceAmplifier);
 }
 
 bool IsPlayercountForceActive()
 {
-	if (ForceAmplifier == 2 || ForcePlayercount <= 0)
+	int forceAmplifier = GetConVarInt(cvarForceAmplifier);
+	int forcePlayercount = GetConVarInt(cvarForcePlayercount);
+	if (forceAmplifier == 2 || forcePlayercount <= 0)
 	{
 		return false;
 	}
@@ -317,7 +287,7 @@ bool IsPlayercountForceActive()
 		return false;
 	}
 
-	return DGM_RealPlayerCount() < ForcePlayercount;
+	return DGM_RealPlayerCount() < forcePlayercount;
 }
 
 public AddToDownload()
@@ -325,7 +295,7 @@ public AddToDownload()
 	new String:strLine[256];
 	new String:extensions[][] = {".mdl", ".dx80.vtx", ".dx90.vtx", ".sw.vtx", ".vvd", ".phy"};
 	new String:extensionsb[][] = {".vtf", ".vmt"};
-	
+
 	for (new i = 0; i < sizeof(extensions); i++)
 	{
 		Format(strLine, 256, "%s%s", AmplifierModel, extensions[i]);
@@ -336,7 +306,7 @@ public AddToDownload()
 			AddFileToDownloadsTable(strLine);
 		}
 	}
-	
+
 	for (new i = 0; i < sizeof(extensionsb); i++)
 	{
 		new String:textures[][] = {"", "_blue", "_anim", "_anim_blue", "_anim2", "_anim2_blue", "_holo", "_bolt", "_holo_blue", "_radar"};
@@ -346,7 +316,7 @@ public AddToDownload()
 			AddFileToDownloadsTable(strLine);
 		}
 	}
-	
+
 	Format(strLine, 256, "%s.mdl", AmplifierModel);
 	PrecacheModel(strLine, true);
 	for (new i = 1; i <= 8; i++)
@@ -360,14 +330,14 @@ RemoveBuilding(client, const String:buildingClass[])
 {
 	new String:classname[64];
 	new String:destroyCmd[32];
-	
+
 	if (!strcmp(buildingClass, "obj_dispenser"))
 		Format(destroyCmd, 32, "destroy 0");
 	else if (!strcmp(buildingClass, "obj_sentrygun"))
 		Format(destroyCmd, 32, "destroy 2");
 	else
 		return;
-	
+
 	for (new j = 1; j < ME; j++)
 	{
 		new ent = EntRefToEntIndex(BuildingRef[j]);
@@ -380,7 +350,7 @@ RemoveBuilding(client, const String:buildingClass[])
 				SetVariantString(classname);
 				AcceptEntityInput(ent, "RemoveHealth");
 				FakeClientCommand(client, destroyCmd);
-				
+
 				Event event = CreateEvent("object_removed", true);
 				if (event != null)
 				{
@@ -400,7 +370,7 @@ public AmpHelpPanelH(Handle:menu, MenuAction:action, param1, param2) { }
 public Action:HelpPanel(client, Args)
 {
 	new Handle:panel = CreatePanel();
-	
+
 	SetPanelTitle(panel, "=== Amplifier Info ===");
 	DrawPanelText(panel, "Amplifiers consume metal to provide a combat buff to nearby teammates for 5 seconds");
 	DrawPanelText(panel, "It applies the Concheror effect and a 25% bonus to reload speed.");
@@ -411,7 +381,7 @@ public Action:HelpPanel(client, Args)
 	DrawPanelText(panel, "=== How To Use? ===");
 	DrawPanelText(panel, "Use !a or !p to toggle these buildings");
 	DrawPanelItem(panel, "Close");
-	
+
 	SendPanelToClient(panel, client, AmpHelpPanelH, 20);
 	CloseHandle(panel);
 }
@@ -444,15 +414,15 @@ void ShowAmplifierMenu(client)
 {
 	if (!IsValidClient(client))
 		return;
-	
+
 	new Handle:menu = CreateMenu(MenuHandler_Amplifier);
-	
+
 	SetMenuTitle(menu, "Amplifier Settings");
-	
+
 	char szItem[128];
 	Format(szItem, sizeof(szItem), "Sentry Gun: %s", g_PlayerState[client].useSentry ? "[✓] Amplifier" : "[  ] Normal");
 	AddMenuItem(menu, "sentry", szItem);
-	
+
 	Format(szItem, sizeof(szItem), "Dispenser: %s", g_PlayerState[client].useDispenser ? "[✓] Amplifier" : "[  ] Normal");
 	AddMenuItem(menu, "disp", szItem);
 
@@ -461,9 +431,9 @@ void ShowAmplifierMenu(client)
 
 	Format(szItem, sizeof(szItem), "Teleporters: %s", usePadSpeed ? "[✓] Speed/Jump" : "[  ] Normal");
 	AddMenuItem(menu, "tele", szItem);
-	
+
 	AddMenuItem(menu, "info", "── Help & Info ──");
-	
+
 	SetMenuExitButton(menu, true);
 	DisplayMenu(menu, client, MENU_TIME_FOREVER);
 }
@@ -482,12 +452,12 @@ public MenuHandler_Amplifier(Handle:menu, MenuAction:action, param1, param2)
 	{
 		new String:info[32];
 		GetMenuItem(menu, param2, info, sizeof(info));
-		
+
 		if (StrEqual(info, "disp"))
 		{
 			g_PlayerState[param1].useDispenser = !g_PlayerState[param1].useDispenser;
 			SaveClientPreferences(param1);
-			
+
 			if (g_PlayerState[param1].useDispenser)
 			{
 				CPrintToChat(param1, "{orange}[Amplifier]{default} Dispensers will now be {green}Amplifiers{default}!");
@@ -498,14 +468,14 @@ public MenuHandler_Amplifier(Handle:menu, MenuAction:action, param1, param2)
 				CPrintToChat(param1, "{orange}[Amplifier]{default} Dispensers will now be {lightgreen}Normal{default}!");
 				RemoveBuilding(param1, "obj_dispenser");
 			}
-			
+
 			ShowAmplifierMenu(param1);
 		}
 		else if (StrEqual(info, "sentry"))
 		{
 			g_PlayerState[param1].useSentry = !g_PlayerState[param1].useSentry;
 			SaveClientPreferences(param1);
-			
+
 			if (g_PlayerState[param1].useSentry)
 			{
 				CPrintToChat(param1, "{orange}[Amplifier]{default} Sentries will now be {green}Amplifiers{default}!");
@@ -516,13 +486,13 @@ public MenuHandler_Amplifier(Handle:menu, MenuAction:action, param1, param2)
 				CPrintToChat(param1, "{orange}[Amplifier]{default} Sentries will now be {lightgreen}Normal{default}!");
 				RemoveBuilding(param1, "obj_sentrygun");
 			}
-			
+
 			ShowAmplifierMenu(param1);
 		}
 		else if (StrEqual(info, "info"))
 		{
 			HelpPanel(param1, 0);
-		} 
+		}
 		else if (StrEqual(info, "tele"))
 		{
 			bool usePadSpeed = GetClientCookieBool(param1, g_hPadCookie);
@@ -551,27 +521,30 @@ public Action:Timer_amplifier(Handle hTimer)
 	new TFTeam:team;
 	new maxEntities = GetMaxEntities();
 	new String:modelname[256];
-	
+	int metalPerPlayer = GetConVarInt(cvarMetal);
+	int metalMax = GetConVarInt(cvarMetalMax);
+	float zapDamage = GetConVarFloat(cvarEnableZap);
+
 	for (new client = 1; client <= MaxClients; client++)
 	{
 		if (!IsClientInGame(client)) continue;
-		
+
 	g_PlayerState[client].nearAmplifier = false;
-		
+
 		if (IsPlayerAlive(client) && IsValidEdict(client))
 		{
 			GetEntPropVector(client, Prop_Send, "m_vecOrigin", Pos);
 			clientTeam = TFTeam:GetClientTeam(client);
-			
+
 			for (new i = 1; i < maxEntities; i++)
 			{
 				new amp = EntRefToEntIndex(BuildingRef[i]);
 				if (amp <= 0) continue;
-				
+
 				GetEntPropString(i, Prop_Data, "m_ModelName", modelname, 128);
 				if (StrContains(modelname, "plifier") == -1) continue;
 				if (!AmplifierOn[amp] || AmplifierSapped[amp]) continue;
-				
+
 				new String:buildingClass[64];
 				GetEdictClassname(amp, buildingClass, sizeof(buildingClass));
 				new metal;
@@ -581,30 +554,30 @@ public Action:Timer_amplifier(Handle hTimer)
 			metal = GetEntProp(amp, Prop_Send, "m_iAmmoShells");
 		else
 			continue;
-		
-		if (MetalMax > 0)
-		{
-			float fill = float(metal) / float(MetalMax); 
-			if (fill < 0.0)
-				fill = 0.0;
-			if (fill < 0.4)
+
+			if (metalMax > 0)
+			{
+				float fill = float(metal) / float(metalMax);
+				if (fill < 0.0)
+					fill = 0.0;
+				if (fill < 0.4)
 				fill = (fill / 0.4) + 0.6; // Taking a percentage and adding a minimum
 			else fill = 1.0;
 			if (fill > 1.0)
 				fill = 1.0;
-			AmplifierFill[amp] = fill;
-		}
-		
-		if (metal < MetalPerPlayer && MetalPerPlayer > 0) continue;
-				
+				AmplifierFill[amp] = fill;
+			}
+
+			if (metal < metalPerPlayer && metalPerPlayer > 0) continue;
+
 		TFCond Condition = DefaultCondition;
 		team = TFTeam:GetEntProp(amp, Prop_Send, "m_iTeamNum");
-		
+
 		if (TF2_GetPlayerClass(client) == TFClass_Spy && TF2_IsPlayerInCondition(client, TFCond_Disguised) && !TF2_IsPlayerInCondition(client, TFCond_Cloaked))
 			team = clientTeam;
-				
+
 		GetEntPropVector(amp, Prop_Send, "m_vecOrigin", AmplifierPos);
-				
+
 		if (GetVectorDistance(Pos, AmplifierPos) <= AmplifierDistance[amp] && (TraceTargetIndex(amp, client, AmplifierPos, Pos)))
 		{
 			new Action:res = Plugin_Continue;
@@ -623,22 +596,22 @@ public Action:Timer_amplifier(Handle hTimer)
 					EmitSoundToClient(client, AMPLIFIER_BUFF_SOUND, amp, _, SNDLEVEL_NORMAL, SND_NOFLAGS, 0.5, SNDPITCH_HIGH);
 				}
 				ConditionApplied[amp][client] = true;
-			} else if (EnableZap > 0) {
-				DealElectricDamage(client, builder, Pos, float(EnableZap));
-			}
-			g_PlayerState[client].nearAmplifier = true;
-			if (MetalPerPlayer > 0)
-			{
-				metal -= MetalPerPlayer;
-				if (!strcmp(buildingClass, "obj_dispenser"))
-					SetEntProp(amp, Prop_Send, "m_iAmmoMetal", metal);
+				} else if (zapDamage > 0.0) {
+					DealElectricDamage(client, builder, Pos, zapDamage);
+				}
+				g_PlayerState[client].nearAmplifier = true;
+				if (metalPerPlayer > 0)
+				{
+					metal -= metalPerPlayer;
+					if (!strcmp(buildingClass, "obj_dispenser"))
+						SetEntProp(amp, Prop_Send, "m_iAmmoMetal", metal);
 				else if (!strcmp(buildingClass, "obj_sentrygun"))
 					SetEntProp(amp, Prop_Send, "m_iAmmoShells", metal);
 			}
 			break;
 		}
 			}
-			
+
 		if (!g_PlayerState[client].nearAmplifier)
 			{
 				for (new i = 1; i < maxEntities; i++)
@@ -651,12 +624,12 @@ public Action:Timer_amplifier(Handle hTimer)
 			}
 		}
 	}
-	
+
 	for (new i = 1; i < maxEntities; i++)
 	{
 		new ref = BuildingRef[i];
 		if (ref == 0) continue;
-		
+
 		new ent = EntRefToEntIndex(ref);
 		if (ent <= 0)
 		{
@@ -670,26 +643,26 @@ public Action:Timer_amplifier(Handle hTimer)
 			}
 			continue;
 		}
-		
+
 		GetEntPropString(ent, Prop_Data, "m_ModelName", modelname, 128);
 		if (!AmplifierOn[ent] || AmplifierSapped[ent] || StrContains(modelname, "plifier") == -1) continue;
-		
+
 		if (GetEntProp(ent, Prop_Send, "m_bDisabled") == 0)
 			SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
 
 		new String:buildingClass[64];
 		GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
-		
-		new metal = GetEntProp(ent, Prop_Send, "m_iUpgradeMetal") * (MetalMax / 200);
+
+			new metal = GetEntProp(ent, Prop_Send, "m_iUpgradeMetal") * (metalMax / 200);
 		new oldMetal;
 		if (!strcmp(buildingClass, "obj_dispenser"))
 			oldMetal = GetEntProp(ent, Prop_Send, "m_iAmmoMetal");
 		else if (!strcmp(buildingClass, "obj_sentrygun"))
 			oldMetal = GetEntProp(ent, Prop_Send, "m_iAmmoShells");
-		
+
 		GetEntPropVector(ent, Prop_Send, "m_vecOrigin", Pos);
 		Pos[2] += 90;
-		
+
 		new beamColor[4];
 		if (TFTeam:GetEntProp(ent, Prop_Send, "m_iTeamNum") == TFTeam_Red)
 			beamColor = {255, 75, 75, 255};
@@ -702,13 +675,13 @@ public Action:Timer_amplifier(Handle hTimer)
 		beamColor[2] = RoundFloat(float(beamColor[2]) * colorScale);
 		beamColor[3] = RoundFloat(float(beamColor[3]) * colorScale);
 
-		if (oldMetal > MetalPerPlayer)
+			if (oldMetal > metalPerPlayer)
 		{
 			float clampedFill = AmplifierFill[ent];
 			EmitAmbientSound(AMPLIFIER_SOUND, Pos, ent, SNDLEVEL_CAR, SND_NOFLAGS, 0.6, RoundToCeil(SNDPITCH_NORMAL * clampedFill));
 		} else
 			EmitAmbientSound(AMPLIFIER_EMPTY_SOUND, Pos, ent, SNDLEVEL_CAR, SND_NOFLAGS, 0.5, SNDPITCH_NORMAL);
-		
+
 		if (oldMetal > 0)
 		{
 			TE_SetupBeamRingPoint(Pos, 10.0, colorScale * (AmplifierDistance[ent]*0.8), g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, beamColor, 3, 0);
@@ -720,23 +693,23 @@ public Action:Timer_amplifier(Handle hTimer)
 			TE_SetupBeamRingPoint(Pos, 10.0, 144.0, g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, emptyColor, 3, 0); // 144 is the final value at colorscale 0
 			TE_SendToAll();
 		}
-		
+
 		if (metal > 0)
 		{
 			if (!strcmp(buildingClass, "obj_dispenser"))
 			{
-				if (GetEntProp(ent, Prop_Send, "m_iAmmoMetal") < MetalMax - metal)
-					SetEntProp(ent, Prop_Send, "m_iAmmoMetal", GetEntProp(ent, Prop_Send, "m_iAmmoMetal") + metal);
-				else
-					SetEntProp(ent, Prop_Send, "m_iAmmoMetal", MetalMax);
-			}
-			else if (!strcmp(buildingClass, "obj_sentrygun"))
-			{
-				if (GetEntProp(ent, Prop_Send, "m_iAmmoShells") < MetalMax - metal)
-					SetEntProp(ent, Prop_Send, "m_iAmmoShells", GetEntProp(ent, Prop_Send, "m_iAmmoShells") + metal);
-				else
-					SetEntProp(ent, Prop_Send, "m_iAmmoShells", MetalMax);
-			}
+					if (GetEntProp(ent, Prop_Send, "m_iAmmoMetal") < metalMax - metal)
+						SetEntProp(ent, Prop_Send, "m_iAmmoMetal", GetEntProp(ent, Prop_Send, "m_iAmmoMetal") + metal);
+					else
+						SetEntProp(ent, Prop_Send, "m_iAmmoMetal", metalMax);
+				}
+				else if (!strcmp(buildingClass, "obj_sentrygun"))
+				{
+					if (GetEntProp(ent, Prop_Send, "m_iAmmoShells") < metalMax - metal)
+						SetEntProp(ent, Prop_Send, "m_iAmmoShells", GetEntProp(ent, Prop_Send, "m_iAmmoShells") + metal);
+					else
+						SetEntProp(ent, Prop_Send, "m_iAmmoShells", metalMax);
+				}
 			SetEntProp(ent, Prop_Send, "m_iUpgradeMetal", 0);
 			EmitAmbientSound(AMPLIFIER_FILL_SOUND, AmplifierPos);
 		}
@@ -747,13 +720,13 @@ public Action:Timer_amplifier(Handle hTimer)
 public Action:event_player_death(Handle:event, const String:name[], bool:dontBroadcast)
 {
 	new Attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-	
+
 	new maxEntities = GetMaxEntities();
 	for (new i = 1; i < maxEntities; i++)
 	{
 		new ent = EntRefToEntIndex(BuildingRef[i]);
 		if (ent <= 0 || !AmplifierOn[ent] || AmplifierSapped[ent] || Attacker == i) continue;
-		
+
 		if (ConditionApplied[ent][Attacker])
 		{
 			new builder = GetEntPropEnt(ent, Prop_Send, "m_hBuilder");
@@ -800,8 +773,9 @@ public Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBro
 	bool entwasbuilding = event.GetBool("was_building"); // building in progress
 	float position[3];
 	GetEntPropVector(entindex, Prop_Send, "m_vecOrigin", position);
-	if (EnableExplosion)
-		CreateAmplifierExplosion(position, attacker, entwasbuilding, EnableExplosion);
+	int explosionDamage = GetConVarInt(cvarEnableExplosion);
+	if (explosionDamage > 0)
+		CreateAmplifierExplosion(position, attacker, entwasbuilding, explosionDamage);
 	return Plugin_Changed;
 }
 
@@ -810,19 +784,19 @@ CheckBuilding(ent)
     new String:classname[64];
     new Client = GetEntPropEnt(ent, Prop_Send, "m_hBuilder");
     GetEdictClassname(ent, classname, sizeof(classname));
-	
+
 	bool isDispenser = !strcmp(classname, "obj_dispenser");
 	bool isSentry = !strcmp(classname, "obj_sentrygun");
-	
+
 	if ((!isDispenser && !isSentry) || Client <= 0) return;
-	
+
 	BuildingRef[ent] = EntIndexToEntRef(ent);
-	
+
     bool shouldConvert = false;
     bool forcedConversion = false;
     bool playercountForceActive = IsPlayercountForceActive();
     int effectiveForceAmplifier = GetEffectiveForceAmplifier();
-	
+
 	// Check force mode
     if (effectiveForceAmplifier == 1 && isDispenser) { shouldConvert = true; forcedConversion = true; }
     else if (effectiveForceAmplifier == 2 && isSentry) { shouldConvert = true; forcedConversion = true; }
@@ -833,7 +807,7 @@ CheckBuilding(ent)
 	// Check player preference
 	else if (isDispenser && g_PlayerState[Client].useDispenser) shouldConvert = true;
 	else if (isSentry && g_PlayerState[Client].useSentry) shouldConvert = true;
-	
+
     if (shouldConvert)
     {
         AmplifierOn[ent] = false;
@@ -843,10 +817,10 @@ CheckBuilding(ent)
 			SetEntPropFloat(ent, Prop_Send, "m_flModelScale", 0.85); // Minis use 0.75... too small
 			AmplifierMini[ent] = true;
 		}
-			
+
 		AmplifierSapped[ent] = false;
 		AmplifierFill[ent] = 0.0;
-		
+
 		if (NativeControl)
 		{
 			AmplifierDistance[ent] = isDispenser ? NativeDistanceDisp[Client] : NativeDistanceSentry[Client];
@@ -854,10 +828,10 @@ CheckBuilding(ent)
 		}
 		else
 		{
-			AmplifierDistance[ent] = DefaultDistance;
+			AmplifierDistance[ent] = GetConVarFloat(cvarDistance);
 			AmplifierCondition[ent] = DefaultCondition;
 		}
-		
+
 		new String:s[128];
 		Format(s, 128, "%s.mdl", AmplifierModel);
 		SetEntityModel(ent, s);
@@ -868,7 +842,7 @@ CheckBuilding(ent)
         {
             if (playercountForceActive)
             {
-                CPrintToChat(Client, "{orange}[Amplifier]{default} Playercount is below %d; sentry replaced with amplifier!", ForcePlayercount);
+                CPrintToChat(Client, "{orange}[Amplifier]{default} Playercount is below %d; sentry replaced with amplifier!", GetConVarInt(cvarForcePlayercount));
             }
             else
             {
@@ -889,10 +863,10 @@ public Action:BuildingCheckStage2(Handle hTimer, any:ref)
 {
 	new ent = EntRefToEntIndex(ref);
 	if (ent <= 0 || !IsValidEntity(ent)) return Plugin_Stop;
-	
+
 	if (GetEntPropFloat(ent, Prop_Send, "m_flPercentageConstructed") < 1.0)
 		return Plugin_Continue;
-	
+
 	AmplifierOn[ent] = true;
 	new String:modelname[128];
 	Format(modelname, 128, "%s.mdl", AmplifierModel);
@@ -915,7 +889,7 @@ public Action:BuildingCheckStage2(Handle hTimer, any:ref)
 		SetVariantString(sHealth);
 		AcceptEntityInput(ent, "SetHealth");
 	}
-	
+
 	new String:buildingClass[64];
 	GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
 	if (!strcmp(buildingClass, "obj_dispenser"))
@@ -923,10 +897,10 @@ public Action:BuildingCheckStage2(Handle hTimer, any:ref)
 	else if (!strcmp(buildingClass, "obj_sentrygun"))
 		SetEntProp(ent, Prop_Send, "m_iAmmoShells", 0);
 	AmplifierFill[ent] = 0.0;
-	
+
 	SetEntProp(ent, Prop_Send, "m_iUpgradeMetal", 75);
 	SetEntProp(ent, Prop_Send, "m_nSkin", GetEntProp(ent, Prop_Send, "m_nSkin") - 2);
-	
+
 	return Plugin_Stop;
 }
 
@@ -965,7 +939,7 @@ public Action:SapperCheckStage2(Handle:hTimer, any:ref)
 {
 	new ent = EntRefToEntIndex(ref);
 	if (ent <= 0 || !IsValidEntity(ent)) return Plugin_Stop;
-	
+
 	if (GetEntProp(ent, Prop_Send, "m_bHasSapper") == 0 && AmplifierSapped[ent])
 	{
 		AmplifierSapped[ent] = false;
@@ -978,36 +952,35 @@ stock void AddAmplifierEffect(int client)
 {
     if (client < 1 || client > MaxClients || !IsClientInGame(client))
         return;
-    
+
     // Kill existing timer
     if (g_PlayerState[client].effectTimer != INVALID_HANDLE)
     {
         delete g_PlayerState[client].effectTimer;
         g_PlayerState[client].effectTimer = INVALID_HANDLE;
     }
-    
-	TF2_AddCondition(client, TFCond_RegenBuffed, DefaultEffectLength);
+
+	float effectLength = GetConVarFloat(cvarEffectLength);
+	TF2_AddCondition(client, TFCond_RegenBuffed, effectLength);
     // Apply to first 3 slots
     for (int slot = 0; slot < 3; slot++)
     {
         int weapon = GetPlayerWeaponSlot(client, slot);
         if (weapon > MaxClients && IsValidEntity(weapon))
         {
-			float factor_firerate = 0.75;
 			float factor_reloadrate = 0.75;
             int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
 			if (defIndex == BEGGARS_BAZOOKA)
 			{
-				factor_firerate = 0.10;
 				factor_reloadrate = 1.0;
 			}
             //TF2Attrib_SetByName(weapon, ATTR_FIRE_RATE, factor_firerate);
 	        TF2Attrib_SetByName(weapon, ATTR_RELOAD_RATE, factor_reloadrate);
         }
     }
-    
+
     // Create a default length timer
-    g_PlayerState[client].effectTimer = CreateTimer(DefaultEffectLength, Timer_RemoveAmplifierEffect, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+    g_PlayerState[client].effectTimer = CreateTimer(effectLength, Timer_RemoveAmplifierEffect, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public Action Timer_RemoveAmplifierEffect(Handle timer, int userid)
@@ -1069,17 +1042,17 @@ void ConvertAllAmplifiersToBuildings()
 		{
 			new String:buildingClass[64];
 			GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
-			
+
 			AmplifierOn[ent] = false;
 			SetEntProp(ent, Prop_Send, "m_bDisabled", 0);
 			AmplifierFill[ent] = 0.0;
-			
+
 			new String:modelname[128];
 			if (!strcmp(buildingClass, "obj_dispenser"))
 				Format(modelname, sizeof(modelname), "models/buildables/dispenser.mdl");
 			else if (!strcmp(buildingClass, "obj_sentrygun"))
 				Format(modelname, sizeof(modelname), "models/buildables/sentry1.mdl");
-			
+
 			SetEntityModel(ent, modelname);
 			SetEntPropFloat(ent, Prop_Send, "m_flModelScale", 1.0);
 		}
@@ -1096,10 +1069,10 @@ public Native_SetAmplifierDisp(Handle:plugin, numParams)
 {
 	new client = GetNativeCell(1);
 	g_PlayerState[client].useDispenser = bool:GetNativeCell(2);
-	
+
 	float distance = Float:GetNativeCell(3);
-	NativeDistanceDisp[client] = (distance < 0.0) ? DefaultDistance : distance;
-	
+	NativeDistanceDisp[client] = (distance < 0.0) ? GetConVarFloat(cvarDistance) : distance;
+
 	TFCond condition = TFCond:GetNativeCell(4);
 	NativeConditionDisp[client] = (condition < TFCond_Slowed) ? DefaultCondition : condition;
 }
@@ -1108,10 +1081,10 @@ public Native_SetAmplifierSentry(Handle:plugin, numParams)
 {
 	new client = GetNativeCell(1);
 	g_PlayerState[client].useSentry = bool:GetNativeCell(2);
-	
+
 	float distance = Float:GetNativeCell(3);
-	NativeDistanceSentry[client] = (distance < 0.0) ? DefaultDistance : distance;
-	
+	NativeDistanceSentry[client] = (distance < 0.0) ? GetConVarFloat(cvarDistance) : distance;
+
 	TFCond condition = TFCond:GetNativeCell(4);
 	NativeConditionSentry[client] = (condition < TFCond_Slowed) ? DefaultCondition : condition;
 }
@@ -1135,13 +1108,13 @@ public Native_ConvertToAmplifier(Handle:plugin, numParams)
 {
 	new ent = GetNativeCell(1);
 	if (ent <= 0 || !IsValidEntity(ent)) return;
-	
+
 	new client = GetNativeCell(2);
-	
+
 	new String:buildingClass[64];
 	GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
 	bool isDispenser = !strcmp(buildingClass, "obj_dispenser");
-	
+
 	bool saveDisp = g_PlayerState[client].useDispenser;
 	bool saveSentry = g_PlayerState[client].useSentry;
 	float saveDistDisp = NativeDistanceDisp[client];
@@ -1150,11 +1123,11 @@ public Native_ConvertToAmplifier(Handle:plugin, numParams)
 	new TFCond:saveCondSentry = NativeConditionSentry[client];
 	new savePercentDisp = NativePercentDisp[client];
 	new savePercentSentry = NativePercentSentry[client];
-	
+
 	float distance = Float:GetNativeCell(3);
 	new TFCond:condition = TFCond:GetNativeCell(4);
 	new percent = GetNativeCell(5);
-	
+
 	if (isDispenser)
 	{
 		if (distance >= 0.0) NativeDistanceDisp[client] = distance;
@@ -1169,9 +1142,9 @@ public Native_ConvertToAmplifier(Handle:plugin, numParams)
 		if (percent >= 0) NativePercentSentry[client] = percent;
 		g_PlayerState[client].useSentry = true;
 	}
-	
+
 	CheckBuilding(ent);
-	
+
 	NativeConditionDisp[client] = saveCondDisp;
 	NativeConditionSentry[client] = saveCondSentry;
 	NativeDistanceDisp[client] = saveDistDisp;
@@ -1206,11 +1179,12 @@ void DealElectricDamage(int client, int builder, const float pos[3], float damag
     GetEntPropVector(client, Prop_Send, "m_vecOrigin", Pos);
 
     float dist = GetVectorDistance(Pos, pos);
-    if (dist > DefaultDistance) // beyond these units: no damage
+	float defaultDistance = GetConVarFloat(cvarDistance);
+    if (dist > defaultDistance) // beyond these units: no damage
         return;
 
     // Damage scales inversely with distance (closer = more damage)
-    float damageFinal = damage * (1.0 - (dist / DefaultDistance));
+    float damageFinal = damage * (1.0 - (dist / defaultDistance));
     if (damageFinal < 0.0) damageFinal = 0.0;
 
     // Apply electric-type damage
@@ -1221,31 +1195,31 @@ void DealElectricDamage(int client, int builder, const float pos[3], float damag
 void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbuilding = false, int damage)
 {
 	if (entwasbuilding) return;
-    int explosion = CreateEntityByName("env_explosion");    
+    int explosion = CreateEntityByName("env_explosion");
     if (explosion == -1) {
         return;
     }
 
-	int radius = RoundFloat(DefaultDistance);
+	int radius = RoundFloat(GetConVarFloat(cvarDistance));
     char sDamage[16], sRadius[16];
     IntToString(damage, sDamage, sizeof(sDamage));
     IntToString(radius, sRadius, sizeof(sRadius));
-    
+
     // Set explosion properties
     DispatchKeyValue(explosion, "iMagnitude", sDamage);
     DispatchKeyValue(explosion, "iRadiusOverride", sRadius);
     DispatchKeyValue(explosion, "spawnflags", "828");
-    
+
     TeleportEntity(explosion, position, NULL_VECTOR, NULL_VECTOR);
-    
+
     // Set attacker if valid
     if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker)) {
         SetEntPropEnt(explosion, Prop_Send, "m_hOwnerEntity", attacker);
     }
-    
+
     DispatchSpawn(explosion);
     AcceptEntityInput(explosion, "Explode");
-    
+
 	// Create visual explosion effect
 	TE_SetupExplosion(position, 0, 10.0, 1, 0, radius, 5000);
 	TE_SendToAll();
@@ -1264,7 +1238,7 @@ void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbu
 		AcceptEntityInput(particle, "Start");
 		CreateTimer(2.0, Timer_RemoveEntity, EntIndexToEntRef(particle));
 	}
-	
+
 	// Clean up explosion entity
 	CreateTimer(0.1, Timer_RemoveEntity, EntIndexToEntRef(explosion));
 }
