@@ -679,19 +679,26 @@ bool TryApplyAmplifierToClient(int client, int amp, int metalPerPlayer, int meta
 
 	if (clientTeam == team)
 	{
-		AddAmplifierEffect(client);
+		if (!AddAmplifierEffect(client))
+			return false;
+
 		if (!ConditionApplied[amp][client])
 		{
 			EmitSoundToClient(client, AMPLIFIER_BUFF_SOUND, amp, _, SNDLEVEL_NORMAL, SND_NOFLAGS, 0.5, SNDPITCH_HIGH);
 		}
 		ConditionApplied[amp][client] = true;
+		g_PlayerState[client].nearAmplifier = true;
 	}
 	else if (zapDamage > 0.0)
 	{
 		DealElectricDamage(client, builder, clientPos, zapDamage);
+		return true;
+	}
+	else
+	{
+		return false;
 	}
 
-	g_PlayerState[client].nearAmplifier = true;
 	if (metalPerPlayer > 0)
 	{
 		SetAmplifierMetal(amp, buildingClass, metal - metalPerPlayer);
@@ -1047,10 +1054,10 @@ public Action:SapperCheckStage2(Handle:hTimer, any:ref)
 	return Plugin_Continue;
 }
 
-stock void AddAmplifierEffect(int client)
+stock bool AddAmplifierEffect(int client)
 {
     if (client < 1 || client > MaxClients || !IsClientInGame(client))
-        return;
+        return false;
 
     StopAmplifierEffect(client, false);
 
@@ -1075,6 +1082,7 @@ stock void AddAmplifierEffect(int client)
 
     // Create a default length timer
     g_PlayerState[client].effectTimer = CreateTimer(effectLength, Timer_RemoveAmplifierEffect, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+	return true;
 }
 
 void RemoveAmplifierWeaponEffects(int client)
