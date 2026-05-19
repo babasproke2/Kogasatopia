@@ -64,6 +64,7 @@ int g_ActiveAmplifiers[ME];
 ConVar cvarMetal;
 ConVar cvarMetalMax;
 ConVar cvarDistance;
+ConVar cvarWaveRadiusGap;
 ConVar cvarEffectLength;
 ConVar cvarForceAmplifier;
 ConVar cvarForcePlayercount;
@@ -142,6 +143,7 @@ public OnPluginStart()
 	CreateConVar("amplifier_version", PLUGIN_VERSION, "The Amplifier Version", FCVAR_REPLICATED|FCVAR_NOTIFY);
 	cvarEffectLength = CreateConVar("amplifier_effect_length", "5.0", "Length in seconds for the Amplifier condition to last", FCVAR_PLUGIN);
 	cvarDistance = CreateConVar("amplifier_distance", "400.0", "Distance the amplifier works.", FCVAR_PLUGIN);
+	cvarWaveRadiusGap = CreateConVar("amplifier_wave_radius_gap", "0.10", "How much larger the effect radius is than the visible wave radius. 0.10 means the effect reaches 10% past the wave.", FCVAR_PLUGIN, true, 0.0, true, 1.0);
 	cvarMetalMax = CreateConVar("amplifier_max", "200.0", "Maximum amount of metal an amplifier can hold.", FCVAR_PLUGIN);
 	cvarMetal = CreateConVar("amplifier_metal", "5.0", "Amount of metal to use to apply a condition to a player (per second).", FCVAR_PLUGIN);
 	cvarForceAmplifier = CreateConVar("amplifier_force", "0", "Force amplifier mode: 0=nothing, 1=dispenser, 2=sentry, 3=both", FCVAR_PLUGIN, true, 0.0, true, 3.0);
@@ -578,6 +580,12 @@ void UpdateAmplifierFill(int ent, int metal, int metalMax)
 	AmplifierFill[ent] = fill;
 }
 
+float GetAmplifierWaveRadius(int ent, float colorScale)
+{
+	float radiusGap = GetConVarFloat(cvarWaveRadiusGap);
+	return colorScale * (AmplifierDistance[ent] / (1.0 + radiusGap));
+}
+
 void ClearAmplifierConditionForClient(int client, int maxEntities)
 {
 	for (int ent = 1; ent < maxEntities; ent++)
@@ -757,7 +765,7 @@ void PulseAmplifierBuilding(int ent, int metalPerPlayer, int metalMax)
 
 	if (oldMetal > 0)
 	{
-		TE_SetupBeamRingPoint(pos, 10.0, colorScale * (AmplifierDistance[ent] * 0.8), g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, beamColor, 3, 0);
+		TE_SetupBeamRingPoint(pos, 10.0, GetAmplifierWaveRadius(ent, colorScale), g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, beamColor, 3, 0);
 		TE_SendToAll();
 	}
 	else
