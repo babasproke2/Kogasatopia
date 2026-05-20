@@ -28,7 +28,7 @@ native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const ch
 native bool SaySounds_CanClientUseCommand(int client, const char[] commandName, bool bypassAdminOnly = true);
 native bool SaySounds_IsCommandPaid(const char[] commandName);
 native bool SaySounds_GetCommandGroup(const char[] commandName, char[] groupName, int groupLen);
-native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50);
+native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50, bool inGameOnly = true);
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound, bool chatAlert, float randomChance, const char[] type, int target = 0, float delay = 3.0);
 

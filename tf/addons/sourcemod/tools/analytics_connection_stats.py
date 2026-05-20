@@ -393,6 +393,8 @@ def print_player_cohort_metrics(rows: list[dict[str, str | int]]) -> None:
 
 
 def summarize(rows: list[dict[str, str | int]], limit: int, days: int, min_sessions: int, max_session_minutes: int, burst_window: int, burst_minimum: int) -> None:
+    rows = [row for row in rows if row["event_type"] != "map_change_empty"]
+
     if not rows:
         print("No rows found for the selected range.")
         return

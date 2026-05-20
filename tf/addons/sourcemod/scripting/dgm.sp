@@ -91,7 +91,22 @@ int DGM_GetServerCapacityValue()
     return capacity;
 }
 
-float DGM_GetPopulationRatioValue()
+int DGM_CountConnectedHumans()
+{
+    int count = 0;
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientConnected(client) && !IsFakeClient(client))
+        {
+            count++;
+        }
+    }
+
+    return count;
+}
+
+float DGM_GetPopulationRatioValue(bool inGameOnly = true)
 {
     int capacity = DGM_GetServerCapacityValue();
     if (capacity <= 0)
@@ -99,10 +114,11 @@ float DGM_GetPopulationRatioValue()
         return 0.0;
     }
 
-    return float(DGM_CountRealPlayers()) / float(capacity);
+    int playerCount = inGameOnly ? DGM_CountRealPlayers() : DGM_CountConnectedHumans();
+    return float(playerCount) / float(capacity);
 }
 
-bool DGM_CheckServerCapacity(float capacityRatio = 0.50)
+bool DGM_CheckServerCapacity(float capacityRatio = 0.50, bool inGameOnly = true)
 {
     if (capacityRatio < 0.0)
     {
@@ -118,7 +134,7 @@ bool DGM_CheckServerCapacity(float capacityRatio = 0.50)
         return false;
     }
 
-    return DGM_GetPopulationRatioValue() >= capacityRatio;
+    return DGM_GetPopulationRatioValue(inGameOnly) >= capacityRatio;
 }
 
 DGMObjectiveLeader DGM_GetObjectiveLeaderValue(
@@ -544,12 +560,17 @@ public any Native_DGM_NormalizeMapName(Handle plugin, int numParams)
 public any Native_DGM_ServerCapacitycheck(Handle plugin, int numParams)
 {
     float capacityRatio = 0.50;
+    bool inGameOnly = true;
     if (numParams >= 1)
     {
         capacityRatio = view_as<float>(GetNativeCell(1));
     }
+    if (numParams >= 2)
+    {
+        inGameOnly = view_as<bool>(GetNativeCell(2));
+    }
 
-    return DGM_CheckServerCapacity(capacityRatio);
+    return DGM_CheckServerCapacity(capacityRatio, inGameOnly);
 }
 
 public any Native_DGM_RealTeamPlayerCount(Handle plugin, int numParams)

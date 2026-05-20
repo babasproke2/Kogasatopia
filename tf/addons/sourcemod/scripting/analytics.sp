@@ -181,7 +181,7 @@ public Action Timer_FlushAnalyticsEvents(Handle timer)
 void QueueMapChangeEvent()
 {
     AnalyticsEvent event;
-    PopulateBaseEvent(event, "map_change");
+    PopulateBaseEvent(event, CountConnectedHumans() < 1 ? "map_change_empty" : "map_change");
     strcopy(event.PlayerName, sizeof(event.PlayerName), "");
     strcopy(event.SteamId, sizeof(event.SteamId), "");
     strcopy(event.IpSubnet, sizeof(event.IpSubnet), "");
@@ -600,6 +600,21 @@ int GetQuickStatsPlayerCount()
     }
 
     return GetClientCount(false);
+}
+
+int CountConnectedHumans()
+{
+    int count = 0;
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientConnected(client) && !IsFakeClient(client))
+        {
+            count++;
+        }
+    }
+
+    return count;
 }
 
 int GetVisibleMaxPlayers()

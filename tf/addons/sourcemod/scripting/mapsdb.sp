@@ -275,7 +275,7 @@ public Action Timer_RecordPopulationSample(Handle timer)
     }
 
     int now = GetTime();
-    int playerCount = GetPopularityPlayerCount();
+    int playerCount = GetPopulationPlayerCount();
     int visibleMax = GetServerCapacity();
     int redCount = GetRealTeamPlayerCount(2);
     int bluCount = GetRealTeamPlayerCount(3);
@@ -492,6 +492,11 @@ static int GetPopularityPlayerCount()
     }
 
     return CountHumanPlayers();
+}
+
+static int GetPopulationPlayerCount()
+{
+    return GetClientCount(false);
 }
 
 static int GetRealTeamPlayerCount(int team)
