@@ -12,10 +12,19 @@
 #define TAG_VALUE_MAXLEN 128
 #define TAG_JOINED_MAXLEN 4096
 #define TAG_STEAMID64_MAXLEN 32
+#define TAG_SOURCE_MAXLEN 32
+#define TAG_KEY_MAXLEN 128
 #define TAG_SQL_STEAMID64_MAXLEN ((TAG_STEAMID64_MAXLEN * 2) + 1)
 #define TAG_SQL_VALUE_MAXLEN ((TAG_VALUE_MAXLEN * 2) + 1)
+#define TAG_SQL_SOURCE_MAXLEN ((TAG_SOURCE_MAXLEN * 2) + 1)
+#define TAG_SQL_KEY_MAXLEN ((TAG_KEY_MAXLEN * 2) + 1)
+#define TAG_SOURCE_LITERAL "literal"
+#define TAG_SOURCE_CUSTOM_HAT "custom_hat"
 
 native bool CustomHats_GetPrefix(int client, char[] buffer, int maxlen);
+native bool CustomHats_GetTagChoices(int client, char[] buffer, int maxlen);
+native bool CustomHats_ResolveTag(int client, const char[] key, char[] buffer, int maxlen);
+native bool CustomHats_FindTagSource(int client, const char[] tag, char[] key, int maxlen);
 
 public Plugin myinfo =
 {
@@ -31,6 +40,8 @@ bool g_bDatabaseReady = false;
 ConVar g_cvDatabaseConfig = null;
 
 char g_SelectedTags[MAXPLAYERS + 1][TAG_VALUE_MAXLEN];
+char g_SelectedTagSources[MAXPLAYERS + 1][TAG_SOURCE_MAXLEN];
+char g_SelectedTagKeys[MAXPLAYERS + 1][TAG_KEY_MAXLEN];
 bool g_bTagLoaded[MAXPLAYERS + 1];
 bool g_bTagLoadPending[MAXPLAYERS + 1];
 
@@ -41,6 +52,9 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("Tags_GetSelectedTag", Native_Tags_GetSelectedTag);
     CreateNative("Tags_SetSelectedTag", Native_Tags_SetSelectedTag);
     MarkNativeAsOptional("CustomHats_GetPrefix");
+    MarkNativeAsOptional("CustomHats_GetTagChoices");
+    MarkNativeAsOptional("CustomHats_ResolveTag");
+    MarkNativeAsOptional("CustomHats_FindTagSource");
     MarkNativeAsOptional("Clans_GetTags");
     return APLRes_Success;
 }
@@ -91,6 +105,8 @@ public void OnClientDisconnect(int client)
 void ResetClientTagState(int client)
 {
     g_SelectedTags[client][0] = '\0';
+    strcopy(g_SelectedTagSources[client], sizeof(g_SelectedTagSources[]), TAG_SOURCE_LITERAL);
+    g_SelectedTagKeys[client][0] = '\0';
     g_bTagLoaded[client] = false;
     g_bTagLoadPending[client] = false;
 }
@@ -124,11 +140,13 @@ public void SQL_OnDatabaseConnected(Database db, const char[] error, any data)
         LogError("[Tags] Failed to set utf8mb4 charset");
     }
 
-    char query[384];
+    char query[512];
     FormatEx(query, sizeof(query),
         "CREATE TABLE IF NOT EXISTS tags_selected ("
         ... "steamid64 VARCHAR(32) PRIMARY KEY, "
         ... "tag VARCHAR(128) NOT NULL DEFAULT '', "
+        ... "source VARCHAR(32) NOT NULL DEFAULT 'literal', "
+        ... "source_key VARCHAR(128) NOT NULL DEFAULT '', "
         ... "updated_at INT NOT NULL DEFAULT 0)");
     g_Database.Query(SQL_OnSchemaCreated, query);
 }
@@ -138,6 +156,34 @@ public void SQL_OnSchemaCreated(Database db, DBResultSet results, const char[] e
     if (error[0] != '\0')
     {
         LogError("[Tags] Schema creation failed: %s", error);
+        return;
+    }
+
+    g_Database.Query(SQL_OnSourceColumnReady, "ALTER TABLE tags_selected ADD COLUMN source VARCHAR(32) NOT NULL DEFAULT 'literal'");
+}
+
+static bool IsDuplicateColumnError(const char[] error)
+{
+    return StrContains(error, "Duplicate column", false) != -1
+        || StrContains(error, "duplicate column", false) != -1;
+}
+
+public void SQL_OnSourceColumnReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0' && !IsDuplicateColumnError(error))
+    {
+        LogError("[Tags] Failed to add source column: %s", error);
+        return;
+    }
+
+    g_Database.Query(SQL_OnSourceKeyColumnReady, "ALTER TABLE tags_selected ADD COLUMN source_key VARCHAR(128) NOT NULL DEFAULT ''");
+}
+
+public void SQL_OnSourceKeyColumnReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0' && !IsDuplicateColumnError(error))
+    {
+        LogError("[Tags] Failed to add source_key column: %s", error);
         return;
     }
 
@@ -225,7 +271,7 @@ void LoadClientSelectedTag(int client)
 
     char query[256];
     FormatEx(query, sizeof(query),
-        "SELECT tag FROM tags_selected WHERE steamid64 = '%s' LIMIT 1",
+        "SELECT tag, source, source_key FROM tags_selected WHERE steamid64 = '%s' LIMIT 1",
         escapedSteam);
     g_bTagLoadPending[client] = true;
     g_Database.Query(SQL_OnClientTagLoaded, query, GetClientUserId(client));
@@ -256,6 +302,19 @@ public void SQL_OnClientTagLoaded(Database db, DBResultSet results, const char[]
 
     results.FetchString(0, g_SelectedTags[client], sizeof(g_SelectedTags[]));
     TrimString(g_SelectedTags[client]);
+    results.FetchString(1, g_SelectedTagSources[client], sizeof(g_SelectedTagSources[]));
+    TrimString(g_SelectedTagSources[client]);
+    results.FetchString(2, g_SelectedTagKeys[client], sizeof(g_SelectedTagKeys[]));
+    TrimString(g_SelectedTagKeys[client]);
+
+    if (!g_SelectedTagSources[client][0])
+    {
+        strcopy(g_SelectedTagSources[client], sizeof(g_SelectedTagSources[]), TAG_SOURCE_LITERAL);
+    }
+    if (StrEqual(g_SelectedTagSources[client], TAG_SOURCE_LITERAL, false) && !g_SelectedTagKeys[client][0])
+    {
+        strcopy(g_SelectedTagKeys[client], sizeof(g_SelectedTagKeys[]), g_SelectedTags[client]);
+    }
 }
 
 void SaveClientSelectedTag(int client)
@@ -273,14 +332,20 @@ void SaveClientSelectedTag(int client)
 
     char escapedSteam[TAG_SQL_STEAMID64_MAXLEN];
     char escapedTag[TAG_SQL_VALUE_MAXLEN];
+    char escapedSource[TAG_SQL_SOURCE_MAXLEN];
+    char escapedKey[TAG_SQL_KEY_MAXLEN];
     EscapeSql(steamid64, escapedSteam, sizeof(escapedSteam));
     EscapeSql(g_SelectedTags[client], escapedTag, sizeof(escapedTag));
+    EscapeSql(g_SelectedTagSources[client], escapedSource, sizeof(escapedSource));
+    EscapeSql(g_SelectedTagKeys[client], escapedKey, sizeof(escapedKey));
 
-    char query[512];
+    char query[768];
     FormatEx(query, sizeof(query),
-        "REPLACE INTO tags_selected (steamid64, tag, updated_at) VALUES ('%s', '%s', %d)",
+        "REPLACE INTO tags_selected (steamid64, tag, source, source_key, updated_at) VALUES ('%s', '%s', '%s', '%s', %d)",
         escapedSteam,
         escapedTag,
+        escapedSource,
+        escapedKey,
         GetTime());
     g_Database.Query(SQL_OnSaveCompleted, query);
 }
@@ -293,31 +358,88 @@ public void SQL_OnSaveCompleted(Database db, DBResultSet results, const char[] e
     }
 }
 
-static void AddUniqueTag(ArrayList tags, const char[] tag)
+static void CopySubstring(const char[] source, int startIndex, char[] dest, int destLen)
 {
-    char cleaned[TAG_VALUE_MAXLEN];
-    strcopy(cleaned, sizeof(cleaned), tag);
-    TrimString(cleaned);
-
-    if (!cleaned[0])
+    if (destLen <= 0)
     {
         return;
     }
 
-    char existing[TAG_VALUE_MAXLEN];
-    for (int i = 0; i < tags.Length; i++)
+    int length = strlen(source);
+    if (startIndex >= length)
     {
-        tags.GetString(i, existing, sizeof(existing));
-        if (StrEqual(existing, cleaned, false))
+        dest[0] = '\0';
+        return;
+    }
+
+    int written = 0;
+    for (int i = startIndex; i < length && written < destLen - 1; i++)
+    {
+        dest[written++] = source[i];
+    }
+
+    dest[written] = '\0';
+}
+
+static void BuildTagChoiceInfo(const char[] source, const char[] key, char[] info, int infoLen)
+{
+    FormatEx(info, infoLen, "%s:%s", source, key);
+}
+
+static bool ParseTagChoiceInfo(const char[] info, char[] source, int sourceLen, char[] key, int keyLen)
+{
+    source[0] = '\0';
+    key[0] = '\0';
+
+    int separator = FindCharInString(info, ':');
+    if (separator == -1)
+    {
+        return false;
+    }
+
+    strcopy(source, sourceLen, info);
+    source[separator] = '\0';
+    CopySubstring(info, separator + 1, key, keyLen);
+    TrimString(source);
+    TrimString(key);
+    return source[0] != '\0' && key[0] != '\0';
+}
+
+static void AddUniqueTagChoice(ArrayList sources, ArrayList keys, ArrayList displays, const char[] source, const char[] key, const char[] display)
+{
+    char cleaned[TAG_VALUE_MAXLEN];
+    char cleanedKey[TAG_KEY_MAXLEN];
+    char cleanedSource[TAG_SOURCE_MAXLEN];
+    strcopy(cleaned, sizeof(cleaned), display);
+    strcopy(cleanedKey, sizeof(cleanedKey), key);
+    strcopy(cleanedSource, sizeof(cleanedSource), source);
+    TrimString(cleaned);
+    TrimString(cleanedKey);
+    TrimString(cleanedSource);
+
+    if (!cleaned[0] || !cleanedKey[0] || !cleanedSource[0])
+    {
+        return;
+    }
+
+    char existingSource[TAG_SOURCE_MAXLEN];
+    char existingKey[TAG_KEY_MAXLEN];
+    for (int i = 0; i < sources.Length; i++)
+    {
+        sources.GetString(i, existingSource, sizeof(existingSource));
+        keys.GetString(i, existingKey, sizeof(existingKey));
+        if (StrEqual(existingSource, cleanedSource, false) && StrEqual(existingKey, cleanedKey, false))
         {
             return;
         }
     }
 
-    tags.PushString(cleaned);
+    sources.PushString(cleanedSource);
+    keys.PushString(cleanedKey);
+    displays.PushString(cleaned);
 }
 
-static void AddJoinedTags(ArrayList tags, const char[] joined)
+static void AddJoinedLiteralTags(ArrayList sources, ArrayList keys, ArrayList displays, const char[] joined)
 {
     char current[TAG_VALUE_MAXLEN];
     int currentIndex = 0;
@@ -328,7 +450,7 @@ static void AddJoinedTags(ArrayList tags, const char[] joined)
         if (ch == '|' || ch == '\0')
         {
             current[currentIndex] = '\0';
-            AddUniqueTag(tags, current);
+            AddUniqueTagChoice(sources, keys, displays, TAG_SOURCE_LITERAL, current, current);
             currentIndex = 0;
 
             if (ch == '\0')
@@ -348,16 +470,66 @@ static void AddJoinedTags(ArrayList tags, const char[] joined)
     }
 }
 
-static bool CollectAvailableClientTags(int client, ArrayList tags)
+static void AddJoinedCustomHatTags(ArrayList sources, ArrayList keys, ArrayList displays, const char[] joined)
+{
+    char current[TAG_KEY_MAXLEN + TAG_VALUE_MAXLEN + 8];
+    int currentIndex = 0;
+
+    for (int i = 0;; i++)
+    {
+        char ch = joined[i];
+        if (ch == '|' || ch == '\0')
+        {
+            current[currentIndex] = '\0';
+
+            int separator = FindCharInString(current, '=');
+            if (separator != -1)
+            {
+                char key[TAG_KEY_MAXLEN];
+                char display[TAG_VALUE_MAXLEN];
+                strcopy(key, sizeof(key), current);
+                key[separator] = '\0';
+                CopySubstring(current, separator + 1, display, sizeof(display));
+                AddUniqueTagChoice(sources, keys, displays, TAG_SOURCE_CUSTOM_HAT, key, display);
+            }
+
+            currentIndex = 0;
+
+            if (ch == '\0')
+            {
+                break;
+            }
+
+            continue;
+        }
+
+        if (currentIndex >= sizeof(current) - 1)
+        {
+            continue;
+        }
+
+        current[currentIndex++] = ch;
+    }
+}
+
+static bool CollectAvailableClientTagChoices(int client, ArrayList sources, ArrayList keys, ArrayList displays)
 {
     char joined[TAG_JOINED_MAXLEN];
 
-    if (GetFeatureStatus(FeatureType_Native, "CustomHats_GetPrefix") == FeatureStatus_Available)
+    if (GetFeatureStatus(FeatureType_Native, "CustomHats_GetTagChoices") == FeatureStatus_Available)
+    {
+        joined[0] = '\0';
+        if (CustomHats_GetTagChoices(client, joined, sizeof(joined)) && joined[0])
+        {
+            AddJoinedCustomHatTags(sources, keys, displays, joined);
+        }
+    }
+    else if (GetFeatureStatus(FeatureType_Native, "CustomHats_GetPrefix") == FeatureStatus_Available)
     {
         joined[0] = '\0';
         if (CustomHats_GetPrefix(client, joined, sizeof(joined)) && joined[0])
         {
-            AddJoinedTags(tags, joined);
+            AddJoinedLiteralTags(sources, keys, displays, joined);
         }
     }
 
@@ -366,11 +538,11 @@ static bool CollectAvailableClientTags(int client, ArrayList tags)
         joined[0] = '\0';
         if (Clans_GetTags(client, joined, sizeof(joined)) && joined[0])
         {
-            AddJoinedTags(tags, joined);
+            AddJoinedLiteralTags(sources, keys, displays, joined);
         }
     }
 
-    return tags.Length > 0;
+    return displays.Length > 0;
 }
 
 static bool QueryStoredTagBySteam64(const char[] steamid64, char[] buffer, int maxlen)
@@ -411,6 +583,56 @@ static bool QueryStoredTagBySteam64(const char[] steamid64, char[] buffer, int m
     return found;
 }
 
+static bool TryResolveSelectedCustomHatTag(int client, char[] buffer, int maxlen)
+{
+    if (GetFeatureStatus(FeatureType_Native, "CustomHats_ResolveTag") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    char resolved[TAG_VALUE_MAXLEN];
+    resolved[0] = '\0';
+    if (!CustomHats_ResolveTag(client, g_SelectedTagKeys[client], resolved, sizeof(resolved)) || !resolved[0])
+    {
+        return false;
+    }
+
+    strcopy(buffer, maxlen, resolved);
+    if (!StrEqual(g_SelectedTags[client], resolved, false))
+    {
+        strcopy(g_SelectedTags[client], sizeof(g_SelectedTags[]), resolved);
+        SaveClientSelectedTag(client);
+    }
+
+    return true;
+}
+
+static bool TryMigrateLegacyCustomHatTag(int client, char[] buffer, int maxlen)
+{
+    if (GetFeatureStatus(FeatureType_Native, "CustomHats_FindTagSource") != FeatureStatus_Available
+        || GetFeatureStatus(FeatureType_Native, "CustomHats_ResolveTag") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    char key[TAG_KEY_MAXLEN];
+    key[0] = '\0';
+    if (!CustomHats_FindTagSource(client, g_SelectedTags[client], key, sizeof(key)) || !key[0])
+    {
+        return false;
+    }
+
+    strcopy(g_SelectedTagSources[client], sizeof(g_SelectedTagSources[]), TAG_SOURCE_CUSTOM_HAT);
+    strcopy(g_SelectedTagKeys[client], sizeof(g_SelectedTagKeys[]), key);
+    if (!TryResolveSelectedCustomHatTag(client, buffer, maxlen))
+    {
+        return false;
+    }
+
+    SaveClientSelectedTag(client);
+    return true;
+}
+
 static void RequestClientTagLoadIfNeeded(int client)
 {
     if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client) || g_bTagLoaded[client])
@@ -441,15 +663,26 @@ static bool GetResolvedClientTag(int client, char[] buffer, int maxlen)
         return false;
     }
 
-    ArrayList tags = new ArrayList(ByteCountToCells(TAG_VALUE_MAXLEN));
-    CollectAvailableClientTags(client, tags);
+    if (StrEqual(g_SelectedTagSources[client], TAG_SOURCE_CUSTOM_HAT, false))
+    {
+        return TryResolveSelectedCustomHatTag(client, buffer, maxlen);
+    }
+
+    ArrayList sources = new ArrayList(ByteCountToCells(TAG_SOURCE_MAXLEN));
+    ArrayList keys = new ArrayList(ByteCountToCells(TAG_KEY_MAXLEN));
+    ArrayList displays = new ArrayList(ByteCountToCells(TAG_VALUE_MAXLEN));
+    CollectAvailableClientTagChoices(client, sources, keys, displays);
 
     char available[TAG_VALUE_MAXLEN];
+    char source[TAG_SOURCE_MAXLEN];
+    char key[TAG_KEY_MAXLEN];
     bool found = false;
-    for (int i = 0; i < tags.Length; i++)
+    for (int i = 0; i < displays.Length; i++)
     {
-        tags.GetString(i, available, sizeof(available));
-        if (!StrEqual(available, g_SelectedTags[client], false))
+        sources.GetString(i, source, sizeof(source));
+        keys.GetString(i, key, sizeof(key));
+        displays.GetString(i, available, sizeof(available));
+        if (!StrEqual(source, g_SelectedTagSources[client], false) || !StrEqual(key, g_SelectedTagKeys[client], false))
         {
             continue;
         }
@@ -459,12 +692,32 @@ static bool GetResolvedClientTag(int client, char[] buffer, int maxlen)
         break;
     }
 
-    delete tags;
-    return found;
+    delete sources;
+    delete keys;
+    delete displays;
+
+    if (found)
+    {
+        return true;
+    }
+
+    return StrEqual(g_SelectedTagSources[client], TAG_SOURCE_LITERAL, false)
+        && TryMigrateLegacyCustomHatTag(client, buffer, maxlen);
 }
 
 void SetClientSelectedTag(int client, const char[] tag)
 {
+    strcopy(g_SelectedTagSources[client], sizeof(g_SelectedTagSources[]), TAG_SOURCE_LITERAL);
+    strcopy(g_SelectedTagKeys[client], sizeof(g_SelectedTagKeys[]), tag);
+    strcopy(g_SelectedTags[client], sizeof(g_SelectedTags[]), tag);
+    g_bTagLoaded[client] = true;
+    SaveClientSelectedTag(client);
+}
+
+void SetClientSelectedTagChoice(int client, const char[] source, const char[] key, const char[] tag)
+{
+    strcopy(g_SelectedTagSources[client], sizeof(g_SelectedTagSources[]), source);
+    strcopy(g_SelectedTagKeys[client], sizeof(g_SelectedTagKeys[]), key);
     strcopy(g_SelectedTags[client], sizeof(g_SelectedTags[]), tag);
     g_bTagLoaded[client] = true;
     SaveClientSelectedTag(client);
@@ -473,6 +726,8 @@ void SetClientSelectedTag(int client, const char[] tag)
 void ClearClientSelectedTag(int client)
 {
     g_SelectedTags[client][0] = '\0';
+    strcopy(g_SelectedTagSources[client], sizeof(g_SelectedTagSources[]), TAG_SOURCE_LITERAL);
+    g_SelectedTagKeys[client][0] = '\0';
     g_bTagLoaded[client] = true;
     SaveClientSelectedTag(client);
 }
@@ -490,20 +745,28 @@ public Action Command_TagMenu(int client, int args)
         return Plugin_Handled;
     }
 
-    ArrayList tags = new ArrayList(ByteCountToCells(TAG_VALUE_MAXLEN));
-    CollectAvailableClientTags(client, tags);
+    ArrayList sources = new ArrayList(ByteCountToCells(TAG_SOURCE_MAXLEN));
+    ArrayList keys = new ArrayList(ByteCountToCells(TAG_KEY_MAXLEN));
+    ArrayList displays = new ArrayList(ByteCountToCells(TAG_VALUE_MAXLEN));
+    CollectAvailableClientTagChoices(client, sources, keys, displays);
 
     Menu menu = new Menu(MenuHandler_TagMenu);
     menu.SetTitle("Select Chat Tag");
 
+    char source[TAG_SOURCE_MAXLEN];
+    char key[TAG_KEY_MAXLEN];
     char tag[TAG_VALUE_MAXLEN];
-    for (int i = 0; i < tags.Length; i++)
+    char itemInfo[TAG_SOURCE_MAXLEN + TAG_KEY_MAXLEN + 4];
+    for (int i = 0; i < displays.Length; i++)
     {
-        tags.GetString(i, tag, sizeof(tag));
-        menu.AddItem(tag, tag);
+        sources.GetString(i, source, sizeof(source));
+        keys.GetString(i, key, sizeof(key));
+        displays.GetString(i, tag, sizeof(tag));
+        BuildTagChoiceInfo(source, key, itemInfo, sizeof(itemInfo));
+        menu.AddItem(itemInfo, tag);
     }
 
-    if (tags.Length == 0)
+    if (displays.Length == 0)
     {
         menu.AddItem("action:unavailable", "No tags available", ITEMDRAW_DISABLED);
     }
@@ -511,7 +774,9 @@ public Action Command_TagMenu(int client, int args)
     menu.AddItem("action:clear", "Clear Tag");
     menu.Display(client, MENU_TIME_FOREVER);
 
-    delete tags;
+    delete sources;
+    delete keys;
+    delete displays;
     return Plugin_Handled;
 }
 
@@ -534,37 +799,52 @@ public int MenuHandler_TagMenu(Menu menu, MenuAction action, int param1, int par
         return 0;
     }
 
-    char selectedTag[TAG_VALUE_MAXLEN];
-    menu.GetItem(param2, selectedTag, sizeof(selectedTag));
+    char selectedInfo[TAG_SOURCE_MAXLEN + TAG_KEY_MAXLEN + 4];
+    menu.GetItem(param2, selectedInfo, sizeof(selectedInfo));
 
-    if (StrEqual(selectedTag, "action:clear", false))
+    if (StrEqual(selectedInfo, "action:clear", false))
     {
         ClearClientSelectedTag(client);
         PrintToChat(client, "[Tags] Your chat tag has been cleared.");
         return 0;
     }
 
-    if (StrEqual(selectedTag, "action:unavailable", false))
+    if (StrEqual(selectedInfo, "action:unavailable", false))
     {
         return 0;
     }
 
-    ArrayList tags = new ArrayList(ByteCountToCells(TAG_VALUE_MAXLEN));
-    CollectAvailableClientTags(client, tags);
+    char selectedSource[TAG_SOURCE_MAXLEN];
+    char selectedKey[TAG_KEY_MAXLEN];
+    if (!ParseTagChoiceInfo(selectedInfo, selectedSource, sizeof(selectedSource), selectedKey, sizeof(selectedKey)))
+    {
+        return 0;
+    }
+
+    ArrayList sources = new ArrayList(ByteCountToCells(TAG_SOURCE_MAXLEN));
+    ArrayList keys = new ArrayList(ByteCountToCells(TAG_KEY_MAXLEN));
+    ArrayList displays = new ArrayList(ByteCountToCells(TAG_VALUE_MAXLEN));
+    CollectAvailableClientTagChoices(client, sources, keys, displays);
 
     char availableTag[TAG_VALUE_MAXLEN];
+    char availableSource[TAG_SOURCE_MAXLEN];
+    char availableKey[TAG_KEY_MAXLEN];
     bool found = false;
-    for (int i = 0; i < tags.Length; i++)
+    for (int i = 0; i < displays.Length; i++)
     {
-        tags.GetString(i, availableTag, sizeof(availableTag));
-        if (StrEqual(availableTag, selectedTag, false))
+        sources.GetString(i, availableSource, sizeof(availableSource));
+        keys.GetString(i, availableKey, sizeof(availableKey));
+        displays.GetString(i, availableTag, sizeof(availableTag));
+        if (StrEqual(availableSource, selectedSource, false) && StrEqual(availableKey, selectedKey, false))
         {
             found = true;
             break;
         }
     }
 
-    delete tags;
+    delete sources;
+    delete keys;
+    delete displays;
 
     if (!found)
     {
@@ -572,8 +852,8 @@ public int MenuHandler_TagMenu(Menu menu, MenuAction action, int param1, int par
         return 0;
     }
 
-    SetClientSelectedTag(client, selectedTag);
-    PrintToChat(client, "[Tags] Your chat tag is now %s.", selectedTag);
+    SetClientSelectedTagChoice(client, selectedSource, selectedKey, availableTag);
+    PrintToChat(client, "[Tags] Your chat tag is now %s.", availableTag);
     return 0;
 }
 

@@ -140,6 +140,9 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
 	RegPluginLibrary("custom_hats");
 	CreateNative("CustomHats_GetPrefix", Native_CustomHats_GetPrefix);
+	CreateNative("CustomHats_GetTagChoices", Native_CustomHats_GetTagChoices);
+	CreateNative("CustomHats_ResolveTag", Native_CustomHats_ResolveTag);
+	CreateNative("CustomHats_FindTagSource", Native_CustomHats_FindTagSource);
 	return APLRes_Success;
 }
 
@@ -1784,6 +1787,24 @@ static bool AppendJoinedPrefix(char[] buffer, int maxlen, const char[] prefix)
 	return true;
 }
 
+static bool AppendJoinedHatTagChoice(char[] buffer, int maxlen, const char[] hatId, const char[] prefix)
+{
+	if (!hatId[0] || !prefix[0])
+	{
+		return false;
+	}
+
+	if (buffer[0])
+	{
+		StrCat(buffer, maxlen, "|");
+	}
+
+	StrCat(buffer, maxlen, hatId);
+	StrCat(buffer, maxlen, "=");
+	StrCat(buffer, maxlen, prefix);
+	return true;
+}
+
 static bool GetClientHatPrefixes(int client, char[] buffer, int maxlen)
 {
 	buffer[0] = '\0';
@@ -1820,6 +1841,98 @@ static bool GetClientHatPrefixes(int client, char[] buffer, int maxlen)
 	return found;
 }
 
+static bool GetClientHatTagChoices(int client, char[] buffer, int maxlen)
+{
+	buffer[0] = '\0';
+
+	if (!IsValidClient(client) || !HasClientEnabledHats(client))
+	{
+		return false;
+	}
+
+	TFClassType playerClass = TF2_GetPlayerClass(client);
+	if (playerClass == TFClass_Unknown)
+	{
+		return false;
+	}
+
+	bool found = false;
+	for (int i = 0; i < g_iHatCount; i++)
+	{
+		if (!g_bHatEnabled[client][i] || !IsHatEnabled(i) || !IsClassAllowedForHat(i, playerClass))
+		{
+			continue;
+		}
+
+		char prefix[128];
+		if (!GetHatPrefixForClientTeam(client, i, prefix, sizeof(prefix)))
+		{
+			continue;
+		}
+
+		AppendJoinedHatTagChoice(buffer, maxlen, g_Hats[i].id, prefix);
+		found = true;
+	}
+
+	return found;
+}
+
+static bool ResolveClientHatTag(int client, const char[] hatId, char[] buffer, int maxlen)
+{
+	buffer[0] = '\0';
+
+	if (!IsValidClient(client) || !HasClientEnabledHats(client) || !hatId[0])
+	{
+		return false;
+	}
+
+	int hatIndex = FindHatIndexById(hatId);
+	if (!IsHatEnabled(hatIndex) || !g_bHatEnabled[client][hatIndex])
+	{
+		return false;
+	}
+
+	TFClassType playerClass = TF2_GetPlayerClass(client);
+	if (playerClass == TFClass_Unknown || !IsClassAllowedForHat(hatIndex, playerClass))
+	{
+		return false;
+	}
+
+	return GetHatPrefixForClientTeam(client, hatIndex, buffer, maxlen);
+}
+
+static bool FindClientHatTagSource(int client, const char[] prefix, char[] hatId, int maxlen)
+{
+	hatId[0] = '\0';
+
+	if (!IsValidClient(client) || !HasClientEnabledHats(client) || !prefix[0])
+	{
+		return false;
+	}
+
+	TFClassType playerClass = TF2_GetPlayerClass(client);
+	if (playerClass == TFClass_Unknown)
+	{
+		return false;
+	}
+
+	for (int i = 0; i < g_iHatCount; i++)
+	{
+		if (!g_bHatEnabled[client][i] || !IsHatEnabled(i) || !IsClassAllowedForHat(i, playerClass))
+		{
+			continue;
+		}
+
+		if (StrEqual(prefix, g_Hats[i].prefix, false) || (g_Hats[i].bluPrefix[0] && StrEqual(prefix, g_Hats[i].bluPrefix, false)))
+		{
+			strcopy(hatId, maxlen, g_Hats[i].id);
+			return true;
+		}
+	}
+
+	return false;
+}
+
 public any Native_CustomHats_GetPrefix(Handle plugin, int numParams)
 {
 	int client = GetNativeCell(1);
@@ -1830,6 +1943,51 @@ public any Native_CustomHats_GetPrefix(Handle plugin, int numParams)
 
 	bool found = GetClientHatPrefixes(client, buffer, sizeof(buffer));
 	SetNativeString(2, buffer, maxlen, true);
+	return found;
+}
+
+public any Native_CustomHats_GetTagChoices(Handle plugin, int numParams)
+{
+	int client = GetNativeCell(1);
+	int maxlen = GetNativeCell(3);
+
+	char buffer[4096];
+	buffer[0] = '\0';
+
+	bool found = GetClientHatTagChoices(client, buffer, sizeof(buffer));
+	SetNativeString(2, buffer, maxlen, true);
+	return found;
+}
+
+public any Native_CustomHats_ResolveTag(Handle plugin, int numParams)
+{
+	int client = GetNativeCell(1);
+	int maxlen = GetNativeCell(4);
+
+	char hatId[64];
+	char buffer[128];
+	hatId[0] = '\0';
+	buffer[0] = '\0';
+
+	GetNativeString(2, hatId, sizeof(hatId));
+	bool found = ResolveClientHatTag(client, hatId, buffer, sizeof(buffer));
+	SetNativeString(3, buffer, maxlen, true);
+	return found;
+}
+
+public any Native_CustomHats_FindTagSource(Handle plugin, int numParams)
+{
+	int client = GetNativeCell(1);
+	int maxlen = GetNativeCell(4);
+
+	char prefix[128];
+	char hatId[64];
+	prefix[0] = '\0';
+	hatId[0] = '\0';
+
+	GetNativeString(2, prefix, sizeof(prefix));
+	bool found = FindClientHatTagSource(client, prefix, hatId, sizeof(hatId));
+	SetNativeString(3, hatId, maxlen, true);
 	return found;
 }
 
