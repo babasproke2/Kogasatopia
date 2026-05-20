@@ -13,7 +13,7 @@ from statistics import mean, median
 
 
 DEFAULT_DB_CONFIG = "/home/kogasa/hlserver/tf2/tf/addons/sourcemod/configs/databases.cfg"
-DEFAULT_TABLE = "server_connection_events"
+DEFAULT_TABLE = "server_connection_statistics_events"
 
 
 def parse_databases_cfg(path: str, section: str) -> dict[str, str]:
@@ -455,7 +455,7 @@ def summarize(rows: list[dict[str, str | int]], limit: int, days: int, min_sessi
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Summarize the SourceMod server_connection_events analytics table.")
+    parser = argparse.ArgumentParser(description="Summarize the SourceMod server_connection_statistics_events analytics table.")
     parser.add_argument("--config", default=DEFAULT_DB_CONFIG, help="SourceMod databases.cfg path")
     parser.add_argument("--connection", default="default", help="databases.cfg connection name")
     parser.add_argument("--table", default=DEFAULT_TABLE, help="analytics table name")

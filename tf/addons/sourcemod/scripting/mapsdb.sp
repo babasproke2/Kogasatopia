@@ -57,7 +57,7 @@ public void OnPluginStart()
     g_cvPopulationSampleInterval = CreateConVar(
         "sm_mapsdb_population_sample_interval",
         "30.0",
-        "Seconds between detailed MapsDB server_population_samples writes.",
+        "Seconds between detailed MapsDB server_population_statistics_samples writes.",
         _,
         true,
         10.0);
@@ -311,7 +311,7 @@ public Action Timer_RecordPopulationSample(Handle timer)
 
     char query[2048];
     FormatEx(query, sizeof(query),
-        "INSERT INTO server_population_samples (sampled_at, host_port, map_session_id, sample_sequence, map_name, gamemode, player_count, visible_max, red_count, blu_count, spectator_count, map_elapsed_seconds, round_elapsed_seconds, round_running, weekday, hour_of_day, joining_players, leaving_players, player_seconds_delta) VALUES (%d, %d, '%s', %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
+        "INSERT INTO server_population_statistics_samples (sampled_at, host_port, map_session_id, sample_sequence, map_name, gamemode, player_count, visible_max, red_count, blu_count, spectator_count, map_elapsed_seconds, round_elapsed_seconds, round_running, weekday, hour_of_day, joining_players, leaving_players, player_seconds_delta) VALUES (%d, %d, '%s', %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
         now,
         hostPort,
         escapedSessionId,
@@ -397,7 +397,7 @@ static void EnsurePopulationSampleSchema()
 
     char query[MAPSDB_QUERY_MAX];
     query[0] = '\0';
-    StrCat(query, sizeof(query), "CREATE TABLE IF NOT EXISTS server_population_samples (");
+    StrCat(query, sizeof(query), "CREATE TABLE IF NOT EXISTS server_population_statistics_samples (");
     StrCat(query, sizeof(query), "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,");
     StrCat(query, sizeof(query), "sampled_at INT NOT NULL,");
     StrCat(query, sizeof(query), "host_port INT NOT NULL DEFAULT 0,");
@@ -429,7 +429,7 @@ static void EnsurePopulationSampleSchema()
     SQL_TQuery(g_hDb, SQL_OnSchemaComplete, query);
 
     query[0] = '\0';
-    StrCat(query, sizeof(query), "ALTER TABLE server_population_samples ");
+    StrCat(query, sizeof(query), "ALTER TABLE server_population_statistics_samples ");
     StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS map_session_id VARCHAR(64) NOT NULL DEFAULT '', ");
     StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS sample_sequence INT NOT NULL DEFAULT 0, ");
     StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS weekday TINYINT NOT NULL DEFAULT 0, ");
@@ -439,8 +439,8 @@ static void EnsurePopulationSampleSchema()
     StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS player_seconds_delta INT NOT NULL DEFAULT 0");
     SQL_TQuery(g_hDb, SQL_OnSchemaComplete, query);
 
-    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, "CREATE INDEX IF NOT EXISTS idx_map_session ON server_population_samples (map_session_id)");
-    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, "CREATE INDEX IF NOT EXISTS idx_weekday_hour ON server_population_samples (weekday, hour_of_day)");
+    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, "CREATE INDEX IF NOT EXISTS idx_map_session ON server_population_statistics_samples (map_session_id)");
+    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, "CREATE INDEX IF NOT EXISTS idx_weekday_hour ON server_population_statistics_samples (weekday, hour_of_day)");
 }
 
 public void SQL_OnSchemaComplete(Database db, DBResultSet results, const char[] error, any data)

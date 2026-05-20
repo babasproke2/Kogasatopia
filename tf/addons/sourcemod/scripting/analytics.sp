@@ -250,7 +250,7 @@ void FlushAnalyticsEvents()
 
     char query[ANALYTICS_SQL_MAX];
     strcopy(query, sizeof(query),
-        "INSERT INTO server_connection_events (occurred_at, host_port, map_name, gamemode, event_type, is_admin, player_name, steamid, ip_subnet, country, connection_minutes, reason, weekday, hour_of_day, imported, source_file, source_line, created_at) VALUES ");
+        "INSERT INTO server_connection_statistics_events (occurred_at, host_port, map_name, gamemode, event_type, is_admin, player_name, steamid, ip_subnet, country, connection_minutes, reason, weekday, hour_of_day, imported, source_file, source_line, created_at) VALUES ");
 
     bool hasRows = false;
     int createdAt = GetTime();
@@ -268,7 +268,7 @@ void FlushAnalyticsEvents()
         {
             SQL_TQuery(g_hDb, SQL_OnWriteComplete, query);
             strcopy(query, sizeof(query),
-                "INSERT INTO server_connection_events (occurred_at, host_port, map_name, gamemode, event_type, is_admin, player_name, steamid, ip_subnet, country, connection_minutes, reason, weekday, hour_of_day, imported, source_file, source_line, created_at) VALUES ");
+                "INSERT INTO server_connection_statistics_events (occurred_at, host_port, map_name, gamemode, event_type, is_admin, player_name, steamid, ip_subnet, country, connection_minutes, reason, weekday, hour_of_day, imported, source_file, source_line, created_at) VALUES ");
             hasRows = false;
         }
 
@@ -376,7 +376,7 @@ void EnsureAnalyticsSchema()
 
     char query[4096];
     query[0] = '\0';
-    StrCat(query, sizeof(query), "CREATE TABLE IF NOT EXISTS server_connection_events (");
+    StrCat(query, sizeof(query), "CREATE TABLE IF NOT EXISTS server_connection_statistics_events (");
     StrCat(query, sizeof(query), "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,");
     StrCat(query, sizeof(query), "occurred_at INT NOT NULL,");
     StrCat(query, sizeof(query), "host_port INT NOT NULL DEFAULT 0,");

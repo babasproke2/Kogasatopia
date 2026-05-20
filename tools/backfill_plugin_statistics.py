@@ -89,7 +89,7 @@ def ensure_schema(mysql_args: list[str], table: str) -> None:
 def load_map_contexts(mysql_args: list[str]) -> dict[int, tuple[list[int], list[MapContext]]]:
     output = mysql_query(mysql_args, """
         SELECT occurred_at, host_port, map_name, gamemode
-        FROM server_connection_events
+        FROM server_connection_statistics_events
         WHERE event_type = 'map_change'
         ORDER BY host_port, occurred_at, id;
     """)

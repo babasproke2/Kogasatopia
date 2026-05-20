@@ -154,12 +154,12 @@ def insert_events(events: list[Event], mysql_args: list[str], chunk_size: int) -
                 f"{sql_string(event.source_file)}, {event.source_line}, {created_at}"
                 ")"
             )
-        query = f"INSERT IGNORE INTO server_connection_events ({columns}) VALUES\n" + ",\n".join(values) + ";"
+        query = f"INSERT IGNORE INTO server_connection_statistics_events ({columns}) VALUES\n" + ",\n".join(values) + ";"
         subprocess.run(mysql_args, input=query, text=True, check=True)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Backfill server_connection_events from legacy SourceMod connection logs.")
+    parser = argparse.ArgumentParser(description="Backfill server_connection_statistics_events from legacy SourceMod connection logs.")
     parser.add_argument("--log-root", default="/home/kogasa/hlserver/tf2/tf/addons/sourcemod/logs/connections")
     parser.add_argument("--host-port", type=int, default=27015)
     parser.add_argument("--timezone", default="America/New_York")
