@@ -2442,31 +2442,6 @@ void AddClanMember(int clanId, const char[] steamid64, SQLQueryCallback callback
     g_Database.Query(callback, query, data);
 }
 
-stock void RemoveClanMember(int clanId, const char[] steamid64, SQLQueryCallback callback, any data = 0)
-{
-    if (!EnsureDatabaseReady())
-    {
-        return;
-    }
-
-    char escapedSteam[SQL_STEAMID64_MAXLEN];
-    EscapeSql(steamid64, escapedSteam, sizeof(escapedSteam));
-
-    char cleanupQuery[256];
-    FormatEx(cleanupQuery, sizeof(cleanupQuery),
-        "DELETE FROM clan_sub_tags WHERE clan_id = %d AND steamid64 = '%s'",
-        clanId,
-        escapedSteam);
-    g_Database.Query(SQL_GenericQueryCallback, cleanupQuery);
-
-    char query[256];
-    FormatEx(query, sizeof(query),
-        "DELETE FROM clan_members WHERE clan_id = %d AND steamid64 = '%s'",
-        clanId,
-        escapedSteam);
-    g_Database.Query(callback, query, data);
-}
-
 void SetClanTag(int clanId, const char[] tag, SQLQueryCallback callback, any data = 0)
 {
     if (!EnsureDatabaseReady())

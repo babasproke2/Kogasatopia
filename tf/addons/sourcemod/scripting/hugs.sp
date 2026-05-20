@@ -2015,14 +2015,6 @@ void ResetClientStats(int client)
 		}
 	}
 
-	public void SQLErrorCheckCallback(Database db, DBResultSet results, const char[] error, any data)
-	{
-		if (error[0])
-		{
-			LogError("[Hugs] SQL error: %s", error);
-		}
-	}
-
 	public void SQL_OnSchemaOpComplete(Database db, DBResultSet results, const char[] error, any data)
 	{
 		if (error[0])

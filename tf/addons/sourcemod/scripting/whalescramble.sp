@@ -105,6 +105,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
+    MarkNativeAsOptional("DGM_RealTeamPlayerCount");
     MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");

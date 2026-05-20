@@ -2755,7 +2755,6 @@ void LoadFilterConfig()
                   g_FilterCount, g_BlacklistCount, g_Blacklist50Count, g_ForcedStatusCount, g_AllowedCommandsCount);
 }
 
-// Example usage function - filters a string
 public void FilterString(char[] input, int maxlen)
 {
     bool caseSensitive = g_hFiltersCaseSensitive == null ? true : g_hFiltersCaseSensitive.BoolValue;
@@ -2765,28 +2764,6 @@ public void FilterString(char[] input, int maxlen)
     {
         ReplaceString(input, maxlen, g_FilterWords[i], g_ReplacementWords[i], caseSensitive);
     }
-}
-
-    // Example usage function - checks if string contains blacklisted word
-    public bool ContainsBlacklistedWord(const char[] input)
-{
-    char lowerInput[256];
-    strcopy(lowerInput, sizeof(lowerInput), input);
-    StringToLower(lowerInput);
-    
-    for (int i = 0; i < g_BlacklistCount; i++)
-    {
-        char lowerBlacklist[MAX_WORD_LENGTH];
-        strcopy(lowerBlacklist, sizeof(lowerBlacklist), g_BlacklistWords[i]);
-        StringToLower(lowerBlacklist);
-        
-        if (StrContains(lowerInput, lowerBlacklist) != -1)
-        {
-            return true;
-        }
-    }
-    
-    return false;
 }
 
 // Helper function to convert string to lowercase

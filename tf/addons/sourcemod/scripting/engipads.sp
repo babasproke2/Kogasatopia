@@ -927,33 +927,6 @@ public Action ShowPadsInfoCmd(int iClient, int nArgs)
 	return Plugin_Handled;
 }
 
-/* Menus/Panels */
-void ShowPadMenu(int iClient)
-{
-	if (!CheckCommandAccess(iClient, "sm_engipads_override", 0))
-	{
-		CPrintToChat(iClient, "{orange}[EngiPads]{default} %t", "padphrase_noaccess");
-		return;
-	}
-	
-	Menu menu = new Menu(MenuHandlerPadMenu);
-	
-	char szTranslation[64];
-	
-	Format(szTranslation, sizeof(szTranslation), "%T", "padphrase_menutitle", iClient);
-	menu.SetTitle(szTranslation);
-	
-	Format(szTranslation, sizeof(szTranslation), "%T", "padphrase_menuenable", iClient);
-	menu.AddItem("on", szTranslation);
-	
-	Format(szTranslation, sizeof(szTranslation), "%T", "padphrase_menudisable", iClient);
-	menu.AddItem("off", szTranslation);
-	
-	menu.ExitButton = true;
-		
-	menu.Display(iClient, MENU_TIME_FOREVER);
-}
-
 void ShowPadInfo(int iClient)
 {
 	Panel panel = new Panel();
@@ -1001,30 +974,10 @@ void ShowPadInfo(int iClient)
 	panel.Send(iClient, MenuHandlerPadInfo, MENU_TIME_FOREVER);
 }
 
-int MenuHandlerPadMenu(Menu menu, MenuAction iAction, int iClient, int iOption)
-{
-	if (iAction == MenuAction_Select)
-	{
-		if (!iOption) //Enabled EngiPads
-		{
-			CPrintToChat(iClient, "{orange}[EngiPads]{default} %t", "padphrase_enabled");
-		}
-		else	//Disabled EngiPads
-		{
-			CPrintToChat(iClient, "{orange}[EngiPads]{default} %t", "padphrase_disabled");
-		}
-		
-		SetClientPadsEnabled(iClient, iOption ? false : true);
-	}
-	else if (iAction == MenuAction_End)
-	{
-		delete menu;
-	}
-}
-
 int MenuHandlerPadInfo(Menu menu, MenuAction iAction, int iClient, int iOption)
 {
 	delete menu;
+	return 0;
 }
 
 /* "Stocks" */
