@@ -433,21 +433,21 @@ public void WhaleTracker_OnKillstreak(int client, int killstreak)
     AnnounceKillstreakMilestone(client, clientName, killstreak);
 }
 
-public void WhaleTracker_OnKillstreakEnd(int client, int killstreak)
+public void WhaleTracker_OnKillstreakEnd(int attacker, int victim, int killstreak)
 {
-    if (!IsValidAnnouncerClient(client))
+    if (!IsValidAnnouncerClient(victim))
     {
         return;
     }
 
-    AwardKillstreakEndBonusPoints(client, killstreak);
+    AwardKillstreakEndBonusPoints(attacker, killstreak);
 
     if (!g_cvKillstreaksEnabled.BoolValue)
     {
         return;
     }
 
-    AnnounceKillstreakEnd(client, killstreak);
+    AnnounceKillstreakEnd(victim, killstreak);
 }
 
 public void WhaleTracker_OnMultikill(int client, int kills)
@@ -717,6 +717,11 @@ void AwardKillstreakBonusPoints(int client, int killstreak)
 
 void AwardKillstreakEndBonusPoints(int client, int killstreak)
 {
+    if (!IsValidAnnouncerClient(client))
+    {
+        return;
+    }
+
     int points = 0;
     if (killstreak > 19)
     {

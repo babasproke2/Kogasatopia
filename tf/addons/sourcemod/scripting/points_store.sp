@@ -1246,6 +1246,10 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     {
         strcopy(label, maxlen, "Revenge");
     }
+    else if (StrEqual(type, "killstreak_end", false))
+    {
+        strcopy(label, maxlen, "Killstreak shut down");
+    }
 }
 
 void GetMultikillBonusPointsLabel(int kills, char[] label, int maxlen)
