@@ -597,6 +597,14 @@ float GetAmplifierEffectLength(int ent)
 	return effectLength;
 }
 
+float GetAmplifierDamage(int ent, float damage)
+{
+	if (ent > 0 && ent < ME && AmplifierMini[ent])
+		return float(RoundToFloor(damage * AMPLIFIER_MINI_MODIFIER));
+
+	return damage;
+}
+
 void ClearAmplifierConditionForClient(int client, int maxEntities)
 {
 	for (int ent = 1; ent < maxEntities; ent++)
@@ -696,7 +704,7 @@ bool TryApplyAmplifierToClient(int client, int amp, int metalPerPlayer, int meta
 	}
 	else if (zapDamage > 0.0)
 	{
-		DealElectricDamage(client, builder, clientPos, zapDamage);
+		DealElectricDamage(client, builder, clientPos, GetAmplifierDamage(amp, zapDamage));
 		return true;
 	}
 	else
@@ -886,7 +894,12 @@ public Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBro
 	GetEntPropVector(entindex, Prop_Send, "m_vecOrigin", position);
 	int explosionDamage = GetConVarInt(cvarEnableExplosion);
 	if (explosionDamage > 0)
+	{
+		if (AmplifierMini[entindex])
+			explosionDamage = RoundToFloor(float(explosionDamage) * AMPLIFIER_MINI_MODIFIER);
+
 		CreateAmplifierExplosion(position, attacker, entwasbuilding, explosionDamage);
+	}
 	return Plugin_Changed;
 }
 
