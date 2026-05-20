@@ -1033,6 +1033,43 @@ public Action Timer_HealTimer(Handle timer)
 	return calculated;
 }*/
 
+static bool TryApplyHolsterReload(int weapon)
+{
+	if (weapon <= MaxClients || !IsValidEntity(weapon))
+	{
+		return false;
+	}
+
+	int maxClip = TF2CustAttr_GetInt(weapon, "holster reload");
+	if (maxClip <= 0)
+	{
+		return false;
+	}
+
+	int clip = GetClip(weapon);
+	if (clip < 0 || clip >= maxClip)
+	{
+		return false;
+	}
+
+	int reserve = GetAmmo_Weapon(weapon);
+	if (reserve <= 0)
+	{
+		return false;
+	}
+
+	int missing = maxClip - clip;
+	int toReload = (missing < reserve) ? missing : reserve;
+	if (toReload <= 0)
+	{
+		return false;
+	}
+
+	SetClip_Weapon(weapon, clip + toReload);
+	SetAmmo_Weapon(weapon, reserve - toReload);
+	return true;
+}
+
 public Action OnWeaponSwitch(client, weapon)
 {
 	if (!GetConVarInt(g_sEnabled))
@@ -1040,24 +1077,12 @@ public Action OnWeaponSwitch(client, weapon)
 		return Plugin_Continue;
 	}
 
-	if (weapon <= MaxClients || !IsValidEntity(weapon))
-	{
-		return Plugin_Continue;
-	}
+	int previousWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	TryApplyHolsterReload(previousWeapon);
 
-	int maxClip = TF2CustAttr_GetInt(weapon, "holster reload");
-	if (maxClip != 0)
+	if (weapon != previousWeapon)
 	{
-		int clip = GetClip(weapon);
-		int reserve = GetAmmo_Weapon(weapon);
-		int missing = maxClip - clip;
-		int toReload = (missing < reserve) ? missing : reserve;
-		if (toReload > 0)
-		{
-			SetClip_Weapon(weapon, clip + toReload);
-			SetAmmo_Weapon(weapon, reserve - toReload);
-			return Plugin_Changed;
-		}
+		TryApplyHolsterReload(weapon);
 	}
 
 	return Plugin_Continue;

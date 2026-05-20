@@ -159,7 +159,7 @@ public OnPluginStart()
 	RegConsoleCmd("sm_amp", CallPanel, "Select engineer's building type");
 	RegConsoleCmd("sm_amphelp", HelpPanel, "Show info about Amplifier");
 	RegConsoleCmd("sm_ah", HelpPanel, "Show info about Amplifier");
-	RegConsoleCmd("sm_ph", HelpPanel, "Show info about Amplifier");
+	RegConsoleCmd("sm_ph", PadHelpPanel, "Show info about Jump/Speed Pads");
 	RegConsoleCmd("sm_killsentries", Command_KillSentries, "Destroy all sentry guns");
 
 	g_hPadCookie = FindClientCookie("engipads_toggle");
@@ -380,15 +380,26 @@ public Action:HelpPanel(client, Args)
 {
 	new Handle:panel = CreatePanel();
 
-	SetPanelTitle(panel, "=== Amplifier Info ===");
-	DrawPanelText(panel, "Amplifiers consume metal to provide a short combat buff to nearby teammates");
-	DrawPanelText(panel, "It applies the Concheror effect and a 30% bonus to reload speed.");
-	DrawPanelText(panel, "Hit with wrench to refill");
-	DrawPanelText(panel, "=== Jump/Speed Pad Info ===");
+	SetPanelTitle(panel, "Amplifier Info");
+	DrawPanelText(panel, "Amplifiers buff allies with 40% faster reload speed and health on hit");
+	DrawPanelText(panel, "They zap enemies within range and explode on death.");
+	DrawPanelText(panel, "Mini-amplifiers have less health and less potent effects.");
+	DrawPanelText(panel, "Ammo is fuel, hit with your wrench to refill.");
+	DrawPanelText(panel, "If sentries are disabled, amplifiers replace them. Otherwise, equip amplifiers with !a");
+	DrawPanelItem(panel, "Close");
+
+	SendPanelToClient(panel, client, AmpHelpPanelH, 20);
+	CloseHandle(panel);
+}
+
+public Action:PadHelpPanel(client, Args)
+{
+	new Handle:panel = CreatePanel();
+
+	DrawPanelText(panel, "Jump/Speed Pad Info");
 	DrawPanelText(panel, "Teleporters can be converted to Jump or Speed pads");
 	DrawPanelText(panel, "Turn your pad once to place a jump pad instead of a speed pad");
-	DrawPanelText(panel, "=== How To Use? ===");
-	DrawPanelText(panel, "Use !a or !p to toggle these buildings");
+	DrawPanelText(panel, "Use !pads to toggle these buildings");
 	DrawPanelItem(panel, "Close");
 
 	SendPanelToClient(panel, client, AmpHelpPanelH, 20);
@@ -1095,7 +1106,7 @@ stock bool AddAmplifierEffect(int client, int amp)
         int weapon = GetPlayerWeaponSlot(client, slot);
         if (weapon > MaxClients && IsValidEntity(weapon))
         {
-			float factor_reloadrate = 0.70;
+			float factor_reloadrate = 0.60;
             int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
 			if (defIndex == BEGGARS_BAZOOKA)
 			{
