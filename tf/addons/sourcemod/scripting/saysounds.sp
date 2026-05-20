@@ -1511,6 +1511,18 @@ static bool IsCommandInSoundGroup(const char[] commandName, const char[] groupNa
     return StrEqual(commandGroup, groupName);
 }
 
+static bool CanShowSoundPreferenceGroupInMenu(int client, const char[] groupName)
+{
+    return !IsGroupAdminOnly(groupName) && CanClientUseSaySoundGroup(client, groupName);
+}
+
+static bool CanShowSoundPreferenceCommandInMenu(int client, const char[] commandName)
+{
+    char groupName[MAX_GROUP_NAME];
+    GetCommandGroupName(commandName, groupName, sizeof(groupName));
+    return CanShowSoundPreferenceGroupInMenu(client, groupName);
+}
+
 static bool GetSoundPreferenceGroupState(int client, const char[] preferenceValue, const char[] groupName, bool &anyEnabled, bool &allEnabled)
 {
     anyEnabled = false;
@@ -1526,7 +1538,7 @@ static bool GetSoundPreferenceGroupState(int client, const char[] preferenceValu
     for (int i = 0; i < gCommandNames.Length; i++)
     {
         gCommandNames.GetString(i, currentCommand, sizeof(currentCommand));
-        if (!IsCommandInSoundGroup(currentCommand, groupName) || !CanClientUseSaySoundCommand(client, currentCommand))
+        if (!IsCommandInSoundGroup(currentCommand, groupName) || !CanShowSoundPreferenceCommandInMenu(client, currentCommand))
         {
             continue;
         }
@@ -1661,7 +1673,7 @@ static void ShowSoundPreferenceMenu(int client, SaySoundPreferenceType type)
         {
             strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
         }
-        if (!CanClientUseSaySoundGroup(client, groupName))
+        if (!CanShowSoundPreferenceGroupInMenu(client, groupName))
         {
             continue;
         }
@@ -1672,7 +1684,7 @@ static void ShowSoundPreferenceMenu(int client, SaySoundPreferenceType type)
     for (int i = 0; i < gGroupNames.Length; i++)
     {
         gGroupNames.GetString(i, groupName, sizeof(groupName));
-        if (StrEqual(groupName, DEFAULT_GROUP) || !CanClientUseSaySoundGroup(client, groupName))
+        if (StrEqual(groupName, DEFAULT_GROUP) || !CanShowSoundPreferenceGroupInMenu(client, groupName))
         {
             continue;
         }
