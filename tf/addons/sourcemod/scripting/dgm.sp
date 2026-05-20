@@ -500,9 +500,49 @@ bool DGM_CheckSmallFormatGamemode()
         || StrEqual(gamemode, "mge", false);
 }
 
+bool DGM_IsHightowerMap()
+{
+    char mapName[PLATFORM_MAX_PATH];
+    if (!DGM_CopyCurrentNormalizedMapName(mapName, sizeof(mapName)))
+    {
+        return false;
+    }
+
+    return StrEqual(mapName, "plr_hightower", false);
+}
+
+bool DGM_ShouldUseNativeRespawnTimes()
+{
+    if (DGM_IsHightowerMap())
+    {
+        return false;
+    }
+
+    if (DGM_CheckSmallFormatGamemode())
+    {
+        return true;
+    }
+
+    char gamemodeKey[32];
+    if (DGM_CopyCurrentGameModeKey(gamemodeKey, sizeof(gamemodeKey))
+        && StrEqual(gamemodeKey, "plr", false))
+    {
+        return true;
+    }
+
+    char gamemode[64];
+    if (DGM_CopyCurrentGameMode(gamemode, sizeof(gamemode))
+        && StrEqual(gamemode, "5 Control Points", false))
+    {
+        return true;
+    }
+
+    return false;
+}
+
 bool DGM_ShouldDisableInstantRespawn()
 {
-    return DGM_CheckSmallFormatGamemode();
+    return DGM_ShouldUseNativeRespawnTimes();
 }
 
 public any Native_DGM_GetGameMode(Handle plugin, int numParams)
@@ -963,7 +1003,6 @@ public void OnMapStart()
     }
 
     g_bSetupActive = false;
-    DGM_RefreshRespawnVisualState();
     DGM_UpdateSetupState();
 }
 
@@ -991,6 +1030,7 @@ public void OnConfigsExecuted()
     g_bRoundStartedOnce = false;
     g_iRoundStartTimestamp = 0;
     g_iLastRoundDuration = 0;
+    DGM_RefreshRespawnVisualState();
 }
 
 // Fires when a control point is captured
@@ -1177,7 +1217,7 @@ public Action Command_RespawnToggle(int client, int args)
 {
     if (DGM_ShouldDisableInstantRespawn())
     {
-        ReplyToCommand(client, "DGM respawn management is disabled on small-format maps.");
+        ReplyToCommand(client, "DGM respawn management is disabled on this map.");
         return Plugin_Handled;
     }
 
