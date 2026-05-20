@@ -382,9 +382,9 @@ public Action:HelpPanel(client, Args)
 
 	SetPanelTitle(panel, "Amplifier Info");
 	DrawPanelText(panel, "Amplifiers buff allies with 40% faster reload speed and health on hit");
-	DrawPanelText(panel, "They zap enemies within range and explode on death.");
-	DrawPanelText(panel, "Mini-amplifiers have less health and less potent effects.");
-	DrawPanelText(panel, "Ammo is fuel, hit with your wrench to refill.");
+	DrawPanelText(panel, "They zap enemies within range and explode on death");
+	DrawPanelText(panel, "Mini-amplifiers have less health and less potent effects");
+	DrawPanelText(panel, "Ammo is fuel, hit with your wrench to refill");
 	DrawPanelText(panel, "If sentries are disabled, amplifiers replace them. Otherwise, equip amplifiers with !a");
 	DrawPanelItem(panel, "Close");
 
