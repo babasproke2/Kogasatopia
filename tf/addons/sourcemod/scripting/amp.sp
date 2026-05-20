@@ -907,17 +907,20 @@ CheckBuilding(ent)
     bool forcedConversion = false;
     bool playercountForceActive = IsPlayercountForceActive();
     int effectiveForceAmplifier = GetEffectiveForceAmplifier();
+	bool hasAmplifierAttribute = (isDispenser && CheckAmpAttributesDisp(Client))
+		|| (isSentry && CheckAmpAttributesSentry(Client));
+	bool hasAmplifierPreference = (isDispenser && g_PlayerState[Client].useDispenser)
+		|| (isSentry && g_PlayerState[Client].useSentry);
+	bool playerRequestedAmplifier = hasAmplifierAttribute || hasAmplifierPreference;
 
 	// Check force mode
     if (effectiveForceAmplifier == 1 && isDispenser) { shouldConvert = true; forcedConversion = true; }
     else if (effectiveForceAmplifier == 2 && isSentry) { shouldConvert = true; forcedConversion = true; }
     else if (effectiveForceAmplifier == 3) { shouldConvert = true; forcedConversion = true; }
 	// Check custom attributes
-	else if (isDispenser && CheckAmpAttributesDisp(Client)) shouldConvert = true;
-	else if (isSentry && CheckAmpAttributesSentry(Client)) shouldConvert = true;
+	else if (hasAmplifierAttribute) shouldConvert = true;
 	// Check player preference
-	else if (isDispenser && g_PlayerState[Client].useDispenser) shouldConvert = true;
-	else if (isSentry && g_PlayerState[Client].useSentry) shouldConvert = true;
+	else if (hasAmplifierPreference) shouldConvert = true;
 
     if (shouldConvert)
     {
@@ -954,7 +957,7 @@ CheckBuilding(ent)
 		SetEntProp(ent, Prop_Send, "m_nSkin", GetEntProp(ent, Prop_Send, "m_nSkin") + 2);
         CreateTimer(1.0, BuildingCheckStage1, EntIndexToEntRef(ent));
 
-        if (forcedConversion && effectiveForceAmplifier == 2)
+        if (forcedConversion && effectiveForceAmplifier == 2 && !playerRequestedAmplifier)
         {
             if (playercountForceActive)
             {
