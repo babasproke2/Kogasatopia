@@ -1639,6 +1639,57 @@ static bool GetSoundPreferenceGroupFromMenuItem(const char[] itemInfo, char[] gr
     return groupName[0] != '\0';
 }
 
+static void AddSoundPreferenceGroupMenuItems(Menu menu, int client, const char[] currentValue, bool paidOnly)
+{
+    char groupName[MAX_GROUP_NAME];
+    char display[128];
+
+    for (int i = 0; i < gGroupNames.Length; i++)
+    {
+        gGroupNames.GetString(i, groupName, sizeof(groupName));
+        if (StrEqual(groupName, DEFAULT_GROUP) || IsGroupPaid(groupName) != paidOnly || !CanShowSoundPreferenceGroupInMenu(client, groupName))
+        {
+            continue;
+        }
+
+        bool anyEnabled;
+        bool allEnabled;
+        if (!GetSoundPreferenceGroupState(client, currentValue, groupName, anyEnabled, allEnabled))
+        {
+            continue;
+        }
+
+        char itemInfo[MAX_COMMAND_NAME];
+        BuildSoundPreferenceGroupMenuItem(groupName, itemInfo, sizeof(itemInfo));
+        Format(display, sizeof(display), "%s group (%s)", groupName, allEnabled ? "enabled" : (anyEnabled ? "partial" : "disabled"));
+        menu.AddItem(itemInfo, display);
+    }
+}
+
+static void AddSoundPreferenceCommandMenuItems(Menu menu, int client, const char[] currentValue, bool paidOnly)
+{
+    char commandName[MAX_COMMAND_NAME];
+    char groupName[MAX_GROUP_NAME];
+    char display[128];
+
+    for (int i = 0; i < gCommandNames.Length; i++)
+    {
+        gCommandNames.GetString(i, commandName, sizeof(commandName));
+        if (!gSoundGroupMap.GetString(commandName, groupName, sizeof(groupName)))
+        {
+            strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
+        }
+
+        if (IsGroupPaid(groupName) != paidOnly || !CanShowSoundPreferenceGroupInMenu(client, groupName))
+        {
+            continue;
+        }
+
+        Format(display, sizeof(display), "%s (%s)", commandName, PreferenceListHasCommand(currentValue, commandName) ? "enabled" : "disabled");
+        menu.AddItem(commandName, display);
+    }
+}
+
 static void ShowSoundPreferenceMenu(int client, SaySoundPreferenceType type)
 {
     if (client <= 0 || !IsClientInGame(client))
@@ -1663,44 +1714,10 @@ static void ShowSoundPreferenceMenu(int client, SaySoundPreferenceType type)
         currentValue[0] ? currentValue : "none");
     menu.SetTitle(title);
 
-    char commandName[MAX_COMMAND_NAME];
-    char groupName[MAX_GROUP_NAME];
-    char display[128];
-    for (int i = 0; i < gCommandNames.Length; i++)
-    {
-        gCommandNames.GetString(i, commandName, sizeof(commandName));
-        if (!gSoundGroupMap.GetString(commandName, groupName, sizeof(groupName)))
-        {
-            strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
-        }
-        if (!CanShowSoundPreferenceGroupInMenu(client, groupName))
-        {
-            continue;
-        }
-        Format(display, sizeof(display), "%s (%s)", commandName, PreferenceListHasCommand(currentValue, commandName) ? "enabled" : "disabled");
-        menu.AddItem(commandName, display);
-    }
-
-    for (int i = 0; i < gGroupNames.Length; i++)
-    {
-        gGroupNames.GetString(i, groupName, sizeof(groupName));
-        if (StrEqual(groupName, DEFAULT_GROUP) || !CanShowSoundPreferenceGroupInMenu(client, groupName))
-        {
-            continue;
-        }
-
-        bool anyEnabled;
-        bool allEnabled;
-        if (!GetSoundPreferenceGroupState(client, currentValue, groupName, anyEnabled, allEnabled))
-        {
-            continue;
-        }
-
-        char itemInfo[MAX_COMMAND_NAME];
-        BuildSoundPreferenceGroupMenuItem(groupName, itemInfo, sizeof(itemInfo));
-        Format(display, sizeof(display), "%s group (%s)", groupName, allEnabled ? "enabled" : (anyEnabled ? "partial" : "disabled"));
-        menu.AddItem(itemInfo, display);
-    }
+    AddSoundPreferenceGroupMenuItems(menu, client, currentValue, true);
+    AddSoundPreferenceCommandMenuItems(menu, client, currentValue, true);
+    AddSoundPreferenceCommandMenuItems(menu, client, currentValue, false);
+    AddSoundPreferenceGroupMenuItems(menu, client, currentValue, false);
 
     menu.ExitButton = true;
     menu.Display(client, MENU_TIME_FOREVER);
