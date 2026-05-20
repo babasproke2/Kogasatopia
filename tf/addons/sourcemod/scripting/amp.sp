@@ -382,7 +382,7 @@ public Action:HelpPanel(client, Args)
 
 	SetPanelTitle(panel, "=== Amplifier Info ===");
 	DrawPanelText(panel, "Amplifiers consume metal to provide a short combat buff to nearby teammates");
-	DrawPanelText(panel, "It applies the Concheror effect and a 25% bonus to reload speed.");
+	DrawPanelText(panel, "It applies the Concheror effect and a 30% bonus to reload speed.");
 	DrawPanelText(panel, "Hit with wrench to refill");
 	DrawPanelText(panel, "=== Jump/Speed Pad Info ===");
 	DrawPanelText(panel, "Teleporters can be converted to Jump or Speed pads");
@@ -1082,7 +1082,7 @@ stock bool AddAmplifierEffect(int client, int amp)
         int weapon = GetPlayerWeaponSlot(client, slot);
         if (weapon > MaxClients && IsValidEntity(weapon))
         {
-			float factor_reloadrate = 0.75;
+			float factor_reloadrate = 0.70;
             int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
 			if (defIndex == BEGGARS_BAZOOKA)
 			{
