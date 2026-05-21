@@ -11,6 +11,8 @@
 #define MAPSDB_PLUGIN_STATS_FLUSH_INTERVAL_DEFAULT "30.0"
 #define MAPSDB_DB_CONFIG "default"
 #define MAPSDB_QUERY_MAX 4096
+#define MAPSDB_SESSION_TABLE "map_statistics_sessions"
+#define MAPSDB_POPULATION_TABLE "server_population_statistics_samples"
 
 char g_sCurrentMap[PLATFORM_MAX_PATH];
 char g_sCurrentGamemode[32];
@@ -93,6 +95,7 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
+    FinalizeCurrentMapSession("plugin_end");
     StopSampleTimer();
 
     if (g_hDb != null)
@@ -125,6 +128,7 @@ public void OnMapStart()
 
 public void OnMapEnd()
 {
+    FinalizeCurrentMapSession("map_end");
     StopSampleTimer();
 }
 
@@ -311,7 +315,7 @@ public Action Timer_RecordPopulationSample(Handle timer)
 
     char query[2048];
     FormatEx(query, sizeof(query),
-        "INSERT INTO server_population_statistics_samples (sampled_at, host_port, map_session_id, sample_sequence, map_name, gamemode, player_count, visible_max, red_count, blu_count, spectator_count, map_elapsed_seconds, round_elapsed_seconds, round_running, weekday, hour_of_day, joining_players, leaving_players, player_seconds_delta) VALUES (%d, %d, '%s', %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
+        "INSERT INTO " ... MAPSDB_POPULATION_TABLE ... " (sampled_at, host_port, map_session_id, sample_sequence, map_name, gamemode, player_count, visible_max, red_count, blu_count, spectator_count, map_elapsed_seconds, round_elapsed_seconds, round_running, weekday, hour_of_day, joining_players, leaving_players, player_seconds_delta) VALUES (%d, %d, '%s', %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d, %d)",
         now,
         hostPort,
         escapedSessionId,
@@ -332,6 +336,20 @@ public Action Timer_RecordPopulationSample(Handle timer)
         leavingPlayers,
         playerSecondsDelta);
     SQL_TQuery(g_hDb, SQL_OnWriteComplete, query);
+
+    UpsertMapSessionRollup(
+        now,
+        hostPort,
+        escapedSessionId,
+        escapedMap,
+        escapedGamemode,
+        playerCount,
+        sampleDelta,
+        playerSecondsDelta,
+        joiningPlayers,
+        leavingPlayers,
+        weekday,
+        hourOfDay);
 
     if (IsSampleDebugEnabled())
     {
@@ -381,6 +399,7 @@ public void SQL_OnConnect(Handle owner, Handle hndl, const char[] error, any dat
 
     g_hDb = view_as<Database>(hndl);
     EnsurePopulationSampleSchema();
+    EnsureMapSessionSchema();
 }
 
 static void ConnectMapsDb()
@@ -397,7 +416,7 @@ static void EnsurePopulationSampleSchema()
 
     char query[MAPSDB_QUERY_MAX];
     query[0] = '\0';
-    StrCat(query, sizeof(query), "CREATE TABLE IF NOT EXISTS server_population_statistics_samples (");
+    StrCat(query, sizeof(query), "CREATE TABLE IF NOT EXISTS " ... MAPSDB_POPULATION_TABLE ... " (");
     StrCat(query, sizeof(query), "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,");
     StrCat(query, sizeof(query), "sampled_at INT NOT NULL,");
     StrCat(query, sizeof(query), "host_port INT NOT NULL DEFAULT 0,");
@@ -429,7 +448,7 @@ static void EnsurePopulationSampleSchema()
     SQL_TQuery(g_hDb, SQL_OnSchemaComplete, query);
 
     query[0] = '\0';
-    StrCat(query, sizeof(query), "ALTER TABLE server_population_statistics_samples ");
+    StrCat(query, sizeof(query), "ALTER TABLE " ... MAPSDB_POPULATION_TABLE ... " ");
     StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS map_session_id VARCHAR(64) NOT NULL DEFAULT '', ");
     StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS sample_sequence INT NOT NULL DEFAULT 0, ");
     StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS weekday TINYINT NOT NULL DEFAULT 0, ");
@@ -439,8 +458,148 @@ static void EnsurePopulationSampleSchema()
     StrCat(query, sizeof(query), "ADD COLUMN IF NOT EXISTS player_seconds_delta INT NOT NULL DEFAULT 0");
     SQL_TQuery(g_hDb, SQL_OnSchemaComplete, query);
 
-    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, "CREATE INDEX IF NOT EXISTS idx_map_session ON server_population_statistics_samples (map_session_id)");
-    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, "CREATE INDEX IF NOT EXISTS idx_weekday_hour ON server_population_statistics_samples (weekday, hour_of_day)");
+    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, "CREATE INDEX IF NOT EXISTS idx_map_session ON " ... MAPSDB_POPULATION_TABLE ... " (map_session_id)");
+    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, "CREATE INDEX IF NOT EXISTS idx_weekday_hour ON " ... MAPSDB_POPULATION_TABLE ... " (weekday, hour_of_day)");
+}
+
+static void EnsureMapSessionSchema()
+{
+    if (g_hDb == null)
+    {
+        return;
+    }
+
+    char query[MAPSDB_QUERY_MAX];
+    query[0] = '\0';
+    StrCat(query, sizeof(query), "CREATE TABLE IF NOT EXISTS " ... MAPSDB_SESSION_TABLE ... " (");
+    StrCat(query, sizeof(query), "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,");
+    StrCat(query, sizeof(query), "map_session_id VARCHAR(64) NOT NULL,");
+    StrCat(query, sizeof(query), "host_port INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "map_name VARCHAR(128) NOT NULL,");
+    StrCat(query, sizeof(query), "gamemode VARCHAR(32) NOT NULL,");
+    StrCat(query, sizeof(query), "started_at INT NOT NULL,");
+    StrCat(query, sizeof(query), "ended_at INT NOT NULL,");
+    StrCat(query, sizeof(query), "duration INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "start_players INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "end_players INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "peak_players INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "avg_players DECIMAL(8,2) NOT NULL DEFAULT 0.00,");
+    StrCat(query, sizeof(query), "player_seconds BIGINT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "joins INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "leaves INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "sample_count INT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "end_reason VARCHAR(32) NOT NULL DEFAULT 'active',");
+    StrCat(query, sizeof(query), "weekday TINYINT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "hour_of_day TINYINT NOT NULL DEFAULT 0,");
+    StrCat(query, sizeof(query), "updated_at INT NOT NULL,");
+    StrCat(query, sizeof(query), "UNIQUE KEY uniq_host_session (host_port, map_session_id),");
+    StrCat(query, sizeof(query), "KEY idx_map_started (map_name, started_at),");
+    StrCat(query, sizeof(query), "KEY idx_started_at (started_at),");
+    StrCat(query, sizeof(query), "KEY idx_peak_players (peak_players),");
+    StrCat(query, sizeof(query), "KEY idx_weekday_hour (weekday, hour_of_day)");
+    StrCat(query, sizeof(query), ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    SQL_TQuery(g_hDb, SQL_OnSchemaComplete, query);
+}
+
+static void UpsertMapSessionRollup(
+    int now,
+    int hostPort,
+    const char[] escapedSessionId,
+    const char[] escapedMap,
+    const char[] escapedGamemode,
+    int playerCount,
+    int sampleDelta,
+    int playerSecondsDelta,
+    int joiningPlayers,
+    int leavingPlayers,
+    int weekday,
+    int hourOfDay)
+{
+    if (g_hDb == null || !escapedSessionId[0])
+    {
+        return;
+    }
+
+    int startedAt = g_iMapStartedAt > 0 ? g_iMapStartedAt : now;
+    int duration = now - startedAt;
+    if (duration < sampleDelta)
+    {
+        duration = sampleDelta;
+    }
+    if (duration < 1)
+    {
+        duration = 1;
+    }
+
+    char query[MAPSDB_QUERY_MAX];
+    FormatEx(query, sizeof(query),
+        "INSERT INTO " ... MAPSDB_SESSION_TABLE ... " "
+        ... "(map_session_id, host_port, map_name, gamemode, started_at, ended_at, duration, start_players, end_players, peak_players, avg_players, player_seconds, joins, leaves, sample_count, end_reason, weekday, hour_of_day, updated_at) "
+        ... "VALUES ('%s', %d, '%s', '%s', %d, %d, %d, %d, %d, %d, %.2f, %d, %d, %d, 1, 'active', %d, %d, %d) "
+        ... "ON DUPLICATE KEY UPDATE "
+        ... "ended_at = VALUES(ended_at), "
+        ... "duration = GREATEST(VALUES(ended_at) - started_at, VALUES(duration), duration), "
+        ... "end_players = VALUES(end_players), "
+        ... "peak_players = GREATEST(peak_players, VALUES(peak_players)), "
+        ... "player_seconds = player_seconds + VALUES(player_seconds), "
+        ... "joins = joins + VALUES(joins), "
+        ... "leaves = leaves + VALUES(leaves), "
+        ... "sample_count = sample_count + 1, "
+        ... "avg_players = ROUND(player_seconds / GREATEST(duration, 1), 2), "
+        ... "end_reason = 'active', "
+        ... "updated_at = VALUES(updated_at)",
+        escapedSessionId,
+        hostPort,
+        escapedMap,
+        escapedGamemode,
+        startedAt,
+        now,
+        duration,
+        playerCount,
+        playerCount,
+        playerCount,
+        float(playerCount),
+        playerSecondsDelta,
+        joiningPlayers,
+        leavingPlayers,
+        weekday,
+        hourOfDay,
+        now);
+    SQL_TQuery(g_hDb, SQL_OnWriteComplete, query);
+}
+
+static void FinalizeCurrentMapSession(const char[] reason)
+{
+    if (g_hDb == null || !g_sMapSessionId[0])
+    {
+        return;
+    }
+
+    int now = GetTime();
+    int hostPort = GetHostPort();
+
+    char escapedSessionId[128];
+    char escapedReason[64];
+    SQL_EscapeString(g_hDb, g_sMapSessionId, escapedSessionId, sizeof(escapedSessionId));
+    SQL_EscapeString(g_hDb, reason, escapedReason, sizeof(escapedReason));
+
+    char query[1024];
+    FormatEx(query, sizeof(query),
+        "UPDATE " ... MAPSDB_SESSION_TABLE ... " "
+        ... "SET ended_at = GREATEST(ended_at, %d), "
+        ... "duration = GREATEST(%d - started_at, duration), "
+        ... "avg_players = ROUND(player_seconds / GREATEST(GREATEST(%d - started_at, duration), 1), 2), "
+        ... "end_reason = '%s', "
+        ... "updated_at = %d "
+        ... "WHERE host_port = %d AND map_session_id = '%s'",
+        now,
+        now,
+        now,
+        escapedReason,
+        now,
+        hostPort,
+        escapedSessionId);
+    SQL_TQuery(g_hDb, SQL_OnWriteComplete, query);
 }
 
 public void SQL_OnSchemaComplete(Database db, DBResultSet results, const char[] error, any data)
