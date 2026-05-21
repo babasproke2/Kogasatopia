@@ -148,6 +148,15 @@ DGMObjectiveLeader DGM_GetObjectiveLeaderValue(
     neutralOwned = 0;
     total = 0;
 
+    if (DGM_IsCurrentKothMode())
+    {
+        DGMObjectiveLeader kothLeader = DGM_GetKothTimerLeaderValue(redOwned, blueOwned, neutralOwned, total);
+        if (kothLeader != DGMObjectiveLeader_None)
+        {
+            return kothLeader;
+        }
+    }
+
     if (!DGM_CountObjectiveResourcePoints(redOwned, blueOwned, neutralOwned, total))
     {
         DGM_CountTeamControlPointEntities(redOwned, blueOwned, neutralOwned, total);
@@ -169,6 +178,188 @@ DGMObjectiveLeader DGM_GetObjectiveLeaderValue(
     }
 
     return DGMObjectiveLeader_Tie;
+}
+
+bool DGM_IsCurrentKothMode()
+{
+    char gamemodeKey[32];
+    return DGM_CopyCurrentGameModeKey(gamemodeKey, sizeof(gamemodeKey))
+        && StrEqual(gamemodeKey, "koth", false);
+}
+
+DGMObjectiveLeader DGM_GetKothTimerLeaderValue(
+    int &redRemaining,
+    int &blueRemaining,
+    int &neutralOwned,
+    int &total)
+{
+    redRemaining = 0;
+    blueRemaining = 0;
+    neutralOwned = 0;
+    total = 0;
+
+    int redTimer = -1;
+    int blueTimer = -1;
+
+    DGM_FindKothTimers(redTimer, blueTimer);
+    if (redTimer == -1 || blueTimer == -1)
+    {
+        return DGMObjectiveLeader_None;
+    }
+
+    redRemaining = DGM_GetRoundTimerRemaining(redTimer);
+    blueRemaining = DGM_GetRoundTimerRemaining(blueTimer);
+    if (redRemaining < 0 || blueRemaining < 0)
+    {
+        redRemaining = 0;
+        blueRemaining = 0;
+        return DGMObjectiveLeader_None;
+    }
+
+    total = 2;
+
+    if (redRemaining < blueRemaining)
+    {
+        return DGMObjectiveLeader_Red;
+    }
+
+    if (blueRemaining < redRemaining)
+    {
+        return DGMObjectiveLeader_Blue;
+    }
+
+    return DGMObjectiveLeader_Tie;
+}
+
+void DGM_FindKothTimers(int &redTimer, int &blueTimer)
+{
+    redTimer = -1;
+    blueTimer = -1;
+
+    int timer = -1;
+    while ((timer = FindEntityByClassname(timer, "team_round_timer")) != -1)
+    {
+        if (!IsValidEntity(timer))
+        {
+            continue;
+        }
+
+        char targetName[64];
+        DGM_GetEntityTargetName(timer, targetName, sizeof(targetName));
+
+        if (StrEqual(targetName, "zz_red_koth_timer", false) || StrContains(targetName, "red", false) != -1)
+        {
+            redTimer = timer;
+            continue;
+        }
+
+        if (StrEqual(targetName, "zz_blue_koth_timer", false)
+            || StrContains(targetName, "blue", false) != -1
+            || StrContains(targetName, "blu", false) != -1)
+        {
+            blueTimer = timer;
+            continue;
+        }
+
+        int team = DGM_GetEntityTeam(timer);
+        if (team == view_as<int>(TFTeam_Red) && redTimer == -1)
+        {
+            redTimer = timer;
+        }
+        else if (team == view_as<int>(TFTeam_Blue) && blueTimer == -1)
+        {
+            blueTimer = timer;
+        }
+    }
+}
+
+void DGM_GetEntityTargetName(int entity, char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+
+    if (maxlen <= 0 || !IsValidEntity(entity) || !HasEntProp(entity, Prop_Data, "m_iName"))
+    {
+        return;
+    }
+
+    GetEntPropString(entity, Prop_Data, "m_iName", buffer, maxlen);
+}
+
+int DGM_GetEntityTeam(int entity)
+{
+    if (!IsValidEntity(entity))
+    {
+        return view_as<int>(TFTeam_Unassigned);
+    }
+
+    if (HasEntProp(entity, Prop_Send, "m_iTeamNum"))
+    {
+        return GetEntProp(entity, Prop_Send, "m_iTeamNum");
+    }
+
+    if (HasEntProp(entity, Prop_Data, "m_iTeamNum"))
+    {
+        return GetEntProp(entity, Prop_Data, "m_iTeamNum");
+    }
+
+    return view_as<int>(TFTeam_Unassigned);
+}
+
+int DGM_GetRoundTimerRemaining(int timer)
+{
+    if (!IsValidEntity(timer))
+    {
+        return -1;
+    }
+
+    char classname[64];
+    GetEntityClassname(timer, classname, sizeof(classname));
+    if (!StrEqual(classname, "team_round_timer", false))
+    {
+        return -1;
+    }
+
+    float secondsRemaining;
+
+    if (DGM_GetEntityBool(timer, "m_bStopWatchTimer") && DGM_GetEntityBool(timer, "m_bInCaptureWatchState"))
+    {
+        if (!HasEntProp(timer, Prop_Send, "m_flTotalTime"))
+        {
+            return -1;
+        }
+
+        secondsRemaining = GetEntPropFloat(timer, Prop_Send, "m_flTotalTime");
+    }
+    else if (DGM_GetEntityBool(timer, "m_bTimerPaused"))
+    {
+        if (!HasEntProp(timer, Prop_Send, "m_flTimeRemaining"))
+        {
+            return -1;
+        }
+
+        secondsRemaining = GetEntPropFloat(timer, Prop_Send, "m_flTimeRemaining");
+    }
+    else
+    {
+        if (!HasEntProp(timer, Prop_Send, "m_flTimerEndTime"))
+        {
+            return -1;
+        }
+
+        secondsRemaining = GetEntPropFloat(timer, Prop_Send, "m_flTimerEndTime") - GetGameTime();
+    }
+
+    if (secondsRemaining < 0.0)
+    {
+        secondsRemaining = 0.0;
+    }
+
+    return RoundToNearest(secondsRemaining);
+}
+
+bool DGM_GetEntityBool(int entity, const char[] prop)
+{
+    return HasEntProp(entity, Prop_Send, prop) && GetEntProp(entity, Prop_Send, prop) != 0;
 }
 
 int DGM_GetObjectiveLeaderTeamValue()
@@ -321,19 +512,21 @@ void DGM_AddObjectiveOwnerToCounts(
 
 void DGM_ObjectiveLeaderToString(DGMObjectiveLeader leader, char[] buffer, int maxlen)
 {
+    bool isKoth = DGM_IsCurrentKothMode();
+
     switch (leader)
     {
         case DGMObjectiveLeader_Red:
         {
-            strcopy(buffer, maxlen, "RED is leading by objective ownership");
+            strcopy(buffer, maxlen, isKoth ? "RED is leading by KOTH timer" : "RED is leading by objective ownership");
         }
         case DGMObjectiveLeader_Blue:
         {
-            strcopy(buffer, maxlen, "BLU is leading by objective ownership");
+            strcopy(buffer, maxlen, isKoth ? "BLU is leading by KOTH timer" : "BLU is leading by objective ownership");
         }
         case DGMObjectiveLeader_Tie:
         {
-            strcopy(buffer, maxlen, "Objective ownership is tied");
+            strcopy(buffer, maxlen, isKoth ? "KOTH timers are tied" : "Objective ownership is tied");
         }
         default:
         {
@@ -1145,13 +1338,29 @@ public Action Command_ObjectiveLeader(int client, int args)
 
     if (client <= 0 || !IsClientInGame(client))
     {
-        PrintToServer("[DGM] %s | RED=%d BLU=%d Neutral=%d TotalCounted=%d",
-            status, redOwned, blueOwned, neutralOwned, total);
+        if (DGM_IsCurrentKothMode())
+        {
+            PrintToServer("[DGM] %s | RED time=%d BLU time=%d",
+                status, redOwned, blueOwned);
+        }
+        else
+        {
+            PrintToServer("[DGM] %s | RED=%d BLU=%d Neutral=%d TotalCounted=%d",
+                status, redOwned, blueOwned, neutralOwned, total);
+        }
     }
     else
     {
-        PrintToChat(client, "\x04[DGM]\x01 %s | RED=\x04%d\x01 BLU=\x04%d\x01 Neutral=\x04%d\x01 Total=\x04%d",
-            status, redOwned, blueOwned, neutralOwned, total);
+        if (DGM_IsCurrentKothMode())
+        {
+            PrintToChat(client, "\x04[DGM]\x01 %s | RED time=\x04%d\x01 BLU time=\x04%d",
+                status, redOwned, blueOwned);
+        }
+        else
+        {
+            PrintToChat(client, "\x04[DGM]\x01 %s | RED=\x04%d\x01 BLU=\x04%d\x01 Neutral=\x04%d\x01 Total=\x04%d",
+                status, redOwned, blueOwned, neutralOwned, total);
+        }
     }
 
     return Plugin_Handled;
