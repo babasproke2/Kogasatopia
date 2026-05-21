@@ -841,5 +841,19 @@ static void ExecMapsDbConfig(const char[] configName)
         return;
     }
 
-    ServerCommand("exec mapsdb/%s.cfg", configName);
+    char resolvedName[32];
+    ResolveMapsDbConfigName(configName, resolvedName, sizeof(resolvedName));
+
+    ServerCommand("exec mapsdb/%s.cfg", resolvedName);
+}
+
+static void ResolveMapsDbConfigName(const char[] configName, char[] resolvedName, int maxlen)
+{
+    if (StrEqual(configName, "pl", false))
+    {
+        strcopy(resolvedName, maxlen, "payload");
+        return;
+    }
+
+    strcopy(resolvedName, maxlen, configName);
 }
