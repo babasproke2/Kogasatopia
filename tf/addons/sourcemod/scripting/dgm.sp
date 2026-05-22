@@ -8,6 +8,9 @@
 #include <tf2_stocks>
 #include <tf2>
 #include <controlpoints>
+#undef REQUIRE_EXTENSIONS
+#include <tf2setupuber>
+#define REQUIRE_EXTENSIONS
 // I forked the controlpoints file from powerlord to add new gamemodes, you can get it at https://github.com/babasproke2/sourcemod-snippets
 
 #define PLUGIN_VERSION "4.3"
@@ -21,6 +24,7 @@ ConVar g_cvThreshold;
 ConVar g_cvRedTime;
 ConVar g_cvBluTime;
 ConVar g_cvAutoAddTime;
+ConVar g_cvSetupUberMultiplier;
 ConVar g_cvTimeOverride;
 ConVar g_cvRespawnTime;
 bool g_bSymmetrical;
@@ -38,6 +42,7 @@ Handle g_cvMpDisableRespawnTimes = INVALID_HANDLE;
 Handle g_hSetupStateTimer = INVALID_HANDLE;
 bool g_bSetupActive = false;
 bool g_bNoEngineerSetupReduced = false;
+bool g_bSetupUberUnavailableLogged = false;
 int g_iRoundStartTimestamp = 0;
 int g_iLastRoundDuration = 0;
 
@@ -863,6 +868,8 @@ public any Native_DGM_GetRoundDurationSeconds(Handle plugin, int numParams)
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
 {
+    MarkNativeAsOptional("TF2SetupUber_SetMultiplier");
+    MarkNativeAsOptional("TF2SetupUber_IsAvailable");
     RegPluginLibrary("dgm");
     CreateNative("DGM_GetGameMode", Native_DGM_GetGameMode);
     CreateNative("DGM_RealPlayerCount", Native_DGM_RealPlayerCount);
@@ -882,6 +889,26 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     CreateNative("DGM_GetObjectiveLeader", Native_DGM_GetObjectiveLeader);
     CreateNative("DGM_GetObjectiveLeaderTeam", Native_DGM_GetObjectiveLeaderTeam);
     return APLRes_Success;
+}
+
+void DGM_ApplySetupUberMultiplier()
+{
+    if (GetFeatureStatus(FeatureType_Native, "TF2SetupUber_SetMultiplier") != FeatureStatus_Available
+        || GetFeatureStatus(FeatureType_Native, "TF2SetupUber_IsAvailable") != FeatureStatus_Available
+        || !TF2SetupUber_IsAvailable())
+    {
+        if (!g_bSetupUberUnavailableLogged)
+        {
+            PrintToServer("[DGM] TF2 setup Uber extension unavailable; setup Uber multiplier remains stock.");
+            g_bSetupUberUnavailableLogged = true;
+        }
+        return;
+    }
+
+    float multiplier = g_cvSetupUberMultiplier.FloatValue;
+    TF2SetupUber_SetMultiplier(multiplier);
+    g_bSetupUberUnavailableLogged = false;
+    PrintToServer("[DGM] Setup UberCharge multiplier set to %.2f.", multiplier);
 }
 
 // I prefer the visual effect when TF2's mp_disable_respawn_times cvar is true but dislike that it can be exploited
@@ -1250,6 +1277,7 @@ public void OnPluginStart()
     g_cvBluTime = CreateConVar("respawn_blutime", "3.0", "Blu respawn time length", _, true, 0.0, true, 16.0);
     // Auto add time to king of the hill timers?
     g_cvAutoAddTime = CreateConVar("sm_autoaddtime", "300", "Automatically extend koth times? > 0 for the time in seconds");
+    g_cvSetupUberMultiplier = CreateConVar("sm_tf2_setup_uber_multiplier", "3.0", "Setup-time Medigun UberCharge multiplier. Stock TF2 is 3.0.", _, true, 0.0, true, 64.0);
     // Always respawn red team on control point capture in asymmetrical gamemodes?
     g_cvAsymCapRespawn = CreateConVar("respawn_red_on_cap", "0", "Override respawn times", _, true, 0.0, true, 1.0);
     // Change the setup time to this in asymmetrical gamemodes
@@ -1262,6 +1290,7 @@ public void OnPluginStart()
     HookConVarChange(g_cvTimeOverride, ConVarChange_RespawnSetting);
     HookConVarChange(g_cvRedTime, ConVarChange_RespawnSetting);
     HookConVarChange(g_cvBluTime, ConVarChange_RespawnSetting);
+    HookConVarChange(g_cvSetupUberMultiplier, ConVarChange_SetupUberMultiplier);
 
     HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
     HookEvent("teamplay_round_start", Event_RoundActive);
@@ -1301,6 +1330,11 @@ public void ConVarChange_RespawnSetting(ConVar convar, const char[] oldValue, co
     DGM_RefreshRespawnVisualState();
 }
 
+public void ConVarChange_SetupUberMultiplier(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    DGM_ApplySetupUberMultiplier();
+}
+
 public Action Timer_SetupStateMonitor(Handle timer)
 {
     if (DGM_InternalIsRoundRunning())
@@ -1320,6 +1354,7 @@ public void OnConfigsExecuted()
     g_bRoundStartedOnce = false;
     g_iRoundStartTimestamp = 0;
     g_iLastRoundDuration = 0;
+    DGM_ApplySetupUberMultiplier();
 }
 
 // Fires when a control point is captured
