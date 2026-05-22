@@ -6,7 +6,9 @@
 #include <adt_array>
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
+#include "include/dgm_api.inc"
 #define REQUIRE_PLUGIN
+#include "include/plugin_statistics.inc"
 
 // Configuration locations
 #define VOTEMENU_CONFIG      "configs/votemenu.cfg"
@@ -16,6 +18,7 @@
 #define VOTEMENU_CURRENCY_SHORT_MAX 32
 #define VOTEMENU_DB_CONFIG_DEFAULT "default"
 #define POINTS_STORE_BALANCE_TABLE "points_store_balances"
+#define VOTEMENU_STATISTICS_TABLE "votemenu_statistics_events"
 
 enum struct VoteOption
 {
@@ -44,6 +47,10 @@ int g_PendingChargeUserId = 0;
 int g_PendingChargeCost = 0;
 char g_PendingChargeSteamId64[32];
 char g_PendingChargeName[MAX_NAME_LENGTH];
+int g_MapStartedAt = 0;
+int g_CurrentVoteInitiatorUserId = 0;
+char g_CurrentVoteInitiatorSteamId64[32];
+char g_CurrentVoteInitiatorName[MAX_NAME_LENGTH];
 
 public Plugin myinfo =
 {
@@ -52,6 +59,17 @@ public Plugin myinfo =
     description = "Config-driven yes/no vote executor",
     version = "1.0.0"
 };
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
+{
+    MarkNativeAsOptional("PointsStore_AreBonusPointsLoaded");
+    MarkNativeAsOptional("PointsStore_GetBonusPoints");
+    MarkNativeAsOptional("PointsStore_SpendBonusPoints");
+    MarkNativeAsOptional("DGM_GetGameModeKey");
+    MarkNativeAsOptional("DGM_NormalizeMapName");
+    MarkNativeAsOptional("DGM_CurrentNormalizedMap");
+    return APLRes_Success;
+}
 
 public void OnPluginStart()
 {
@@ -63,12 +81,15 @@ public void OnPluginStart()
     g_CvarDatabase = CreateConVar("sm_votemenu_database", VOTEMENU_DB_CONFIG_DEFAULT, "Database config used for offline paid-vote charges.");
     g_CvarDatabase.AddChangeHook(OnVoteMenuDatabaseChanged);
     g_VoteOptions = new ArrayList(sizeof(VoteOption));
+    g_MapStartedAt = GetTime();
+    PluginStats_Init(VOTEMENU_STATISTICS_TABLE);
     LoadVoteMenuConfig();
     ConnectVoteMenuDatabase();
 }
 
 public void OnPluginEnd()
 {
+    PluginStats_Shutdown();
     delete g_Database;
     g_Database = null;
     g_DatabaseReady = false;
@@ -76,7 +97,10 @@ public void OnPluginEnd()
 
 public void OnMapStart()
 {
+    g_MapStartedAt = GetTime();
+    PluginStats_OnMapStart();
     LoadVoteMenuConfig();
+    ClearCurrentVoteInitiator();
 }
 
 public Action Command_VoteMenu(int client, int args)
@@ -167,6 +191,7 @@ public int VoteMenuHandler(Menu menu, MenuAction action, int param1, int param2)
         if (!StartYesNoVote(param1))
         {
             ClearPendingVoteCharge();
+            ClearCurrentVoteInitiator();
         }
     }
     return 0;
@@ -359,6 +384,8 @@ static bool StartYesNoVote(int initiator)
         return false;
     }
 
+    CaptureCurrentVoteInitiator(initiator);
+
     char startMsg[384];
     char announcer[128];
     char detail[256];
@@ -386,6 +413,7 @@ static bool StartYesNoVote(int initiator)
 
     Format(startMsg, sizeof(startMsg), "%s {default}%s Required: {gold}%d%%{default}", announcer, detail, GetVoteRequiredPercent(g_CurrentVote.ratio));
     CPrintToChatAll("%s", startMsg);
+    LogVoteMenuVoteStarted(initiator, detail);
 
     Menu vote = new Menu(YesNoVoteHandler, MENU_ACTIONS_ALL);
     char title[256];
@@ -406,6 +434,8 @@ static bool StartYesNoVote(int initiator)
     if (!vote.DisplayVoteToAll(VOTE_DURATION))
     {
         delete vote;
+        LogVoteMenuVoteCancelled("display_failed", 0, 0, 0);
+        ClearCurrentVoteInitiator();
         return false;
     }
 
@@ -444,6 +474,7 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
         float ratio = (totalVotes > 0) ? float(yesVotes) / float(totalVotes) : 0.0;
         bool passed = (totalVotes > 0) && (ratio >= g_CurrentVote.ratio);
 
+        LogVoteMenuVoteResult(passed ? "passed" : "failed", yesVotes, noVotes, totalVotes, ratio);
         AnnounceVoteResult(yesVotes, noVotes, ratio, passed);
         if (passed)
         {
@@ -462,12 +493,15 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
         int reason = param1;
         if (reason == VoteCancel_NoVotes)
         {
+            LogVoteMenuVoteCancelled("no_votes", 0, 0, 0);
             CPrintToChatAll("{red}[Vote]{default} Vote failed: no votes received.");
         }
         else
         {
+            LogVoteMenuVoteCancelled("cancelled", reason, 0, 0);
             CPrintToChatAll("{red}[Vote]{default} Vote cancelled.");
         }
+        ClearCurrentVoteInitiator();
     }
     return 0;
 }
@@ -495,6 +529,7 @@ static void ChargePassedVoteAndExecuteOutcome()
         CPrintToChat(client, "{green}[Vote]{default} Vote passed; spent {gold}%d %s{default}.", g_PendingChargeCost, currency);
         ClearPendingVoteCharge();
         ExecuteVoteOutcome(true);
+        ClearCurrentVoteInitiator();
         return;
     }
 
@@ -577,6 +612,7 @@ public void SQL_OnOfflineVoteChargeComplete(Database db, DBResultSet results, co
         char currency[VOTEMENU_CURRENCY_SHORT_MAX];
         GetVoteMenuCurrencyShort(currency, sizeof(currency));
         CPrintToChatAll("{red}[Vote]{default} Vote passed, but {gold}%s{default} could not be charged {gold}%d %s{default}; no action was taken.", playerName, cost, currency);
+        ClearCurrentVoteInitiator();
         return;
     }
 
@@ -584,11 +620,13 @@ public void SQL_OnOfflineVoteChargeComplete(Database db, DBResultSet results, co
     GetVoteMenuCurrencyShort(currency, sizeof(currency));
     CPrintToChatAll("{green}[Vote]{default} Charged {gold}%s{default} {gold}%d %s{default} for the passed vote.", playerName, cost, currency);
     ExecuteVoteScript(winFile);
+    ClearCurrentVoteInitiator();
 }
 
 static void AnnounceVoteChargeFailure(const char[] reason)
 {
     CPrintToChatAll("{red}[Vote]{default} Vote passed, but %s; no action was taken.", reason);
+    ClearCurrentVoteInitiator();
 }
 
 static void ClearPendingVoteCharge()
@@ -656,10 +694,12 @@ static void ExecuteVoteOutcome(bool passed)
 
     if (!script[0])
     {
+        ClearCurrentVoteInitiator();
         return;
     }
 
     ExecuteVoteScript(script);
+    ClearCurrentVoteInitiator();
 }
 
 static void ExecuteVoteScript(const char[] script)
@@ -672,6 +712,162 @@ static void ExecuteVoteScript(const char[] script)
     char cmd[192];
     Format(cmd, sizeof(cmd), "exec %s%s", VOTEMENU_CFG_PREFIX, script);
     ServerCommand("%s", cmd);
+}
+
+static void CaptureCurrentVoteInitiator(int client)
+{
+    g_CurrentVoteInitiatorUserId = GetClientUserId(client);
+    g_CurrentVoteInitiatorSteamId64[0] = '\0';
+    g_CurrentVoteInitiatorName[0] = '\0';
+
+    GetClientAuthId(client, AuthId_SteamID64, g_CurrentVoteInitiatorSteamId64, sizeof(g_CurrentVoteInitiatorSteamId64), true);
+    GetClientName(client, g_CurrentVoteInitiatorName, sizeof(g_CurrentVoteInitiatorName));
+}
+
+static void ClearCurrentVoteInitiator()
+{
+    g_CurrentVoteInitiatorUserId = 0;
+    g_CurrentVoteInitiatorSteamId64[0] = '\0';
+    g_CurrentVoteInitiatorName[0] = '\0';
+}
+
+static int GetVoteMenuMapElapsedSeconds()
+{
+    int now = GetTime();
+    if (g_MapStartedAt <= 0 || now < g_MapStartedAt)
+    {
+        return 0;
+    }
+
+    return now - g_MapStartedAt;
+}
+
+static void SanitizeVoteMenuStatsField(const char[] input, char[] output, int maxlen)
+{
+    int pos = 0;
+    for (int i = 0; input[i] != '\0' && pos < maxlen - 1; i++)
+    {
+        char c = input[i];
+        if (c == '|' || c == '\n' || c == '\r' || c == '\t')
+        {
+            c = ' ';
+        }
+
+        output[pos++] = c;
+    }
+    output[pos] = '\0';
+    TrimString(output);
+}
+
+static void GetCurrentVoteStatsFields(char[] optionId, int optionIdLen, char[] optionName, int optionNameLen)
+{
+    SanitizeVoteMenuStatsField(g_CurrentVote.id, optionId, optionIdLen);
+    if (g_CurrentVote.name[0])
+    {
+        SanitizeVoteMenuStatsField(g_CurrentVote.name, optionName, optionNameLen);
+        return;
+    }
+    if (g_CurrentVote.message[0])
+    {
+        SanitizeVoteMenuStatsField(g_CurrentVote.message, optionName, optionNameLen);
+        return;
+    }
+
+    strcopy(optionName, optionNameLen, optionId);
+}
+
+static void GetCurrentVoteInitiatorStatsFields(char[] steamId, int steamIdLen, char[] playerName, int playerNameLen)
+{
+    strcopy(steamId, steamIdLen, g_CurrentVoteInitiatorSteamId64);
+    SanitizeVoteMenuStatsField(g_CurrentVoteInitiatorName, playerName, playerNameLen);
+}
+
+static void LogVoteMenuVoteStarted(int client, const char[] detail)
+{
+    char optionId[96];
+    char optionName[160];
+    char playerName[MAX_NAME_LENGTH];
+    char steamId[32];
+    char cleanDetail[256];
+    GetCurrentVoteStatsFields(optionId, sizeof(optionId), optionName, sizeof(optionName));
+    GetCurrentVoteInitiatorStatsFields(steamId, sizeof(steamId), playerName, sizeof(playerName));
+    SanitizeVoteMenuStatsField(detail, cleanDetail, sizeof(cleanDetail));
+
+    char message[512];
+    Format(message, sizeof(message),
+        "event=vote_started|option_id=%s|option_name=%s|detail=%s|client=%d|userid=%d|steamid64=%s|name=%s|required_ratio=%.4f|required_percent=%d|map_elapsed_seconds=%d|cost=%d|shop_enabled=%d",
+        optionId,
+        optionName,
+        cleanDetail,
+        client,
+        g_CurrentVoteInitiatorUserId,
+        steamId,
+        playerName,
+        g_CurrentVote.ratio,
+        GetVoteRequiredPercent(g_CurrentVote.ratio),
+        GetVoteMenuMapElapsedSeconds(),
+        g_PendingChargeCost,
+        g_PendingVoteCharge ? 1 : 0);
+    PluginStats_LogMessage(message);
+}
+
+static void LogVoteMenuVoteResult(const char[] result, int yesVotes, int noVotes, int totalVotes, float yesRatio)
+{
+    char optionId[96];
+    char optionName[160];
+    char playerName[MAX_NAME_LENGTH];
+    char steamId[32];
+    GetCurrentVoteStatsFields(optionId, sizeof(optionId), optionName, sizeof(optionName));
+    GetCurrentVoteInitiatorStatsFields(steamId, sizeof(steamId), playerName, sizeof(playerName));
+
+    char message[512];
+    Format(message, sizeof(message),
+        "event=vote_result|result=%s|option_id=%s|option_name=%s|userid=%d|steamid64=%s|name=%s|yes_votes=%d|no_votes=%d|total_votes=%d|yes_ratio=%.4f|required_ratio=%.4f|required_percent=%d|map_elapsed_seconds=%d|cost=%d|shop_enabled=%d",
+        result,
+        optionId,
+        optionName,
+        g_CurrentVoteInitiatorUserId,
+        steamId,
+        playerName,
+        yesVotes,
+        noVotes,
+        totalVotes,
+        yesRatio,
+        g_CurrentVote.ratio,
+        GetVoteRequiredPercent(g_CurrentVote.ratio),
+        GetVoteMenuMapElapsedSeconds(),
+        g_PendingChargeCost,
+        g_PendingVoteCharge ? 1 : 0);
+    PluginStats_LogMessage(message);
+}
+
+static void LogVoteMenuVoteCancelled(const char[] reason, int cancelReason, int yesVotes, int noVotes)
+{
+    char optionId[96];
+    char optionName[160];
+    char playerName[MAX_NAME_LENGTH];
+    char steamId[32];
+    GetCurrentVoteStatsFields(optionId, sizeof(optionId), optionName, sizeof(optionName));
+    GetCurrentVoteInitiatorStatsFields(steamId, sizeof(steamId), playerName, sizeof(playerName));
+
+    char message[512];
+    Format(message, sizeof(message),
+        "event=vote_cancelled|reason=%s|cancel_reason=%d|option_id=%s|option_name=%s|userid=%d|steamid64=%s|name=%s|yes_votes=%d|no_votes=%d|required_ratio=%.4f|required_percent=%d|map_elapsed_seconds=%d|cost=%d|shop_enabled=%d",
+        reason,
+        cancelReason,
+        optionId,
+        optionName,
+        g_CurrentVoteInitiatorUserId,
+        steamId,
+        playerName,
+        yesVotes,
+        noVotes,
+        g_CurrentVote.ratio,
+        GetVoteRequiredPercent(g_CurrentVote.ratio),
+        GetVoteMenuMapElapsedSeconds(),
+        g_PendingChargeCost,
+        g_PendingVoteCharge ? 1 : 0);
+    PluginStats_LogMessage(message);
 }
 
 static int FindVoteIndex(const char[] id)
