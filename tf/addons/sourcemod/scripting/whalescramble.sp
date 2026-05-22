@@ -106,7 +106,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
     MarkNativeAsOptional("DGM_RealTeamPlayerCount");
-    MarkNativeAsOptional("DGM_GetGameModeKey");
+    MarkNativeAsOptional("DGM_GetGameMode");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     return APLRes_Success;

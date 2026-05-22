@@ -64,7 +64,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("SaySounds_PlayCommand");
-    MarkNativeAsOptional("DGM_GetGameModeKey");
+    MarkNativeAsOptional("DGM_GetGameMode");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     RegPluginLibrary("points_store");

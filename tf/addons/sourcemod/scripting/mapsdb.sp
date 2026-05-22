@@ -45,7 +45,6 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 {
     g_bLateLoad = late;
     MarkNativeAsOptional("DGM_GetGameMode");
-    MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     MarkNativeAsOptional("DGM_RealPlayerCount");
@@ -837,13 +836,6 @@ static void UpdateGamemodeKey()
         }
     }
 
-    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") != FeatureStatus_Available)
-    {
-        return;
-    }
-
-    DGM_GetGameModeKey(g_sCurrentGamemode, sizeof(g_sCurrentGamemode));
-    ResolveMapsDbConfigName(g_sCurrentGamemode, g_sCurrentGamemode, sizeof(g_sCurrentGamemode));
 }
 
 static void ExecMapsDbConfig(const char[] configName)
