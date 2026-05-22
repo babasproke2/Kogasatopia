@@ -44,6 +44,7 @@ public Plugin myinfo =
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 {
     g_bLateLoad = late;
+    MarkNativeAsOptional("DGM_GetGameMode");
     MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
@@ -826,12 +827,23 @@ static void UpdateNormalizedMapName(const char[] input, char[] output, int outpu
 static void UpdateGamemodeKey()
 {
     strcopy(g_sCurrentGamemode, sizeof(g_sCurrentGamemode), "default");
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameMode") == FeatureStatus_Available)
+    {
+        char gamemode[64];
+        if (DGM_GetGameMode(gamemode, sizeof(gamemode))
+            && ResolveMapsDbGamemodeKey(gamemode, g_sCurrentGamemode, sizeof(g_sCurrentGamemode)))
+        {
+            return;
+        }
+    }
+
     if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") != FeatureStatus_Available)
     {
         return;
     }
 
     DGM_GetGameModeKey(g_sCurrentGamemode, sizeof(g_sCurrentGamemode));
+    ResolveMapsDbConfigName(g_sCurrentGamemode, g_sCurrentGamemode, sizeof(g_sCurrentGamemode));
 }
 
 static void ExecMapsDbConfig(const char[] configName)
@@ -855,5 +867,91 @@ static void ResolveMapsDbConfigName(const char[] configName, char[] resolvedName
         return;
     }
 
+    if (StrEqual(configName, "plr", false))
+    {
+        strcopy(resolvedName, maxlen, "payloadrace");
+        return;
+    }
+
     strcopy(resolvedName, maxlen, configName);
+}
+
+static bool ResolveMapsDbGamemodeKey(const char[] gamemode, char[] resolvedName, int maxlen)
+{
+    if (StrEqual(gamemode, "Payload", false))
+    {
+        strcopy(resolvedName, maxlen, "payload");
+        return true;
+    }
+
+    if (StrEqual(gamemode, "Payload Race", false))
+    {
+        strcopy(resolvedName, maxlen, "payloadrace");
+        return true;
+    }
+
+    if (StrEqual(gamemode, "Attack/Defend CP", false)
+        || StrEqual(gamemode, "Attack/Defend", false))
+    {
+        strcopy(resolvedName, maxlen, "adcp");
+        return true;
+    }
+
+    if (StrEqual(gamemode, "5 Control Points", false))
+    {
+        strcopy(resolvedName, maxlen, "5cp");
+        return true;
+    }
+
+    if (StrEqual(gamemode, "King of the Hill", false))
+    {
+        strcopy(resolvedName, maxlen, "koth");
+        return true;
+    }
+
+    if (StrEqual(gamemode, "Capture the Flag", false))
+    {
+        strcopy(resolvedName, maxlen, "ctf");
+        return true;
+    }
+
+    if (StrEqual(gamemode, "Player Destruction", false))
+    {
+        strcopy(resolvedName, maxlen, "pd");
+        return true;
+    }
+
+    if (StrEqual(gamemode, "Territorial Control", false))
+    {
+        strcopy(resolvedName, maxlen, "tc");
+        return true;
+    }
+
+    if (StrEqual(gamemode, "Arena", false))
+    {
+        strcopy(resolvedName, maxlen, "arena");
+        return true;
+    }
+
+    if (StrEqual(gamemode, "Medieval", false))
+    {
+        strcopy(resolvedName, maxlen, "medieval");
+        return true;
+    }
+
+    if (StrEqual(gamemode, "Default", false))
+    {
+        strcopy(resolvedName, maxlen, "default");
+        return true;
+    }
+
+    if (StrEqual(gamemode, "vsh", false)
+        || StrEqual(gamemode, "ultiduo", false)
+        || StrEqual(gamemode, "mge", false))
+    {
+        strcopy(resolvedName, maxlen, gamemode);
+        return true;
+    }
+
+    return false;
 }
