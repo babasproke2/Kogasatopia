@@ -14,9 +14,9 @@
 
 int g_iSelection[MAXPLAYERS+1] = {0};
 int g_iCookieSelection[MAXPLAYERS+1] = {-1};
-char g_sVolumeLevels[4][3] = { "<<", "<", ">", ">>" };
+char g_sVolumeLevels[2][3] = { "<<", "<" };
 
-#define VOLUME_LEVEL_COUNT 4
+#define VOLUME_LEVEL_COUNT 2
 
 char g_sDriver[64];
 
@@ -116,6 +116,9 @@ public void T_InitDatabase(Handle owner, Handle hndl, const char[] error, any da
     Format(szQuery, sizeof(szQuery), "CREATE TABLE IF NOT EXISTS `%s` (adjuster VARCHAR(64), adjusted VARCHAR(64), level TINYINT, PRIMARY KEY (adjuster, adjusted))", TABLE_NAME);
     SQL_TQuery(g_hDatabase, SQLErrorCheckCallback, szQuery);
 
+    Format(szQuery, sizeof(szQuery), "DELETE FROM `%s` WHERE level < 0 OR level >= %d", TABLE_NAME, VOLUME_LEVEL_COUNT);
+    SQL_TQuery(g_hDatabase, SQLErrorCheckCallback, szQuery);
+
     for (int client = 1; client <= MaxClients; client++)
     {
         if (IsClientInGame(client))
@@ -159,6 +162,10 @@ public void T_LoadAdjustments(Handle owner, Handle hndl, const char[] error, int
             SQL_FetchString(hndl, 0, adjustedSteamId, sizeof(adjustedSteamId));
 
             int level = SQL_FetchInt(hndl, 1);
+            if (!IsValidVolumeIndex(level))
+            {
+                continue;
+            }
 
             LoadPlayerAdjustment(client, adjustedSteamId, level);
         }
@@ -301,8 +308,6 @@ public int BaseMenuHandler(Menu menu, MenuAction action, int client, int param2)
                 Menu global = new Menu(GlobalVoiceVolumeHandler);
 
                 global.SetTitle("Adjust global volume level");
-                global.AddItem("3", g_iCookieSelection[client] == 3 ? "Louder *" : "Louder");
-                global.AddItem("2", g_iCookieSelection[client] == 2 ? "Loud *" : "Loud");
                 global.AddItem("-1", g_iCookieSelection[client] == -1 ? "Normal *" : "Normal");
                 global.AddItem("1", g_iCookieSelection[client] == 1 ? "Quiet *" : "Quiet");
                 global.AddItem("0", g_iCookieSelection[client] == 0 ? "Quieter *" : "Quieter");
@@ -387,8 +392,6 @@ public int VoiceMenuHandler(Menu menu, MenuAction action, int param1, int param2
             Menu sub_menu = new Menu(VoiceVolumeHandler);
 
             sub_menu.SetTitle("Adjust %N's volume level", otherClient);
-            sub_menu.AddItem("3", override == 3 ? "Louder *" : "Louder");
-            sub_menu.AddItem("2", override == 2 ? "Loud *" : "Loud");
             sub_menu.AddItem("-1", override == -1 ? "Normal *" : "Normal");
             sub_menu.AddItem("1", override == 1 ? "Quiet *" : "Quiet");
             sub_menu.AddItem("0", override == 0 ? "Quieter *" : "Quieter");
@@ -447,6 +450,12 @@ public int VoiceVolumeHandler(Menu menu, MenuAction action, int client, int para
         if (found)
         {
             int level = StringToInt(info);
+            if (level != -1 && !IsValidVolumeIndex(level))
+            {
+                CPrintToChat(client, "%s That volume level is no longer available.", VOICE_MANAGER_PREFIX);
+                return 0;
+            }
+
             if (!OnPlayerAdjustVolume(client, g_iSelection[client], level))
             {
                 CPrintToChat(client, "%s Something went wrong, please try again soon!", VOICE_MANAGER_PREFIX);
@@ -518,6 +527,12 @@ public int GlobalVoiceVolumeHandler(Menu menu, MenuAction action, int client, in
         if (found)
         {
             int volume = StringToInt(info);
+            if (volume != -1 && !IsValidVolumeIndex(volume))
+            {
+                CPrintToChat(client, "%s That volume level is no longer available.", VOICE_MANAGER_PREFIX);
+                return 0;
+            }
+
             if (!OnPlayerGlobalAdjust(client, volume))
             {
                 CPrintToChat(client, "%s Something went wrong, please try again soon!", VOICE_MANAGER_PREFIX);
@@ -525,7 +540,15 @@ public int GlobalVoiceVolumeHandler(Menu menu, MenuAction action, int client, in
             else
             {
                 CPrintToChat(client, "%s Global voice volume is now set to %s.", VOICE_MANAGER_PREFIX, setting);
-                SetClientCookie(client, g_Cookie_GlobalOverride, info);
+                if (volume == -1)
+                {
+                    SetClientCookie(client, g_Cookie_GlobalOverride, "");
+                }
+                else
+                {
+                    SetClientCookie(client, g_Cookie_GlobalOverride, info);
+                }
+
                 g_iCookieSelection[client] = volume;
             }
         }
