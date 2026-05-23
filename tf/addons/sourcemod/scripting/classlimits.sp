@@ -85,7 +85,7 @@ public void OnPluginStart()
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 {
-    MarkNativeAsOptional("DGM_GetGameMode");
+    MarkNativeAsOptional("DGM_GetGameModeKey");
     return APLRes_Success;
 }
 
@@ -384,13 +384,13 @@ void FormatClassLimitText(int classId, char[] buffer, int maxlen)
 
 void UpdateGameModeName()
 {
-    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameMode") != FeatureStatus_Available)
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") != FeatureStatus_Available)
     {
         strcopy(g_sGameMode, sizeof(g_sGameMode), "this map");
         return;
     }
 
-    DGM_GetGameMode(g_sGameMode, sizeof(g_sGameMode));
+    DGM_GetGameModeKey(g_sGameMode, sizeof(g_sGameMode));
     TrimString(g_sGameMode);
     if (!g_sGameMode[0])
         strcopy(g_sGameMode, sizeof(g_sGameMode), "this map");

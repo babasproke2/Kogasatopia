@@ -65,7 +65,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
     MarkNativeAsOptional("PointsStore_AreBonusPointsLoaded");
     MarkNativeAsOptional("PointsStore_GetBonusPoints");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
-    MarkNativeAsOptional("DGM_GetGameMode");
+    MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     return APLRes_Success;

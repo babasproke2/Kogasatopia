@@ -43,6 +43,7 @@ Handle g_hSetupStateTimer = INVALID_HANDLE;
 bool g_bSetupActive = false;
 bool g_bNoEngineerSetupReduced = false;
 bool g_bSetupUberUnavailableLogged = false;
+char g_sGameModeDetectedMap[PLATFORM_MAX_PATH];
 int g_iRoundStartTimestamp = 0;
 int g_iLastRoundDuration = 0;
 
@@ -552,6 +553,75 @@ void DGM_ObjectiveLeaderToString(DGMObjectiveLeader leader, char[] buffer, int m
     }
 }
 
+bool DGM_CopyGameModeNameToKey(const char[] gamemode, char[] buffer, int maxlen)
+{
+    if (StrEqual(gamemode, "Arena", false))
+    {
+        strcopy(buffer, maxlen, "arena");
+        return true;
+    }
+    if (StrEqual(gamemode, "Medieval", false))
+    {
+        strcopy(buffer, maxlen, "medieval");
+        return true;
+    }
+    if (StrEqual(gamemode, "Player Destruction", false))
+    {
+        strcopy(buffer, maxlen, "pd");
+        return true;
+    }
+    if (StrEqual(gamemode, "King of the Hill", false))
+    {
+        strcopy(buffer, maxlen, "koth");
+        return true;
+    }
+    if (StrEqual(gamemode, "Payload", false))
+    {
+        strcopy(buffer, maxlen, "pl");
+        return true;
+    }
+    if (StrEqual(gamemode, "Payload Race", false))
+    {
+        strcopy(buffer, maxlen, "plr");
+        return true;
+    }
+    if (StrEqual(gamemode, "Capture the Flag", false))
+    {
+        strcopy(buffer, maxlen, "ctf");
+        return true;
+    }
+    if (StrEqual(gamemode, "5 Control Points", false))
+    {
+        strcopy(buffer, maxlen, "5cp");
+        return true;
+    }
+    if (StrEqual(gamemode, "Attack/Defend CP", false)
+        || StrEqual(gamemode, "Attack/Defend", false))
+    {
+        strcopy(buffer, maxlen, "ad");
+        return true;
+    }
+    if (StrEqual(gamemode, "Territorial Control", false))
+    {
+        strcopy(buffer, maxlen, "tc");
+        return true;
+    }
+    if (StrEqual(gamemode, "Default", false))
+    {
+        strcopy(buffer, maxlen, "default");
+        return true;
+    }
+    if (StrEqual(gamemode, "vsh", false)
+        || StrEqual(gamemode, "ultiduo", false)
+        || StrEqual(gamemode, "mge", false))
+    {
+        strcopy(buffer, maxlen, gamemode);
+        return true;
+    }
+
+    return false;
+}
+
 void DGM_CopyGameModeKeyForMap(const char[] mapName, char[] buffer, int maxlen)
 {
     strcopy(buffer, maxlen, "default");
@@ -674,6 +744,16 @@ bool DGM_CopyCurrentGameModeKey(char[] buffer, int maxlen)
     char normalizedMapName[PLATFORM_MAX_PATH];
     GetCurrentMap(mapName, sizeof(mapName));
     DGM_CopyNormalizedMapName(mapName, normalizedMapName, sizeof(normalizedMapName));
+
+    char gamemode[64];
+    if (g_sGameModeDetectedMap[0]
+        && StrEqual(normalizedMapName, g_sGameModeDetectedMap, false)
+        && DGM_CopyCurrentGameMode(gamemode, sizeof(gamemode))
+        && DGM_CopyGameModeNameToKey(gamemode, buffer, maxlen))
+    {
+        return true;
+    }
+
     DGM_CopyGameModeKeyForMap(normalizedMapName, buffer, maxlen);
     return buffer[0] != '\0';
 }
@@ -963,15 +1043,13 @@ bool DGM_IsNoEngineerSetupReductionGamemode()
 {
     char gamemodeKey[32];
     if (DGM_CopyCurrentGameModeKey(gamemodeKey, sizeof(gamemodeKey))
-        && StrEqual(gamemodeKey, "pl", false))
+        && (StrEqual(gamemodeKey, "pl", false)
+            || StrEqual(gamemodeKey, "ad", false)))
     {
         return true;
     }
 
-    char gamemode[64];
-    return DGM_CopyCurrentGameMode(gamemode, sizeof(gamemode))
-        && (StrEqual(gamemode, "Payload", false)
-            || StrEqual(gamemode, "Attack/Defend CP", false));
+    return false;
 }
 
 bool DGM_RedHasEngineer()
@@ -1205,6 +1283,7 @@ void DetectGameMode()
     }
 
     GetCurrentMap(mapName, sizeof(mapName));
+    DGM_CopyNormalizedMapName(mapName, g_sGameModeDetectedMap, sizeof(g_sGameModeDetectedMap));
     if (StrContains(mapName, "vsh_", false) != -1)
     {
         strcopy(modeName, sizeof(modeName), "vsh");
@@ -1321,6 +1400,7 @@ public void OnMapStart()
 
     g_bSetupActive = false;
     g_bNoEngineerSetupReduced = false;
+    g_sGameModeDetectedMap[0] = '\0';
     DGM_RefreshRespawnVisualState();
     DGM_UpdateSetupState();
 }

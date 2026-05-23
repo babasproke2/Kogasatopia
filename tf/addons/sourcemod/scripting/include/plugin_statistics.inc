@@ -904,9 +904,9 @@ stock void PluginStats_GetMapName(char[] output, int maxlen)
 stock void PluginStats_GetGamemode(char[] output, int maxlen)
 {
     strcopy(output, maxlen, "default");
-    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameMode") == FeatureStatus_Available)
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") == FeatureStatus_Available)
     {
-        DGM_GetGameMode(output, maxlen);
+        DGM_GetGameModeKey(output, maxlen);
     }
 }
 

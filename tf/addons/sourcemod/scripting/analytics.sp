@@ -68,7 +68,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     MarkNativeAsOptional("DGM_GetServerCapacity");
     MarkNativeAsOptional("DGM_RealPlayerCount");
-    MarkNativeAsOptional("DGM_GetGameMode");
+    MarkNativeAsOptional("DGM_GetGameModeKey");
     return APLRes_Success;
 }
 
@@ -572,9 +572,9 @@ void GetAnalyticsMapName(char[] mapName, int maxLen)
 void GetAnalyticsGamemode(char[] gamemode, int maxLen)
 {
     strcopy(gamemode, maxLen, "default");
-    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameMode") == FeatureStatus_Available)
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") == FeatureStatus_Available)
     {
-        DGM_GetGameMode(gamemode, maxLen);
+        DGM_GetGameModeKey(gamemode, maxLen);
     }
 }
 
