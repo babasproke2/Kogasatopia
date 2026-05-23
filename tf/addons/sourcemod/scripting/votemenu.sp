@@ -411,7 +411,7 @@ static bool StartYesNoVote(int initiator)
         ReplaceStringEx(detail, sizeof(detail), "has started ", "started ", -1, -1, false);
     }
 
-    Format(startMsg, sizeof(startMsg), "%s {default}%s Required: {gold}>=%d%%{default}", announcer, detail, GetVoteRequiredPercent(g_CurrentVote.ratio));
+    Format(startMsg, sizeof(startMsg), "%s {default}%s Required: {gold}%d%%{default}", announcer, detail, GetVoteRequiredPercent(g_CurrentVote.ratio));
     CPrintToChatAll("%s", startMsg);
     LogVoteMenuVoteStarted(initiator, detail);
 
