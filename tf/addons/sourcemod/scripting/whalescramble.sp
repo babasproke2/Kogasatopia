@@ -102,7 +102,6 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("FilterAlerts_SuppressTeamAlertWindow");
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
-    MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("PointsStore_ConsumePurchaseUse");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
@@ -2270,11 +2269,6 @@ static bool IsScrambleImmune(int client)
         return false;
     }
 
-    if (IsClientCurrentRoundMvpSafe(client))
-    {
-        return true;
-    }
-
     if (HasClanTeammateProtection(client))
     {
         return true;
@@ -2308,16 +2302,6 @@ static bool HasScramblePurchaseImmunity(int client)
     }
 
     return PointsStore_HasPurchase(client, POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM);
-}
-
-static bool IsClientCurrentRoundMvpSafe(int client)
-{
-    if (GetFeatureStatus(FeatureType_Native, "WhaleTracker_IsCurrentRoundMvp") != FeatureStatus_Available)
-    {
-        return false;
-    }
-
-    return WhaleTracker_IsCurrentRoundMvp(client);
 }
 
 static bool HasClanTeammateProtection(int client)

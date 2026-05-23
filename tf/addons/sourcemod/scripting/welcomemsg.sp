@@ -405,7 +405,7 @@ public bool IsUncleCycleActive()
 // Array of command categories and their descriptions
 static const char g_CommandInfo[][] = {
     "{lightgreen}Weapons:{default} {gold}!reverts !r !rp !c !cp !cw{default}",
-    "{lightgreen}WhaleTracker:{default} {gold}!pts !ptsme !mvp !bp !sendbp !ranks !stats{default}",
+    "{lightgreen}WhaleTracker:{default} {gold}!pts !ptsme !bp !sendbp !ranks !stats{default}",
     "{lightgreen}Tags/Clans:{default} {gold}!tags !clan !clans !clanhelp !claninfo !clanmembers{default}",
     "{lightgreen}Clan tools:{default} {gold}!clantag !claninvite !clankick !clanwar{default}",
     "{lightgreen}Sounds:{default} {gold}!sounds !saysound !vol !opt !opts !killsounds !diesounds{default}",

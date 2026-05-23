@@ -55,7 +55,6 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 {
     MarkNativeAsOptional("FilterAlerts_MarkAutobalance");
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
-    MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("PointsStore_ConsumePurchaseUse");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
@@ -236,7 +235,6 @@ public Action Timer_Autobalance(Handle timer)
 
     bool loggingEnabled = IsBalanceLoggingEnabled();
     bool clanProtectionAvailable = (GetFeatureStatus(FeatureType_Native, "Clans_GetSameTeamClanMemberCount") == FeatureStatus_Available);
-    bool mvpProtectionAvailable = (GetFeatureStatus(FeatureType_Native, "WhaleTracker_IsCurrentRoundMvp") == FeatureStatus_Available);
 
     char fromTeamName[16];
     char toTeamName[16];
@@ -277,8 +275,8 @@ public Action Timer_Autobalance(Handle timer)
     // Candidate selection.
     //
     // Volunteer selection runs before normal candidate filters. Volunteers
-    // intentionally bypass autobalance immunity, but still keep Engineer,
-    // medic uber, and MVP protection.
+    // intentionally bypass autobalance immunity, but still keep Engineer
+    // and medic uber protection.
     //
     // By this point diff > threshold, so the balance is always forced.
     // Simple selection uses one scan and picks the most recent eligible
@@ -298,7 +296,7 @@ public Action Timer_Autobalance(Handle timer)
     int volunteerMedicCount = 0;
     if (HasCachedVolunteers())
     {
-        pick = SelectVolunteerPlayer(biggestTeam, volunteerNonMedicCount, volunteerMedicCount, mvpProtectionAvailable);
+        pick = SelectVolunteerPlayer(biggestTeam, volunteerNonMedicCount, volunteerMedicCount);
     }
     if (pick > 0)
     {
@@ -315,7 +313,7 @@ public Action Timer_Autobalance(Handle timer)
     }
     else if (simpleSelection)
     {
-        pick = SelectPreferredRecentPlayer(biggestTeam, clanProtectionAvailable, mvpProtectionAvailable);
+        pick = SelectPreferredRecentPlayer(biggestTeam, clanProtectionAvailable);
         candidateCount = (pick > 0) ? 1 : 0;
         if (pick <= 0)
         {
@@ -332,7 +330,7 @@ public Action Timer_Autobalance(Handle timer)
 
         for (int i = 1; i <= MaxClients; i++)
         {
-            if (!IsEligiblePlayer(i, biggestTeam, clanProtectionAvailable, mvpProtectionAvailable))
+            if (!IsEligiblePlayer(i, biggestTeam, clanProtectionAvailable))
             {
                 continue;
             }
@@ -396,7 +394,7 @@ public Action Timer_Autobalance(Handle timer)
         }
     }
 
-    if (!ResolveAutobalancePurchaseImmunity(pick, biggestTeam, clanProtectionAvailable, mvpProtectionAvailable, loggingEnabled))
+    if (!ResolveAutobalancePurchaseImmunity(pick, biggestTeam, clanProtectionAvailable, loggingEnabled))
     {
         return Plugin_Continue;
     }
@@ -497,10 +495,10 @@ static int AB_GetOpposingCoreTeam(int team)
     return 0;
 }
 
-static bool IsEligiblePlayer(int client, int team, bool clanProtectionAvailable, bool mvpProtectionAvailable)
+static bool IsEligiblePlayer(int client, int team, bool clanProtectionAvailable)
 {
     if (!IsBasicBalanceCandidate(client, team)) return false;
-    if (IsProtectedBalanceCandidate(client, team, clanProtectionAvailable, mvpProtectionAvailable)) return false;
+    if (IsProtectedBalanceCandidate(client, team, clanProtectionAvailable)) return false;
 
     return true;
 }
@@ -526,12 +524,11 @@ static bool ClientHasDecapitationHeads(int client)
     return heads != 0;
 }
 
-static bool IsProtectedBalanceCandidate(int client, int team, bool clanProtectionAvailable, bool mvpProtectionAvailable)
+static bool IsProtectedBalanceCandidate(int client, int team, bool clanProtectionAvailable)
 {
     if (IsMedicWithProtectedUber(client)) return true;
     if (IsClientImmune(client)) return true;
     if (HasClanTeammateProtection(client, team, clanProtectionAvailable)) return true;
-    if (IsClientCurrentRoundMvpSafe(client, mvpProtectionAvailable)) return true;
 
     return false;
 }
@@ -556,16 +553,6 @@ static bool IsMedicWithProtectedUber(int client)
 
     // m_flChargeLevel is normalized: 0.05 is 5% uber.
     return GetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel") > MEDIC_AUTOBALANCE_UBER_FLOOR;
-}
-
-static bool IsClientCurrentRoundMvpSafe(int client, bool mvpProtectionAvailable)
-{
-    if (!mvpProtectionAvailable)
-    {
-        return false;
-    }
-
-    return WhaleTracker_IsCurrentRoundMvp(client);
 }
 
 static bool HasClanTeammateProtection(int client, int team, bool clanProtectionAvailable)
@@ -596,7 +583,7 @@ static int GetSimpleSelectionPriority(int client)
     return priority;
 }
 
-static int SelectPreferredRecentPlayer(int team, bool clanProtectionAvailable, bool mvpProtectionAvailable)
+static int SelectPreferredRecentPlayer(int team, bool clanProtectionAvailable)
 {
     int pick = 0;
     int bestPriority = -1;
@@ -613,7 +600,7 @@ static int SelectPreferredRecentPlayer(int team, bool clanProtectionAvailable, b
             continue;
         }
 
-        if (IsProtectedBalanceCandidate(i, team, clanProtectionAvailable, mvpProtectionAvailable))
+        if (IsProtectedBalanceCandidate(i, team, clanProtectionAvailable))
         {
             continue;
         }
@@ -629,18 +616,17 @@ static int SelectPreferredRecentPlayer(int team, bool clanProtectionAvailable, b
     return pick;
 }
 
-static bool IsVolunteerCandidate(int client, int team, bool mvpProtectionAvailable)
+static bool IsVolunteerCandidate(int client, int team)
 {
     if (!IsBasicBalanceCandidate(client, team)) return false;
     if (!IsClientVolunteer(client)) return false;
     if (TF2_GetPlayerClass(client) == TFClass_Engineer) return false;
     if (IsMedicWithProtectedUber(client)) return false;
-    if (IsClientCurrentRoundMvpSafe(client, mvpProtectionAvailable)) return false;
 
     return true;
 }
 
-static int SelectVolunteerPlayer(int team, int &nonMedicCount, int &medicCount, bool mvpProtectionAvailable)
+static int SelectVolunteerPlayer(int team, int &nonMedicCount, int &medicCount)
 {
     int nonMedics[MAXPLAYERS];
     int medics[MAXPLAYERS];
@@ -649,7 +635,7 @@ static int SelectVolunteerPlayer(int team, int &nonMedicCount, int &medicCount, 
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsVolunteerCandidate(i, team, mvpProtectionAvailable)) continue;
+        if (!IsVolunteerCandidate(i, team)) continue;
 
         if (TF2_GetPlayerClass(i) == TFClass_Medic)
         {
@@ -699,14 +685,14 @@ static bool HasAutobalancePurchaseImmunity(int client)
     return PointsStore_HasPurchase(client, POINTS_STORE_AB_IMMUNITY_ITEM);
 }
 
-static bool ResolveAutobalancePurchaseImmunity(int &pick, int team, bool clanProtectionAvailable, bool mvpProtectionAvailable, bool loggingEnabled)
+static bool ResolveAutobalancePurchaseImmunity(int &pick, int team, bool clanProtectionAvailable, bool loggingEnabled)
 {
     if (!HasAutobalancePurchaseImmunity(pick))
     {
         return true;
     }
 
-    int replacement = SelectAutobalanceReplacementForPass(pick, team, clanProtectionAvailable, mvpProtectionAvailable);
+    int replacement = SelectAutobalanceReplacementForPass(pick, team, clanProtectionAvailable);
     if (replacement <= 0)
     {
         if (loggingEnabled)
@@ -732,7 +718,7 @@ static bool ResolveAutobalancePurchaseImmunity(int &pick, int team, bool clanPro
     return true;
 }
 
-static int SelectAutobalanceReplacementForPass(int protectedClient, int team, bool clanProtectionAvailable, bool mvpProtectionAvailable)
+static int SelectAutobalanceReplacementForPass(int protectedClient, int team, bool clanProtectionAvailable)
 {
     int bestClient = 0;
     int bestScore = 0;
@@ -743,7 +729,7 @@ static int SelectAutobalanceReplacementForPass(int protectedClient, int team, bo
             continue;
         }
 
-        if (!IsEligiblePlayer(i, team, clanProtectionAvailable, mvpProtectionAvailable))
+        if (!IsEligiblePlayer(i, team, clanProtectionAvailable))
         {
             continue;
         }

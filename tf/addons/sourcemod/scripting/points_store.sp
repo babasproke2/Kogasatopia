@@ -1712,9 +1712,7 @@ public Action Timer_DeferredApplyBonusPoints(Handle timer, any data)
 void PrintBonusPointsDelta(int client, int points, const char[] type, int target)
 {
     char prefix[96];
-    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyPrefix(prefix, sizeof(prefix));
-    GetCurrencyColorTag(colorTag, sizeof(colorTag));
 
     if (points < 0)
     {
@@ -1734,11 +1732,11 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
         return;
     }
 
-    if (StrEqual(type, "mvp_kill", false) && IsClientInGameHuman(target))
+    if (StrEqual(type, "top_score_kill", false) && IsClientInGameHuman(target))
     {
         char targetName[256];
         BuildPurchaseDisplayName(target, targetName, sizeof(targetName));
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for killing %sMVP %s", prefix, sign, points, colorTag, targetName);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for killing {gold}Top-scoring player{default} (%s)", prefix, sign, points, targetName);
         return;
     }
 
