@@ -1000,10 +1000,46 @@ int ConsumeCachedPurchaseUse(int client, const char[] itemKey)
     else
     {
         RemoveCachedPurchase(client, itemKey);
+        BroadcastPurchaseRanOut(client, itemKey);
     }
 
     SavePurchaseUsesRemaining(client, itemKey, usesRemaining);
     return usesRemaining;
+}
+
+void BroadcastPurchaseRanOut(int client, const char[] itemKey)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return;
+    }
+
+    char itemName[BP_TRANS_ITEM_NAME_MAX];
+    if (!GetStoreItemName(itemKey, itemName, sizeof(itemName)))
+    {
+        strcopy(itemName, sizeof(itemName), itemKey);
+    }
+
+    char prefix[96];
+    GetCurrencyPrefix(prefix, sizeof(prefix));
+
+    char displayName[256];
+    BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
+    CPrintToChatAllEx(client, "%s %s's {gold}%s{default} ran out!", prefix, displayName, itemName);
+}
+
+bool GetStoreItemName(const char[] itemKey, char[] itemName, int maxlen)
+{
+    itemName[0] = '\0';
+
+    int itemIndex = FindStoreItem(itemKey);
+    if (itemIndex == -1)
+    {
+        return false;
+    }
+
+    g_ItemNames.GetString(itemIndex, itemName, maxlen);
+    return itemName[0] != '\0';
 }
 
 void RemoveCachedPurchase(int client, const char[] itemKey)
