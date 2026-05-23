@@ -2238,12 +2238,14 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
     LogPurchaseEvent("purchase_success", "ok", client, itemKey, itemName, price, GetCachedBonusPoints(client));
     if (IsClientInGameHuman(client))
     {
-        char prefix[96];
-        GetCurrencyPrefix(prefix, sizeof(prefix));
+        char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+        char currencyShort[BP_CURRENCY_SHORT_MAX];
+        GetCurrencyColorTag(colorTag, sizeof(colorTag));
+        GetCurrencyShortLabelForAmount(price, currencyShort, sizeof(currencyShort));
 
         char displayName[256];
         BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
-        CPrintToChatAllEx(client, "%s %s bought {gold}%s{default}!", prefix, displayName, itemName);
+        CPrintToChatAllEx(client, "%s[!shop]{default} %s bought {gold}%s{default} for %d %s%s{default}", colorTag, displayName, itemName, price, colorTag, currencyShort);
         PlayPurchaseSound();
     }
 }
