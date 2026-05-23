@@ -78,6 +78,28 @@ native int PointsStore_GetPurchasePrice(int client, const char[] itemKey);
  */
 native int PointsStore_GetPurchaseExpiresAt(int client, const char[] itemKey);
 
+/**
+ * Returns how many uses remain for a use-limited shop item.
+ *
+ * Permanent/non-use-limited purchases return -1. Missing purchases return 0.
+ *
+ * @param client        Client index.
+ * @param itemKey       Stable item database key.
+ * @return              Remaining uses, -1 for unlimited, or 0 if not owned.
+ */
+native int PointsStore_GetPurchaseUsesRemaining(int client, const char[] itemKey);
+
+/**
+ * Consumes one use from a use-limited shop item and saves the new count.
+ *
+ * Permanent/non-use-limited purchases and missing purchases are not changed.
+ *
+ * @param client        Client index.
+ * @param itemKey       Stable item database key.
+ * @return              Remaining uses after consume, or -1 if no use was consumed.
+ */
+native int PointsStore_ConsumePurchaseUse(int client, const char[] itemKey);
+
 public SharedPlugin __pl_points_store =
 {
     name = "points_store",
@@ -94,4 +116,6 @@ public void __pl_points_store_SetNTVOptional()
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("PointsStore_GetPurchasePrice");
     MarkNativeAsOptional("PointsStore_GetPurchaseExpiresAt");
+    MarkNativeAsOptional("PointsStore_GetPurchaseUsesRemaining");
+    MarkNativeAsOptional("PointsStore_ConsumePurchaseUse");
 }

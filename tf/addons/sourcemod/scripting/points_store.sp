@@ -22,14 +22,17 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define BP_CURRENCY_LONG_MAX 64
 #define BP_CURRENCY_COLOR_MAX 32
 #define BP_PURCHASE_PERMANENT 0
+#define BP_PURCHASE_UNLIMITED_USES -1
 
 ArrayList g_ItemKeys = null;
 ArrayList g_ItemNames = null;
 ArrayList g_ItemPrices = null;
 ArrayList g_ItemDurations = null;
+ArrayList g_ItemUses = null;
 
 StringMap g_ClientPurchases[MAXPLAYERS + 1];
 StringMap g_ClientPurchaseExpiresAt[MAXPLAYERS + 1];
+StringMap g_ClientPurchaseUsesRemaining[MAXPLAYERS + 1];
 bool g_ClientPurchasesLoaded[MAXPLAYERS + 1];
 int g_ClientBonusPoints[MAXPLAYERS + 1];
 bool g_ClientBonusPointsLoaded[MAXPLAYERS + 1];
@@ -75,6 +78,8 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("PointsStore_HasPurchase", Native_PointsStore_HasPurchase);
     CreateNative("PointsStore_GetPurchasePrice", Native_PointsStore_GetPurchasePrice);
     CreateNative("PointsStore_GetPurchaseExpiresAt", Native_PointsStore_GetPurchaseExpiresAt);
+    CreateNative("PointsStore_GetPurchaseUsesRemaining", Native_PointsStore_GetPurchaseUsesRemaining);
+    CreateNative("PointsStore_ConsumePurchaseUse", Native_PointsStore_ConsumePurchaseUse);
     return APLRes_Success;
 }
 
@@ -86,11 +91,13 @@ public void OnPluginStart()
     g_ItemNames = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_NAME_MAX));
     g_ItemPrices = new ArrayList();
     g_ItemDurations = new ArrayList();
+    g_ItemUses = new ArrayList();
 
     for (int i = 1; i <= MaxClients; i++)
     {
         g_ClientPurchases[i] = new StringMap();
         g_ClientPurchaseExpiresAt[i] = new StringMap();
+        g_ClientPurchaseUsesRemaining[i] = new StringMap();
         g_ClientPurchasesLoaded[i] = false;
         g_ClientBonusPoints[i] = 0;
         g_ClientBonusPointsLoaded[i] = false;
@@ -138,6 +145,7 @@ public void OnPluginEnd()
     delete g_ItemNames;
     delete g_ItemPrices;
     delete g_ItemDurations;
+    delete g_ItemUses;
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -145,6 +153,8 @@ public void OnPluginEnd()
         g_ClientPurchases[i] = null;
         delete g_ClientPurchaseExpiresAt[i];
         g_ClientPurchaseExpiresAt[i] = null;
+        delete g_ClientPurchaseUsesRemaining[i];
+        g_ClientPurchaseUsesRemaining[i] = null;
     }
 
     delete g_Database;
@@ -238,6 +248,7 @@ void EnsureSchema()
             ... "price_paid INT NOT NULL, "
             ... "purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
             ... "expires_at INT NOT NULL DEFAULT 0, "
+            ... "uses_remaining INT NOT NULL DEFAULT -1, "
             ... "PRIMARY KEY (id), "
             ... "UNIQUE KEY unique_bonuspoints_purchase (steamid64, item_key), "
             ... "KEY idx_bonuspoints_transactions_steamid64 (steamid64), "
@@ -254,6 +265,7 @@ void EnsureSchema()
             ... "price_paid INT NOT NULL, "
             ... "purchased_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
             ... "expires_at INTEGER NOT NULL DEFAULT 0, "
+            ... "uses_remaining INTEGER NOT NULL DEFAULT -1, "
             ... "UNIQUE (steamid64, item_key))",
             BP_TRANS_TABLE);
     }
@@ -291,6 +303,31 @@ public void SQL_OnPurchaseExpiryColumnReady(Database db, DBResultSet results, co
     if (error[0] != '\0' && !IsDuplicateColumnError(error))
     {
         LogError("[points_store] Purchase expiry schema update failed: %s", error);
+        return;
+    }
+
+    char query[256];
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN IF NOT EXISTS uses_remaining INT NOT NULL DEFAULT -1",
+            BP_TRANS_TABLE);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN uses_remaining INTEGER NOT NULL DEFAULT -1",
+            BP_TRANS_TABLE);
+    }
+
+    g_Database.Query(SQL_OnPurchaseUsesColumnReady, query);
+}
+
+public void SQL_OnPurchaseUsesColumnReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0' && !IsDuplicateColumnError(error))
+    {
+        LogError("[points_store] Purchase uses schema update failed: %s", error);
         return;
     }
 
@@ -369,6 +406,7 @@ void LoadStoreItems()
     g_ItemNames.Clear();
     g_ItemPrices.Clear();
     g_ItemDurations.Clear();
+    g_ItemUses.Clear();
 
     char configPath[PLATFORM_MAX_PATH];
     BuildPath(Path_SM, configPath, sizeof(configPath), "configs/points_store.cfg");
@@ -382,11 +420,14 @@ void LoadStoreItems()
     }
 
     StringMap durations = new StringMap();
+    StringMap uses = new StringMap();
     LoadStoreItemDurations(kv, durations);
+    LoadStoreItemUses(kv, uses);
 
     if (!kv.GotoFirstSubKey())
     {
         LogError("[bonuspoints_transactions] No items found in %s", configPath);
+        delete uses;
         delete durations;
         delete kv;
         return;
@@ -412,18 +453,20 @@ void LoadStoreItems()
             char itemKey[BP_TRANS_ITEM_KEY_MAX];
             char itemName[BP_TRANS_ITEM_NAME_MAX];
             int durationSeconds = BP_PURCHASE_PERMANENT;
+            int useCount = BP_PURCHASE_UNLIMITED_USES;
             kv.GetSectionName(itemKey, sizeof(itemKey));
             kv.GetString(NULL_STRING, itemName, sizeof(itemName));
             TrimString(itemKey);
             TrimString(itemName);
             durations.GetValue(itemKey, durationSeconds);
+            uses.GetValue(itemKey, useCount);
 
             if (itemKey[0] == '\0' || itemName[0] == '\0')
             {
                 continue;
             }
 
-            AddStoreItemSorted(itemKey, itemName, price, durationSeconds);
+            AddStoreItemSorted(itemKey, itemName, price, durationSeconds, useCount);
         }
         while (kv.GotoNextKey(false));
 
@@ -431,6 +474,7 @@ void LoadStoreItems()
     }
     while (kv.GotoNextKey());
 
+    delete uses;
     delete durations;
     delete kv;
     LogMessage("[bonuspoints_transactions] Loaded %d shop item(s).", g_ItemPrices.Length);
@@ -458,6 +502,38 @@ void LoadStoreItemDurations(KeyValues kv, StringMap durations)
             if (itemKey[0] != '\0' && durationSeconds > 0)
             {
                 durations.SetValue(itemKey, durationSeconds, true);
+            }
+        }
+        while (kv.GotoNextKey(false));
+
+        kv.GoBack();
+    }
+
+    kv.GoBack();
+}
+
+void LoadStoreItemUses(KeyValues kv, StringMap uses)
+{
+    if (!kv.JumpToKey("uses", false))
+    {
+        return;
+    }
+
+    if (kv.GotoFirstSubKey(false))
+    {
+        do
+        {
+            char itemKey[BP_TRANS_ITEM_KEY_MAX];
+            char usesText[32];
+            kv.GetSectionName(itemKey, sizeof(itemKey));
+            kv.GetString(NULL_STRING, usesText, sizeof(usesText));
+            TrimString(itemKey);
+            TrimString(usesText);
+
+            int useCount = StringToInt(usesText);
+            if (itemKey[0] != '\0' && useCount > 0)
+            {
+                uses.SetValue(itemKey, useCount, true);
             }
         }
         while (kv.GotoNextKey(false));
@@ -512,7 +588,7 @@ int ParseDurationSeconds(const char[] input)
     return amount * multiplier;
 }
 
-void AddStoreItemSorted(const char[] itemKey, const char[] itemName, int price, int durationSeconds)
+void AddStoreItemSorted(const char[] itemKey, const char[] itemName, int price, int durationSeconds, int useCount)
 {
     if (FindStoreItem(itemKey) != -1)
     {
@@ -536,6 +612,7 @@ void AddStoreItemSorted(const char[] itemKey, const char[] itemName, int price, 
         g_ItemNames.PushString(itemName);
         g_ItemPrices.Push(price);
         g_ItemDurations.Push(durationSeconds);
+        g_ItemUses.Push(useCount);
         return;
     }
 
@@ -543,10 +620,12 @@ void AddStoreItemSorted(const char[] itemKey, const char[] itemName, int price, 
     g_ItemNames.ShiftUp(insertAt);
     g_ItemPrices.ShiftUp(insertAt);
     g_ItemDurations.ShiftUp(insertAt);
+    g_ItemUses.ShiftUp(insertAt);
     g_ItemKeys.SetString(insertAt, itemKey);
     g_ItemNames.SetString(insertAt, itemName);
     g_ItemPrices.Set(insertAt, price);
     g_ItemDurations.Set(insertAt, durationSeconds);
+    g_ItemUses.Set(insertAt, useCount);
 }
 
 int FindStoreItem(const char[] itemKey)
@@ -602,6 +681,14 @@ void ClearClientPurchaseCache(int client)
     else
     {
         g_ClientPurchaseExpiresAt[client].Clear();
+    }
+    if (g_ClientPurchaseUsesRemaining[client] == null)
+    {
+        g_ClientPurchaseUsesRemaining[client] = new StringMap();
+    }
+    else
+    {
+        g_ClientPurchaseUsesRemaining[client].Clear();
     }
     g_ClientPurchasesLoaded[client] = false;
 }
@@ -671,9 +758,9 @@ void LoadClientPurchases(int client)
     pack.WriteCell(GetClientUserId(client));
     pack.WriteString(steamId);
 
-    char query[320];
+    char query[384];
     Format(query, sizeof(query),
-        "SELECT item_key, price_paid, expires_at FROM %s WHERE steamid64 = '%s' AND (expires_at = 0 OR expires_at > %d)",
+        "SELECT item_key, price_paid, expires_at, uses_remaining FROM %s WHERE steamid64 = '%s' AND (expires_at = 0 OR expires_at > %d) AND uses_remaining != 0",
         BP_TRANS_TABLE,
         escapedSteamId,
         GetTime());
@@ -737,6 +824,7 @@ public void SQL_OnClientPurchasesLoaded(Database db, DBResultSet results, const 
 
     g_ClientPurchases[client].Clear();
     g_ClientPurchaseExpiresAt[client].Clear();
+    g_ClientPurchaseUsesRemaining[client].Clear();
 
     if (error[0] != '\0')
     {
@@ -753,10 +841,18 @@ public void SQL_OnClientPurchasesLoaded(Database db, DBResultSet results, const 
             results.FetchString(0, itemKey, sizeof(itemKey));
             int pricePaid = results.FetchInt(1);
             int expiresAt = results.FetchInt(2);
-            if (pricePaid > 0 && (expiresAt == BP_PURCHASE_PERMANENT || expiresAt > GetTime()))
+            int usesRemaining = results.FetchInt(3);
+            int configuredUses = GetConfiguredItemUses(itemKey);
+            if (configuredUses > 0 && usesRemaining == BP_PURCHASE_UNLIMITED_USES)
+            {
+                usesRemaining = configuredUses;
+                SavePurchaseUsesRemaining(client, itemKey, usesRemaining);
+            }
+            if (pricePaid > 0 && usesRemaining != 0 && (expiresAt == BP_PURCHASE_PERMANENT || expiresAt > GetTime()))
             {
                 g_ClientPurchases[client].SetValue(itemKey, pricePaid);
                 g_ClientPurchaseExpiresAt[client].SetValue(itemKey, expiresAt);
+                g_ClientPurchaseUsesRemaining[client].SetValue(itemKey, usesRemaining);
             }
         }
     }
@@ -809,7 +905,7 @@ public void SQL_OnClientBonusPointsLoaded(Database db, DBResultSet results, cons
 
 int GetCachedPurchasePrice(int client, const char[] itemKey)
 {
-    if (client <= 0 || client > MaxClients || g_ClientPurchases[client] == null || g_ClientPurchaseExpiresAt[client] == null)
+    if (client <= 0 || client > MaxClients || g_ClientPurchases[client] == null || g_ClientPurchaseExpiresAt[client] == null || g_ClientPurchaseUsesRemaining[client] == null)
     {
         return 0;
     }
@@ -824,12 +920,30 @@ int GetCachedPurchasePrice(int client, const char[] itemKey)
     g_ClientPurchaseExpiresAt[client].GetValue(itemKey, expiresAt);
     if (expiresAt != BP_PURCHASE_PERMANENT && expiresAt <= GetTime())
     {
-        g_ClientPurchases[client].Remove(itemKey);
-        g_ClientPurchaseExpiresAt[client].Remove(itemKey);
+        RemoveCachedPurchase(client, itemKey);
+        return 0;
+    }
+
+    int usesRemaining = BP_PURCHASE_UNLIMITED_USES;
+    g_ClientPurchaseUsesRemaining[client].GetValue(itemKey, usesRemaining);
+    if (usesRemaining == 0)
+    {
+        RemoveCachedPurchase(client, itemKey);
         return 0;
     }
 
     return pricePaid > 0 ? pricePaid : 0;
+}
+
+int GetConfiguredItemUses(const char[] itemKey)
+{
+    int itemIndex = FindStoreItem(itemKey);
+    if (itemIndex == -1)
+    {
+        return BP_PURCHASE_UNLIMITED_USES;
+    }
+
+    return g_ItemUses.Get(itemIndex);
 }
 
 int GetCachedPurchaseExpiresAt(int client, const char[] itemKey)
@@ -846,6 +960,110 @@ int GetCachedPurchaseExpiresAt(int client, const char[] itemKey)
     }
 
     return expiresAt;
+}
+
+int GetCachedPurchaseUsesRemaining(int client, const char[] itemKey)
+{
+    if (GetCachedPurchasePrice(client, itemKey) <= 0)
+    {
+        return 0;
+    }
+
+    int usesRemaining = BP_PURCHASE_UNLIMITED_USES;
+    if (g_ClientPurchaseUsesRemaining[client] != null)
+    {
+        g_ClientPurchaseUsesRemaining[client].GetValue(itemKey, usesRemaining);
+    }
+
+    return usesRemaining;
+}
+
+int ConsumeCachedPurchaseUse(int client, const char[] itemKey)
+{
+    if (GetCachedPurchasePrice(client, itemKey) <= 0)
+    {
+        return -1;
+    }
+
+    int usesRemaining = BP_PURCHASE_UNLIMITED_USES;
+    g_ClientPurchaseUsesRemaining[client].GetValue(itemKey, usesRemaining);
+    if (usesRemaining <= 0)
+    {
+        return -1;
+    }
+
+    usesRemaining--;
+    if (usesRemaining > 0)
+    {
+        g_ClientPurchaseUsesRemaining[client].SetValue(itemKey, usesRemaining);
+    }
+    else
+    {
+        RemoveCachedPurchase(client, itemKey);
+    }
+
+    SavePurchaseUsesRemaining(client, itemKey, usesRemaining);
+    return usesRemaining;
+}
+
+void RemoveCachedPurchase(int client, const char[] itemKey)
+{
+    if (client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+
+    if (g_ClientPurchases[client] != null)
+    {
+        g_ClientPurchases[client].Remove(itemKey);
+    }
+    if (g_ClientPurchaseExpiresAt[client] != null)
+    {
+        g_ClientPurchaseExpiresAt[client].Remove(itemKey);
+    }
+    if (g_ClientPurchaseUsesRemaining[client] != null)
+    {
+        g_ClientPurchaseUsesRemaining[client].Remove(itemKey);
+    }
+}
+
+void SavePurchaseUsesRemaining(int client, const char[] itemKey, int usesRemaining)
+{
+    if (g_Database == null || client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+
+    char steamId[32];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    {
+        return;
+    }
+
+    char escapedSteamId[65];
+    char escapedItemKey[(BP_TRANS_ITEM_KEY_MAX * 2) + 1];
+    if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)) || !EscapeSql(itemKey, escapedItemKey, sizeof(escapedItemKey)))
+    {
+        LogError("[points_store] Failed to escape purchase-use update for client %d.", client);
+        return;
+    }
+
+    char query[384];
+    Format(query, sizeof(query),
+        "UPDATE %s SET uses_remaining = %d WHERE steamid64 = '%s' AND item_key = '%s'",
+        BP_TRANS_TABLE,
+        usesRemaining,
+        escapedSteamId,
+        escapedItemKey);
+    g_Database.Query(SQL_OnPurchaseUsesUpdated, query);
+}
+
+public void SQL_OnPurchaseUsesUpdated(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Failed to update purchase uses: %s", error);
+    }
 }
 
 bool AreBonusPointsReady(int client)
@@ -1861,6 +2079,7 @@ void AttemptPurchase(int client, const char[] itemKey)
     g_ItemNames.GetString(itemIndex, itemName, sizeof(itemName));
     int price = g_ItemPrices.Get(itemIndex);
     int durationSeconds = g_ItemDurations.Get(itemIndex);
+    int useCount = g_ItemUses.Get(itemIndex);
     int expiresAt = (durationSeconds > 0) ? (GetTime() + durationSeconds) : BP_PURCHASE_PERMANENT;
 
     if (GetCachedPurchasePrice(client, itemKey) > 0)
@@ -1897,6 +2116,7 @@ void AttemptPurchase(int client, const char[] itemKey)
 
     g_ClientPurchases[client].SetValue(itemKey, price);
     g_ClientPurchaseExpiresAt[client].SetValue(itemKey, expiresAt);
+    g_ClientPurchaseUsesRemaining[client].SetValue(itemKey, useCount);
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
@@ -1905,31 +2125,34 @@ void AttemptPurchase(int client, const char[] itemKey)
     pack.WriteString(itemName);
     pack.WriteCell(price);
     pack.WriteCell(expiresAt);
+    pack.WriteCell(useCount);
 
-    char query[768];
+    char query[896];
     if (g_IsMySql)
     {
         Format(query, sizeof(query),
-            "INSERT INTO %s (steamid64, item_key, price_paid, expires_at) "
-            ... "VALUES ('%s', '%s', %d, %d) "
-            ... "ON DUPLICATE KEY UPDATE price_paid = VALUES(price_paid), expires_at = VALUES(expires_at), purchased_at = CURRENT_TIMESTAMP",
+            "INSERT INTO %s (steamid64, item_key, price_paid, expires_at, uses_remaining) "
+            ... "VALUES ('%s', '%s', %d, %d, %d) "
+            ... "ON DUPLICATE KEY UPDATE price_paid = VALUES(price_paid), expires_at = VALUES(expires_at), uses_remaining = VALUES(uses_remaining), purchased_at = CURRENT_TIMESTAMP",
             BP_TRANS_TABLE,
             escapedSteamId,
             escapedItemKey,
             price,
-            expiresAt);
+            expiresAt,
+            useCount);
     }
     else
     {
         Format(query, sizeof(query),
-            "INSERT INTO %s (steamid64, item_key, price_paid, expires_at) "
-            ... "VALUES ('%s', '%s', %d, %d) "
-            ... "ON CONFLICT(steamid64, item_key) DO UPDATE SET price_paid = excluded.price_paid, expires_at = excluded.expires_at, purchased_at = CURRENT_TIMESTAMP",
+            "INSERT INTO %s (steamid64, item_key, price_paid, expires_at, uses_remaining) "
+            ... "VALUES ('%s', '%s', %d, %d, %d) "
+            ... "ON CONFLICT(steamid64, item_key) DO UPDATE SET price_paid = excluded.price_paid, expires_at = excluded.expires_at, uses_remaining = excluded.uses_remaining, purchased_at = CURRENT_TIMESTAMP",
             BP_TRANS_TABLE,
             escapedSteamId,
             escapedItemKey,
             price,
-            expiresAt);
+            expiresAt,
+            useCount);
     }
 
     g_Database.Query(SQL_OnPurchaseInserted, query, pack);
@@ -1948,6 +2171,7 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
     pack.ReadString(itemName, sizeof(itemName));
     int price = pack.ReadCell();
     int expiresAt = pack.ReadCell();
+    int useCount = pack.ReadCell();
     delete pack;
 
     int client = GetClientOfUserId(userId);
@@ -1966,8 +2190,7 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
     {
         LogError("[bonuspoints_transactions] Failed to insert purchase for %s/%s: %s", expectedSteamId, itemKey, error);
         LogPurchaseEvent("purchase_save_failed", error, client, itemKey, itemName, price, GetCachedBonusPoints(client));
-        g_ClientPurchases[client].Remove(itemKey);
-        g_ClientPurchaseExpiresAt[client].Remove(itemKey);
+        RemoveCachedPurchase(client, itemKey);
         if (IsClientInGameHuman(client))
         {
             PrintToChat(client, "[Shop] Your purchase could not be saved. Contact an admin.");
@@ -1977,6 +2200,7 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
 
     g_ClientPurchases[client].SetValue(itemKey, price);
     g_ClientPurchaseExpiresAt[client].SetValue(itemKey, expiresAt);
+    g_ClientPurchaseUsesRemaining[client].SetValue(itemKey, useCount);
     LogPurchaseEvent("purchase_success", "ok", client, itemKey, itemName, price, GetCachedBonusPoints(client));
     if (IsClientInGameHuman(client))
     {
@@ -2101,4 +2325,20 @@ public any Native_PointsStore_GetPurchaseExpiresAt(Handle plugin, int numParams)
     char itemKey[BP_TRANS_ITEM_KEY_MAX];
     GetNativeString(2, itemKey, sizeof(itemKey));
     return GetCachedPurchaseExpiresAt(client, itemKey);
+}
+
+public any Native_PointsStore_GetPurchaseUsesRemaining(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    char itemKey[BP_TRANS_ITEM_KEY_MAX];
+    GetNativeString(2, itemKey, sizeof(itemKey));
+    return GetCachedPurchaseUsesRemaining(client, itemKey);
+}
+
+public any Native_PointsStore_ConsumePurchaseUse(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    char itemKey[BP_TRANS_ITEM_KEY_MAX];
+    GetNativeString(2, itemKey, sizeof(itemKey));
+    return ConsumeCachedPurchaseUse(client, itemKey);
 }

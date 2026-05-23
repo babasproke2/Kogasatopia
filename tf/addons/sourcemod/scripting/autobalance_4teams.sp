@@ -57,6 +57,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
     MarkNativeAsOptional("PointsStore_HasPurchase");
+    MarkNativeAsOptional("PointsStore_ConsumePurchaseUse");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
     MarkNativeAsOptional("DGM_GetObjectiveLeaderTeam");
     MarkNativeAsOptional("DGM_GetGameModeKey");
@@ -395,6 +396,11 @@ public Action Timer_Autobalance(Handle timer)
         }
     }
 
+    if (!ResolveAutobalancePurchaseImmunity(pick, biggestTeam, clanProtectionAvailable, mvpProtectionAvailable, loggingEnabled))
+    {
+        return Plugin_Continue;
+    }
+
     if (loggingEnabled)
     {
         LogBalance(
@@ -504,7 +510,6 @@ static bool IsBasicBalanceCandidate(int client, int team)
     if (client <= 0 || client > MaxClients) return false;
     if (!IsClientInGame(client) || IsFakeClient(client)) return false;
     if (GetClientTeam(client) != team) return false;
-    if (HasAutobalancePurchaseImmunity(client)) return false;
     if (ClientHasDecapitationHeads(client)) return false;
 
     return true;
@@ -671,7 +676,7 @@ static int SelectVolunteerPlayer(int team, int &nonMedicCount, int &medicCount, 
 
 static bool IsClientImmune(int client)
 {
-    return IsClientMapImmune(client) || IsClientPersistentlyImmune(client) || HasAutobalancePurchaseImmunity(client);
+    return IsClientMapImmune(client) || IsClientPersistentlyImmune(client);
 }
 
 static bool HasAutobalancePurchaseImmunity(int client)
@@ -686,7 +691,77 @@ static bool HasAutobalancePurchaseImmunity(int client)
         return false;
     }
 
+    if (GetFeatureStatus(FeatureType_Native, "PointsStore_ConsumePurchaseUse") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
     return PointsStore_HasPurchase(client, POINTS_STORE_AB_IMMUNITY_ITEM);
+}
+
+static bool ResolveAutobalancePurchaseImmunity(int &pick, int team, bool clanProtectionAvailable, bool mvpProtectionAvailable, bool loggingEnabled)
+{
+    if (!HasAutobalancePurchaseImmunity(pick))
+    {
+        return true;
+    }
+
+    int replacement = SelectAutobalanceReplacementForPass(pick, team, clanProtectionAvailable, mvpProtectionAvailable);
+    if (replacement <= 0)
+    {
+        if (loggingEnabled)
+        {
+            LogBalance("Skip balance on %N: protected by paid immunity and no replacement was available", pick);
+        }
+        return false;
+    }
+
+    int usesRemaining = PointsStore_ConsumePurchaseUse(pick, POINTS_STORE_AB_IMMUNITY_ITEM);
+    if (usesRemaining < 0)
+    {
+        return true;
+    }
+
+    CPrintToChat(pick, "{magenta}[Store]{default} You were protected by your {gold}Autobalance Immunity (16 times){default}! Uses remaining: {lightgreen}%d", usesRemaining);
+    if (loggingEnabled)
+    {
+        LogBalance("Paid autobalance immunity protected %N; replacement=%N usesRemaining=%d", pick, replacement, usesRemaining);
+    }
+
+    pick = replacement;
+    return true;
+}
+
+static int SelectAutobalanceReplacementForPass(int protectedClient, int team, bool clanProtectionAvailable, bool mvpProtectionAvailable)
+{
+    int bestClient = 0;
+    int bestScore = 0;
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (i == protectedClient)
+        {
+            continue;
+        }
+
+        if (!IsEligiblePlayer(i, team, clanProtectionAvailable, mvpProtectionAvailable))
+        {
+            continue;
+        }
+
+        if (HasAutobalancePurchaseImmunity(i))
+        {
+            continue;
+        }
+
+        int score = GetClientScore(i);
+        if (bestClient == 0 || score < bestScore)
+        {
+            bestClient = i;
+            bestScore = score;
+        }
+    }
+
+    return bestClient;
 }
 
 static bool IsClientPersistentlyImmune(int client)

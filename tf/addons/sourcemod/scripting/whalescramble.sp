@@ -104,6 +104,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("WhaleTracker_IsCurrentRoundMvp");
     MarkNativeAsOptional("PointsStore_HasPurchase");
+    MarkNativeAsOptional("PointsStore_ConsumePurchaseUse");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
     MarkNativeAsOptional("DGM_RealTeamPlayerCount");
     MarkNativeAsOptional("DGM_GetGameModeKey");
@@ -1221,7 +1222,6 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
         int team = GetClientTeam(i);
         if (team != TEAM_RED && team != TEAM_BLU) continue;
 
-        if (HasScramblePurchaseImmunity(i)) continue;
         if (!ignoreImmunity && IsScrambleImmune(i)) continue;
 
         if (team == TEAM_RED) redEligible++;
@@ -1263,7 +1263,6 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
 
             int team = GetClientTeam(i);
             if (team != TEAM_RED && team != TEAM_BLU) continue;
-            if (HasScramblePurchaseImmunity(i)) continue;
             if (!ignoreImmunity && IsScrambleImmune(i)) continue;
 
             if (team == TEAM_RED) redEligible++;
@@ -1305,6 +1304,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
     DataPack pack = new DataPack();
     pack.WriteCell(issuer > 0 ? GetClientUserId(issuer) : 0);
     pack.WriteCell(swapCount);
+    pack.WriteCell(ignoreImmunity ? 1 : 0);
     for (int i = 0; i < swapCount; i++)
     {
         pack.WriteCell(GetClientUserId(topRed[i]));
@@ -1370,7 +1370,6 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
         int team = GetClientTeam(i);
         if (team != TEAM_RED && team != TEAM_BLU) continue;
 
-        if (HasScramblePurchaseImmunity(i)) continue;
         if (!ignoreImmunity && IsScrambleImmune(i)) continue;
         if (!IsSimpleScrambleEligibleClass(i, forced)) continue;
 
@@ -1411,7 +1410,6 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
 
             int team = GetClientTeam(i);
             if (team != TEAM_RED && team != TEAM_BLU) continue;
-            if (HasScramblePurchaseImmunity(i)) continue;
             if (!ignoreImmunity && IsScrambleImmune(i)) continue;
 
             if (team == TEAM_RED)
@@ -1465,6 +1463,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
     DataPack pack = new DataPack();
     pack.WriteCell(issuer > 0 ? GetClientUserId(issuer) : 0);
     pack.WriteCell(swapCount);
+    pack.WriteCell(ignoreImmunity ? 1 : 0);
     for (int i = 0; i < swapCount; i++)
     {
         pack.WriteCell(GetClientUserId(topRed[i]));
@@ -1548,8 +1547,6 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
             bluFragTotal += frags;
         }
 
-        if (HasScramblePurchaseImmunity(i))
-            continue;
         if (!ignoreImmunity && IsScrambleImmune(i))
             continue;
         if (!IsSimpleScrambleEligibleClass(i, forced))
@@ -1605,8 +1602,6 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
 
             int team = GetClientTeam(i);
             if (team != TEAM_RED && team != TEAM_BLU)
-                continue;
-            if (HasScramblePurchaseImmunity(i))
                 continue;
             if (!ignoreImmunity && IsScrambleImmune(i))
                 continue;
@@ -1682,6 +1677,7 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
     DataPack pack = new DataPack();
     pack.WriteCell(issuer > 0 ? GetClientUserId(issuer) : 0);
     pack.WriteCell(swapCount);
+    pack.WriteCell(ignoreImmunity ? 1 : 0);
     for (int i = 0; i < swapCount; i++)
     {
         pack.WriteCell(GetClientUserId(topRed[i]));
@@ -1924,6 +1920,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
     pack.Reset();
     int issuerUserId = pack.ReadCell();
     int swapCount = pack.ReadCell();
+    bool ignoreImmunity = view_as<bool>(pack.ReadCell());
 
     int redIds[MAX_SWAP_BUFFER];
     int bluIds[MAX_SWAP_BUFFER];
@@ -1957,11 +1954,9 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         if (r <= 0 || b <= 0) continue;
         if (!IsClientInGame(r) || !IsClientInGame(b)) continue;
         if (GetClientTeam(r) != TEAM_RED || GetClientTeam(b) != TEAM_BLU) continue;
-        if (HasScramblePurchaseImmunity(r) || HasScramblePurchaseImmunity(b))
-        {
-            LogWhale("Skipping scramble pair due to paid immunity: red=%N blu=%N.", r, b);
-            continue;
-        }
+        if (!ResolveScramblePurchaseImmunity(r, TEAM_RED, redIds, bluIds, swapCount, i, ignoreImmunity)) continue;
+        if (!ResolveScramblePurchaseImmunity(b, TEAM_BLU, redIds, bluIds, swapCount, i, ignoreImmunity)) continue;
+        if (GetClientTeam(r) != TEAM_RED || GetClientTeam(b) != TEAM_BLU) continue;
 
         if (pairCount < MAX_SWAP_BUFFER)
         {
@@ -2165,6 +2160,109 @@ static bool SelectRandomPlayers(const int candidates[MAXPLAYERS + 1], int candid
     return true;
 }
 
+static bool ResolveScramblePurchaseImmunity(int &client, int team, int redIds[MAX_SWAP_BUFFER], int bluIds[MAX_SWAP_BUFFER], int swapCount, int pairIndex, bool ignoreImmunity)
+{
+    if (!HasScramblePurchaseImmunity(client))
+    {
+        return true;
+    }
+
+    int replacement = SelectScrambleReplacementForPass(client, team, redIds, bluIds, swapCount, ignoreImmunity);
+    if (replacement <= 0)
+    {
+        LogWhale("Skipping scramble target %N: paid immunity available and no replacement found.", client);
+        return false;
+    }
+
+    int usesRemaining = PointsStore_ConsumePurchaseUse(client, POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM);
+    if (usesRemaining < 0)
+    {
+        return true;
+    }
+
+    CPrintToChat(client, "{magenta}[Store]{default} You were protected by your {gold}Scramble Immunity (8 times){default}! Uses remaining: {lightgreen}%d", usesRemaining);
+    LogWhale("Paid scramble immunity protected %N; replacement=%N usesRemaining=%d.", client, replacement, usesRemaining);
+
+    client = replacement;
+    if (team == TEAM_RED)
+    {
+        redIds[pairIndex] = GetClientUserId(replacement);
+    }
+    else if (team == TEAM_BLU)
+    {
+        bluIds[pairIndex] = GetClientUserId(replacement);
+    }
+
+    return true;
+}
+
+static int SelectScrambleReplacementForPass(int protectedClient, int team, int redIds[MAX_SWAP_BUFFER], int bluIds[MAX_SWAP_BUFFER], int swapCount, bool ignoreImmunity)
+{
+    int candidates[MAXPLAYERS + 1];
+    int candidateCount = 0;
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (i == protectedClient)
+        {
+            continue;
+        }
+
+        if (!IsClientInGame(i))
+        {
+            continue;
+        }
+
+        if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue))
+        {
+            continue;
+        }
+
+        if (GetClientTeam(i) != team)
+        {
+            continue;
+        }
+
+        if (IsClientSelectedForScramble(i, redIds, bluIds, swapCount))
+        {
+            continue;
+        }
+
+        if (HasScramblePurchaseImmunity(i))
+        {
+            continue;
+        }
+
+        if (!ignoreImmunity && IsScrambleImmune(i))
+        {
+            continue;
+        }
+
+        candidates[candidateCount++] = i;
+    }
+
+    if (candidateCount <= 0)
+    {
+        return 0;
+    }
+
+    return candidates[GetRandomInt(0, candidateCount - 1)];
+}
+
+static bool IsClientSelectedForScramble(int client, int redIds[MAX_SWAP_BUFFER], int bluIds[MAX_SWAP_BUFFER], int swapCount)
+{
+    int userId = GetClientUserId(client);
+    for (int i = 0; i < swapCount; i++)
+    {
+        if (redIds[i] == userId || bluIds[i] == userId)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static bool IsScrambleImmune(int client)
 {
     if (client <= 0 || !IsClientInGame(client) || g_hScrambleImmunity == null)
@@ -2173,11 +2271,6 @@ static bool IsScrambleImmune(int client)
     }
 
     if (IsClientCurrentRoundMvpSafe(client))
-    {
-        return true;
-    }
-
-    if (HasScramblePurchaseImmunity(client))
     {
         return true;
     }
@@ -2205,6 +2298,11 @@ static bool HasScramblePurchaseImmunity(int client)
     }
 
     if (GetFeatureStatus(FeatureType_Native, "PointsStore_HasPurchase") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    if (GetFeatureStatus(FeatureType_Native, "PointsStore_ConsumePurchaseUse") != FeatureStatus_Available)
     {
         return false;
     }
