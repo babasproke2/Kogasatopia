@@ -3,6 +3,7 @@
 
 #include <sourcemod>
 #include <multicolors>
+#include <tf2_stocks>
 #undef REQUIRE_PLUGIN
 #include <saysounds>
 #define REQUIRE_PLUGIN
@@ -1239,6 +1240,32 @@ void GetClientLogIdentity(int client, char[] steamId, int steamLen, char[] name,
     SanitizeLogField(name, nameLen);
 }
 
+void GetClientLogClass(int client, char[] className, int maxlen)
+{
+    strcopy(className, maxlen, "none");
+
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    {
+        return;
+    }
+
+    switch (TF2_GetPlayerClass(client))
+    {
+        case TFClass_Scout:     strcopy(className, maxlen, "scout");
+        case TFClass_Soldier:   strcopy(className, maxlen, "soldier");
+        case TFClass_Pyro:      strcopy(className, maxlen, "pyro");
+        case TFClass_DemoMan:   strcopy(className, maxlen, "demoman");
+        case TFClass_Heavy:     strcopy(className, maxlen, "heavy");
+        case TFClass_Engineer:  strcopy(className, maxlen, "engineer");
+        case TFClass_Medic:     strcopy(className, maxlen, "medic");
+        case TFClass_Sniper:    strcopy(className, maxlen, "sniper");
+        case TFClass_Spy:       strcopy(className, maxlen, "spy");
+        default:                strcopy(className, maxlen, "unknown");
+    }
+
+    SanitizeLogField(className, maxlen);
+}
+
 bool IsBonusPointsNumericTargetType(const char[] type)
 {
     return StrEqual(type, "killstreak", false) || StrEqual(type, "multikill", false);
@@ -1275,7 +1302,9 @@ void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAf
 
     char steamId[32];
     char clientName[MAX_NAME_LENGTH];
+    char clientClass[16];
     GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
+    GetClientLogClass(client, clientClass, sizeof(clientClass));
 
     char safeType[64];
     strcopy(safeType, sizeof(safeType), type);
@@ -1285,21 +1314,25 @@ void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAf
     int targetClient = 0;
     char targetSteamId[32];
     char targetName[MAX_NAME_LENGTH];
+    char targetClass[16];
     strcopy(targetSteamId, sizeof(targetSteamId), "none");
     strcopy(targetName, sizeof(targetName), "none");
+    strcopy(targetClass, sizeof(targetClass), "none");
 
     if (!IsBonusPointsNumericTargetType(type) && target > 0 && target <= MaxClients && IsClientConnected(target))
     {
         targetClient = target;
         GetClientLogIdentity(target, targetSteamId, sizeof(targetSteamId), targetName, sizeof(targetName));
+        GetClientLogClass(target, targetClass, sizeof(targetClass));
     }
 
     LogPointsStoreEvent(
-        "event=bp_delta|time=%d|client=%d|steamid64=%s|name=\"%s\"|delta=%d|balance_before=%d|balance_after=%d|type=%s|target_value=%d|target_client=%d|target_steamid64=%s|target_name=\"%s\"|play_sound=%d|chat_alert=%d|random_chance=%.3f|save_queued=%d",
+        "event=bp_delta|time=%d|client=%d|steamid64=%s|name=\"%s\"|class=%s|delta=%d|balance_before=%d|balance_after=%d|type=%s|target_value=%d|target_client=%d|target_steamid64=%s|target_name=\"%s\"|target_class=%s|play_sound=%d|chat_alert=%d|random_chance=%.3f|save_queued=%d",
         GetTime(),
         client,
         steamId,
         clientName,
+        clientClass,
         delta,
         balanceBefore,
         balanceAfter,
@@ -1308,6 +1341,7 @@ void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAf
         targetClient,
         targetSteamId,
         targetName,
+        targetClass,
         playSound ? 1 : 0,
         chatAlert ? 1 : 0,
         randomChance,
@@ -1323,7 +1357,9 @@ void LogBonusPointsRejected(const char[] reason, int client, int points, const c
 
     char steamId[32];
     char clientName[MAX_NAME_LENGTH];
+    char clientClass[16];
     GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
+    GetClientLogClass(client, clientClass, sizeof(clientClass));
 
     char safeReason[64];
     char safeType[64];
@@ -1333,12 +1369,13 @@ void LogBonusPointsRejected(const char[] reason, int client, int points, const c
     SanitizeLogField(safeType, sizeof(safeType));
 
     LogPointsStoreEvent(
-        "event=bp_rejected|time=%d|reason=%s|client=%d|steamid64=%s|name=\"%s\"|requested_delta=%d|balance=%d|type=%s|target_value=%d|random_chance=%.3f|random_roll=%.3f",
+        "event=bp_rejected|time=%d|reason=%s|client=%d|steamid64=%s|name=\"%s\"|class=%s|requested_delta=%d|balance=%d|type=%s|target_value=%d|random_chance=%.3f|random_roll=%.3f",
         GetTime(),
         safeReason,
         client,
         steamId,
         clientName,
+        clientClass,
         points,
         balance,
         safeType,
@@ -1356,18 +1393,21 @@ void LogBonusPointsDeferredQueue(int client, int points, const char[] type, int 
 
     char steamId[32];
     char clientName[MAX_NAME_LENGTH];
+    char clientClass[16];
     GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
+    GetClientLogClass(client, clientClass, sizeof(clientClass));
 
     char safeType[64];
     strcopy(safeType, sizeof(safeType), type);
     SanitizeLogField(safeType, sizeof(safeType));
 
     LogPointsStoreEvent(
-        "event=bp_deferred_queue|time=%d|client=%d|steamid64=%s|name=\"%s\"|requested_delta=%d|type=%s|target_value=%d|delay=%.2f|play_sound=%d|chat_alert=%d|random_chance=%.3f",
+        "event=bp_deferred_queue|time=%d|client=%d|steamid64=%s|name=\"%s\"|class=%s|requested_delta=%d|type=%s|target_value=%d|delay=%.2f|play_sound=%d|chat_alert=%d|random_chance=%.3f",
         GetTime(),
         client,
         steamId,
         clientName,
+        clientClass,
         points,
         safeType,
         target,
@@ -1386,7 +1426,9 @@ void LogPurchaseEvent(const char[] eventName, const char[] reason, int client, c
 
     char steamId[32];
     char clientName[MAX_NAME_LENGTH];
+    char clientClass[16];
     GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
+    GetClientLogClass(client, clientClass, sizeof(clientClass));
 
     char safeEvent[64];
     char safeReason[64];
@@ -1402,13 +1444,14 @@ void LogPurchaseEvent(const char[] eventName, const char[] reason, int client, c
     SanitizeLogField(safeItemName, sizeof(safeItemName));
 
     LogPointsStoreEvent(
-        "event=%s|time=%d|reason=%s|client=%d|steamid64=%s|name=\"%s\"|item_key=%s|item_name=\"%s\"|price=%d|balance=%d",
+        "event=%s|time=%d|reason=%s|client=%d|steamid64=%s|name=\"%s\"|class=%s|item_key=%s|item_name=\"%s\"|price=%d|balance=%d",
         safeEvent,
         GetTime(),
         safeReason,
         client,
         steamId,
         clientName,
+        clientClass,
         safeItemKey,
         safeItemName,
         price,
@@ -1424,10 +1467,14 @@ void LogTransferEvent(const char[] eventName, const char[] reason, int sender, i
 
     char senderSteamId[32];
     char senderName[MAX_NAME_LENGTH];
+    char senderClass[16];
     char targetSteamId[32];
     char targetName[MAX_NAME_LENGTH];
+    char targetClass[16];
     GetClientLogIdentity(sender, senderSteamId, sizeof(senderSteamId), senderName, sizeof(senderName));
+    GetClientLogClass(sender, senderClass, sizeof(senderClass));
     GetClientLogIdentity(target, targetSteamId, sizeof(targetSteamId), targetName, sizeof(targetName));
+    GetClientLogClass(target, targetClass, sizeof(targetClass));
 
     char safeEvent[64];
     char safeReason[64];
@@ -1437,16 +1484,18 @@ void LogTransferEvent(const char[] eventName, const char[] reason, int sender, i
     SanitizeLogField(safeReason, sizeof(safeReason));
 
     LogPointsStoreEvent(
-        "event=%s|time=%d|reason=%s|sender=%d|sender_steamid64=%s|sender_name=\"%s\"|target=%d|target_steamid64=%s|target_name=\"%s\"|amount=%d|sender_balance=%d|target_balance=%d",
+        "event=%s|time=%d|reason=%s|sender=%d|sender_steamid64=%s|sender_name=\"%s\"|sender_class=%s|target=%d|target_steamid64=%s|target_name=\"%s\"|target_class=%s|amount=%d|sender_balance=%d|target_balance=%d",
         safeEvent,
         GetTime(),
         safeReason,
         sender,
         senderSteamId,
         senderName,
+        senderClass,
         target,
         targetSteamId,
         targetName,
+        targetClass,
         amount,
         GetCachedBonusPoints(sender),
         GetCachedBonusPoints(target));
