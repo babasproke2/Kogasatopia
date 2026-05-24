@@ -4,6 +4,10 @@
 #include <morecolors>
 #include <textparse>
 #include <tf2_stocks>
+#undef REQUIRE_PLUGIN
+#include "include/dgm_api.inc"
+#define REQUIRE_PLUGIN
+#include "include/plugin_statistics.inc"
 #pragma newdecls required
 
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
@@ -29,7 +33,6 @@ native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const ch
 native bool SaySounds_CanClientUseCommand(int client, const char[] commandName, bool bypassAdminOnly = true);
 native bool SaySounds_IsCommandPaid(const char[] commandName);
 native bool SaySounds_GetCommandGroup(const char[] commandName, char[] groupName, int groupLen);
-native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50, bool inGameOnly = true);
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound, bool chatAlert, float randomChance, const char[] type, int target = 0, float delay = 3.0);
 
@@ -72,6 +75,8 @@ ConVar g_cvKillstreaksSound = null;
 ConVar g_cvMultikillsSound = null;
 ConVar g_cvMultikillBroadcastMin = null;
 ConVar g_cvMultikillRollupWindow = null;
+ConVar g_cvStatisticsLogging = null;
+ConVar g_cvMultikillFileLogging = null;
 StringMap g_KillstreakSoundMap = null;
 StringMap g_MultikillSoundMap = null;
 StringMap g_ShutdownSoundMap = null;
@@ -114,6 +119,28 @@ public void OnPluginStart()
 
     RegConsoleCmd("sm_announcers", Command_Announcers, "Configure paid announcer sound packs.");
     RegConsoleCmd("sm_announcer", Command_Announcers, "Configure paid announcer sound packs.");
+
+    PluginStats_Init("announcers_statistics_events");
+    g_cvStatisticsLogging = CreateConVar(
+        "announcers_statistics_logging",
+        "1",
+        "Write structured announcer events to announcers_statistics_events.",
+        FCVAR_NONE,
+        true,
+        0.0,
+        true,
+        1.0
+    );
+    g_cvMultikillFileLogging = CreateConVar(
+        "announcers_multikill_file_logging",
+        "0",
+        "Also write multikill announcements to logs/announcers_multikill.log.",
+        FCVAR_NONE,
+        true,
+        0.0,
+        true,
+        1.0
+    );
 
     g_cvKillstreaksEnabled = CreateConVar(
         "announcers_killstreaks_enabled",
@@ -292,11 +319,19 @@ public void OnPluginEnd()
             g_DisabledAnnouncerGroups[i] = null;
         }
     }
+
+    PluginStats_Shutdown();
+}
+
+public void OnMapStart()
+{
+    PluginStats_OnMapStart();
 }
 
 public void OnMapEnd()
 {
     ClearAllMultikillRollups();
+    PluginStats_Flush();
 }
 
 public void OnClientDisconnect(int client)
@@ -329,6 +364,9 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional(ANNOUNCER_SOUND_IS_PAID_NATIVE);
     MarkNativeAsOptional(ANNOUNCER_SOUND_GET_GROUP_NATIVE);
     MarkNativeAsOptional(DGM_CAPACITY_NATIVE);
+    MarkNativeAsOptional("DGM_CurrentNormalizedMap");
+    MarkNativeAsOptional("DGM_NormalizeMapName");
+    MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional(POINTS_STORE_BONUS_NATIVE);
     MarkNativeAsOptional("Filters_GetChatName");
     return APLRes_Success;
@@ -422,6 +460,7 @@ public void WhaleTracker_OnKillstreak(int client, int killstreak)
         return;
     }
 
+    LogAnnouncerEvent(client, 0, "killstreak", killstreak);
     AwardKillstreakBonusPoints(client, killstreak);
 
     if (!g_cvKillstreaksEnabled.BoolValue)
@@ -441,6 +480,7 @@ public void WhaleTracker_OnKillstreakEnd(int attacker, int victim, int killstrea
         return;
     }
 
+    LogAnnouncerEvent(victim, attacker, "killstreak_end", killstreak);
     AwardKillstreakEndBonusPoints(attacker, killstreak);
 
     if (!g_cvKillstreaksEnabled.BoolValue)
@@ -458,6 +498,11 @@ public void WhaleTracker_OnMultikill(int client, int kills)
 
 public void WhaleTracker_OnMedicDrop(int attacker, int medic)
 {
+    if (IsValidAnnouncerClient(medic))
+    {
+        LogAnnouncerEvent(medic, attacker, "medic_drop", 1);
+    }
+
     PlayMedicDropSound(attacker, medic);
 }
 
@@ -636,6 +681,7 @@ void AnnounceMultikillNow(int client, int kills)
         return;
     }
 
+    LogAnnouncerEvent(client, 0, "multikill", kills);
     LogMultikillEvent(client, kills, label);
     AwardMultikillBonusPoints(client, kills);
     if (!g_cvMultikillsEnabled.BoolValue)
@@ -1747,8 +1793,104 @@ void ToLowercaseInPlace(char[] buffer, int maxlen)
     }
 }
 
+bool IsAnnouncerStatisticsLoggingEnabled()
+{
+    return g_cvStatisticsLogging != null && g_cvStatisticsLogging.BoolValue;
+}
+
+bool IsAnnouncerMultikillFileLoggingEnabled()
+{
+    return g_cvMultikillFileLogging != null && g_cvMultikillFileLogging.BoolValue;
+}
+
+void LogAnnouncerEvent(int client, int sourceClient, const char[] type, int count)
+{
+    if (!IsAnnouncerStatisticsLoggingEnabled())
+    {
+        return;
+    }
+
+    char clientSteamId[32], clientName[MAX_NAME_LENGTH], clientClass[16];
+    char sourceSteamId[32], sourceName[MAX_NAME_LENGTH], sourceClass[16];
+    GetAnnouncerLogIdentity(client, clientSteamId, sizeof(clientSteamId), clientName, sizeof(clientName), clientClass, sizeof(clientClass));
+    GetAnnouncerLogIdentity(sourceClient, sourceSteamId, sizeof(sourceSteamId), sourceName, sizeof(sourceName), sourceClass, sizeof(sourceClass));
+
+    char safeType[32];
+    strcopy(safeType, sizeof(safeType), type);
+    SanitizeAnnouncerLogField(safeType, sizeof(safeType));
+
+    int userid = IsValidAnnouncerClient(client) ? GetClientUserId(client) : 0;
+    int sourceUserid = IsValidAnnouncerClient(sourceClient) ? GetClientUserId(sourceClient) : 0;
+
+    char message[PLUGIN_STATS_MESSAGE_MAX];
+    Format(
+        message,
+        sizeof(message),
+        "event=announcer_event|type=%s|client=%d|userid=%d|steamid64=%s|name=%s|class=%s|count=%d|playercount=%d|source_client=%d|source_userid=%d|source_steamid64=%s|source_name=%s|source_class=%s",
+        safeType,
+        client,
+        userid,
+        clientSteamId,
+        clientName,
+        clientClass,
+        count,
+        GetClientCount(false),
+        sourceClient,
+        sourceUserid,
+        sourceSteamId,
+        sourceName,
+        sourceClass
+    );
+    PluginStats_LogMessage(message);
+}
+
+void GetAnnouncerLogIdentity(int client, char[] steamId, int steamLen, char[] name, int nameLen, char[] className, int classLen)
+{
+    strcopy(steamId, steamLen, "none");
+    strcopy(name, nameLen, "none");
+    strcopy(className, classLen, "unknown");
+
+    if (!IsValidAnnouncerClient(client))
+    {
+        return;
+    }
+
+    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, steamLen, true))
+    {
+        strcopy(steamId, steamLen, "unknown");
+    }
+
+    if (!GetClientName(client, name, nameLen) || name[0] == '\0')
+    {
+        strcopy(name, nameLen, "unknown");
+    }
+
+    if (IsClientInGame(client))
+    {
+        GetClientClassName(client, className, classLen);
+    }
+
+    SanitizeAnnouncerLogField(steamId, steamLen);
+    SanitizeAnnouncerLogField(name, nameLen);
+    SanitizeAnnouncerLogField(className, classLen);
+}
+
+void SanitizeAnnouncerLogField(char[] value, int maxlen)
+{
+    ReplaceString(value, maxlen, "|", "/", false);
+    ReplaceString(value, maxlen, "\r", " ", false);
+    ReplaceString(value, maxlen, "\n", " ", false);
+    ReplaceString(value, maxlen, "\t", " ", false);
+    ReplaceString(value, maxlen, "\"", "'", false);
+}
+
 void LogMultikillEvent(int client, int kills, const char[] label)
 {
+    if (!IsAnnouncerMultikillFileLoggingEnabled())
+    {
+        return;
+    }
+
     char timestamp[32], clientName[MAX_NAME_LENGTH], className[16], path[PLATFORM_MAX_PATH];
     FormatTime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", GetTime());
     GetClientName(client, clientName, sizeof(clientName));
