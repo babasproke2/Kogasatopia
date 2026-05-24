@@ -3,6 +3,7 @@
 #include <clientprefs>
 #include <morecolors>
 #include <textparse>
+#include <tf2_stocks>
 #pragma newdecls required
 
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
@@ -1748,9 +1749,10 @@ void ToLowercaseInPlace(char[] buffer, int maxlen)
 
 void LogMultikillEvent(int client, int kills, const char[] label)
 {
-    char timestamp[32], clientName[MAX_NAME_LENGTH], path[PLATFORM_MAX_PATH];
+    char timestamp[32], clientName[MAX_NAME_LENGTH], className[16], path[PLATFORM_MAX_PATH];
     FormatTime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", GetTime());
     GetClientName(client, clientName, sizeof(clientName));
+    GetClientClassName(client, className, sizeof(className));
     BuildPath(Path_SM, path, sizeof(path), MULTIKILL_LOG_FILE);
 
     File file = OpenFile(path, "a");
@@ -1760,8 +1762,25 @@ void LogMultikillEvent(int client, int kills, const char[] label)
         return;
     }
 
-    file.WriteLine("[%s] %s got a %s (%d)", timestamp, clientName, label, kills);
+    file.WriteLine("[%s] %s got a %s (%d) class=%s", timestamp, clientName, label, kills, className);
     delete file;
+}
+
+void GetClientClassName(int client, char[] buffer, int maxlen)
+{
+    switch (TF2_GetPlayerClass(client))
+    {
+        case TFClass_Scout:     strcopy(buffer, maxlen, "scout");
+        case TFClass_Soldier:   strcopy(buffer, maxlen, "soldier");
+        case TFClass_Pyro:      strcopy(buffer, maxlen, "pyro");
+        case TFClass_DemoMan:   strcopy(buffer, maxlen, "demoman");
+        case TFClass_Heavy:     strcopy(buffer, maxlen, "heavy");
+        case TFClass_Engineer:  strcopy(buffer, maxlen, "engineer");
+        case TFClass_Medic:     strcopy(buffer, maxlen, "medic");
+        case TFClass_Sniper:    strcopy(buffer, maxlen, "sniper");
+        case TFClass_Spy:       strcopy(buffer, maxlen, "spy");
+        default:                strcopy(buffer, maxlen, "unknown");
+    }
 }
 
 bool Announcer_ServerCapacityCheck()
