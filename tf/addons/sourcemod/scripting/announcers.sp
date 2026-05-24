@@ -192,7 +192,7 @@ public void OnPluginStart()
     );
     g_cvMultikillRollupWindow = CreateConVar(
         "announcers_multikill_rollup_window",
-        "1.0",
+        "3.0",
         "Seconds to wait for higher multikill levels before announcing the latest one.",
         FCVAR_NONE,
         true,
