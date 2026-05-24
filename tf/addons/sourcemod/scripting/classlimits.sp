@@ -41,6 +41,7 @@ ConVar g_hFlags;
 ConVar g_hImmunity;
 ConVar g_hTopScore;
 ConVar g_hDisplayUnlim;
+ConVar g_hRestrictHeaviesPcount;
 ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[64] = "this map";
 
@@ -66,6 +67,14 @@ public void OnPluginStart()
     g_hImmunity     = CreateConVar("restrict_immunity",    "0", "Enable/disable admin immunity for class limits.");
     g_hTopScore     = CreateConVar("classlimits_topscore", "0", "Allow top team scorers to bypass class limits.", _, true, 0.0, true, 1.0);
     g_hDisplayUnlim = CreateConVar("display_unlim",        "0", "If 1, show unlimited classes in class limit displays.", _, true, 0.0, true, 1.0);
+    g_hRestrictHeaviesPcount = CreateConVar(
+        "restrict_heavies_pcount",
+        "0",
+        "If above 0, restrict Heavy to 0 while human playercount is below this value.",
+        _,
+        true,
+        0.0
+    );
     for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
     {
         char cvarName[32];
@@ -154,6 +163,7 @@ bool ShouldDisplayClassInList(int classId)
 {
     if (classId < TF_CLASS_SCOUT || classId > TF_CLASS_ENGINEER)
         return false;
+    if (classId == TF_CLASS_HEAVY && IsHeavyPopulationRestricted()) return true;
     if (g_hDisplayUnlim != null && g_hDisplayUnlim.BoolValue) return true;
     ConVar limitCvar = g_hLimits[classId];
     if (limitCvar == null) return false;
@@ -297,11 +307,37 @@ static int GetHumanTeamClientCount(int team)
     return count;
 }
 
+static int GetHumanClientCount()
+{
+    int count = 0;
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i) || IsFakeClient(i)) continue;
+        count++;
+    }
+    return count;
+}
+
+static bool IsHeavyPopulationRestricted()
+{
+    if (g_hRestrictHeaviesPcount == null)
+        return false;
+
+    int threshold = g_hRestrictHeaviesPcount.IntValue;
+    return threshold > 0 && GetHumanClientCount() < threshold;
+}
+
 bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
 {
     limitOut = -1;
     if (!g_hEnabled.BoolValue || iTeam < TF_TEAM_RED || iClass < TF_CLASS_SCOUT || iClass > TF_CLASS_ENGINEER)
         return false;
+
+    if (iClass == TF_CLASS_HEAVY && IsHeavyPopulationRestricted())
+    {
+        limitOut = 0;
+        return true;
+    }
 
     ConVar limitCvar = g_hLimits[iClass];
     if (limitCvar == null) return false;
@@ -376,6 +412,8 @@ void FormatClassLimitText(int classId, char[] buffer, int maxlen)
         { strcopy(buffer, maxlen, "Unknown"); return; }
     ConVar limitCvar = g_hLimits[classId];
     if (limitCvar == null) { strcopy(buffer, maxlen, "Default"); return; }
+    if (classId == TF_CLASS_HEAVY && IsHeavyPopulationRestricted())
+        { strcopy(buffer, maxlen, "0 players"); return; }
     float value = limitCvar.FloatValue;
     if (value < 0.0)                 { strcopy(buffer, maxlen, "Unlimited"); return; }
     if (value > 0.0 && value < 1.0) { Format(buffer, maxlen, "%.0f%% of team", value * 100.0); return; }
