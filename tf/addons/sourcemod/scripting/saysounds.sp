@@ -16,6 +16,7 @@
 #define DEFAULT_GROUP "all"
 #define ADMIN_ONLY_GROUPS_SECTION "adminonlygroups"
 #define PAID_SAYSOUND_GROUPS_SECTION "paidsaysoundgroups"
+#define GROUP_ALIASES_SECTION "groupaliases"
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define TOUHOU_DEATH_SOUND_ATTR "touhou death sound"
 #define TOUHOU_DEATH_SOUND_PATH "touhou/pichuun.mp3"
@@ -35,14 +36,17 @@ StringMap gSoundMap;
 StringMap gSoundGroupMap;
 StringMap gAdminOnlyGroups;
 StringMap gPaidSaysoundGroups;
+StringMap gGroupAliases;
 ArrayList gCommandNames;
 ArrayList gGroupNames;
 bool gConfigLoaded = false;
 bool gConfigInAdminOnlyGroups = false;
 bool gConfigInPaidSaysoundGroups = false;
+bool gConfigInGroupAliases = false;
 int gConfigSectionDepth = 0;
 int gConfigAdminOnlyGroupsDepth = -1;
 int gConfigPaidSaysoundGroupsDepth = -1;
+int gConfigGroupAliasesDepth = -1;
 float g_fClientVolume[MAXPLAYERS + 1];
 float g_fNextAllowedSound[MAXPLAYERS + 1];
 char g_szDeathSound[MAXPLAYERS + 1][MAX_COMMAND_NAME * 4];
@@ -86,6 +90,7 @@ public void OnPluginStart()
     gSoundGroupMap = new StringMap();
     gAdminOnlyGroups = new StringMap();
     gPaidSaysoundGroups = new StringMap();
+    gGroupAliases = new StringMap();
     gCommandNames = new ArrayList(ByteCountToCells(MAX_COMMAND_NAME));
     gGroupNames = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
 
@@ -160,6 +165,12 @@ public void OnPluginEnd()
     {
         delete gPaidSaysoundGroups;
         gPaidSaysoundGroups = null;
+    }
+
+    if (gGroupAliases != null)
+    {
+        delete gGroupAliases;
+        gGroupAliases = null;
     }
 
     if (gCommandNames != null)
@@ -343,14 +354,17 @@ void LoadSaySoundConfig()
     gSoundGroupMap.Clear();
     gAdminOnlyGroups.Clear();
     gPaidSaysoundGroups.Clear();
+    gGroupAliases.Clear();
     gCommandNames.Clear();
     gGroupNames.Clear();
     gConfigLoaded = false;
     gConfigInAdminOnlyGroups = false;
     gConfigInPaidSaysoundGroups = false;
+    gConfigInGroupAliases = false;
     gConfigSectionDepth = 0;
     gConfigAdminOnlyGroupsDepth = -1;
     gConfigPaidSaysoundGroupsDepth = -1;
+    gConfigGroupAliasesDepth = -1;
     EnsureGroupRegistered(DEFAULT_GROUP);
 
     char filePath[PLATFORM_MAX_PATH];
@@ -415,6 +429,13 @@ public SMCResult Config_EnterSection(SMCParser parser, const char[] name, bool o
         gConfigInPaidSaysoundGroups = true;
         gConfigPaidSaysoundGroupsDepth = gConfigSectionDepth;
     }
+    else if (StrEqual(sectionName, GROUP_ALIASES_SECTION)
+        || StrEqual(sectionName, "group_aliases")
+        || StrEqual(sectionName, "group-aliases"))
+    {
+        gConfigInGroupAliases = true;
+        gConfigGroupAliasesDepth = gConfigSectionDepth;
+    }
 
     return SMCParse_Continue;
 }
@@ -431,6 +452,12 @@ public SMCResult Config_LeaveSection(SMCParser parser)
     {
         gConfigInPaidSaysoundGroups = false;
         gConfigPaidSaysoundGroupsDepth = -1;
+    }
+
+    if (gConfigInGroupAliases && gConfigSectionDepth == gConfigGroupAliasesDepth)
+    {
+        gConfigInGroupAliases = false;
+        gConfigGroupAliasesDepth = -1;
     }
 
     if (gConfigSectionDepth > 0)
@@ -452,6 +479,12 @@ public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[
     if (gConfigInPaidSaysoundGroups)
     {
         Config_PaidSaysoundGroup(key, value);
+        return SMCParse_Continue;
+    }
+
+    if (gConfigInGroupAliases)
+    {
+        Config_GroupAlias(key, value);
         return SMCParse_Continue;
     }
 
@@ -545,6 +578,32 @@ static void Config_PaidSaysoundGroup(const char[] key, const char[] value)
     {
         gPaidSaysoundGroups.Remove(groupName);
     }
+}
+
+static void Config_GroupAlias(const char[] key, const char[] value)
+{
+    char groupName[MAX_GROUP_NAME];
+    strcopy(groupName, sizeof(groupName), key);
+    TrimString(groupName);
+    ToLowercaseInPlace(groupName, sizeof(groupName));
+
+    char aliasName[MAX_COMMAND_NAME];
+    strcopy(aliasName, sizeof(aliasName), value);
+    TrimString(aliasName);
+    ToLowercaseInPlace(aliasName, sizeof(aliasName));
+
+    if (!groupName[0] || !aliasName[0] || StrEqual(aliasName, DEFAULT_GROUP))
+    {
+        return;
+    }
+
+    if (aliasName[0] == '!' || aliasName[0] == '/')
+    {
+        ShiftStringLeft(aliasName, sizeof(aliasName), 1);
+    }
+
+    EnsureGroupRegistered(groupName);
+    gGroupAliases.SetString(aliasName, groupName);
 }
 
 void PrecacheConfiguredSounds()
@@ -759,13 +818,24 @@ static void EnsureGroupRegistered(const char[] groupName)
 
 static bool IsKnownGroup(const char[] groupName)
 {
-    if (!groupName[0])
+    char resolved[MAX_GROUP_NAME];
+    return ResolveKnownGroupName(groupName, resolved, sizeof(resolved));
+}
+
+static bool ResolveKnownGroupName(const char[] inputName, char[] groupName, int groupLen)
+{
+    if (groupLen > 0)
+    {
+        groupName[0] = '\0';
+    }
+
+    if (!inputName[0])
     {
         return false;
     }
 
     char normalized[MAX_GROUP_NAME];
-    strcopy(normalized, sizeof(normalized), groupName);
+    strcopy(normalized, sizeof(normalized), inputName);
     TrimString(normalized);
     ToLowercaseInPlace(normalized, sizeof(normalized));
 
@@ -776,10 +846,25 @@ static bool IsKnownGroup(const char[] groupName)
 
     if (StrEqual(normalized, DEFAULT_GROUP))
     {
+        strcopy(groupName, groupLen, normalized);
         return true;
     }
 
-    return FindGroupIndex(normalized) != -1;
+    if (FindGroupIndex(normalized) != -1)
+    {
+        strcopy(groupName, groupLen, normalized);
+        return true;
+    }
+
+    if (gGroupAliases == null || !gGroupAliases.GetString(normalized, groupName, groupLen))
+    {
+        return false;
+    }
+
+    TrimString(groupName);
+    ToLowercaseInPlace(groupName, groupLen);
+    return groupName[0] != '\0'
+        && (StrEqual(groupName, DEFAULT_GROUP) || FindGroupIndex(groupName) != -1);
 }
 
 static bool ConfigValueIsEnabled(const char[] value)
@@ -808,9 +893,10 @@ static bool IsGroupAdminOnly(const char[] groupName)
     }
 
     char normalized[MAX_GROUP_NAME];
-    strcopy(normalized, sizeof(normalized), groupName);
-    TrimString(normalized);
-    ToLowercaseInPlace(normalized, sizeof(normalized));
+    if (!ResolveKnownGroupName(groupName, normalized, sizeof(normalized)))
+    {
+        return false;
+    }
 
     int adminOnly = 0;
     return gAdminOnlyGroups.GetValue(normalized, adminOnly) && adminOnly != 0;
@@ -824,9 +910,10 @@ static bool IsGroupPaid(const char[] groupName)
     }
 
     char normalized[MAX_GROUP_NAME];
-    strcopy(normalized, sizeof(normalized), groupName);
-    TrimString(normalized);
-    ToLowercaseInPlace(normalized, sizeof(normalized));
+    if (!ResolveKnownGroupName(groupName, normalized, sizeof(normalized)))
+    {
+        return false;
+    }
 
     int paid = 0;
     return gPaidSaysoundGroups.GetValue(normalized, paid) && paid != 0;
@@ -854,7 +941,8 @@ static bool CanClientUseAdminOnlySaySoundGroup(int client, const char[] groupNam
 
 static bool CanClientUsePaidSaysoundGroup(int client, const char[] groupName)
 {
-    if (!IsGroupPaid(groupName))
+    char normalized[MAX_GROUP_NAME];
+    if (!ResolveKnownGroupName(groupName, normalized, sizeof(normalized)) || !IsGroupPaid(normalized))
     {
         return true;
     }
@@ -869,7 +957,7 @@ static bool CanClientUsePaidSaysoundGroup(int client, const char[] groupName)
         return false;
     }
 
-    return PointsStore_HasPurchase(client, groupName);
+    return PointsStore_HasPurchase(client, normalized);
 }
 
 static bool CanClientUseSaySoundGroup(int client, const char[] groupName, bool bypassAdminOnly = false)
@@ -922,7 +1010,8 @@ static bool IsSaySoundInputPaid(const char[] inputName)
         return IsGroupPaid(groupName);
     }
 
-    return IsKnownGroup(normalizedName) && IsGroupPaid(normalizedName);
+    char groupName[MAX_GROUP_NAME];
+    return ResolveKnownGroupName(normalizedName, groupName, sizeof(groupName)) && IsGroupPaid(groupName);
 }
 
 static bool GetSaySoundInputGroup(const char[] inputName, char[] groupName, int groupLen)
@@ -942,9 +1031,8 @@ static bool GetSaySoundInputGroup(const char[] inputName, char[] groupName, int 
         return false;
     }
 
-    if (IsKnownGroup(normalizedName))
+    if (ResolveKnownGroupName(normalizedName, groupName, groupLen))
     {
-        strcopy(groupName, groupLen, normalizedName);
         return true;
     }
 
@@ -992,17 +1080,29 @@ static bool IsClientGroupDisabled(int client, const char[] groupName)
         return false;
     }
 
+    char normalizedGroup[MAX_GROUP_NAME];
+    if (!ResolveKnownGroupName(groupName, normalizedGroup, sizeof(normalizedGroup)))
+    {
+        return false;
+    }
+
     EnsureClientGroupPreferenceMap(client);
 
     int disabled = 0;
     return g_hClientDisabledGroups[client] != null
-        && g_hClientDisabledGroups[client].GetValue(groupName, disabled)
+        && g_hClientDisabledGroups[client].GetValue(normalizedGroup, disabled)
         && disabled != 0;
 }
 
 static bool SetClientGroupDisabled(int client, const char[] groupName, bool disabled)
 {
-    if (client <= 0 || client > MaxClients || !groupName[0] || StrEqual(groupName, DEFAULT_GROUP) || !IsKnownGroup(groupName))
+    if (client <= 0 || client > MaxClients || !groupName[0] || StrEqual(groupName, DEFAULT_GROUP))
+    {
+        return false;
+    }
+
+    char normalizedGroup[MAX_GROUP_NAME];
+    if (!ResolveKnownGroupName(groupName, normalizedGroup, sizeof(normalizedGroup)) || StrEqual(normalizedGroup, DEFAULT_GROUP))
     {
         return false;
     }
@@ -1016,11 +1116,11 @@ static bool SetClientGroupDisabled(int client, const char[] groupName, bool disa
 
     if (disabled)
     {
-        g_hClientDisabledGroups[client].SetValue(groupName, 1);
+        g_hClientDisabledGroups[client].SetValue(normalizedGroup, 1);
     }
     else
     {
-        g_hClientDisabledGroups[client].Remove(groupName);
+        g_hClientDisabledGroups[client].Remove(normalizedGroup);
     }
 
     return true;
@@ -2145,11 +2245,7 @@ static bool AppendSoundPreferenceCommand(int client, const char[] commandName, c
 static bool AppendSoundPreferenceGroup(int client, const char[] groupName, char[] aggregated, int aggregatedLen, int &validCount, bool &anyInvalid)
 {
     char normalizedGroup[MAX_GROUP_NAME];
-    strcopy(normalizedGroup, sizeof(normalizedGroup), groupName);
-    TrimString(normalizedGroup);
-    ToLowercaseInPlace(normalizedGroup, sizeof(normalizedGroup));
-
-    if (!normalizedGroup[0] || !IsKnownGroup(normalizedGroup))
+    if (!ResolveKnownGroupName(groupName, normalizedGroup, sizeof(normalizedGroup)))
     {
         anyInvalid = true;
         return false;
@@ -2646,11 +2742,7 @@ static bool GetRandomCommandInGroupForClient(int client, const char[] groupName,
     }
 
     char normalizedGroup[MAX_GROUP_NAME];
-    strcopy(normalizedGroup, sizeof(normalizedGroup), groupName);
-    TrimString(normalizedGroup);
-    ToLowercaseInPlace(normalizedGroup, sizeof(normalizedGroup));
-
-    if (!normalizedGroup[0] || !IsKnownGroup(normalizedGroup))
+    if (!ResolveKnownGroupName(groupName, normalizedGroup, sizeof(normalizedGroup)))
     {
         return false;
     }
