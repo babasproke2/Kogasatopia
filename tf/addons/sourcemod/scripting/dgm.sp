@@ -17,6 +17,8 @@
 
 #include "include/dgm_api.inc"
 #define DGM_MAX_CONTROL_POINTS 8
+#define DGM_SETUP_START_CHECK_INTERVAL 1.0
+#define DGM_SETUP_START_CHECK_MAX 10
 
 ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
@@ -40,10 +42,15 @@ ConVar g_cvGameMode;
 // Add a ConVar to hook the value of mp_disable_respawn_times
 Handle g_cvMpDisableRespawnTimes = INVALID_HANDLE;
 Handle g_hSetupStateTimer = INVALID_HANDLE;
+Handle g_hSetupStartTimer = INVALID_HANDLE;
 bool g_bSetupActive = false;
 bool g_bNoEngineerSetupReduced = false;
 bool g_bSetupUberUnavailableLogged = false;
-char g_sGameModeDetectedMap[PLATFORM_MAX_PATH];
+bool g_bGameRulesPropsCached = false;
+bool g_bHasInSetupProp = false;
+bool g_bHasSetupTimeEndProp = false;
+int g_iGameRulesEntity = -1;
+int g_iSetupStartChecks = 0;
 int g_iRoundStartTimestamp = 0;
 int g_iLastRoundDuration = 0;
 
@@ -740,20 +747,17 @@ bool DGM_CopyCurrentGameModeKey(char[] buffer, int maxlen)
         return false;
     }
 
-    char mapName[PLATFORM_MAX_PATH];
-    char normalizedMapName[PLATFORM_MAX_PATH];
-    GetCurrentMap(mapName, sizeof(mapName));
-    DGM_CopyNormalizedMapName(mapName, normalizedMapName, sizeof(normalizedMapName));
-
     char gamemode[64];
-    if (g_sGameModeDetectedMap[0]
-        && StrEqual(normalizedMapName, g_sGameModeDetectedMap, false)
-        && DGM_CopyCurrentGameMode(gamemode, sizeof(gamemode))
+    if (DGM_CopyCurrentGameMode(gamemode, sizeof(gamemode))
         && DGM_CopyGameModeNameToKey(gamemode, buffer, maxlen))
     {
         return true;
     }
 
+    char mapName[PLATFORM_MAX_PATH];
+    char normalizedMapName[PLATFORM_MAX_PATH];
+    GetCurrentMap(mapName, sizeof(mapName));
+    DGM_CopyNormalizedMapName(mapName, normalizedMapName, sizeof(normalizedMapName));
     DGM_CopyGameModeKeyForMap(normalizedMapName, buffer, maxlen);
     return buffer[0] != '\0';
 }
@@ -1039,6 +1043,61 @@ bool DGM_InternalIsRoundRunning()
     return (GameRules_GetRoundState() == RoundState_RoundRunning);
 }
 
+int DGM_GetGameRulesEntity()
+{
+    if (g_iGameRulesEntity != -1 && IsValidEntity(g_iGameRulesEntity))
+    {
+        return g_iGameRulesEntity;
+    }
+
+    int ent = FindEntityByClassname(-1, "tf_gamerules");
+    if (ent == -1)
+    {
+        ent = FindEntityByClassname(-1, "game_rules_proxy");
+    }
+
+    if (ent != g_iGameRulesEntity)
+    {
+        g_iGameRulesEntity = ent;
+        g_bGameRulesPropsCached = false;
+        g_bHasInSetupProp = false;
+        g_bHasSetupTimeEndProp = false;
+    }
+
+    return g_iGameRulesEntity;
+}
+
+void DGM_EnsureGameRulesProps()
+{
+    int ent = DGM_GetGameRulesEntity();
+    if (ent == -1 || g_bGameRulesPropsCached)
+    {
+        return;
+    }
+
+    g_bHasInSetupProp = HasEntProp(ent, Prop_Send, "m_bInSetup");
+    g_bHasSetupTimeEndProp = HasEntProp(ent, Prop_Send, "m_flSetupTimeEnd");
+    g_bGameRulesPropsCached = true;
+}
+
+bool DGM_IsRealSetupActive()
+{
+    DGM_EnsureGameRulesProps();
+
+    if (g_bHasInSetupProp)
+    {
+        return GameRules_GetProp("m_bInSetup", 1) != 0;
+    }
+
+    if (g_bHasSetupTimeEndProp)
+    {
+        float setupEnd = GameRules_GetPropFloat("m_flSetupTimeEnd");
+        return setupEnd > 0.0 && setupEnd > GetGameTime();
+    }
+
+    return false;
+}
+
 bool DGM_IsNoEngineerSetupReductionGamemode()
 {
     char gamemodeKey[32];
@@ -1094,7 +1153,7 @@ void DGM_CheckNoEngineerSetupReduction()
 {
     if (g_bNoEngineerSetupReduced
         || !g_bSetupActive
-        || DGM_InternalIsRoundRunning()
+        || !DGM_IsRealSetupActive()
         || !DGM_IsNoEngineerSetupReductionGamemode()
         || !DGM_AreTeamsGameplayReady()
         || DGM_RedHasEngineer())
@@ -1130,6 +1189,46 @@ void DGM_QueueNoEngineerSetupReductionCheck()
     CreateTimer(1.0, Timer_CheckNoEngineerSetupReduction, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
+void DGM_StopSetupStartTimer()
+{
+    if (g_hSetupStartTimer != INVALID_HANDLE)
+    {
+        KillTimer(g_hSetupStartTimer);
+        g_hSetupStartTimer = INVALID_HANDLE;
+    }
+}
+
+void DGM_QueueSetupStartCheck()
+{
+    if (g_bSetupActive || g_hSetupStartTimer != INVALID_HANDLE)
+    {
+        return;
+    }
+
+    g_iSetupStartChecks = 0;
+    g_hSetupStartTimer = CreateTimer(DGM_SETUP_START_CHECK_INTERVAL, Timer_CheckSetupStart, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+}
+
+public Action Timer_CheckSetupStart(Handle timer)
+{
+    g_iSetupStartChecks++;
+
+    if (DGM_IsRealSetupActive())
+    {
+        g_hSetupStartTimer = INVALID_HANDLE;
+        DGM_SetSetupActive(true);
+        return Plugin_Stop;
+    }
+
+    if (DGM_InternalIsRoundRunning() || g_iSetupStartChecks >= DGM_SETUP_START_CHECK_MAX)
+    {
+        g_hSetupStartTimer = INVALID_HANDLE;
+        return Plugin_Stop;
+    }
+
+    return Plugin_Continue;
+}
+
 int DGM_CalculateRoundDurationSeconds(int firstTimestamp, int secondTimestamp)
 {
     if (firstTimestamp <= 0 || secondTimestamp <= firstTimestamp)
@@ -1151,17 +1250,20 @@ void DGM_SetSetupActive(bool setupActive)
     if (setupActive)
     {
         g_bNoEngineerSetupReduced = false;
+        DGM_StopSetupStartTimer();
         PrintToChatAll("Setup detected, bhop enabled");
         ServerCommand("exec d_setup.cfg");
+        ServerExecute();
         if (g_hSetupStateTimer == INVALID_HANDLE)
         {
-            g_hSetupStateTimer = CreateTimer(2.0, Timer_SetupStateMonitor, _, TIMER_REPEAT);
+            g_hSetupStateTimer = CreateTimer(2.0, Timer_SetupStateMonitor, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
         }
         DGM_QueueNoEngineerSetupReductionCheck();
     }
     else
     {
         ServerCommand("exec d_endsetup.cfg");
+        ServerExecute();
         if (g_hSetupStateTimer != INVALID_HANDLE)
         {
             KillTimer(g_hSetupStateTimer);
@@ -1172,7 +1274,19 @@ void DGM_SetSetupActive(bool setupActive)
 
 void DGM_UpdateSetupState()
 {
-    DGM_SetSetupActive(!DGM_InternalIsRoundRunning());
+    if (DGM_IsRealSetupActive())
+    {
+        DGM_SetSetupActive(true);
+        return;
+    }
+
+    if (g_bSetupActive)
+    {
+        DGM_SetSetupActive(false);
+        return;
+    }
+
+    DGM_QueueSetupStartCheck();
 }
 
 public void SetSetupTime()
@@ -1283,7 +1397,6 @@ void DetectGameMode()
     }
 
     GetCurrentMap(mapName, sizeof(mapName));
-    DGM_CopyNormalizedMapName(mapName, g_sGameModeDetectedMap, sizeof(g_sGameModeDetectedMap));
     if (StrContains(mapName, "vsh_", false) != -1)
     {
         strcopy(modeName, sizeof(modeName), "vsh");
@@ -1373,6 +1486,7 @@ public void OnPluginStart()
 
     HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
     HookEvent("teamplay_round_start", Event_RoundActive);
+    HookEvent("teamplay_round_active", Event_RoundFullyActive, EventHookMode_PostNoCopy);
     HookEvent("teamplay_setup_finished", Event_SetupFinished);
     HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_Pre);
     HookEvent("teamplay_point_captured", Event_PointCaptured, EventHookMode_PostNoCopy);
@@ -1392,6 +1506,8 @@ public void OnPluginStart()
 
 public void OnMapStart()
 {
+    DGM_StopSetupStartTimer();
+
     if (g_hSetupStateTimer != INVALID_HANDLE)
     {
         KillTimer(g_hSetupStateTimer);
@@ -1400,7 +1516,10 @@ public void OnMapStart()
 
     g_bSetupActive = false;
     g_bNoEngineerSetupReduced = false;
-    g_sGameModeDetectedMap[0] = '\0';
+    g_iGameRulesEntity = -1;
+    g_bGameRulesPropsCached = false;
+    g_bHasInSetupProp = false;
+    g_bHasSetupTimeEndProp = false;
     DGM_RefreshRespawnVisualState();
     DGM_UpdateSetupState();
 }
@@ -1417,7 +1536,7 @@ public void ConVarChange_SetupUberMultiplier(ConVar convar, const char[] oldValu
 
 public Action Timer_SetupStateMonitor(Handle timer)
 {
-    if (DGM_InternalIsRoundRunning())
+    if (!DGM_IsRealSetupActive())
     {
         DGM_SetSetupActive(false);
         return Plugin_Stop;
@@ -1744,6 +1863,11 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
 }
 
 public void Event_SetupFinished(Event event, const char[] name, bool dontBroadcast)
+{
+    DGM_SetSetupActive(false);
+}
+
+public void Event_RoundFullyActive(Event event, const char[] name, bool dontBroadcast)
 {
     DGM_SetSetupActive(false);
 }
