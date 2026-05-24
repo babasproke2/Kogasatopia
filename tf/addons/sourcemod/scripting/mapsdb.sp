@@ -845,6 +845,7 @@ static void ExecMapsDbConfig(const char[] configName)
     ResolveMapsDbConfigName(configName, resolvedName, sizeof(resolvedName));
 
     ServerCommand("exec mapsdb/%s.cfg", resolvedName);
+    ServerExecute();
 }
 
 static void ResolveMapsDbConfigName(const char[] configName, char[] resolvedName, int maxlen)
