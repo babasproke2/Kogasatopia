@@ -1098,6 +1098,55 @@ bool DGM_IsRealSetupActive()
     return false;
 }
 
+bool DGM_HasWaitingForPlayersTimer()
+{
+    int timerEnt = -1;
+    char timerName[64];
+
+    while ((timerEnt = FindEntityByClassname(timerEnt, "team_round_timer")) != -1)
+    {
+        if (!IsValidEntity(timerEnt) || !HasEntProp(timerEnt, Prop_Data, "m_iName"))
+        {
+            continue;
+        }
+
+        GetEntPropString(timerEnt, Prop_Data, "m_iName", timerName, sizeof(timerName));
+        if (StrEqual(timerName, "zz_teamplay_waiting_timer", false))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool DGM_IsSetupBhopActive()
+{
+    return DGM_IsRealSetupActive() || DGM_HasWaitingForPlayersTimer();
+}
+
+void DGM_OpenWaitingSetupDoorsForBhop()
+{
+    int doorEnt = -1;
+    int opened = 0;
+
+    while ((doorEnt = FindEntityByClassname(doorEnt, "func_door")) != -1)
+    {
+        if (!IsValidEntity(doorEnt))
+        {
+            continue;
+        }
+
+        AcceptEntityInput(doorEnt, "Open");
+        opened++;
+    }
+
+    if (opened > 0)
+    {
+        PrintToServer("[DGM] Opened %d func_door entities while waiting/setup timer was active.", opened);
+    }
+}
+
 bool DGM_IsNoEngineerSetupReductionGamemode()
 {
     char gamemodeKey[32];
@@ -1213,7 +1262,7 @@ public Action Timer_CheckSetupStart(Handle timer)
 {
     g_iSetupStartChecks++;
 
-    if (DGM_IsRealSetupActive())
+    if (DGM_IsSetupBhopActive())
     {
         g_hSetupStartTimer = INVALID_HANDLE;
         DGM_SetSetupActive(true);
@@ -1254,6 +1303,10 @@ void DGM_SetSetupActive(bool setupActive)
         PrintToChatAll("Setup detected, bhop enabled");
         ServerCommand("exec d_setup.cfg");
         ServerExecute();
+        if (DGM_HasWaitingForPlayersTimer())
+        {
+            DGM_OpenWaitingSetupDoorsForBhop();
+        }
         if (g_hSetupStateTimer == INVALID_HANDLE)
         {
             g_hSetupStateTimer = CreateTimer(2.0, Timer_SetupStateMonitor, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
@@ -1274,7 +1327,7 @@ void DGM_SetSetupActive(bool setupActive)
 
 void DGM_UpdateSetupState()
 {
-    if (DGM_IsRealSetupActive())
+    if (DGM_IsSetupBhopActive())
     {
         DGM_SetSetupActive(true);
         return;
@@ -1536,7 +1589,7 @@ public void ConVarChange_SetupUberMultiplier(ConVar convar, const char[] oldValu
 
 public Action Timer_SetupStateMonitor(Handle timer)
 {
-    if (!DGM_IsRealSetupActive())
+    if (!DGM_IsSetupBhopActive())
     {
         DGM_SetSetupActive(false);
         return Plugin_Stop;
@@ -1848,6 +1901,7 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
     if (GetConVarInt(g_cvSetSetupTime) != 0)
     {
         SetSetupTime();
+        DGM_UpdateSetupState();
     }
 	if (GetConVarInt(g_cvAutoAddTime)) {
         int addTime = GetConVarInt(g_cvAutoAddTime);
@@ -1869,6 +1923,12 @@ public void Event_SetupFinished(Event event, const char[] name, bool dontBroadca
 
 public void Event_RoundFullyActive(Event event, const char[] name, bool dontBroadcast)
 {
+    if (DGM_IsSetupBhopActive())
+    {
+        DGM_SetSetupActive(true);
+        return;
+    }
+
     DGM_SetSetupActive(false);
 }
 
