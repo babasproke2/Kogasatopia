@@ -95,6 +95,7 @@ public void OnPluginStart()
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 {
     MarkNativeAsOptional("DGM_GetGameModeKey");
+    MarkNativeAsOptional("DGM_RealTeamPlayerCount");
     return APLRes_Success;
 }
 
@@ -307,15 +308,14 @@ static int GetHumanTeamClientCount(int team)
     return count;
 }
 
-static int GetHumanClientCount()
+static int GetGameplayHumanClientCount()
 {
-    int count = 0;
-    for (int i = 1; i <= MaxClients; i++)
+    if (GetFeatureStatus(FeatureType_Native, "DGM_RealTeamPlayerCount") == FeatureStatus_Available)
     {
-        if (!IsClientInGame(i) || IsFakeClient(i)) continue;
-        count++;
+        return DGM_RealTeamPlayerCount(TF_TEAM_RED) + DGM_RealTeamPlayerCount(TF_TEAM_BLU);
     }
-    return count;
+
+    return GetHumanTeamClientCount(TF_TEAM_RED) + GetHumanTeamClientCount(TF_TEAM_BLU);
 }
 
 static bool IsHeavyPopulationRestricted()
@@ -324,7 +324,7 @@ static bool IsHeavyPopulationRestricted()
         return false;
 
     int threshold = g_hRestrictHeaviesPcount.IntValue;
-    return threshold > 0 && GetHumanClientCount() < threshold;
+    return threshold > 0 && GetGameplayHumanClientCount() < threshold;
 }
 
 bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
