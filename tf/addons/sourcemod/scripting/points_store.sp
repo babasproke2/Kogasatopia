@@ -1545,6 +1545,10 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     {
         strcopy(label, maxlen, "Dominating");
     }
+    else if (StrEqual(type, "multiple_dominations", false))
+    {
+        strcopy(label, maxlen, "Multiple dominations");
+    }
     else if (StrEqual(type, "player_revenge", false))
     {
         strcopy(label, maxlen, "Revenge");
