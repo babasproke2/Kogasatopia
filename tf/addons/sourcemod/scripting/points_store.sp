@@ -30,7 +30,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define LOTTO_TOKEN_MAX 128
 #define LOTTO_TICKET_MAX 2048
 #define LOTTO_TICKET_PRINT_MAX 2304
-#define LOTTO_HASH_MAX 32
+#define LOTTO_HASH_MAX 8
 #define LOTTO_NAME_MAX 256
 #define LOTTO_REVEAL_INTERVAL 0.5
 
