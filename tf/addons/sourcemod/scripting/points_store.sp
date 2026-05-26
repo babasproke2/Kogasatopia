@@ -978,7 +978,7 @@ void ShowLotteryMenu(int client)
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
 
     char title[BP_CURRENCY_LONG_MAX + 16];
-    Format(title, sizeof(title), "%s Lotto", currencyLong);
+    Format(title, sizeof(title), "%s Lottery", currencyLong);
     menu.SetTitle(title);
 
     char display[128];
@@ -1006,6 +1006,7 @@ void ShowOwnedLotteryTicketMenu(int client)
     menu.SetTitle(title);
     menu.AddItem("view", "View ticket");
     menu.AddItem("refund", "Refund ticket");
+    menu.AddItem("pool", "Prize pool");
     menu.Display(client, MENU_TIME_FOREVER);
 }
 
@@ -1066,6 +1067,11 @@ public int MenuHandler_LotteryOwned(Menu menu, MenuAction action, int client, in
     else if (StrEqual(info, "refund", false))
     {
         RefundLotteryTicket(client);
+    }
+    else if (StrEqual(info, "pool", false))
+    {
+        PrintLotteryPrizePool(client);
+        return 0;
     }
     return 0;
 }
@@ -1730,7 +1736,7 @@ void GenerateLotteryTicket(char[] buffer, int maxlen)
         return;
     }
 
-    int wordCount = GetRandomInt(12, 16);
+    int wordCount = GetRandomInt(6, 10);
     bool allowDuplicates = g_LotteryWords.Length < wordCount;
     StringMap usedWords = new StringMap();
 
