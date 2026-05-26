@@ -30,7 +30,8 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define LOTTO_TOKEN_MAX 128
 #define LOTTO_TICKET_MAX 2048
 #define LOTTO_TICKET_PRINT_MAX 2304
-#define LOTTO_HASH_MAX 8
+#define LOTTO_HASH_MAX 32
+#define LOTTO_SHORT_HASH_LEN 7
 #define LOTTO_NAME_MAX 256
 #define LOTTO_REVEAL_INTERVAL 0.5
 
@@ -1618,6 +1619,7 @@ public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[]
     pack.ReadString(winnerSteamId, sizeof(winnerSteamId));
     pack.ReadString(winnerName, sizeof(winnerName));
     pack.ReadString(hash, sizeof(hash));
+    hash[LOTTO_SHORT_HASH_LEN] = '\0';
     pack.ReadString(hashColor, sizeof(hashColor));
     delete pack;
 
