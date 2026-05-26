@@ -78,7 +78,7 @@
                 "attributes_custom"
                 {
                         "clientmodel override" "models/touhou/reimu_gohei/reimu_gohei.mdl"
-                        "touhou death sound"  "1"
+                        "saysound on kill"  "pichuun"
                 }
         }
         "reimugohei_mg"
@@ -93,7 +93,7 @@
                 "attributes_custom"
                 {
                         "clientmodel override" "models/touhou/reimu_gohei/reimu_gohei.mdl"
-                        "touhou death sound"  "1"
+                        "saysound on kill"  "pichuun"
                 }
         }
         "reimugohei_all"
@@ -103,7 +103,7 @@
                 "attributes_custom"
                 {
                         "clientmodel override" "models/touhou/reimu_gohei/reimu_gohei.mdl"
-                        "touhou death sound"  "1"
+                        "saysound on kill"  "pichuun"
                 }
         }
         "diamond_pickaxe"
@@ -123,7 +123,7 @@
                 "attributes_custom"
                 {
                         "clientmodel override" "models/touhou/reimu_gohei/reimu_gohei.mdl"
-                        "touhou death sound"  "1"
+                        "saysound on kill"  "pichuun"
                 }
         }
         "houraibranch"
@@ -137,7 +137,7 @@
                 "attributes_custom"
                 {
                         "clientmodel override" "models/touhou/lunar_branch/lunar_branch.mdl"
-                        "touhou death sound"  "1"
+                        "saysound on kill"  "pichuun"
                 }
         }
         "reisenpistol"
@@ -162,7 +162,7 @@
                 {
                         "clientmodel override" "models/touhou/reisen_pistol/reisen_pistol.mdl"
                         "take crits from projectile airborn" "1"
-                        "touhou death sound"  "1"
+                        "saysound on kill"  "pichuun"
                 }
         }
         "scoutsproke"

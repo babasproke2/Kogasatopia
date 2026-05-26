@@ -18,9 +18,7 @@
 #define PAID_SAYSOUND_GROUPS_SECTION "paidsaysoundgroups"
 #define GROUP_ALIASES_SECTION "groupaliases"
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
-#define TOUHOU_DEATH_SOUND_ATTR "touhou death sound"
-#define TOUHOU_DEATH_SOUND_PATH "touhou/pichuun.mp3"
-#define TOUHOU_DEATH_SOUND_FORCE_VOLUME 0.5
+#define SAYSOUND_ON_KILL_ATTR "saysound on kill"
 #define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
 
 public Plugin myinfo =
@@ -3054,9 +3052,8 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
     int victim = GetClientOfUserId(event.GetInt("userid"));
     int attacker = GetClientOfUserId(event.GetInt("attacker"));
 
-    if (attacker > 0 && attacker != victim && HasTouhouDeathSoundWeapon(attacker))
+    if (attacker > 0 && attacker != victim && PlayWeaponKillSaySound(attacker))
     {
-        PlayTouhouDeathSound(attacker, victim);
         return;
     }
 
@@ -3124,8 +3121,13 @@ void GetDefaultDeathSound(char[] buffer, int maxlen)
     }
 }
 
-static bool HasTouhouDeathSoundWeapon(int attacker)
+static bool GetWeaponKillSaySoundCommand(int attacker, char[] commandName, int maxlen)
 {
+    if (maxlen > 0)
+    {
+        commandName[0] = '\0';
+    }
+
     if (attacker <= 0 || attacker > MaxClients || !IsClientInGame(attacker))
     {
         return false;
@@ -3137,34 +3139,31 @@ static bool HasTouhouDeathSoundWeapon(int attacker)
         return false;
     }
 
-    return TF2CustAttr_GetInt(weapon, TOUHOU_DEATH_SOUND_ATTR, 0) != 0;
+    TF2CustAttr_GetString(weapon, SAYSOUND_ON_KILL_ATTR, commandName, maxlen);
+    TrimString(commandName);
+    ToLowercaseInPlace(commandName, maxlen);
+
+    return commandName[0] != '\0';
 }
 
-static void PlayTouhouDeathSound(int attacker, int victim)
+static bool PlayWeaponKillSaySound(int attacker)
 {
-    PrecacheSound(TOUHOU_DEATH_SOUND_PATH, true);
-    PlaySaySound(TOUHOU_DEATH_SOUND_PATH, "");
-
-    if (g_hForce != null && g_hForce.BoolValue)
+    char commandName[MAX_COMMAND_NAME * 4];
+    if (!GetWeaponKillSaySoundCommand(attacker, commandName, sizeof(commandName)))
     {
-        return;
+        return false;
     }
 
-    if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
+    char soundPath[PLATFORM_MAX_PATH];
+    char groupName[MAX_GROUP_NAME];
+    bool restricted = false;
+    bool paidRestricted = false;
+    if (!GetCommandSoundDataForClient(attacker, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted))
     {
-        if (GetClientVolume(attacker) <= 0.0)
-        {
-            EmitSoundToClient(attacker, TOUHOU_DEATH_SOUND_PATH, attacker, SNDCHAN_AUTO,
-                SNDLEVEL_NORMAL, SND_NOFLAGS, TOUHOU_DEATH_SOUND_FORCE_VOLUME, SNDPITCH_NORMAL);
-        }
+        return false;
     }
 
-    if (victim > 0 && victim <= MaxClients && IsClientInGame(victim) && victim != attacker)
-    {
-        if (GetClientVolume(victim) <= 0.0)
-        {
-            EmitSoundToClient(victim, TOUHOU_DEATH_SOUND_PATH, victim, SNDCHAN_AUTO,
-                SNDLEVEL_NORMAL, SND_NOFLAGS, TOUHOU_DEATH_SOUND_FORCE_VOLUME, SNDPITCH_NORMAL);
-        }
-    }
+    PrecacheSound(soundPath, true);
+    PlaySaySoundToTarget(0, soundPath, groupName);
+    return true;
 }
