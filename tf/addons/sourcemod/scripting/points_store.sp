@@ -24,6 +24,15 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define BP_CURRENCY_COLOR_MAX 32
 #define BP_PURCHASE_PERMANENT 0
 #define BP_PURCHASE_UNLIMITED_USES -1
+#define LOTTO_TABLE "points_store_lotteries"
+#define LOTTO_TICKET_TABLE "points_store_lottery_tickets"
+#define LOTTO_WORD_MAX 64
+#define LOTTO_TOKEN_MAX 128
+#define LOTTO_TICKET_MAX 2048
+#define LOTTO_TICKET_PRINT_MAX 2304
+#define LOTTO_HASH_MAX 32
+#define LOTTO_NAME_MAX 256
+#define LOTTO_REVEAL_INTERVAL 0.5
 
 ArrayList g_ItemKeys = null;
 ArrayList g_ItemNames = null;
@@ -54,6 +63,60 @@ char g_CurrencyLongLabel[BP_CURRENCY_LONG_MAX];
 char g_CurrencyColorTag[BP_CURRENCY_COLOR_MAX + 2];
 char g_CurrencyPrefix[96];
 float g_NextSendAllowedAt[MAXPLAYERS + 1];
+
+ArrayList g_LotteryWords = null;
+ArrayList g_LotteryRarities = null;
+ArrayList g_LotteryDrawTokens = null;
+int g_LotteryTotalWeight = 0;
+
+bool g_LotteryReady = false;
+bool g_LotteryCreating = false;
+bool g_LotteryDrawInProgress = false;
+int g_CurrentLotteryId = 0;
+int g_CurrentLotteryCreatedAt = 0;
+char g_CurrentLotteryHash[LOTTO_HASH_MAX];
+char g_CurrentLotteryHashColor[BP_CURRENCY_COLOR_MAX + 2];
+
+bool g_LotteryWaitingCustom[MAXPLAYERS + 1];
+bool g_ClientLotteryTicketLoaded[MAXPLAYERS + 1];
+bool g_ClientLotteryHasTicket[MAXPLAYERS + 1];
+int g_ClientLotteryId[MAXPLAYERS + 1];
+int g_ClientLotteryTicketValue[MAXPLAYERS + 1];
+char g_ClientLotteryTicket[MAXPLAYERS + 1][LOTTO_TICKET_MAX];
+
+Handle g_LotteryDrawTimer = null;
+int g_LotteryDrawIndex = 0;
+int g_LotteryDrawLotteryId = 0;
+int g_LotteryDrawPrizePool = 0;
+char g_LotteryDrawWinnerSteamId[32];
+char g_LotteryDrawWinnerName[LOTTO_NAME_MAX];
+char g_LotteryDrawHash[LOTTO_HASH_MAX];
+char g_LotteryDrawHashColor[BP_CURRENCY_COLOR_MAX + 2];
+
+static const char g_LotteryColors[][] =
+{
+    "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black",
+    "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse",
+    "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "cyan", "darkblue", "darkcyan",
+    "darkgoldenrod", "darkgray", "darkgrey", "darkgreen", "darkkhaki", "darkmagenta", "darkolivegreen",
+    "darkorange", "darkorchid", "darkred", "darksalmon", "darkseagreen", "darkslateblue",
+    "darkslategray", "darkslategrey", "darkturquoise", "darkviolet", "deeppink", "deepskyblue",
+    "dimgray", "dimgrey", "dodgerblue", "firebrick", "floralwhite", "forestgreen", "fuchsia",
+    "gainsboro", "ghostwhite", "gold", "goldenrod", "gray", "grey", "green", "greenyellow",
+    "honeydew", "hotpink", "indianred", "indigo", "ivory", "khaki", "lavender", "lavenderblush",
+    "lawngreen", "lemonchiffon", "lightblue", "lightcoral", "lightcyan", "lightgoldenrodyellow",
+    "lightgray", "lightgrey", "lightgreen", "lightpink", "lightsalmon", "lightseagreen", "lightskyblue",
+    "lightslategray", "lightslategrey", "lightsteelblue", "lightyellow", "lime", "limegreen", "linen",
+    "magenta", "maroon", "mediumaquamarine", "mediumblue", "mediumorchid", "mediumpurple",
+    "mediumseagreen", "mediumslateblue", "mediumspringgreen", "mediumturquoise", "mediumvioletred",
+    "midnightblue", "mintcream", "mistyrose", "moccasin", "navajowhite", "navy", "oldlace", "olive",
+    "olivedrab", "orange", "orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise",
+    "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue", "purple",
+    "red", "rosybrown", "royalblue", "saddlebrown", "salmon", "sandybrown", "seagreen", "seashell",
+    "sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey", "snow", "springgreen",
+    "steelblue", "tan", "teal", "thistle", "tomato", "turquoise", "violet", "wheat", "white",
+    "whitesmoke", "yellow", "yellowgreen"
+};
 
 public Plugin myinfo =
 {
@@ -93,6 +156,9 @@ public void OnPluginStart()
     g_ItemPrices = new ArrayList();
     g_ItemDurations = new ArrayList();
     g_ItemUses = new ArrayList();
+    g_LotteryWords = new ArrayList(ByteCountToCells(LOTTO_WORD_MAX));
+    g_LotteryRarities = new ArrayList();
+    g_LotteryDrawTokens = new ArrayList(ByteCountToCells(LOTTO_TOKEN_MAX));
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -103,6 +169,7 @@ public void OnPluginStart()
         g_ClientBonusPoints[i] = 0;
         g_ClientBonusPointsLoaded[i] = false;
         g_ClientBonusPointsPending[i] = false;
+        ClearClientLotteryTicketCache(i);
     }
 
     g_CvarDatabase = CreateConVar("sm_bonuspoints_transactions_database", BP_TRANS_DB_CONFIG_DEFAULT, "Databases.cfg entry for bonuspoints_transactions.");
@@ -133,8 +200,13 @@ public void OnPluginStart()
     RegConsoleCmd("sm_gems", Command_ShowBonusPoints, "Show your currency balance.");
     RegConsoleCmd("sm_sendgem", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_gemsend", Command_SendBonusPoints, "Send currency to another player.");
+    RegConsoleCmd("sm_lottery", Command_Lottery, "Open the currency lottery.");
+    RegConsoleCmd("sm_lotto", Command_Lottery, "Open the currency lottery.");
+    RegAdminCmd("sm_dolottery", Command_DoLottery, ADMFLAG_GENERIC, "Draw the current currency lottery.");
+    RegAdminCmd("sm_dolotto", Command_DoLottery, ADMFLAG_GENERIC, "Draw the current currency lottery.");
 
     LoadStoreItems();
+    LoadLotteryWords();
     ConnectDatabase();
 }
 
@@ -147,6 +219,15 @@ public void OnPluginEnd()
     delete g_ItemPrices;
     delete g_ItemDurations;
     delete g_ItemUses;
+    delete g_LotteryWords;
+    delete g_LotteryRarities;
+    delete g_LotteryDrawTokens;
+
+    if (g_LotteryDrawTimer != null)
+    {
+        KillTimer(g_LotteryDrawTimer);
+        g_LotteryDrawTimer = null;
+    }
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -179,17 +260,26 @@ public void OnClientAuthorized(int client, const char[] auth)
     ClearClientStoreCache(client);
     LoadClientPurchases(client);
     LoadClientBonusPoints(client);
+    LoadClientLotteryTicket(client);
 }
 
 public void OnClientDisconnect(int client)
 {
     g_NextSendAllowedAt[client] = 0.0;
+    g_LotteryWaitingCustom[client] = false;
     ClearClientStoreCache(client);
+    ClearClientLotteryTicketCache(client);
 }
 
 void ConnectDatabase()
 {
     g_DatabaseReady = false;
+    g_LotteryReady = false;
+    g_LotteryCreating = false;
+    g_CurrentLotteryId = 0;
+    g_CurrentLotteryHash[0] = '\0';
+    g_CurrentLotteryHashColor[0] = '\0';
+
     if (g_Database != null)
     {
         delete g_Database;
@@ -381,6 +471,113 @@ public void SQL_OnSchemaReady(Database db, DBResultSet results, const char[] err
         return;
     }
 
+    EnsureLotterySchema();
+}
+
+void EnsureLotterySchema()
+{
+    if (g_Database == null)
+    {
+        return;
+    }
+
+    char query[2048];
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "id INT NOT NULL AUTO_INCREMENT, "
+            ... "hash VARCHAR(32) NOT NULL, "
+            ... "hash_color VARCHAR(32) NOT NULL, "
+            ... "created_at INT NOT NULL, "
+            ... "finished TINYINT NOT NULL DEFAULT 0, "
+            ... "finished_at INT NOT NULL DEFAULT 0, "
+            ... "winner_steamid64 VARCHAR(32) NOT NULL DEFAULT '', "
+            ... "winner_name VARCHAR(255) NOT NULL DEFAULT '', "
+            ... "prize_pool INT NOT NULL DEFAULT 0, "
+            ... "PRIMARY KEY (id), "
+            ... "UNIQUE KEY unique_points_store_lottery_hash (hash), "
+            ... "KEY idx_points_store_lottery_finished (finished))",
+            LOTTO_TABLE);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            ... "hash VARCHAR(32) NOT NULL UNIQUE, "
+            ... "hash_color VARCHAR(32) NOT NULL, "
+            ... "created_at INTEGER NOT NULL, "
+            ... "finished INTEGER NOT NULL DEFAULT 0, "
+            ... "finished_at INTEGER NOT NULL DEFAULT 0, "
+            ... "winner_steamid64 VARCHAR(32) NOT NULL DEFAULT '', "
+            ... "winner_name VARCHAR(255) NOT NULL DEFAULT '', "
+            ... "prize_pool INTEGER NOT NULL DEFAULT 0)",
+            LOTTO_TABLE);
+    }
+
+    g_Database.Query(SQL_OnLotterySchemaReady, query);
+}
+
+public void SQL_OnLotterySchemaReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Lottery schema creation failed: %s", error);
+        return;
+    }
+
+    char query[4096];
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "id INT NOT NULL AUTO_INCREMENT, "
+            ... "lottery_id INT NOT NULL, "
+            ... "steamid64 VARCHAR(32) NOT NULL, "
+            ... "display_name VARCHAR(255) NOT NULL DEFAULT '', "
+            ... "ticket TEXT NOT NULL, "
+            ... "ticket_value INT NOT NULL, "
+            ... "created_at INT NOT NULL, "
+            ... "PRIMARY KEY (id), "
+            ... "UNIQUE KEY unique_points_store_lottery_ticket (lottery_id, steamid64), "
+            ... "KEY idx_points_store_lottery_ticket_lottery (lottery_id), "
+            ... "KEY idx_points_store_lottery_ticket_steamid64 (steamid64))",
+            LOTTO_TICKET_TABLE);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            ... "lottery_id INTEGER NOT NULL, "
+            ... "steamid64 VARCHAR(32) NOT NULL, "
+            ... "display_name VARCHAR(255) NOT NULL DEFAULT '', "
+            ... "ticket TEXT NOT NULL, "
+            ... "ticket_value INTEGER NOT NULL, "
+            ... "created_at INTEGER NOT NULL, "
+            ... "UNIQUE (lottery_id, steamid64))",
+            LOTTO_TICKET_TABLE);
+    }
+
+    g_Database.Query(SQL_OnLotteryTicketsSchemaReady, query);
+}
+
+public void SQL_OnLotteryTicketsSchemaReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Lottery ticket schema creation failed: %s", error);
+        return;
+    }
+
+    if (!g_IsMySql)
+    {
+        g_Database.Query(SQL_OnIgnoredResult, "CREATE INDEX IF NOT EXISTS idx_points_store_lottery_finished ON points_store_lotteries (finished)");
+        g_Database.Query(SQL_OnIgnoredResult, "CREATE INDEX IF NOT EXISTS idx_points_store_lottery_ticket_lottery ON points_store_lottery_tickets (lottery_id)");
+        g_Database.Query(SQL_OnIgnoredResult, "CREATE INDEX IF NOT EXISTS idx_points_store_lottery_ticket_steamid64 ON points_store_lottery_tickets (steamid64)");
+    }
+
     g_DatabaseReady = true;
 
     for (int i = 1; i <= MaxClients; i++)
@@ -389,8 +586,1515 @@ public void SQL_OnSchemaReady(Database db, DBResultSet results, const char[] err
         {
             LoadClientPurchases(i);
             LoadClientBonusPoints(i);
+            LoadClientLotteryTicket(i);
         }
     }
+
+    EnsureActiveLottery();
+}
+
+void EnsureActiveLottery()
+{
+    if (!g_DatabaseReady || g_Database == null || g_LotteryCreating)
+    {
+        return;
+    }
+
+    if (g_LotteryReady && g_CurrentLotteryId > 0)
+    {
+        return;
+    }
+
+    char query[256];
+    Format(query, sizeof(query),
+        "SELECT id, hash, hash_color, created_at FROM %s WHERE finished = 0 ORDER BY id DESC LIMIT 1",
+        LOTTO_TABLE);
+    g_Database.Query(SQL_OnActiveLotterySelected, query);
+}
+
+public void SQL_OnActiveLotterySelected(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Failed to load active lottery: %s", error);
+        return;
+    }
+
+    if (results != null && results.FetchRow())
+    {
+        int lotteryId = results.FetchInt(0);
+        char hash[LOTTO_HASH_MAX];
+        char hashColor[BP_CURRENCY_COLOR_MAX + 2];
+        results.FetchString(1, hash, sizeof(hash));
+        results.FetchString(2, hashColor, sizeof(hashColor));
+        int createdAt = results.FetchInt(3);
+        SetActiveLottery(lotteryId, hash, hashColor, createdAt);
+        return;
+    }
+
+    CreateActiveLottery();
+}
+
+void CreateActiveLottery()
+{
+    if (!g_DatabaseReady || g_Database == null || g_LotteryCreating)
+    {
+        return;
+    }
+
+    g_LotteryCreating = true;
+
+    int createdAt = GetTime();
+    char hash[LOTTO_HASH_MAX];
+    char colorName[BP_CURRENCY_COLOR_MAX];
+    char hashColor[BP_CURRENCY_COLOR_MAX + 2];
+    BuildLotteryHash(createdAt, hash, sizeof(hash));
+    GetRandomLotteryColorName(colorName, sizeof(colorName));
+    Format(hashColor, sizeof(hashColor), "{%s}", colorName);
+
+    char escapedHash[(LOTTO_HASH_MAX * 2) + 1];
+    char escapedHashColor[((BP_CURRENCY_COLOR_MAX + 2) * 2) + 1];
+    if (!EscapeSql(hash, escapedHash, sizeof(escapedHash)) || !EscapeSql(hashColor, escapedHashColor, sizeof(escapedHashColor)))
+    {
+        g_LotteryCreating = false;
+        LogError("[points_store] Failed to escape new lottery hash.");
+        return;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteString(hash);
+    pack.WriteString(hashColor);
+    pack.WriteCell(createdAt);
+
+    char query[512];
+    Format(query, sizeof(query),
+        "INSERT INTO %s (hash, hash_color, created_at, finished) VALUES ('%s', '%s', %d, 0)",
+        LOTTO_TABLE,
+        escapedHash,
+        escapedHashColor,
+        createdAt);
+    g_Database.Query(SQL_OnActiveLotteryInserted, query, pack);
+}
+
+public void SQL_OnActiveLotteryInserted(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    char hash[LOTTO_HASH_MAX];
+    char hashColor[BP_CURRENCY_COLOR_MAX + 2];
+    pack.ReadString(hash, sizeof(hash));
+    pack.ReadString(hashColor, sizeof(hashColor));
+    int createdAt = pack.ReadCell();
+    delete pack;
+
+    g_LotteryCreating = false;
+
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Failed to create active lottery: %s", error);
+        return;
+    }
+
+    char escapedHash[(LOTTO_HASH_MAX * 2) + 1];
+    if (!EscapeSql(hash, escapedHash, sizeof(escapedHash)))
+    {
+        LogError("[points_store] Failed to escape created lottery hash.");
+        return;
+    }
+
+    DataPack selectPack = new DataPack();
+    selectPack.WriteString(hash);
+    selectPack.WriteString(hashColor);
+    selectPack.WriteCell(createdAt);
+
+    char query[256];
+    Format(query, sizeof(query),
+        "SELECT id FROM %s WHERE hash = '%s' LIMIT 1",
+        LOTTO_TABLE,
+        escapedHash);
+    g_Database.Query(SQL_OnActiveLotteryInsertedSelected, query, selectPack);
+}
+
+public void SQL_OnActiveLotteryInsertedSelected(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    char hash[LOTTO_HASH_MAX];
+    char hashColor[BP_CURRENCY_COLOR_MAX + 2];
+    pack.ReadString(hash, sizeof(hash));
+    pack.ReadString(hashColor, sizeof(hashColor));
+    int createdAt = pack.ReadCell();
+    delete pack;
+
+    if (error[0] != '\0' || results == null || !results.FetchRow())
+    {
+        LogError("[points_store] Failed to select newly created lottery: %s", error[0] ? error : "no row returned");
+        return;
+    }
+
+    SetActiveLottery(results.FetchInt(0), hash, hashColor, createdAt);
+}
+
+void SetActiveLottery(int lotteryId, const char[] hash, const char[] hashColor, int createdAt)
+{
+    g_CurrentLotteryId = lotteryId;
+    g_CurrentLotteryCreatedAt = createdAt;
+    strcopy(g_CurrentLotteryHash, sizeof(g_CurrentLotteryHash), hash);
+    strcopy(g_CurrentLotteryHashColor, sizeof(g_CurrentLotteryHashColor), hashColor);
+    g_LotteryReady = true;
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (IsClientAuthorizedHuman(i))
+        {
+            LoadClientLotteryTicket(i);
+        }
+    }
+}
+
+void ClearClientLotteryTicketCache(int client)
+{
+    if (client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+
+    g_ClientLotteryTicketLoaded[client] = false;
+    g_ClientLotteryHasTicket[client] = false;
+    g_ClientLotteryId[client] = 0;
+    g_ClientLotteryTicketValue[client] = 0;
+    g_ClientLotteryTicket[client][0] = '\0';
+}
+
+void ClearAllClientLotteryCaches()
+{
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        ClearClientLotteryTicketCache(i);
+    }
+}
+
+void LoadClientLotteryTicket(int client)
+{
+    if (client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+
+    ClearClientLotteryTicketCache(client);
+    if (!g_DatabaseReady || g_Database == null || !g_LotteryReady || g_CurrentLotteryId <= 0 || !IsClientAuthorizedHuman(client))
+    {
+        return;
+    }
+
+    char steamId[32];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    {
+        return;
+    }
+
+    char escapedSteamId[65];
+    if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)))
+    {
+        LogError("[points_store] Failed to escape SteamID64 for lottery ticket load for client %d.", client);
+        return;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(g_CurrentLotteryId);
+    pack.WriteString(steamId);
+
+    char query[384];
+    Format(query, sizeof(query),
+        "SELECT ticket, ticket_value FROM %s WHERE lottery_id = %d AND steamid64 = '%s' LIMIT 1",
+        LOTTO_TICKET_TABLE,
+        g_CurrentLotteryId,
+        escapedSteamId);
+    g_Database.Query(SQL_OnClientLotteryTicketLoaded, query, pack);
+}
+
+public void SQL_OnClientLotteryTicketLoaded(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    int expectedLotteryId = pack.ReadCell();
+    char expectedSteamId[32];
+    pack.ReadString(expectedSteamId, sizeof(expectedSteamId));
+    delete pack;
+
+    int client = GetClientOfUserId(userId);
+    if (!IsClientAuthorizedHuman(client) || expectedLotteryId != g_CurrentLotteryId)
+    {
+        return;
+    }
+
+    char currentSteamId[32];
+    if (!GetClientSteamId64(client, currentSteamId, sizeof(currentSteamId)) || !StrEqual(currentSteamId, expectedSteamId, false))
+    {
+        return;
+    }
+
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Failed to load lottery ticket for %s: %s", expectedSteamId, error);
+        g_ClientLotteryTicketLoaded[client] = false;
+        return;
+    }
+
+    g_ClientLotteryTicketLoaded[client] = true;
+    g_ClientLotteryHasTicket[client] = false;
+    g_ClientLotteryId[client] = expectedLotteryId;
+    g_ClientLotteryTicketValue[client] = 0;
+    g_ClientLotteryTicket[client][0] = '\0';
+
+    if (results != null && results.FetchRow())
+    {
+        results.FetchString(0, g_ClientLotteryTicket[client], sizeof(g_ClientLotteryTicket[]));
+        g_ClientLotteryTicketValue[client] = results.FetchInt(1);
+        g_ClientLotteryHasTicket[client] = g_ClientLotteryTicket[client][0] != '\0' && g_ClientLotteryTicketValue[client] > 0;
+    }
+}
+
+bool IsLotteryReadyForClient(int client, bool needTicketLoaded = true)
+{
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
+    if (!g_DatabaseReady || g_Database == null || !g_LotteryReady || g_CurrentLotteryId <= 0)
+    {
+        CPrintToChat(client, "%s[Lotto]{default} The lottery database is not ready.", colorTag);
+        EnsureActiveLottery();
+        return false;
+    }
+
+    if (needTicketLoaded && !g_ClientLotteryTicketLoaded[client])
+    {
+        LoadClientLotteryTicket(client);
+        CPrintToChat(client, "%s[Lotto]{default} Your lottery ticket is loading. Try again in a moment.", colorTag);
+        return false;
+    }
+
+    return true;
+}
+
+public Action Command_Lottery(int client, int args)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (!IsLotteryReadyForClient(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (args >= 1 && !g_ClientLotteryHasTicket[client])
+    {
+        char amountArg[32];
+        GetCmdArg(1, amountArg, sizeof(amountArg));
+        int amount = 0;
+        if (ParsePositiveInteger(amountArg, amount))
+        {
+            AttemptLotteryTicketPurchase(client, amount);
+            return Plugin_Handled;
+        }
+    }
+
+    ShowLotteryMenu(client);
+    return Plugin_Handled;
+}
+
+public Action OnClientSayCommand(int client, const char[] command, const char[] sArgs)
+{
+    if (client <= 0 || client > MaxClients || !g_LotteryWaitingCustom[client])
+    {
+        return Plugin_Continue;
+    }
+
+    g_LotteryWaitingCustom[client] = false;
+
+    char text[32];
+    strcopy(text, sizeof(text), sArgs);
+    StripQuotes(text);
+    TrimString(text);
+
+    int amount = 0;
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    if (!ParsePositiveInteger(text, amount))
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Ticket value must be a positive integer.", colorTag);
+        return Plugin_Handled;
+    }
+
+    AttemptLotteryTicketPurchase(client, amount);
+    return Plugin_Handled;
+}
+
+bool ParsePositiveInteger(const char[] text, int &value)
+{
+    value = 0;
+
+    char trimmed[32];
+    strcopy(trimmed, sizeof(trimmed), text);
+    TrimString(trimmed);
+
+    int len = strlen(trimmed);
+    if (len <= 0)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < len; i++)
+    {
+        if (trimmed[i] < '0' || trimmed[i] > '9')
+        {
+            return false;
+        }
+    }
+
+    value = StringToInt(trimmed);
+    return value > 0;
+}
+
+void ShowLotteryMenu(int client)
+{
+    if (!IsLotteryReadyForClient(client))
+    {
+        return;
+    }
+
+    if (g_ClientLotteryHasTicket[client])
+    {
+        ShowOwnedLotteryTicketMenu(client);
+        return;
+    }
+
+    Menu menu = new Menu(MenuHandler_LotteryBuy);
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+
+    char title[BP_CURRENCY_LONG_MAX + 16];
+    Format(title, sizeof(title), "%s Lotto", currencyLong);
+    menu.SetTitle(title);
+
+    char display[128];
+    Format(display, sizeof(display), "50 %s", currencyLong);
+    menu.AddItem("50", display);
+    Format(display, sizeof(display), "100 %s", currencyLong);
+    menu.AddItem("100", display);
+    Format(display, sizeof(display), "250 %s", currencyLong);
+    menu.AddItem("250", display);
+    Format(display, sizeof(display), "500 %s", currencyLong);
+    menu.AddItem("500", display);
+    menu.AddItem("custom", "Custom (type in chat)");
+    menu.AddItem("pool", "Prize pool");
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+void ShowOwnedLotteryTicketMenu(int client)
+{
+    Menu menu = new Menu(MenuHandler_LotteryOwned);
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+
+    char title[BP_CURRENCY_LONG_MAX + 16];
+    Format(title, sizeof(title), "%s Lotto", currencyLong);
+    menu.SetTitle(title);
+    menu.AddItem("view", "View ticket");
+    menu.AddItem("refund", "Refund ticket");
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int MenuHandler_LotteryBuy(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+        return 0;
+    }
+
+    if (action != MenuAction_Select || !IsClientInGameHuman(client))
+    {
+        return 0;
+    }
+
+    char info[32];
+    menu.GetItem(item, info, sizeof(info));
+    if (StrEqual(info, "custom", false))
+    {
+        PromptLotteryCustomAmount(client);
+        return 0;
+    }
+
+    if (StrEqual(info, "pool", false))
+    {
+        PrintLotteryPrizePool(client);
+        return 0;
+    }
+
+    int amount = StringToInt(info);
+    if (amount > 0)
+    {
+        AttemptLotteryTicketPurchase(client, amount);
+    }
+    return 0;
+}
+
+public int MenuHandler_LotteryOwned(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+        return 0;
+    }
+
+    if (action != MenuAction_Select || !IsClientInGameHuman(client))
+    {
+        return 0;
+    }
+
+    char info[32];
+    menu.GetItem(item, info, sizeof(info));
+    if (StrEqual(info, "view", false))
+    {
+        PrintClientLotteryTicket(client);
+    }
+    else if (StrEqual(info, "refund", false))
+    {
+        RefundLotteryTicket(client);
+    }
+    return 0;
+}
+
+void PromptLotteryCustomAmount(int client)
+{
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    g_LotteryWaitingCustom[client] = true;
+    CPrintToChat(client, "%s[Lottery]{default} Type your ticket value in chat.", colorTag);
+}
+
+void PrintClientLotteryTicket(int client)
+{
+    if (!IsLotteryReadyForClient(client))
+    {
+        return;
+    }
+
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    if (!g_ClientLotteryHasTicket[client])
+    {
+        CPrintToChat(client, "%s[Lottery]{default} You do not have a ticket in the current lottery.", colorTag);
+        return;
+    }
+
+    char display[LOTTO_TICKET_PRINT_MAX];
+    BuildLotteryTicketDisplay(g_ClientLotteryTicket[client], display, sizeof(display));
+    CPrintToChat(client, "%s[Lottery]{default} Your ticket: %s", colorTag, display);
+}
+
+void AttemptLotteryTicketPurchase(int client, int amount)
+{
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+
+    if (!IsLotteryReadyForClient(client))
+    {
+        return;
+    }
+
+    if (g_LotteryDrawInProgress)
+    {
+        CPrintToChat(client, "%s[Lottery]{default} A lottery draw is already in progress.", colorTag);
+        return;
+    }
+
+    if (amount <= 0)
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Ticket value must be greater than 0.", colorTag);
+        return;
+    }
+
+    if (g_ClientLotteryHasTicket[client])
+    {
+        ShowOwnedLotteryTicketMenu(client);
+        return;
+    }
+
+    if (g_LotteryWords == null || g_LotteryWords.Length <= 0)
+    {
+        CPrintToChat(client, "%s[Lottery]{default} No lottery words are configured.", colorTag);
+        return;
+    }
+
+    if (!AreBonusPointsReady(client))
+    {
+        LoadClientBonusPoints(client);
+        CPrintToChat(client, "%s[Lottery]{default} Your %s are loading. Try again in a moment.", colorTag, currencyLong);
+        return;
+    }
+
+    if (GetCachedBonusPoints(client) < amount)
+    {
+        CPrintToChat(client, "%s[Lottery]{default} You only have %s%d %s{default}.", colorTag, colorTag, GetCachedBonusPoints(client), currencyLong);
+        return;
+    }
+
+    char steamId[32];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Could not read your SteamID64.", colorTag);
+        return;
+    }
+
+    char ticket[LOTTO_TICKET_MAX];
+    GenerateLotteryTicket(ticket, sizeof(ticket));
+    if (ticket[0] == '\0')
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Could not generate a ticket.", colorTag);
+        return;
+    }
+
+    char displayName[LOTTO_NAME_MAX];
+    BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
+
+    char escapedSteamId[65];
+    char escapedTicket[(LOTTO_TICKET_MAX * 2) + 1];
+    char escapedName[(LOTTO_NAME_MAX * 2) + 1];
+    if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId))
+        || !EscapeSql(ticket, escapedTicket, sizeof(escapedTicket))
+        || !EscapeSql(displayName, escapedName, sizeof(escapedName)))
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Could not prepare your ticket.", colorTag);
+        return;
+    }
+
+    if (!SpendBonusPointsWithContext(client, amount, "lottery_ticket", 0))
+    {
+        CPrintToChat(client, "%s[Lottery]{default} You can't afford that ticket.", colorTag);
+        return;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(g_CurrentLotteryId);
+    pack.WriteCell(amount);
+    pack.WriteString(steamId);
+    pack.WriteString(ticket);
+    pack.WriteString(displayName);
+
+    char query[8192];
+    Format(query, sizeof(query),
+        "INSERT INTO %s (lottery_id, steamid64, display_name, ticket, ticket_value, created_at) VALUES (%d, '%s', '%s', '%s', %d, %d)",
+        LOTTO_TICKET_TABLE,
+        g_CurrentLotteryId,
+        escapedSteamId,
+        escapedName,
+        escapedTicket,
+        amount,
+        GetTime());
+    g_Database.Query(SQL_OnLotteryTicketInserted, query, pack);
+}
+
+public void SQL_OnLotteryTicketInserted(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    int lotteryId = pack.ReadCell();
+    int amount = pack.ReadCell();
+    char steamId[32];
+    char ticket[LOTTO_TICKET_MAX];
+    char displayName[LOTTO_NAME_MAX];
+    pack.ReadString(steamId, sizeof(steamId));
+    pack.ReadString(ticket, sizeof(ticket));
+    pack.ReadString(displayName, sizeof(displayName));
+    delete pack;
+
+    int client = GetClientOfUserId(userId);
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Failed to insert lottery ticket for %s: %s", steamId, error);
+        CreditSteamId64BonusPoints(steamId, amount);
+        if (IsClientInGameHuman(client))
+        {
+            char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+            GetCurrencyColorTag(colorTag, sizeof(colorTag));
+            CPrintToChat(client, "%s[Lottery]{default} Your ticket could not be saved, so your payment was refunded.", colorTag);
+            LoadClientLotteryTicket(client);
+        }
+        return;
+    }
+
+    if (IsClientAuthorizedHuman(client) && lotteryId == g_CurrentLotteryId)
+    {
+        char currentSteamId[32];
+        if (GetClientSteamId64(client, currentSteamId, sizeof(currentSteamId)) && StrEqual(currentSteamId, steamId, false))
+        {
+            g_ClientLotteryTicketLoaded[client] = true;
+            g_ClientLotteryHasTicket[client] = true;
+            g_ClientLotteryId[client] = lotteryId;
+            g_ClientLotteryTicketValue[client] = amount;
+            strcopy(g_ClientLotteryTicket[client], sizeof(g_ClientLotteryTicket[]), ticket);
+
+            char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+            char currencyLong[BP_CURRENCY_LONG_MAX];
+            char display[LOTTO_TICKET_PRINT_MAX];
+            GetCurrencyColorTag(colorTag, sizeof(colorTag));
+            GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+            BuildLotteryTicketDisplay(ticket, display, sizeof(display));
+
+            CPrintToChatAllEx(client, "{default}%s bought a {gold}!lottery{default} ticket for %s%d %s{default}", displayName, colorTag, amount, currencyLong);
+            CPrintToChat(client, "%s[Lottery]{default} Your ticket: %s", colorTag, display);
+        }
+    }
+}
+
+void RefundLotteryTicket(int client)
+{
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
+    if (!IsLotteryReadyForClient(client))
+    {
+        return;
+    }
+
+    if (g_LotteryDrawInProgress)
+    {
+        CPrintToChat(client, "%s[Lottery]{default} You cannot refund while a lottery draw is in progress.", colorTag);
+        return;
+    }
+
+    if (!g_ClientLotteryHasTicket[client])
+    {
+        CPrintToChat(client, "%s[Lottery]{default} You do not have a ticket in the current lottery.", colorTag);
+        return;
+    }
+
+    char steamId[32];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Could not read your SteamID64.", colorTag);
+        return;
+    }
+
+    char escapedSteamId[65];
+    if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)))
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Could not prepare your refund.", colorTag);
+        return;
+    }
+
+    char displayName[LOTTO_NAME_MAX];
+    BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(g_CurrentLotteryId);
+    pack.WriteCell(g_ClientLotteryTicketValue[client]);
+    pack.WriteString(steamId);
+    pack.WriteString(displayName);
+
+    char query[384];
+    Format(query, sizeof(query),
+        "DELETE FROM %s WHERE lottery_id = %d AND steamid64 = '%s'",
+        LOTTO_TICKET_TABLE,
+        g_CurrentLotteryId,
+        escapedSteamId);
+    g_Database.Query(SQL_OnLotteryTicketRefunded, query, pack);
+}
+
+public void SQL_OnLotteryTicketRefunded(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    int lotteryId = pack.ReadCell();
+    int amount = pack.ReadCell();
+    char steamId[32];
+    char displayName[LOTTO_NAME_MAX];
+    pack.ReadString(steamId, sizeof(steamId));
+    pack.ReadString(displayName, sizeof(displayName));
+    delete pack;
+
+    int client = GetClientOfUserId(userId);
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Failed to refund lottery ticket for %s: %s", steamId, error);
+        if (IsClientInGameHuman(client))
+        {
+            CPrintToChat(client, "%s[Lottery]{default} Could not refund your ticket.", colorTag);
+        }
+        return;
+    }
+
+    CreditSteamId64BonusPoints(steamId, amount);
+    if (IsClientAuthorizedHuman(client) && lotteryId == g_CurrentLotteryId)
+    {
+        ClearClientLotteryTicketCache(client);
+        g_ClientLotteryTicketLoaded[client] = true;
+    }
+
+    if (IsClientInGameHuman(client))
+    {
+        CPrintToChatAllEx(client, "{default}%s refunded his lottery ticket! %s(%d){default}", displayName, colorTag, amount);
+    }
+    else
+    {
+        CPrintToChatAll("{default}%s refunded his lottery ticket! %s(%d){default}", displayName, colorTag, amount);
+    }
+}
+
+void PrintLotteryPrizePool(int client)
+{
+    if (!IsLotteryReadyForClient(client, false))
+    {
+        return;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(g_CurrentLotteryId);
+
+    char query[256];
+    Format(query, sizeof(query),
+        "SELECT COALESCE(SUM(ticket_value), 0), COUNT(*) FROM %s WHERE lottery_id = %d",
+        LOTTO_TICKET_TABLE,
+        g_CurrentLotteryId);
+    g_Database.Query(SQL_OnLotteryPrizePoolLoaded, query, pack);
+}
+
+public void SQL_OnLotteryPrizePoolLoaded(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    int lotteryId = pack.ReadCell();
+    delete pack;
+
+    int client = GetClientOfUserId(userId);
+    if (!IsClientInGameHuman(client) || lotteryId != g_CurrentLotteryId)
+    {
+        return;
+    }
+
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    if (error[0] != '\0')
+    {
+        CPrintToChat(client, "%s[Lotto]{default} Could not load the prize pool.", colorTag);
+        LogError("[points_store] Failed to load lottery prize pool: %s", error);
+        return;
+    }
+
+    int pool = 0;
+    int participants = 0;
+    if (results != null && results.FetchRow())
+    {
+        pool = results.FetchInt(0);
+        participants = results.FetchInt(1);
+    }
+
+    CPrintToChat(client, "%s[Lotto]{default} Prize pool: %s%d", colorTag, colorTag, pool);
+    CPrintToChat(client, "{default}Participants: {gold}%d", participants);
+}
+
+public Action Command_DoLottery(int client, int args)
+{
+    if (!g_DatabaseReady || g_Database == null || !g_LotteryReady || g_CurrentLotteryId <= 0)
+    {
+        ReplyToCommand(client, "[Lotto] The lottery database is not ready.");
+        EnsureActiveLottery();
+        return Plugin_Handled;
+    }
+
+    if (g_LotteryDrawInProgress)
+    {
+        ReplyToCommand(client, "[Lotto] A lottery draw is already in progress.");
+        return Plugin_Handled;
+    }
+
+    g_LotteryDrawInProgress = true;
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(client > 0 ? GetClientUserId(client) : 0);
+    pack.WriteCell(g_CurrentLotteryId);
+
+    char query[256];
+    Format(query, sizeof(query),
+        "SELECT COUNT(*), COALESCE(SUM(ticket_value), 0) FROM %s WHERE lottery_id = %d",
+        LOTTO_TICKET_TABLE,
+        g_CurrentLotteryId);
+    g_Database.Query(SQL_OnLotteryDrawStatsLoaded, query, pack);
+    return Plugin_Handled;
+}
+
+public void SQL_OnLotteryDrawStatsLoaded(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int requesterUserId = pack.ReadCell();
+    int lotteryId = pack.ReadCell();
+    delete pack;
+
+    if (lotteryId != g_CurrentLotteryId)
+    {
+        g_LotteryDrawInProgress = false;
+        return;
+    }
+
+    if (error[0] != '\0')
+    {
+        g_LotteryDrawInProgress = false;
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] Could not load lottery tickets.");
+        LogError("[points_store] Failed to load lottery draw stats: %s", error);
+        return;
+    }
+
+    int ticketCount = 0;
+    int prizePool = 0;
+    if (results != null && results.FetchRow())
+    {
+        ticketCount = results.FetchInt(0);
+        prizePool = results.FetchInt(1);
+    }
+
+    if (ticketCount <= 0 || prizePool <= 0)
+    {
+        g_LotteryDrawInProgress = false;
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] There are no tickets in the current lottery.");
+        return;
+    }
+
+    int offset = GetRandomInt(0, ticketCount - 1);
+
+    DataPack winnerPack = new DataPack();
+    winnerPack.WriteCell(requesterUserId);
+    winnerPack.WriteCell(lotteryId);
+    winnerPack.WriteCell(prizePool);
+
+    char query[512];
+    Format(query, sizeof(query),
+        "SELECT steamid64, display_name, ticket FROM %s WHERE lottery_id = %d ORDER BY id LIMIT 1 OFFSET %d",
+        LOTTO_TICKET_TABLE,
+        lotteryId,
+        offset);
+    g_Database.Query(SQL_OnLotteryWinnerSelected, query, winnerPack);
+}
+
+public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int requesterUserId = pack.ReadCell();
+    int lotteryId = pack.ReadCell();
+    int prizePool = pack.ReadCell();
+    delete pack;
+
+    if (lotteryId != g_CurrentLotteryId)
+    {
+        g_LotteryDrawInProgress = false;
+        return;
+    }
+
+    if (error[0] != '\0' || results == null || !results.FetchRow())
+    {
+        g_LotteryDrawInProgress = false;
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] Could not select a winner.");
+        LogError("[points_store] Failed to select lottery winner: %s", error[0] ? error : "no row returned");
+        return;
+    }
+
+    char ticket[LOTTO_TICKET_MAX];
+    results.FetchString(0, g_LotteryDrawWinnerSteamId, sizeof(g_LotteryDrawWinnerSteamId));
+    results.FetchString(1, g_LotteryDrawWinnerName, sizeof(g_LotteryDrawWinnerName));
+    results.FetchString(2, ticket, sizeof(ticket));
+
+    g_LotteryDrawLotteryId = lotteryId;
+    g_LotteryDrawPrizePool = prizePool;
+    g_LotteryDrawIndex = 0;
+    strcopy(g_LotteryDrawHash, sizeof(g_LotteryDrawHash), g_CurrentLotteryHash);
+    strcopy(g_LotteryDrawHashColor, sizeof(g_LotteryDrawHashColor), g_CurrentLotteryHashColor);
+    BuildLotteryDrawTokens(ticket);
+
+    if (g_LotteryDrawTokens.Length <= 0)
+    {
+        g_LotteryDrawInProgress = false;
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] The selected ticket had no printable words.");
+        return;
+    }
+
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    CPrintToChatAll("%s[Lotto]{default} Drawing lottery %s%s{default}...", colorTag, g_LotteryDrawHashColor, g_LotteryDrawHash);
+
+    g_LotteryDrawTimer = CreateTimer(LOTTO_REVEAL_INTERVAL, Timer_LotteryReveal, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+}
+
+public Action Timer_LotteryReveal(Handle timer, any data)
+{
+    if (g_LotteryDrawTimer != timer)
+    {
+        return Plugin_Stop;
+    }
+
+    if (g_LotteryDrawIndex < g_LotteryDrawTokens.Length)
+    {
+        char token[LOTTO_TOKEN_MAX];
+        g_LotteryDrawTokens.GetString(g_LotteryDrawIndex, token, sizeof(token));
+        CPrintToChatAll("%s", token);
+        g_LotteryDrawIndex++;
+        return Plugin_Continue;
+    }
+
+    g_LotteryDrawTimer = null;
+    FinalizeLotteryDraw();
+    return Plugin_Stop;
+}
+
+void FinalizeLotteryDraw()
+{
+    char winnerName[LOTTO_NAME_MAX];
+    ResolveLotteryWinnerName(g_LotteryDrawWinnerSteamId, g_LotteryDrawWinnerName, winnerName, sizeof(winnerName));
+
+    char escapedSteamId[65];
+    char escapedWinnerName[(LOTTO_NAME_MAX * 2) + 1];
+    if (!EscapeSql(g_LotteryDrawWinnerSteamId, escapedSteamId, sizeof(escapedSteamId))
+        || !EscapeSql(winnerName, escapedWinnerName, sizeof(escapedWinnerName)))
+    {
+        LogError("[points_store] Failed to escape lottery winner data.");
+        g_LotteryDrawInProgress = false;
+        return;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(g_LotteryDrawLotteryId);
+    pack.WriteCell(g_LotteryDrawPrizePool);
+    pack.WriteString(g_LotteryDrawWinnerSteamId);
+    pack.WriteString(winnerName);
+    pack.WriteString(g_LotteryDrawHash);
+    pack.WriteString(g_LotteryDrawHashColor);
+
+    char query[768];
+    Format(query, sizeof(query),
+        "UPDATE %s SET finished = 1, finished_at = %d, winner_steamid64 = '%s', winner_name = '%s', prize_pool = %d WHERE id = %d AND finished = 0",
+        LOTTO_TABLE,
+        GetTime(),
+        escapedSteamId,
+        escapedWinnerName,
+        g_LotteryDrawPrizePool,
+        g_LotteryDrawLotteryId);
+    g_Database.Query(SQL_OnLotteryFinished, query, pack);
+}
+
+public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int lotteryId = pack.ReadCell();
+    int prizePool = pack.ReadCell();
+    char winnerSteamId[32];
+    char winnerName[LOTTO_NAME_MAX];
+    char hash[LOTTO_HASH_MAX];
+    char hashColor[BP_CURRENCY_COLOR_MAX + 2];
+    pack.ReadString(winnerSteamId, sizeof(winnerSteamId));
+    pack.ReadString(winnerName, sizeof(winnerName));
+    pack.ReadString(hash, sizeof(hash));
+    pack.ReadString(hashColor, sizeof(hashColor));
+    delete pack;
+
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Failed to mark lottery %d finished: %s", lotteryId, error);
+        char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+        GetCurrencyColorTag(colorTag, sizeof(colorTag));
+        CPrintToChatAll("%s[Lotto]{default} The lottery could not be finalized. Prize was not paid; check logs.", colorTag);
+        g_LotteryDrawInProgress = false;
+        return;
+    }
+
+    CreditSteamId64BonusPoints(winnerSteamId, prizePool);
+
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+    CPrintToChatAll("%s[Lotto]{default} %s won lottery %s%s{default} for %s%d %s{default}!", colorTag, winnerName, hashColor, hash, colorTag, prizePool, currencyLong);
+
+    g_LotteryDrawInProgress = false;
+    g_LotteryReady = false;
+    g_CurrentLotteryId = 0;
+    g_CurrentLotteryHash[0] = '\0';
+    g_CurrentLotteryHashColor[0] = '\0';
+    ClearAllClientLotteryCaches();
+    ResetLotteryDrawState();
+    EnsureActiveLottery();
+}
+
+void ResetLotteryDrawState()
+{
+    g_LotteryDrawIndex = 0;
+    g_LotteryDrawLotteryId = 0;
+    g_LotteryDrawPrizePool = 0;
+    g_LotteryDrawWinnerSteamId[0] = '\0';
+    g_LotteryDrawWinnerName[0] = '\0';
+    g_LotteryDrawHash[0] = '\0';
+    g_LotteryDrawHashColor[0] = '\0';
+    if (g_LotteryDrawTokens != null)
+    {
+        g_LotteryDrawTokens.Clear();
+    }
+}
+
+void ReplyToLotteryRequester(int userId, const char[] format, any ...)
+{
+    char message[256];
+    VFormat(message, sizeof(message), format, 3);
+
+    int client = userId > 0 ? GetClientOfUserId(userId) : 0;
+    if (client > 0 || userId == 0)
+    {
+        ReplyToCommand(client, "%s", message);
+    }
+}
+
+void BuildLotteryTicketDisplay(const char[] storedTicket, char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+    int out = 0;
+    int len = strlen(storedTicket);
+    for (int i = 0; i < len && out < maxlen - 1; i++)
+    {
+        if (i > 0 && storedTicket[i] == '{' && out < maxlen - 2)
+        {
+            buffer[out++] = ' ';
+        }
+        buffer[out++] = storedTicket[i];
+    }
+    buffer[out] = '\0';
+}
+
+void BuildLotteryDrawTokens(const char[] storedTicket)
+{
+    g_LotteryDrawTokens.Clear();
+
+    int len = strlen(storedTicket);
+    int start = 0;
+    for (int i = 1; i < len; i++)
+    {
+        if (storedTicket[i] == '{')
+        {
+            PushLotteryDrawToken(storedTicket, start, i);
+            start = i;
+        }
+    }
+
+    if (start < len)
+    {
+        PushLotteryDrawToken(storedTicket, start, len);
+    }
+}
+
+void PushLotteryDrawToken(const char[] storedTicket, int start, int end)
+{
+    char token[LOTTO_TOKEN_MAX];
+    int out = 0;
+    for (int i = start; i < end && out < sizeof(token) - 1; i++)
+    {
+        token[out++] = storedTicket[i];
+    }
+    token[out] = '\0';
+    TrimString(token);
+    if (token[0] != '\0')
+    {
+        g_LotteryDrawTokens.PushString(token);
+    }
+}
+
+void GenerateLotteryTicket(char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+    if (g_LotteryWords == null || g_LotteryWords.Length <= 0)
+    {
+        return;
+    }
+
+    int wordCount = GetRandomInt(12, 16);
+    bool allowDuplicates = g_LotteryWords.Length < wordCount;
+    StringMap usedWords = new StringMap();
+
+    for (int i = 0; i < wordCount; i++)
+    {
+        char word[LOTTO_WORD_MAX];
+        bool picked = false;
+        for (int attempt = 0; attempt < 64; attempt++)
+        {
+            if (!PickWeightedLotteryWord(word, sizeof(word)))
+            {
+                break;
+            }
+
+            int dummy = 0;
+            if (allowDuplicates || !usedWords.GetValue(word, dummy))
+            {
+                picked = true;
+                usedWords.SetValue(word, 1, true);
+                break;
+            }
+        }
+
+        if (!picked)
+        {
+            continue;
+        }
+
+        char colorName[BP_CURRENCY_COLOR_MAX];
+        char token[LOTTO_TOKEN_MAX];
+        GetRandomLotteryColorName(colorName, sizeof(colorName));
+        Format(token, sizeof(token), "{%s}%s", colorName, word);
+        StrCat(buffer, maxlen, token);
+    }
+
+    delete usedWords;
+}
+
+bool PickWeightedLotteryWord(char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+    if (g_LotteryWords == null || g_LotteryWords.Length <= 0)
+    {
+        return false;
+    }
+
+    int totalWeight = g_LotteryTotalWeight;
+    if (totalWeight <= 0)
+    {
+        totalWeight = 1;
+    }
+
+    int roll = GetRandomInt(1, totalWeight);
+    int running = 0;
+    for (int i = 0; i < g_LotteryWords.Length; i++)
+    {
+        int rarity = g_LotteryRarities.Get(i);
+        running += GetLotteryRarityWeight(rarity);
+        if (roll <= running)
+        {
+            g_LotteryWords.GetString(i, buffer, maxlen);
+            return buffer[0] != '\0';
+        }
+    }
+
+    g_LotteryWords.GetString(g_LotteryWords.Length - 1, buffer, maxlen);
+    return buffer[0] != '\0';
+}
+
+int GetLotteryRarityWeight(int rarity)
+{
+    switch (rarity)
+    {
+        case 1: return 12;
+        case 2: return 4;
+        case 3: return 1;
+    }
+    return 1;
+}
+
+void GetRandomLotteryColorName(char[] buffer, int maxlen)
+{
+    int index = GetRandomInt(0, sizeof(g_LotteryColors) - 1);
+    strcopy(buffer, maxlen, g_LotteryColors[index]);
+}
+
+void BuildLotteryHash(int createdAt, char[] buffer, int maxlen)
+{
+    char input[32];
+    IntToString(createdAt, input, sizeof(input));
+
+    int hash = -2128831035;
+    int len = strlen(input);
+    for (int i = 0; i < len; i++)
+    {
+        hash ^= input[i];
+        hash *= 16777619;
+    }
+
+    int h1 = hash & 0x7fffffff;
+    int h2 = (hash ^ (createdAt * 1103515245)) & 0x7fffffff;
+    Format(buffer, maxlen, "%07x%07x", h1, h2);
+}
+
+void ResolveLotteryWinnerName(const char[] steamId, const char[] storedName, char[] buffer, int maxlen)
+{
+    int client = FindClientBySteamId64(steamId);
+    if (client > 0)
+    {
+        BuildPurchaseDisplayName(client, buffer, maxlen);
+        return;
+    }
+
+    if (storedName[0] != '\0')
+    {
+        strcopy(buffer, maxlen, storedName);
+        return;
+    }
+
+    strcopy(buffer, maxlen, steamId);
+}
+
+int FindClientBySteamId64(const char[] steamId)
+{
+    char currentSteamId[32];
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientAuthorizedHuman(i))
+        {
+            continue;
+        }
+
+        if (GetClientSteamId64(i, currentSteamId, sizeof(currentSteamId)) && StrEqual(currentSteamId, steamId, false))
+        {
+            return i;
+        }
+    }
+    return 0;
+}
+
+void CreditSteamId64BonusPoints(const char[] steamId, int amount)
+{
+    if (amount <= 0 || !g_DatabaseReady || g_Database == null)
+    {
+        return;
+    }
+
+    char escapedSteamId[65];
+    if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)))
+    {
+        LogError("[points_store] Failed to escape SteamID64 for direct lottery credit.");
+        return;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteString(steamId);
+    pack.WriteCell(amount);
+
+    char query[512];
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "INSERT INTO %s (steamid64, balance) VALUES ('%s', %d) ON DUPLICATE KEY UPDATE balance = GREATEST(0, balance + VALUES(balance))",
+            BP_BALANCE_TABLE,
+            escapedSteamId,
+            amount);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "INSERT INTO %s (steamid64, balance) VALUES ('%s', %d) ON CONFLICT(steamid64) DO UPDATE SET balance = MAX(0, balance + excluded.balance), updated_at = CURRENT_TIMESTAMP",
+            BP_BALANCE_TABLE,
+            escapedSteamId,
+            amount);
+    }
+
+    g_Database.Query(SQL_OnLotteryDirectCredit, query, pack);
+}
+
+public void SQL_OnLotteryDirectCredit(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    char steamId[32];
+    pack.ReadString(steamId, sizeof(steamId));
+    int amount = pack.ReadCell();
+    delete pack;
+
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Failed direct lottery credit for %s: %s", steamId, error);
+        return;
+    }
+
+    int client = FindClientBySteamId64(steamId);
+    if (client > 0 && g_ClientBonusPointsLoaded[client])
+    {
+        g_ClientBonusPoints[client] += amount;
+        if (g_ClientBonusPoints[client] < 0)
+        {
+            g_ClientBonusPoints[client] = 0;
+        }
+    }
+}
+
+void LoadLotteryWords()
+{
+    g_LotteryWords.Clear();
+    g_LotteryRarities.Clear();
+    g_LotteryTotalWeight = 0;
+
+    char configPath[PLATFORM_MAX_PATH];
+    BuildPath(Path_SM, configPath, sizeof(configPath), "configs/points_store.cfg");
+
+    File file = OpenFile(configPath, "r");
+    if (file == null)
+    {
+        LogError("[points_store] Could not open %s for lottery words.", configPath);
+        return;
+    }
+
+    bool inLottery = false;
+    int depth = 0;
+    char line[256];
+    while (!IsEndOfFile(file) && ReadFileLine(file, line, sizeof(line)))
+    {
+        StripLineComment(line);
+        TrimString(line);
+        if (line[0] == '\0')
+        {
+            continue;
+        }
+
+        if (!inLottery)
+        {
+            char section[64];
+            if (ExtractFirstQuotedToken(line, section, sizeof(section)) && StrEqual(section, "lottery", false))
+            {
+                inLottery = true;
+                if (StrContains(line, "{") != -1)
+                {
+                    depth = 1;
+                }
+            }
+            continue;
+        }
+
+        if (StrContains(line, "{") != -1)
+        {
+            depth++;
+            continue;
+        }
+
+        if (StrContains(line, "}") != -1)
+        {
+            depth--;
+            if (depth <= 0)
+            {
+                break;
+            }
+            continue;
+        }
+
+        if (depth <= 0)
+        {
+            continue;
+        }
+
+        char word[LOTTO_WORD_MAX];
+        char rarityText[16];
+        if (!ExtractTwoQuotedTokens(line, word, sizeof(word), rarityText, sizeof(rarityText)))
+        {
+            continue;
+        }
+
+        TrimString(word);
+        TrimString(rarityText);
+        int rarity = StringToInt(rarityText);
+        if (rarity < 1)
+        {
+            rarity = 1;
+        }
+        else if (rarity > 3)
+        {
+            rarity = 3;
+        }
+
+        if (word[0] != '\0')
+        {
+            g_LotteryWords.PushString(word);
+            g_LotteryRarities.Push(rarity);
+            g_LotteryTotalWeight += GetLotteryRarityWeight(rarity);
+        }
+    }
+
+    delete file;
+    LogMessage("[points_store] Loaded %d lottery word(s).", g_LotteryWords.Length);
+}
+
+void StripLineComment(char[] line)
+{
+    bool inQuote = false;
+    int len = strlen(line);
+    for (int i = 0; i < len; i++)
+    {
+        if (line[i] == '"')
+        {
+            inQuote = !inQuote;
+            continue;
+        }
+
+        if (!inQuote && line[i] == '/' && i + 1 < len && line[i + 1] == '/')
+        {
+            line[i] = '\0';
+            return;
+        }
+    }
+}
+
+bool ExtractFirstQuotedToken(const char[] text, char[] token, int tokenLen)
+{
+    int pos = 0;
+    return ReadQuotedToken(text, pos, token, tokenLen);
+}
+
+bool ExtractTwoQuotedTokens(const char[] text, char[] first, int firstLen, char[] second, int secondLen)
+{
+    int pos = 0;
+    return ReadQuotedToken(text, pos, first, firstLen) && ReadQuotedToken(text, pos, second, secondLen);
+}
+
+bool ReadQuotedToken(const char[] text, int &pos, char[] token, int tokenLen)
+{
+    token[0] = '\0';
+    int len = strlen(text);
+    while (pos < len && text[pos] != '"')
+    {
+        pos++;
+    }
+
+    if (pos >= len)
+    {
+        return false;
+    }
+
+    pos++;
+    int out = 0;
+    while (pos < len && text[pos] != '"')
+    {
+        if (out < tokenLen - 1)
+        {
+            token[out++] = text[pos];
+        }
+        pos++;
+    }
+    token[out] = '\0';
+
+    if (pos >= len)
+    {
+        return false;
+    }
+
+    pos++;
+    return true;
 }
 
 public void SQL_OnIgnoredResult(Database db, DBResultSet results, const char[] error, any data)
