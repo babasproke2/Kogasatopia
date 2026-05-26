@@ -106,6 +106,12 @@
                         "touhou death sound"  "1"
                 }
         }
+        "diamond_pickaxe"
+        {
+                "inherits"              "Prinny Machete"
+                "name"                  "Diamond Pickaxe"
+                "points_store_purchase" "diamond_pickaxe"
+        }
         "reimugohei_spy"
         {
                 "inherits"    "TF_WEAPON_KNIFE"
