@@ -147,7 +147,7 @@ public Action Command_ShowClassLimits(int client, int args)
     else
         CPrintToChat(client, "{olive}[Class Limits]{default} Current gamemode: {yellow}%s{default}", g_sGameMode);
 
-    char limitText[32];
+    char limitText[96];
     for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
     {
         if (!ShouldDisplayClassInList(classId)) continue;
@@ -320,11 +320,20 @@ static int GetGameplayHumanClientCount()
 
 static bool IsHeavyPopulationRestricted()
 {
+    int currentPlayers, threshold;
+    return GetHeavyPopulationRestrictionState(currentPlayers, threshold);
+}
+
+static bool GetHeavyPopulationRestrictionState(int &currentPlayers, int &threshold)
+{
+    currentPlayers = GetGameplayHumanClientCount();
+    threshold = 0;
+
     if (g_hRestrictHeaviesPcount == null)
         return false;
 
-    int threshold = g_hRestrictHeaviesPcount.IntValue;
-    return threshold > 0 && GetGameplayHumanClientCount() < threshold;
+    threshold = g_hRestrictHeaviesPcount.IntValue;
+    return threshold > 0 && currentPlayers < threshold;
 }
 
 bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
@@ -398,6 +407,14 @@ void PickClass(int iClient)
 void NotifyClassRestricted(int client, int classId, int limit)
 {
     if (client <= 0 || !IsClientInGame(client)) return;
+
+    int currentPlayers, threshold;
+    if (classId == TF_CLASS_HEAVY && GetHeavyPopulationRestrictionState(currentPlayers, threshold))
+    {
+        CPrintToChat(client, "{olive}[Class Limits]{default} Heavy is disabled until {gold}%d{default} players are on RED/BLU ({gold}%d{default} currently).", threshold, currentPlayers);
+        return;
+    }
+
     char className[16];
     GetClassName(classId, className, sizeof(className));
     UpdateGameModeName();
@@ -413,7 +430,12 @@ void FormatClassLimitText(int classId, char[] buffer, int maxlen)
     ConVar limitCvar = g_hLimits[classId];
     if (limitCvar == null) { strcopy(buffer, maxlen, "Default"); return; }
     if (classId == TF_CLASS_HEAVY && IsHeavyPopulationRestricted())
-        { strcopy(buffer, maxlen, "0 players"); return; }
+    {
+        int currentPlayers, threshold;
+        GetHeavyPopulationRestrictionState(currentPlayers, threshold);
+        Format(buffer, maxlen, "0 players (population gate: %d/%d)", currentPlayers, threshold);
+        return;
+    }
     float value = limitCvar.FloatValue;
     if (value < 0.0)                 { strcopy(buffer, maxlen, "Unlimited"); return; }
     if (value > 0.0 && value < 1.0) { Format(buffer, maxlen, "%.0f%% of team", value * 100.0); return; }
