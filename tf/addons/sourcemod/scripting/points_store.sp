@@ -202,6 +202,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_gemsend", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_lottery", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_lotto", Command_Lottery, "Open the currency lottery.");
+    RegConsoleCmd("sm_ticket", Command_Lottery, "Open the currency lottery.");
     RegAdminCmd("sm_dolottery", Command_DoLottery, ADMFLAG_GENERIC, "Draw the current currency lottery.");
     RegAdminCmd("sm_dolotto", Command_DoLottery, ADMFLAG_GENERIC, "Draw the current currency lottery.");
 
