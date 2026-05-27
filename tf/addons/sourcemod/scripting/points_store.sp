@@ -34,7 +34,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define LOTTO_SHORT_HASH_LEN 7
 #define LOTTO_NAME_MAX 256
 #define LOTTO_REVEAL_INTERVAL 0.5
-#define LOTTO_TICKET_UNIT 50
+#define LOTTO_TICKET_UNIT 5
 #define LOTTO_EXTRA_WINNER_PARTICIPANTS 4
 #define LOTTO_EXTRA_WINNER_PERCENT 10
 
@@ -1013,14 +1013,14 @@ void ShowLotteryMenu(int client)
     menu.SetTitle(title);
 
     char display[128];
+    Format(display, sizeof(display), "10 %s", currencyLong);
+    menu.AddItem("10", display);
+    Format(display, sizeof(display), "25 %s", currencyLong);
+    menu.AddItem("25", display);
     Format(display, sizeof(display), "50 %s", currencyLong);
     menu.AddItem("50", display);
     Format(display, sizeof(display), "100 %s", currencyLong);
     menu.AddItem("100", display);
-    Format(display, sizeof(display), "250 %s", currencyLong);
-    menu.AddItem("250", display);
-    Format(display, sizeof(display), "500 %s", currencyLong);
-    menu.AddItem("500", display);
     menu.AddItem("custom", "Custom (type in chat)");
     menu.AddItem("pool", "Prize pool");
     menu.Display(client, MENU_TIME_FOREVER);
