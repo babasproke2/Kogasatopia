@@ -32,6 +32,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define LOTTO_TICKET_PRINT_MAX 2304
 #define LOTTO_HASH_MAX 32
 #define LOTTO_SHORT_HASH_LEN 7
+#define LOTTO_SHORT_HASH_MAX 8
 #define LOTTO_NAME_MAX 256
 #define LOTTO_REVEAL_INTERVAL 0.5
 #define LOTTO_TICKET_UNIT 5
@@ -89,6 +90,9 @@ int g_ClientLotteryTicketValue[MAXPLAYERS + 1];
 char g_ClientLotteryTicket[MAXPLAYERS + 1][LOTTO_TICKET_MAX];
 
 Handle g_LotteryDrawTimer = null;
+Handle g_LotteryCallTimer = null;
+int g_LotteryCallRequesterUserId = 0;
+int g_LotteryCallLotteryId = 0;
 int g_LotteryDrawIndex = 0;
 int g_LotteryDrawLotteryId = 0;
 int g_LotteryDrawPrizePool = 0;
@@ -239,6 +243,12 @@ public void OnPluginEnd()
         g_LotteryDrawTimer = null;
     }
 
+    if (g_LotteryCallTimer != null)
+    {
+        KillTimer(g_LotteryCallTimer);
+        g_LotteryCallTimer = null;
+    }
+
     for (int i = 1; i <= MaxClients; i++)
     {
         delete g_ClientPurchases[i];
@@ -262,6 +272,7 @@ public void OnMapStart()
 public void OnMapEnd()
 {
     PluginStats_Flush();
+    CancelPendingLotteryCall();
 }
 
 public void OnClientAuthorized(int client, const char[] auth)
@@ -289,6 +300,7 @@ void ConnectDatabase()
     g_CurrentLotteryId = 0;
     g_CurrentLotteryHash[0] = '\0';
     g_CurrentLotteryHashColor[0] = '\0';
+    CancelPendingLotteryCall();
 
     if (g_Database != null)
     {
@@ -1469,25 +1481,87 @@ public Action Command_DoLottery(int client, int args)
         return Plugin_Handled;
     }
 
+    if (g_LotteryCallTimer != null)
+    {
+        ReplyToCommand(client, "[Lotto] A lottery draw is already scheduled.");
+        return Plugin_Handled;
+    }
+
     if (g_LotteryDrawInProgress)
     {
         ReplyToCommand(client, "[Lotto] A lottery draw is already in progress.");
         return Plugin_Handled;
     }
 
+    g_LotteryCallRequesterUserId = client > 0 ? GetClientUserId(client) : 0;
+    g_LotteryCallLotteryId = g_CurrentLotteryId;
+
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    char shortHash[LOTTO_SHORT_HASH_MAX];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    GetLotteryShortHash(g_CurrentLotteryHash, shortHash, sizeof(shortHash));
+    CPrintToChatAll("%s[Lotto]{default} Lottery %s%s{default} is being called in 60 seconds!", colorTag, g_CurrentLotteryHashColor, shortHash);
+
+    g_LotteryCallTimer = CreateTimer(60.0, Timer_LotteryCall, _, TIMER_FLAG_NO_MAPCHANGE);
+    if (g_LotteryCallTimer == null)
+    {
+        g_LotteryCallRequesterUserId = 0;
+        g_LotteryCallLotteryId = 0;
+        ReplyToCommand(client, "[Lotto] Could not schedule the lottery draw.");
+    }
+    return Plugin_Handled;
+}
+
+public Action Timer_LotteryCall(Handle timer, any data)
+{
+    if (g_LotteryCallTimer != timer)
+    {
+        return Plugin_Stop;
+    }
+
+    int requesterUserId = g_LotteryCallRequesterUserId;
+    int lotteryId = g_LotteryCallLotteryId;
+    g_LotteryCallTimer = null;
+    g_LotteryCallRequesterUserId = 0;
+    g_LotteryCallLotteryId = 0;
+
+    StartLotteryDraw(requesterUserId, lotteryId);
+    return Plugin_Stop;
+}
+
+void StartLotteryDraw(int requesterUserId, int lotteryId)
+{
+    if (!g_DatabaseReady || g_Database == null || !g_LotteryReady || g_CurrentLotteryId <= 0)
+    {
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] The lottery database is not ready.");
+        EnsureActiveLottery();
+        return;
+    }
+
+    if (lotteryId != g_CurrentLotteryId)
+    {
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] The scheduled lottery is no longer active.");
+        return;
+    }
+
+    if (g_LotteryDrawInProgress)
+    {
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] A lottery draw is already in progress.");
+        return;
+    }
+
     g_LotteryDrawInProgress = true;
 
     DataPack pack = new DataPack();
-    pack.WriteCell(client > 0 ? GetClientUserId(client) : 0);
-    pack.WriteCell(g_CurrentLotteryId);
+    pack.WriteCell(requesterUserId);
+    pack.WriteCell(lotteryId);
 
     char query[256];
     Format(query, sizeof(query),
         "SELECT COUNT(*), COALESCE(SUM(ticket_value), 0) FROM %s WHERE lottery_id = %d",
         LOTTO_TICKET_TABLE,
-        g_CurrentLotteryId);
+        lotteryId);
     g_Database.Query(SQL_OnLotteryDrawStatsLoaded, query, pack);
-    return Plugin_Handled;
 }
 
 public void SQL_OnLotteryDrawStatsLoaded(Database db, DBResultSet results, const char[] error, any data)
@@ -1696,7 +1770,9 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
 
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
-    CPrintToChatAll("%s[Lotto]{default} Drawing lottery %s%s{default}...", colorTag, g_LotteryDrawHashColor, g_LotteryDrawHash);
+    char shortHash[LOTTO_SHORT_HASH_MAX];
+    GetLotteryShortHash(g_LotteryDrawHash, shortHash, sizeof(shortHash));
+    CPrintToChatAll("%s[Lotto]{default} Drawing lottery %s%s{default}...", colorTag, g_LotteryDrawHashColor, shortHash);
 
     g_LotteryDrawTimer = CreateTimer(LOTTO_REVEAL_INTERVAL, Timer_LotteryReveal, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 }
@@ -1806,7 +1882,6 @@ public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[]
     pack.ReadString(winnerSteamId, sizeof(winnerSteamId));
     pack.ReadString(winnerName, sizeof(winnerName));
     pack.ReadString(hash, sizeof(hash));
-    hash[LOTTO_SHORT_HASH_LEN] = '\0';
     pack.ReadString(hashColor, sizeof(hashColor));
     delete pack;
 
@@ -1828,9 +1903,11 @@ public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[]
 
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     char currencyLong[BP_CURRENCY_LONG_MAX];
+    char shortHash[LOTTO_SHORT_HASH_MAX];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
-    CPrintToChatAll("%s[Lotto]{default} %s won lottery %s%s{default} for %s%d %s{default}!", colorTag, winnerName, hashColor, hash, colorTag, winnerPrize, currencyLong);
+    GetLotteryShortHash(hash, shortHash, sizeof(shortHash));
+    CPrintToChatAll("%s[Lotto]{default} %s won lottery %s%s{default} for %s%d %s{default}!", colorTag, winnerName, hashColor, shortHash, colorTag, winnerPrize, currencyLong);
 
     for (int i = 0; i < g_LotteryDrawExtraWinnerCount; i++)
     {
@@ -1868,6 +1945,17 @@ void ResetLotteryDrawState()
     {
         g_LotteryDrawTokens.Clear();
     }
+}
+
+void CancelPendingLotteryCall()
+{
+    if (g_LotteryCallTimer != null)
+    {
+        KillTimer(g_LotteryCallTimer);
+        g_LotteryCallTimer = null;
+    }
+    g_LotteryCallRequesterUserId = 0;
+    g_LotteryCallLotteryId = 0;
 }
 
 void ReplyToLotteryRequester(int userId, const char[] format, any ...)
@@ -2032,6 +2120,13 @@ void GetRandomLotteryColorName(char[] buffer, int maxlen)
 
 void BuildLotteryHash(int createdAt, char[] buffer, int maxlen)
 {
+    if (maxlen <= 0)
+    {
+        return;
+    }
+
+    buffer[0] = '\0';
+
     char input[32];
     IntToString(createdAt, input, sizeof(input));
 
@@ -2046,6 +2141,35 @@ void BuildLotteryHash(int createdAt, char[] buffer, int maxlen)
     int h1 = hash & 0x7fffffff;
     int h2 = (hash ^ (createdAt * 1103515245)) & 0x7fffffff;
     Format(buffer, maxlen, "%07x%07x", h1, h2);
+}
+
+void GetLotteryShortHash(const char[] hash, char[] buffer, int maxlen)
+{
+    if (maxlen <= 0)
+    {
+        return;
+    }
+
+    buffer[0] = '\0';
+
+    int copyLen = strlen(hash);
+    if (copyLen < LOTTO_SHORT_HASH_LEN)
+    {
+        strcopy(buffer, maxlen, "unknown");
+        return;
+    }
+
+    copyLen = LOTTO_SHORT_HASH_LEN;
+    if (copyLen > maxlen - 1)
+    {
+        copyLen = maxlen - 1;
+    }
+
+    for (int i = 0; i < copyLen; i++)
+    {
+        buffer[i] = hash[i];
+    }
+    buffer[copyLen] = '\0';
 }
 
 void ResolveLotteryWinnerName(const char[] steamId, const char[] storedName, char[] buffer, int maxlen)
