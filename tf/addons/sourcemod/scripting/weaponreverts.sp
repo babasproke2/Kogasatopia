@@ -1655,6 +1655,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 {
 	if (GetConVarInt(g_sEnabled)) {
 		tf2_players[client].shockCharge = 30;
+		TF2Attrib_SetByName(entity, "crit mod disabled hidden", 0.00);
 
 		char auth[32];
 		if (GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth)))
