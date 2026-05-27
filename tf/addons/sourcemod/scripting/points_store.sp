@@ -1485,19 +1485,19 @@ public void SQL_OnLotteryDrawStatsLoaded(Database db, DBResultSet results, const
         return;
     }
 
-    int offset = GetRandomInt(0, ticketCount - 1);
+    int winningTicket = GetRandomInt(1, prizePool);
 
     DataPack winnerPack = new DataPack();
     winnerPack.WriteCell(requesterUserId);
     winnerPack.WriteCell(lotteryId);
     winnerPack.WriteCell(prizePool);
+    winnerPack.WriteCell(winningTicket);
 
     char query[512];
     Format(query, sizeof(query),
-        "SELECT steamid64, display_name, ticket FROM %s WHERE lottery_id = %d ORDER BY id LIMIT 1 OFFSET %d",
+        "SELECT steamid64, display_name, ticket, ticket_value FROM %s WHERE lottery_id = %d ORDER BY id",
         LOTTO_TICKET_TABLE,
-        lotteryId,
-        offset);
+        lotteryId);
     g_Database.Query(SQL_OnLotteryWinnerSelected, query, winnerPack);
 }
 
@@ -1508,6 +1508,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
     int requesterUserId = pack.ReadCell();
     int lotteryId = pack.ReadCell();
     int prizePool = pack.ReadCell();
+    int winningTicket = pack.ReadCell();
     delete pack;
 
     if (lotteryId != g_CurrentLotteryId)
@@ -1516,7 +1517,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
         return;
     }
 
-    if (error[0] != '\0' || results == null || !results.FetchRow())
+    if (error[0] != '\0' || results == null)
     {
         g_LotteryDrawInProgress = false;
         ReplyToLotteryRequester(requesterUserId, "[Lotto] Could not select a winner.");
@@ -1525,9 +1526,35 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
     }
 
     char ticket[LOTTO_TICKET_MAX];
-    results.FetchString(0, g_LotteryDrawWinnerSteamId, sizeof(g_LotteryDrawWinnerSteamId));
-    results.FetchString(1, g_LotteryDrawWinnerName, sizeof(g_LotteryDrawWinnerName));
-    results.FetchString(2, ticket, sizeof(ticket));
+    int cumulativeValue = 0;
+    bool foundWinner = false;
+
+    while (results.FetchRow())
+    {
+        int ticketValue = results.FetchInt(3);
+        if (ticketValue <= 0)
+        {
+            continue;
+        }
+
+        cumulativeValue += ticketValue;
+        if (winningTicket <= cumulativeValue)
+        {
+            results.FetchString(0, g_LotteryDrawWinnerSteamId, sizeof(g_LotteryDrawWinnerSteamId));
+            results.FetchString(1, g_LotteryDrawWinnerName, sizeof(g_LotteryDrawWinnerName));
+            results.FetchString(2, ticket, sizeof(ticket));
+            foundWinner = true;
+            break;
+        }
+    }
+
+    if (!foundWinner)
+    {
+        g_LotteryDrawInProgress = false;
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] Could not select a winner.");
+        LogError("[points_store] Failed to select lottery winner: winning ticket %d exceeded cumulative value %d for prize pool %d.", winningTicket, cumulativeValue, prizePool);
+        return;
+    }
 
     g_LotteryDrawLotteryId = lotteryId;
     g_LotteryDrawPrizePool = prizePool;
