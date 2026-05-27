@@ -469,7 +469,7 @@ public Action:Command_DiamondPickaxe(int client, int args)
 
     CPrintToChat(client, "{mediumspringgreen}Diamond Pickaxe");
     CPrintToChat(client, "{default}Diamond Pickaxe: A prinny machete reskin which can random crit");
-    CPrintToChat(client, "{default}Super Diamond Pickaxe: A combination of the Equalizer and Escape Plan");
+    CPrintToChat(client, "{default}Super Diamond Pickaxe: A combination of the Equalizer and Escape Plan for Soldier");
     return Plugin_Handled;
 }
 
