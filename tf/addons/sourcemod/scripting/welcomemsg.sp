@@ -210,8 +210,11 @@ public OnPluginStart()
     RegConsoleCmd("sm_commands", Command_cmds, "Lists highlighted server commands to the client");
 	RegConsoleCmd("sm_rules", Command_Rules, "Lists the rules to the client");
 	RegConsoleCmd("sm_steam", Command_Steam, "Prints the steam group URL to the client");
-	RegConsoleCmd("sm_chat", Command_chat, "Steam chat link");
-	RegConsoleCmd("sm_welcome", Command_Welcome, "Reprints the welcome message.");
+    RegConsoleCmd("sm_chat", Command_chat, "Steam chat link");
+    RegConsoleCmd("sm_welcome", Command_Welcome, "Reprints the welcome message.");
+    RegConsoleCmd("sm_diamond", Command_DiamondPickaxe, "Prints Diamond Pickaxe info.");
+    RegConsoleCmd("sm_diamondpickaxe", Command_DiamondPickaxe, "Prints Diamond Pickaxe info.");
+    RegConsoleCmd("sm_pickaxe", Command_DiamondPickaxe, "Prints Diamond Pickaxe info.");
     
     // Panel versions of weapon info
     RegConsoleCmd("sm_rp", Command_RevertsPanel, "Shows weapon changes in a panel");
@@ -454,6 +457,19 @@ public Action:Command_chat(int client, int args)
 {
     char deez[256] = "{chartreuse}Steam community chat: \n{unique} steamcommunity.com/chat/invite/Es09gkBm \n{chartreuse}Note: This chat is how the server is generally organized";
     CPrintToChat(client, "%s", deez);
+    return Plugin_Handled;
+}
+
+public Action:Command_DiamondPickaxe(int client, int args)
+{
+    if (!client || !IsClientInGame(client))
+    {
+        return Plugin_Handled;
+    }
+
+    CPrintToChat(client, "{mediumspringgreen}Diamond Pickaxe");
+    CPrintToChat(client, "{default}Diamond Pickaxe: A prinny machete reskin which can random crit");
+    CPrintToChat(client, "{default}Super Diamond Pickaxe: A combination of the Equalizer and Escape Plan");
     return Plugin_Handled;
 }
 
