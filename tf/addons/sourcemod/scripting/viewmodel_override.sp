@@ -402,7 +402,9 @@ bool SetAttachedSapperModel(int sapper, const char[] worldmodel) {
  */
 void DetachVMs(int client) {
 	MaybeRemoveWearable(client, g_iLastViewmodelRef[client]);
+	g_iLastViewmodelRef[client] = INVALID_ENT_REFERENCE;
 	MaybeRemoveWearable(client, g_iLastArmModelRef[client]);
+	g_iLastArmModelRef[client] = INVALID_ENT_REFERENCE;
 	
 	if (MaybeRemoveWearable(client, g_iLastWorldModelRef[client])) {
 		int activeWeapon = TF2_GetClientActiveWeapon(client);
@@ -410,8 +412,10 @@ void DetachVMs(int client) {
 			SetEntityRenderMode(activeWeapon, RENDER_NORMAL);
 		}
 	}
+	g_iLastWorldModelRef[client] = INVALID_ENT_REFERENCE;
 	
 	MaybeRemoveWearable(client, g_iLastOffHandViewmodelRef[client]);
+	g_iLastOffHandViewmodelRef[client] = INVALID_ENT_REFERENCE;
 	
 	int clientView = GetEntPropEnt(client, Prop_Send, "m_hViewModel");
 	if (IsValidEntity(clientView)) {
@@ -450,10 +454,11 @@ int GetArmViewModel(int client, char[] buffer, int maxlen) {
 	return strcopy(buffer, maxlen, armModels[ view_as<int>(playerClass) ]);
 }
 
-bool MaybeRemoveWearable(int client, int wearable) {
-	if (IsValidEntity(wearable)) {
-		// the below function does not take entrefs.
-		TF2_RemoveWearable(client, EntRefToEntIndex(wearable));
+bool MaybeRemoveWearable(int client, int wearableRef) {
+	int wearable = EntRefToEntIndex(wearableRef);
+	if (wearable != INVALID_ENT_REFERENCE && IsValidEntity(wearable)) {
+		TF2_RemoveWearable(client, wearable);
+		RemoveEntity(wearable);
 		return true;
 	}
 	return false;
