@@ -75,6 +75,10 @@
                 {
                         "soldier" "melee"
                 }
+                "attributes_game"
+                {
+                        "crit mod disabled"     "0"
+                }
                 "attributes_custom"
                 {
                         "clientmodel override" "models/touhou/reimu_gohei/reimu_gohei.mdl"
@@ -106,11 +110,42 @@
                         "saysound on kill"  "pichuun"
                 }
         }
-        "diamond_pickaxe"
+        "diamond_pickaxe_soldier"
+        {
+                "inherits"              "The Equalizer"
+                "name"                  "Efficiency IV Diamond Pickaxe"
+                "points_store_purchase" "diamond_pickaxe"
+                "attributes_game"
+                {
+                        "fire rate bonus"       "0.4"
+                        "turn to gold"  "1"
+                        "crit mod disabled"     "0"
+                }
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/minecraft/diamond_pickaxe.mdl"
+                        "saysound on kill"  "hurt2"
+                }
+        }
+        "diamond_pickaxe_other"
         {
                 "inherits"              "Prinny Machete"
                 "name"                  "Diamond Pickaxe"
                 "points_store_purchase" "diamond_pickaxe"
+                "attributes_game"
+                {
+                        "turn to gold"  "1"
+                }
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/minecraft/diamond_pickaxe.mdl"
+                        "saysound on kill"  "hurt2"
+                }
+        }
+        "pain_train_pyro"
+        {
+                "inherits"              "The Pain Train"
+                "name"                  "The Pain Train"
         }
         "reimugohei_spy"
         {
@@ -134,10 +169,14 @@
                 {
                         "scout" "melee"
                 }
+                "attributes_game"
+                {
+                        "crit mod disabled"     "0"
+                }
                 "attributes_custom"
                 {
                         "clientmodel override" "models/touhou/lunar_branch/lunar_branch.mdl"
-                        "saysound on kill"  "pichuun"
+                        "touhou death sound"  "1"
                 }
         }
         "reisenpistol"
@@ -162,7 +201,7 @@
                 {
                         "clientmodel override" "models/touhou/reisen_pistol/reisen_pistol.mdl"
                         "take crits from projectile airborn" "1"
-                        "saysound on kill"  "pichuun"
+                        "touhou death sound"  "1"
                 }
         }
         "scoutsproke"
