@@ -22,6 +22,9 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define BP_CURRENCY_SHORT_MAX 32
 #define BP_CURRENCY_LONG_MAX 64
 #define BP_CURRENCY_COLOR_MAX 32
+#define BP_WELFARE_SOUND_COMMAND "monkey"
+#define BP_WELFARE_MIN 4
+#define BP_WELFARE_MAX 32
 #define BP_PURCHASE_PERMANENT 0
 #define BP_PURCHASE_UNLIMITED_USES -1
 #define LOTTO_TABLE "points_store_lotteries"
@@ -68,6 +71,7 @@ char g_CurrencyLongLabel[BP_CURRENCY_LONG_MAX];
 char g_CurrencyColorTag[BP_CURRENCY_COLOR_MAX + 2];
 char g_CurrencyPrefix[96];
 float g_NextSendAllowedAt[MAXPLAYERS + 1];
+StringMap g_WelfareCollectedSteamIds = null;
 
 ArrayList g_LotteryWords = null;
 ArrayList g_LotteryRarities = null;
@@ -169,6 +173,7 @@ public void OnPluginStart()
     g_ItemPrices = new ArrayList();
     g_ItemDurations = new ArrayList();
     g_ItemUses = new ArrayList();
+    g_WelfareCollectedSteamIds = new StringMap();
     g_LotteryWords = new ArrayList(ByteCountToCells(LOTTO_WORD_MAX));
     g_LotteryRarities = new ArrayList();
     g_LotteryDrawTokens = new ArrayList(ByteCountToCells(LOTTO_TOKEN_MAX));
@@ -213,7 +218,13 @@ public void OnPluginStart()
     RegConsoleCmd("sm_gems", Command_ShowBonusPoints, "Show your currency balance.");
     RegConsoleCmd("sm_sendgem", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_gemsend", Command_SendBonusPoints, "Send currency to another player.");
+    RegConsoleCmd("sm_welfare", Command_Welfare, "Collect once-per-map welfare currency.");
+    RegConsoleCmd("sm_collectwelfare", Command_Welfare, "Collect once-per-map welfare currency.");
+    RegConsoleCmd("sm_handout", Command_Welfare, "Collect once-per-map welfare currency.");
+    RegConsoleCmd("sm_gibs", Command_Welfare, "Collect once-per-map welfare currency.");
+    RegConsoleCmd("sm_welfarecheck", Command_Welfare, "Collect once-per-map welfare currency.");
     RegConsoleCmd("sm_lottery", Command_Lottery, "Open the currency lottery.");
+    RegConsoleCmd("sm_gamble", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_lotto", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_ticket", Command_Lottery, "Open the currency lottery.");
     RegAdminCmd("sm_dolottery", Command_DoLottery, ADMFLAG_GENERIC, "Draw the current currency lottery.");
@@ -233,6 +244,7 @@ public void OnPluginEnd()
     delete g_ItemPrices;
     delete g_ItemDurations;
     delete g_ItemUses;
+    delete g_WelfareCollectedSteamIds;
     delete g_LotteryWords;
     delete g_LotteryRarities;
     delete g_LotteryDrawTokens;
@@ -267,6 +279,10 @@ public void OnPluginEnd()
 public void OnMapStart()
 {
     PluginStats_OnMapStart();
+    if (g_WelfareCollectedSteamIds != null)
+    {
+        g_WelfareCollectedSteamIds.Clear();
+    }
 }
 
 public void OnMapEnd()
@@ -3542,6 +3558,30 @@ void LogTransferEvent(const char[] eventName, const char[] reason, int sender, i
         GetCachedBonusPoints(target));
 }
 
+void LogWelfareEvent(int client, int amount, int balanceAfter)
+{
+    if (!IsPointsEventLoggingEnabled())
+    {
+        return;
+    }
+
+    char steamId[32];
+    char clientName[MAX_NAME_LENGTH];
+    char clientClass[16];
+    GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
+    GetClientLogClass(client, clientClass, sizeof(clientClass));
+
+    LogPointsStoreEvent(
+        "event=welfare_collect|time=%d|client=%d|steamid64=%s|name=\"%s\"|class=%s|amount=%d|balance_after=%d",
+        GetTime(),
+        client,
+        steamId,
+        clientName,
+        clientClass,
+        amount,
+        balanceAfter);
+}
+
 void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
 {
     label[0] = '\0';
@@ -3654,6 +3694,16 @@ void PlayBonusPointsSound(int client, bool force)
     }
 
     SaySounds_PlayCommand(client, BP_SOUND_COMMAND, force);
+}
+
+void PlayWelfareSound()
+{
+    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
+    {
+        return;
+    }
+
+    SaySounds_PlayCommand(0, BP_WELFARE_SOUND_COMMAND, false);
 }
 
 bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0)
@@ -4069,6 +4119,62 @@ public Action Command_SendBonusPoints(int client, int args)
 
         CPrintToChatEx(i, client, "%s %s sent %s %i %s%s{default}!", prefix, senderDisplay, targetDisplay, amount, colorTag, sentCurrencyShort);
     }
+    return Plugin_Handled;
+}
+
+public Action Command_Welfare(int client, int args)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return Plugin_Handled;
+    }
+
+    char prefix[96];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyPrefix(prefix, sizeof(prefix));
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
+    if (!AreBonusPointsReady(client))
+    {
+        LoadClientBonusPoints(client);
+        CPrintToChat(client, "%s Your %s are loading. Try again in a moment.", prefix, currencyLong);
+        return Plugin_Handled;
+    }
+
+    char steamId[32];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    {
+        CPrintToChat(client, "%s Could not read your SteamID64.", prefix);
+        return Plugin_Handled;
+    }
+
+    int alreadyCollected = 0;
+    if (g_WelfareCollectedSteamIds != null && g_WelfareCollectedSteamIds.GetValue(steamId, alreadyCollected))
+    {
+        CPrintToChat(client, "%s You already collected {gold}!welfare{default} this map.", prefix);
+        return Plugin_Handled;
+    }
+
+    int amount = GetRandomInt(BP_WELFARE_MIN, BP_WELFARE_MAX);
+    if (!ApplyBonusPoints(client, amount, false, false, 1.0, "welfare", 0, 0.0))
+    {
+        CPrintToChat(client, "%s Could not collect welfare right now.", prefix);
+        return Plugin_Handled;
+    }
+
+    if (g_WelfareCollectedSteamIds != null)
+    {
+        g_WelfareCollectedSteamIds.SetValue(steamId, 1, true);
+    }
+
+    LogWelfareEvent(client, amount, GetCachedBonusPoints(client));
+    PlayWelfareSound();
+
+    char displayName[256];
+    BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
+    CPrintToChatAllEx(client, "{default}%s collected %s%d %s{default} from {gold}!welfare{default}", displayName, colorTag, amount, currencyLong);
     return Plugin_Handled;
 }
 
