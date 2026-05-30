@@ -64,6 +64,7 @@ ConVar g_CvarCurrencyShort = null;
 ConVar g_CvarCurrencyLong = null;
 ConVar g_CvarCurrencyColor = null;
 ConVar g_CvarSendCooldown = null;
+ConVar g_CvarEnableWelfare = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 char g_CurrencyShortLabel[BP_CURRENCY_SHORT_MAX];
@@ -203,6 +204,7 @@ public void OnPluginStart()
     g_CvarCurrencyLong = CreateConVar("sm_points_store_currency_long", "Bonus Points", "Long currency label used in menus and prose, e.g. Bonus Points or Gems.");
     g_CvarCurrencyColor = CreateConVar("sm_points_store_currency_color", "magenta", "Multicolors tag name used for the currency prefix, without braces.");
     g_CvarSendCooldown = CreateConVar("sm_points_store_send_cooldown", "15.0", "Seconds a client must wait between successful !send currency transfers.", _, true, 0.0);
+    g_CvarEnableWelfare = CreateConVar("sm_points_store_welfare", "1", "Enable welfare?", _, true, 0.0, true, 1.0);
     g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
@@ -3412,6 +3414,11 @@ bool IsPointsEventLoggingEnabled()
     return g_CvarEventLogging != null && g_CvarEventLogging.BoolValue;
 }
 
+bool IsWelfareEnabled()
+{
+    return g_CvarEnableWelfare != null && g_CvarEnableWelfare.BoolValue;
+}
+
 void QueuePointsStoreEvent(const char[] message)
 {
     PluginStats_LogMessage(message);
@@ -4223,6 +4230,11 @@ public Action Command_Welfare(int client, int args)
     if (!IsClientInGameHuman(client))
     {
         return Plugin_Handled;
+    }
+
+    if (!IsWelfareEnabled())
+    {
+        CPrintToChat(client, "Welfare is currently disabled!");
     }
 
     char prefix[96];
