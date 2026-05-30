@@ -210,7 +210,12 @@ void UpdateClientWeaponModel(int client) {
 		if (attrKv) {
 			if (bitsActiveModels & MODEL_VIEW_ACTIVE
 					&& attrKv.JumpToKey("viewmodel override offset")) {
-				int weaponvm = g_iLastViewmodelRef[client];
+				int weaponvm = EntRefToEntIndex(g_iLastViewmodelRef[client]);
+					if (weaponvm == INVALID_ENT_REFERENCE || !IsValidEntity(weaponvm)) {
+						attrKv.GoBack();
+						delete attrKv;
+						return;
+					}
 				
 				int weapomvm_effects = GetEntProp(weaponvm, Prop_Send, "m_fEffects");
 				weapomvm_effects &= ~EF_BONEMERGE;
@@ -237,7 +242,12 @@ void UpdateClientWeaponModel(int client) {
 			}
 			if (bitsActiveModels & MODEL_WORLD_ACTIVE
 					&& attrKv.JumpToKey("worldmodel override offset")) {
-				int weaponwm = g_iLastWorldModelRef[client];
+				int weaponwm = EntRefToEntIndex(g_iLastWorldModelRef[client]);
+					if (weaponwm == INVALID_ENT_REFERENCE || !IsValidEntity(weaponwm)) {
+						attrKv.GoBack();
+						delete attrKv;
+						return;
+					}
 				
 				int weaponwm_effects = GetEntProp(weaponwm, Prop_Send, "m_fEffects");
 				weaponwm_effects &= ~EF_BONEMERGE;
