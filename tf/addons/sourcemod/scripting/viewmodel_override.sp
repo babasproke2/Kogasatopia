@@ -53,18 +53,21 @@ enum ModelAvailability {
 
 StringMap g_ModelAvailabilityCache;
 
-public void OnMapStart() {
+public void OnPluginStart() {
+	HookEvent("player_death", OnPlayerDeath);
+	HookEvent("post_inventory_application", OnInventoryAppliedPost);
+	HookEvent("player_sapped_object", OnObjectSappedPost);
+
+	ResetModelAvailabilityCache();
 	for (int i = 1; i <= MaxClients; i++) {
 		if (IsClientInGame(i)) {
 			OnClientPutInServer(i);
 		}
 	}
-	HookEvent("player_death", OnPlayerDeath);
-	HookEvent("post_inventory_application", OnInventoryAppliedPost);
-	HookEvent("player_sapped_object", OnObjectSappedPost);
-	
-	delete g_ModelAvailabilityCache;
-	g_ModelAvailabilityCache = new StringMap();
+}
+
+public void OnMapStart() {
+	ResetModelAvailabilityCache();
 }
 
 public void OnPluginEnd() {
@@ -490,6 +493,11 @@ stock int TF2_SpawnWearableViewmodel() {
 		DispatchSpawn(wearable);
 	}
 	return wearable;
+}
+
+void ResetModelAvailabilityCache() {
+	delete g_ModelAvailabilityCache;
+	g_ModelAvailabilityCache = new StringMap();
 }
 
 bool FileExistsAndLog(const char[] path, bool use_valve_fs = false,
