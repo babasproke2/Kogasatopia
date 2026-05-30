@@ -32,6 +32,8 @@ enum struct WeaponModel
 
 	void Delete(int client)
 	{
+		this.RestoreClientState(client);
+
 		int arms = EntRefToEntIndex(this.m_iArmsRef);
 		int viewmodel = EntRefToEntIndex(this.m_iViewModelRef);
 		int worldmodel = EntRefToEntIndex(this.m_iWorldModelRef);
@@ -63,6 +65,29 @@ enum struct WeaponModel
 		this.m_iArmsRef = INVALID_ENT_REFERENCE;
 		this.m_iViewModelRef = INVALID_ENT_REFERENCE;
 		this.m_iWorldModelRef = INVALID_ENT_REFERENCE;
+	}
+
+	void RestoreClientState(int client)
+	{
+		if(client <= 0 || client > MaxClients || !IsClientInGame(client))
+			return;
+
+		int active_weapon = TF2_GetActiveWeapon(client);
+		if(IsValidEntity(active_weapon) && EntRefToEntIndex(this.m_iViewModelRef) != -1)
+		{
+			SetEntProp(active_weapon, Prop_Send, "m_bBeingRepurposedForTaunt", 0);
+			SetEntityRenderMode(active_weapon, RENDER_NORMAL);
+			SetEntityRenderColor(active_weapon, 255, 255, 255, 255);
+		}
+
+		if(EntRefToEntIndex(this.m_iArmsRef) != -1)
+		{
+			int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel");
+			if(IsValidEntity(viewmodel))
+			{
+				SetEntProp(viewmodel, Prop_Send, "m_fEffects", GetEntProp(viewmodel, Prop_Send, "m_fEffects") & ~EF_NODRAW);
+			}
+		}
 	}
 }
 
@@ -236,6 +261,8 @@ void Event_OnPlayerDeath(Event event, const char[] name, bool dontBroadcast)
 		return;
 
 	int client = GetClientOfUserId(event.GetInt("userid"));
+	if(client <= 0 || client > MaxClients)
+		return;
 
 	g_ClientWeaponModels[client].Delete(client);
 
