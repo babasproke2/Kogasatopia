@@ -72,6 +72,8 @@ char g_CurrencyColorTag[BP_CURRENCY_COLOR_MAX + 2];
 char g_CurrencyPrefix[96];
 float g_NextSendAllowedAt[MAXPLAYERS + 1];
 StringMap g_WelfareCollectedSteamIds = null;
+StringMap g_LotteryPendingSteamIds = null;
+int g_LotteryPendingTicketWrites = 0;
 
 ArrayList g_LotteryWords = null;
 ArrayList g_LotteryRarities = null;
@@ -174,6 +176,7 @@ public void OnPluginStart()
     g_ItemDurations = new ArrayList();
     g_ItemUses = new ArrayList();
     g_WelfareCollectedSteamIds = new StringMap();
+    g_LotteryPendingSteamIds = new StringMap();
     g_LotteryWords = new ArrayList(ByteCountToCells(LOTTO_WORD_MAX));
     g_LotteryRarities = new ArrayList();
     g_LotteryDrawTokens = new ArrayList(ByteCountToCells(LOTTO_TOKEN_MAX));
@@ -245,6 +248,7 @@ public void OnPluginEnd()
     delete g_ItemDurations;
     delete g_ItemUses;
     delete g_WelfareCollectedSteamIds;
+    delete g_LotteryPendingSteamIds;
     delete g_LotteryWords;
     delete g_LotteryRarities;
     delete g_LotteryDrawTokens;
@@ -812,6 +816,33 @@ void ClearAllClientLotteryCaches()
     }
 }
 
+bool IsLotteryTicketWritePending(const char[] steamId)
+{
+    int pending = 0;
+    return g_LotteryPendingSteamIds != null && g_LotteryPendingSteamIds.GetValue(steamId, pending);
+}
+
+void BeginLotteryTicketWrite(const char[] steamId)
+{
+    if (g_LotteryPendingSteamIds != null && !IsLotteryTicketWritePending(steamId))
+    {
+        g_LotteryPendingSteamIds.SetValue(steamId, 1, true);
+        g_LotteryPendingTicketWrites++;
+    }
+}
+
+void FinishLotteryTicketWrite(const char[] steamId)
+{
+    if (g_LotteryPendingSteamIds != null && IsLotteryTicketWritePending(steamId))
+    {
+        g_LotteryPendingSteamIds.Remove(steamId);
+        if (g_LotteryPendingTicketWrites > 0)
+        {
+            g_LotteryPendingTicketWrites--;
+        }
+    }
+}
+
 void LoadClientLotteryTicket(int client)
 {
     if (client <= 0 || client > MaxClients)
@@ -1232,6 +1263,12 @@ void AttemptLotteryTicketPurchase(int client, int amount)
         return;
     }
 
+    if (IsLotteryTicketWritePending(steamId))
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Your lottery ticket is still being saved. Try again in a moment.", colorTag);
+        return;
+    }
+
     char ticket[LOTTO_TICKET_MAX];
     GenerateLotteryTicket(ticket, sizeof(ticket));
     if (ticket[0] == '\0')
@@ -1267,6 +1304,7 @@ void AttemptLotteryTicketPurchase(int client, int amount)
     pack.WriteString(steamId);
     pack.WriteString(ticket);
     pack.WriteString(displayName);
+    BeginLotteryTicketWrite(steamId);
 
     char query[8192];
     Format(query, sizeof(query),
@@ -1295,12 +1333,13 @@ public void SQL_OnLotteryTicketInserted(Database db, DBResultSet results, const 
     pack.ReadString(ticket, sizeof(ticket));
     pack.ReadString(displayName, sizeof(displayName));
     delete pack;
+    FinishLotteryTicketWrite(steamId);
 
     int client = GetClientOfUserId(userId);
     if (error[0] != '\0')
     {
         LogError("[points_store] Failed to insert lottery ticket for %s: %s", steamId, error);
-        CreditSteamId64BonusPoints(steamId, amount);
+        CreditSteamId64BonusPoints(steamId, amount, "lottery_ticket_save_refund", lotteryId);
         if (IsClientInGameHuman(client))
         {
             char colorTag[BP_CURRENCY_COLOR_MAX + 2];
@@ -1364,6 +1403,12 @@ void RefundLotteryTicket(int client)
         return;
     }
 
+    if (IsLotteryTicketWritePending(steamId))
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Your lottery ticket is still being saved. Try again in a moment.", colorTag);
+        return;
+    }
+
     char escapedSteamId[65];
     if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)))
     {
@@ -1380,6 +1425,7 @@ void RefundLotteryTicket(int client)
     pack.WriteCell(g_ClientLotteryTicketValue[client]);
     pack.WriteString(steamId);
     pack.WriteString(displayName);
+    BeginLotteryTicketWrite(steamId);
 
     char query[384];
     Format(query, sizeof(query),
@@ -1402,6 +1448,7 @@ public void SQL_OnLotteryTicketRefunded(Database db, DBResultSet results, const 
     pack.ReadString(steamId, sizeof(steamId));
     pack.ReadString(displayName, sizeof(displayName));
     delete pack;
+    FinishLotteryTicketWrite(steamId);
 
     int client = GetClientOfUserId(userId);
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
@@ -1417,7 +1464,7 @@ public void SQL_OnLotteryTicketRefunded(Database db, DBResultSet results, const 
         return;
     }
 
-    CreditSteamId64BonusPoints(steamId, amount);
+    CreditSteamId64BonusPoints(steamId, amount, "lottery_ticket_refund", lotteryId);
     if (IsClientAuthorizedHuman(client) && lotteryId == g_CurrentLotteryId)
     {
         ClearClientLotteryTicketCache(client);
@@ -1545,7 +1592,18 @@ public Action Timer_LotteryCall(Handle timer, any data)
     return Plugin_Stop;
 }
 
-void StartLotteryDraw(int requesterUserId, int lotteryId)
+public Action Timer_RetryStartLotteryDraw(Handle timer, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int requesterUserId = pack.ReadCell();
+    int lotteryId = pack.ReadCell();
+
+    StartLotteryDraw(requesterUserId, lotteryId, true);
+    return Plugin_Stop;
+}
+
+void StartLotteryDraw(int requesterUserId, int lotteryId, bool retry = false)
 {
     if (!g_DatabaseReady || g_Database == null || !g_LotteryReady || g_CurrentLotteryId <= 0)
     {
@@ -1560,13 +1618,25 @@ void StartLotteryDraw(int requesterUserId, int lotteryId)
         return;
     }
 
-    if (g_LotteryDrawInProgress)
+    if (g_LotteryDrawInProgress && !retry)
     {
         ReplyToLotteryRequester(requesterUserId, "[Lotto] A lottery draw is already in progress.");
         return;
     }
 
-    g_LotteryDrawInProgress = true;
+    if (!g_LotteryDrawInProgress)
+    {
+        g_LotteryDrawInProgress = true;
+    }
+
+    if (g_LotteryPendingTicketWrites > 0)
+    {
+        DataPack retryPack = new DataPack();
+        retryPack.WriteCell(requesterUserId);
+        retryPack.WriteCell(lotteryId);
+        CreateTimer(1.0, Timer_RetryStartLotteryDraw, retryPack, TIMER_FLAG_NO_MAPCHANGE | TIMER_DATA_HNDL_CLOSE);
+        return;
+    }
 
     DataPack pack = new DataPack();
     pack.WriteCell(requesterUserId);
@@ -1911,10 +1981,10 @@ public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[]
         return;
     }
 
-    CreditSteamId64BonusPoints(winnerSteamId, winnerPrize);
+    CreditSteamId64BonusPoints(winnerSteamId, winnerPrize, "lottery_main_payout", lotteryId);
     for (int i = 0; i < g_LotteryDrawExtraWinnerCount; i++)
     {
-        CreditSteamId64BonusPoints(g_LotteryDrawExtraWinnerSteamIds[i], g_LotteryDrawExtraWinnerPrizes[i]);
+        CreditSteamId64BonusPoints(g_LotteryDrawExtraWinnerSteamIds[i], g_LotteryDrawExtraWinnerPrizes[i], "lottery_extra_payout", lotteryId);
     }
 
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
@@ -2224,7 +2294,7 @@ int FindClientBySteamId64(const char[] steamId)
     return 0;
 }
 
-void CreditSteamId64BonusPoints(const char[] steamId, int amount)
+void CreditSteamId64BonusPoints(const char[] steamId, int amount, const char[] reason = "direct_credit", int lotteryId = 0)
 {
     if (amount <= 0 || !g_DatabaseReady || g_Database == null)
     {
@@ -2241,6 +2311,8 @@ void CreditSteamId64BonusPoints(const char[] steamId, int amount)
     DataPack pack = new DataPack();
     pack.WriteString(steamId);
     pack.WriteCell(amount);
+    pack.WriteString(reason);
+    pack.WriteCell(lotteryId);
 
     char query[512];
     if (g_IsMySql)
@@ -2270,6 +2342,9 @@ public void SQL_OnLotteryDirectCredit(Database db, DBResultSet results, const ch
     char steamId[32];
     pack.ReadString(steamId, sizeof(steamId));
     int amount = pack.ReadCell();
+    char reason[64];
+    pack.ReadString(reason, sizeof(reason));
+    int lotteryId = pack.ReadCell();
     delete pack;
 
     if (error[0] != '\0')
@@ -2279,6 +2354,7 @@ public void SQL_OnLotteryDirectCredit(Database db, DBResultSet results, const ch
     }
 
     int client = FindClientBySteamId64(steamId);
+    int balanceAfter = -1;
     if (client > 0 && g_ClientBonusPointsLoaded[client])
     {
         g_ClientBonusPoints[client] += amount;
@@ -2286,7 +2362,10 @@ public void SQL_OnLotteryDirectCredit(Database db, DBResultSet results, const ch
         {
             g_ClientBonusPoints[client] = 0;
         }
+        balanceAfter = g_ClientBonusPoints[client];
     }
+
+    LogLotteryCreditEvent(reason, steamId, amount, lotteryId, client, balanceAfter);
 }
 
 void LoadLotteryWords()
@@ -3556,6 +3635,47 @@ void LogTransferEvent(const char[] eventName, const char[] reason, int sender, i
         amount,
         GetCachedBonusPoints(sender),
         GetCachedBonusPoints(target));
+}
+
+void LogLotteryCreditEvent(const char[] reason, const char[] steamId, int amount, int lotteryId, int client, int balanceAfter)
+{
+    if (!IsPointsEventLoggingEnabled())
+    {
+        return;
+    }
+
+    char safeReason[64];
+    char safeSteamId[32];
+    char clientName[MAX_NAME_LENGTH];
+    char clientClass[16];
+    strcopy(safeReason, sizeof(safeReason), reason);
+    strcopy(safeSteamId, sizeof(safeSteamId), steamId);
+    SanitizeLogField(safeReason, sizeof(safeReason));
+    SanitizeLogField(safeSteamId, sizeof(safeSteamId));
+
+    if (client > 0)
+    {
+        char ignoredSteamId[32];
+        GetClientLogIdentity(client, ignoredSteamId, sizeof(ignoredSteamId), clientName, sizeof(clientName));
+        GetClientLogClass(client, clientClass, sizeof(clientClass));
+    }
+    else
+    {
+        strcopy(clientName, sizeof(clientName), "offline");
+        strcopy(clientClass, sizeof(clientClass), "none");
+    }
+
+    LogPointsStoreEvent(
+        "event=lottery_credit|time=%d|reason=%s|lottery_id=%d|client=%d|steamid64=%s|name=\"%s\"|class=%s|amount=%d|balance_after=%d",
+        GetTime(),
+        safeReason,
+        lotteryId,
+        client,
+        safeSteamId,
+        clientName,
+        clientClass,
+        amount,
+        balanceAfter);
 }
 
 void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
