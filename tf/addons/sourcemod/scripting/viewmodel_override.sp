@@ -38,6 +38,7 @@
 #define TF_ITEM_DEFINDEX_GUNSLINGER 142
 
 bool g_bIgnoreWeaponSwitch[MAXPLAYERS + 1];
+ConVar g_cvEdictReserve;
 
 int g_iLastViewmodelRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
 int g_iLastArmModelRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
@@ -54,6 +55,10 @@ enum ModelAvailability {
 StringMap g_ModelAvailabilityCache;
 
 public void OnPluginStart() {
+	g_cvEdictReserve = CreateConVar("sm_viewmodel_override_edict_reserve", "128",
+		"Minimum free edicts kept before spawning cosmetic override wearables. Set to 0 to disable.",
+		_, true, 0.0);
+
 	HookEvent("player_death", OnPlayerDeath);
 	HookEvent("post_inventory_application", OnInventoryAppliedPost);
 	HookEvent("player_sapped_object", OnObjectSappedPost);
@@ -100,8 +105,9 @@ public void OnEntityCreated(int entity, const char[] className) {
  * Hotfix to ensure any attached Sniper Rifle is rendered when coming out of being in scope.
  */
 public void TF2_OnConditionRemoved(int client, TFCond cond) {
+	int weaponvm = EntRefToEntIndex(g_iLastViewmodelRef[client]);
 	if (cond == TFCond_Slowed && TF2_GetPlayerClass(client) == TFClass_Sniper
-			&& IsValidEntity(g_iLastViewmodelRef[client])) {
+			&& weaponvm != INVALID_ENT_REFERENCE && IsValidEntity(weaponvm)) {
 		UpdateClientWeaponModel(client);
 	}
 }
@@ -177,12 +183,13 @@ void UpdateClientWeaponModel(int client) {
 		PrecacheModelAndLog(vm);
 		
 		int weaponvm = TF2_SpawnWearableViewmodel();
-		
-		SetEntityModel(weaponvm, vm);
-		TF2Util_EquipPlayerWearable(client, weaponvm);
-		
-		g_iLastViewmodelRef[client] = EntIndexToEntRef(weaponvm);
-		bitsActiveModels |= MODEL_VIEW_ACTIVE;
+		if (IsValidEntity(weaponvm)) {
+			SetEntityModel(weaponvm, vm);
+			TF2Util_EquipPlayerWearable(client, weaponvm);
+			
+			g_iLastViewmodelRef[client] = EntIndexToEntRef(weaponvm);
+			bitsActiveModels |= MODEL_VIEW_ACTIVE;
+		}
 	}
 	
 	char wm[PLATFORM_MAX_PATH];
@@ -192,16 +199,18 @@ void UpdateClientWeaponModel(int client) {
 		SetWeaponWorldModel(weapon, wm);
 		
 		// the following shows the weapon in third-person, as m_nModelIndexOverrides is messy
-		int weaponwm = TF2_SpawnWearable();
-		SetEntityModel(weaponwm, wm);
-		
-		TF2Util_EquipPlayerWearable(client, weaponwm);
-		g_iLastWorldModelRef[client] = EntIndexToEntRef(weaponwm);
-		
-		SetEntityRenderMode(weapon, RENDER_TRANSCOLOR);
-		SetEntityRenderColor(weapon, 0, 0, 0, 0);
-		
-		bitsActiveModels |= MODEL_WORLD_ACTIVE;
+		int weaponwm = CanCreateOverrideWearable() ? TF2_SpawnWearable() : -1;
+		if (IsValidEntity(weaponwm)) {
+			SetEntityModel(weaponwm, wm);
+			
+			TF2Util_EquipPlayerWearable(client, weaponwm);
+			g_iLastWorldModelRef[client] = EntIndexToEntRef(weaponwm);
+			
+			SetEntityRenderMode(weapon, RENDER_TRANSCOLOR);
+			SetEntityRenderColor(weapon, 0, 0, 0, 0);
+			
+			bitsActiveModels |= MODEL_WORLD_ACTIVE;
+		}
 	}
 	
 	if (bitsActiveModels & (MODEL_VIEW_ACTIVE | MODEL_WORLD_ACTIVE)) {
@@ -289,13 +298,14 @@ void UpdateClientWeaponModel(int client) {
 			if (TF2Util_IsEntityWeapon(weapon)
 					&& TF2Util_GetWeaponSlot(weapon) == TFWeaponSlot_Melee) {
 				int offhandwearable = TF2_SpawnWearableViewmodel();
-				
-				SetEntityModel(offhandwearable, ohvm);
-				
-				TF2Util_EquipPlayerWearable(client, offhandwearable);
-				g_iLastOffHandViewmodelRef[client] = EntIndexToEntRef(offhandwearable);
-				
-				bitsActiveModels |= MODEL_OFFHAND_ACTIVE;
+				if (IsValidEntity(offhandwearable)) {
+					SetEntityModel(offhandwearable, ohvm);
+					
+					TF2Util_EquipPlayerWearable(client, offhandwearable);
+					g_iLastOffHandViewmodelRef[client] = EntIndexToEntRef(offhandwearable);
+					
+					bitsActiveModels |= MODEL_OFFHAND_ACTIVE;
+				}
 			}
 		}
 	}
@@ -317,6 +327,9 @@ void UpdateClientWeaponModel(int client) {
 		PrecacheModelAndLog(armvmPath);
 		
 		int armvm = TF2_SpawnWearableViewmodel();
+		if (!IsValidEntity(armvm)) {
+			return;
+		}
 		
 		SetEntityModel(armvm, armvmPath);
 		TF2Util_EquipPlayerWearable(client, armvm);
@@ -324,7 +337,9 @@ void UpdateClientWeaponModel(int client) {
 		g_iLastArmModelRef[client] = EntIndexToEntRef(armvm);
 		
 		int clientView = GetEntPropEnt(client, Prop_Send, "m_hViewModel");
-		SetEntProp(clientView, Prop_Send, "m_fEffects", EF_NODRAW);
+		if (IsValidEntity(clientView)) {
+			SetEntProp(clientView, Prop_Send, "m_fEffects", EF_NODRAW);
+		}
 		
 		bitsActiveModels |= MODEL_ARM_ACTIVE;
 		
@@ -340,13 +355,14 @@ void UpdateClientWeaponModel(int client) {
 			PrecacheModelAndLog(vm);
 			
 			int weaponvm = TF2_SpawnWearableViewmodel();
-			
-			SetEntityModel(weaponvm, vm);
-			TF2Util_EquipPlayerWearable(client, weaponvm);
-			
-			g_iLastViewmodelRef[client] = EntIndexToEntRef(weaponvm);
-			
-			bitsActiveModels |= MODEL_VIEW_ACTIVE;
+			if (IsValidEntity(weaponvm)) {
+				SetEntityModel(weaponvm, vm);
+				TF2Util_EquipPlayerWearable(client, weaponvm);
+				
+				g_iLastViewmodelRef[client] = EntIndexToEntRef(weaponvm);
+				
+				bitsActiveModels |= MODEL_VIEW_ACTIVE;
+			}
 		}
 	}
 }
@@ -358,6 +374,7 @@ void OnPlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (client) {
 		MaybeRemoveWearable(client, g_iLastWorldModelRef[client]);
+		g_iLastWorldModelRef[client] = INVALID_ENT_REFERENCE;
 	}
 }
 
@@ -496,6 +513,10 @@ bool MaybeRemoveWearable(int client, int wearableRef) {
  * This sets EF_BONEMERGE | EF_BONEMERGE_FASTCULL when equipped.
  */
 stock int TF2_SpawnWearableViewmodel() {
+	if (!CanCreateOverrideWearable()) {
+		return -1;
+	}
+
 	int wearable = CreateEntityByName("tf_wearable_vm");
 	
 	if (IsValidEntity(wearable)) {
@@ -503,6 +524,15 @@ stock int TF2_SpawnWearableViewmodel() {
 		DispatchSpawn(wearable);
 	}
 	return wearable;
+}
+
+bool CanCreateOverrideWearable() {
+	if (g_cvEdictReserve == null) {
+		return true;
+	}
+
+	int reserve = g_cvEdictReserve.IntValue;
+	return reserve <= 0 || GetMaxEntities() - GetEntityCount() > reserve;
 }
 
 void ResetModelAvailabilityCache() {
