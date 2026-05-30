@@ -53,7 +53,15 @@ enum struct WeaponModel
 			RemoveEntity(worldmodel);
 		}
 
+		this.Clear();
 		return;
+	}
+
+	void Clear()
+	{
+		this.m_iArmsRef = INVALID_ENT_REFERENCE;
+		this.m_iViewModelRef = INVALID_ENT_REFERENCE;
+		this.m_iWorldModelRef = INVALID_ENT_REFERENCE;
 	}
 }
 
@@ -163,10 +171,16 @@ void RegisterAttributes()
 
 public void OnClientPutInServer(int client)
 {
+	g_ClientWeaponModels[client].Clear();
 	SDKHook(client, SDKHook_WeaponSwitchPost, SDHook_OnWeaponSwitchPost);
 	SDKHook(client, SDKHook_WeaponEquipPost, SDHook_OnWeaponEquipPost);
 
 	return;
+}
+
+public void OnClientDisconnect(int client)
+{
+	g_ClientWeaponModels[client].Delete(client);
 }
 
 /// TO-DO: This could be replaced with TF2Util_SetWearableAlwaysValid().
