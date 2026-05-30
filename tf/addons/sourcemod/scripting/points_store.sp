@@ -4232,17 +4232,18 @@ public Action Command_Welfare(int client, int args)
         return Plugin_Handled;
     }
 
-    if (!IsWelfareEnabled())
-    {
-        CPrintToChat(client, "Welfare is currently disabled!");
-    }
-
     char prefix[96];
     char currencyLong[BP_CURRENCY_LONG_MAX];
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyPrefix(prefix, sizeof(prefix));
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
+    if (!IsWelfareEnabled())
+    {
+        CPrintToChat(client, "%s Welfare is currently disabled", prefix);
+        return Plugin_Handled;
+    }
 
     if (!AreBonusPointsReady(client))
     {
