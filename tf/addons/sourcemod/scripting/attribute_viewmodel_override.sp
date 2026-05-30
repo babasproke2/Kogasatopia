@@ -8,6 +8,7 @@
 #include <tf2attributes>
 #include <tf_econ_dynamic>
 #include <tf2utils>
+#include <tf_custom_attributes>
 
 #pragma newdecls required
 #pragma semicolon 1
@@ -416,17 +417,17 @@ void OnDrawWeapon(int client, int weapon)
 		SetWeaponWorldmodel(client, weapon, model);
 	}
 
-	if(TF2Attrib_HookValueString("", "set_weapon_viewmodel", weapon, model, sizeof(model)))
+	if(GetStringAttribute(weapon, "set_weapon_viewmodel", "viewmodel override", model, sizeof(model)))
 	{
 		SetWeaponViewmodel(client, weapon, model);
 	}
 
-	if(TF2Attrib_HookValueString("", "set_weapon_worldmodel", weapon, model, sizeof(model)))
+	if(GetStringAttribute(weapon, "set_weapon_worldmodel", "worldmodel override", model, sizeof(model)))
 	{
 		SetWeaponWorldmodel(client, weapon, model);
 	}
 
-	if(TF2Attrib_HookValueString("", "set_viewmodel_bonemerged_arms", weapon, model, sizeof(model)))
+	if(GetStringAttribute(weapon, "set_viewmodel_bonemerged_arms", "viewmodel arms override", model, sizeof(model)))
 	{
 		SetViewmodelArms(client, weapon, model);
 	}
@@ -541,6 +542,15 @@ stock static int CreateWearable(int client, char[] model_path = "", int model_id
 static int TF2_GetActiveWeapon(int client)
 {
 	return GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+}
+
+static bool GetStringAttribute(int entity, const char[] dynamicAttribute, const char[] customAttribute, char[] buffer, int maxlen)
+{
+	buffer[0] = '\0';
+	if(TF2Attrib_HookValueString("", dynamicAttribute, entity, buffer, maxlen))
+		return buffer[0] != '\0';
+
+	return TF2CustAttr_GetString(entity, customAttribute, buffer, maxlen) > 0 && buffer[0] != '\0';
 }
 
 static bool HasEntityBudget()
