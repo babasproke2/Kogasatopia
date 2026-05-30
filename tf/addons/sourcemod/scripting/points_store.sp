@@ -24,7 +24,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define BP_CURRENCY_COLOR_MAX 32
 #define BP_WELFARE_SOUND_COMMAND "monkey"
 #define BP_WELFARE_MIN 4
-#define BP_WELFARE_MAX 32
+#define BP_WELFARE_MAX 16
 #define BP_PURCHASE_PERMANENT 0
 #define BP_PURCHASE_UNLIMITED_USES -1
 #define LOTTO_TABLE "points_store_lotteries"
