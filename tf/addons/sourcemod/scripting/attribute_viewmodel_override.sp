@@ -13,6 +13,7 @@
 #pragma semicolon 1
 
 #define SF_NORESPAWN 1 << 30
+#define DEFAULT_EDICT_RESERVE 128
 
 public Plugin myinfo =
 {
@@ -66,6 +67,7 @@ enum struct WeaponModel
 }
 
 WeaponModel g_ClientWeaponModels[MAXPLAYERS + 1];
+ConVar g_cvEdictReserve;
 
 enum
 {
@@ -77,6 +79,7 @@ enum
 public void OnPluginStart()
 {
 	RegisterAttributes();
+	g_cvEdictReserve = CreateConVar("sm_viewmodel_override_edict_reserve", "128", "Minimum free entity slots required before creating cosmetic viewmodel override wearables.", FCVAR_NONE, true, 0.0, true, 1024.0);
 
 	// Events
 	HookEvent("post_inventory_application", Event_OnInventoryApplicationPost);
@@ -406,6 +409,10 @@ void OnDrawWeapon(int client, int weapon)
 
 stock void SetWeaponViewmodel(int client, int weapon, char[] model_path = "", int model_id = 0)
 {
+	int entity = ApplyModel(client, model_path, model_id, true, weapon);
+	if(entity == -1)
+		return;
+
 	SetEntityRenderMode(weapon, RENDER_TRANSALPHA);
 	SetEntityRenderColor(weapon, 0, 0, 0, 0);
 
@@ -413,15 +420,18 @@ stock void SetWeaponViewmodel(int client, int weapon, char[] model_path = "", in
 	// Either we do this or we manually create the arms and attach them to the weapon ( + 1 entity ).
 	SetEntProp(weapon, Prop_Send, "m_bBeingRepurposedForTaunt", 1);
 
-	g_ClientWeaponModels[client].m_iViewModelRef = EntIndexToEntRef(ApplyModel(client, model_path, model_id, true, weapon));
+	g_ClientWeaponModels[client].m_iViewModelRef = EntIndexToEntRef(entity);
 
 	return;
 }
 
 stock void SetWeaponWorldmodel(int client, int weapon, char[] model_path = "", int model_id = 0)
 {
-	g_ClientWeaponModels[client].m_iWorldModelRef = EntIndexToEntRef(ApplyModel(client, model_path, model_id,  false, weapon));
+	int entity = ApplyModel(client, model_path, model_id,  false, weapon);
+	if(entity == -1)
+		return;
 
+	g_ClientWeaponModels[client].m_iWorldModelRef = EntIndexToEntRef(entity);
 	SetEntProp(weapon, Prop_Send, "m_iWorldModelIndex", model_path ? PrecacheModel(model_path) : model_id);
 
 	return;
@@ -429,11 +439,14 @@ stock void SetWeaponWorldmodel(int client, int weapon, char[] model_path = "", i
 
 stock void SetViewmodelArms(int client, int weapon, char[] model_path = "", int model_id = 0)
 {
-	int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel");
+	int entity = ApplyModel(client, model_path, model_id, true, weapon);
+	if(entity == -1)
+		return;
 
+	int viewmodel = GetEntPropEnt(client, Prop_Send, "m_hViewModel");
 	SetEntProp(viewmodel, Prop_Send, "m_fEffects", EF_NODRAW);
 
-	g_ClientWeaponModels[client].m_iArmsRef = EntIndexToEntRef(ApplyModel(client, model_path, model_id, true, weapon));
+	g_ClientWeaponModels[client].m_iArmsRef = EntIndexToEntRef(entity);
 
 	return;
 }
@@ -463,6 +476,9 @@ stock static int ApplyModel(int client, char[] model_path = "", int model_id = 0
 
 stock static int CreateWearable(int client, char[] model_path = "", int model_id = 0, bool isViewmodel)
 {
+	if(!HasEntityBudget())
+		return -1;
+
 	int entity = CreateEntityByName(isViewmodel ? "tf_wearable_vm" : "tf_wearable");
 
 	if(!IsValidEntity(entity))
@@ -498,6 +514,15 @@ stock static int CreateWearable(int client, char[] model_path = "", int model_id
 static int TF2_GetActiveWeapon(int client)
 {
 	return GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+}
+
+static bool HasEntityBudget()
+{
+	int reserve = DEFAULT_EDICT_RESERVE;
+	if(g_cvEdictReserve != null)
+		reserve = g_cvEdictReserve.IntValue;
+
+	return GetEntityCount() + reserve < GetMaxEntities();
 }
 
 static int Util_GetAttributeStringValueFromNonWeapons(int entity, char[] attribute_name, char[] attribute_value, int attribute_value_length)
