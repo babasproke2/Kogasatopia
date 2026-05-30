@@ -3558,30 +3558,6 @@ void LogTransferEvent(const char[] eventName, const char[] reason, int sender, i
         GetCachedBonusPoints(target));
 }
 
-void LogWelfareEvent(int client, int amount, int balanceAfter)
-{
-    if (!IsPointsEventLoggingEnabled())
-    {
-        return;
-    }
-
-    char steamId[32];
-    char clientName[MAX_NAME_LENGTH];
-    char clientClass[16];
-    GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
-    GetClientLogClass(client, clientClass, sizeof(clientClass));
-
-    LogPointsStoreEvent(
-        "event=welfare_collect|time=%d|client=%d|steamid64=%s|name=\"%s\"|class=%s|amount=%d|balance_after=%d",
-        GetTime(),
-        client,
-        steamId,
-        clientName,
-        clientClass,
-        amount,
-        balanceAfter);
-}
-
 void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
 {
     label[0] = '\0';
@@ -4169,7 +4145,6 @@ public Action Command_Welfare(int client, int args)
         g_WelfareCollectedSteamIds.SetValue(steamId, 1, true);
     }
 
-    LogWelfareEvent(client, amount, GetCachedBonusPoints(client));
     PlayWelfareSound();
 
     char displayName[256];
