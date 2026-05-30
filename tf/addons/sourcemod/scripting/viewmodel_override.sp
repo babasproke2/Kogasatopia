@@ -76,9 +76,15 @@ public void OnPluginEnd() {
 }
 
 public void OnClientPutInServer(int client) {
+	ResetClientModelRefs(client);
 	SDKHook(client, SDKHook_Spawn, OnPlayerSpawnPre);
 	SDKHook(client, SDKHook_SpawnPost, OnPlayerSpawnPost);
 	SDKHook(client, SDKHook_WeaponSwitchPost, OnWeaponSwitchPost);
+}
+
+public void OnClientDisconnect(int client) {
+	DetachVMs(client);
+	ResetClientModelRefs(client);
 }
 
 public void OnEntityCreated(int entity, const char[] className) {
@@ -452,6 +458,14 @@ int GetArmViewModel(int client, char[] buffer, int maxlen) {
 	}
 	
 	return strcopy(buffer, maxlen, armModels[ view_as<int>(playerClass) ]);
+}
+
+void ResetClientModelRefs(int client) {
+	g_iLastViewmodelRef[client] = INVALID_ENT_REFERENCE;
+	g_iLastArmModelRef[client] = INVALID_ENT_REFERENCE;
+	g_iLastWorldModelRef[client] = INVALID_ENT_REFERENCE;
+	g_iLastOffHandViewmodelRef[client] = INVALID_ENT_REFERENCE;
+	g_bIgnoreWeaponSwitch[client] = false;
 }
 
 bool MaybeRemoveWearable(int client, int wearableRef) {
