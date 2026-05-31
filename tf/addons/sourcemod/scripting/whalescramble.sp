@@ -69,6 +69,7 @@ ConVar g_hTopSwap = null;
 ConVar g_hRandom = null;
 ConVar g_hFragBalance = null;
 ConVar g_hDisableTfAuto = null;
+ConVar g_hShortRoundAutoSeconds = null;
 ConVar g_hMpScrambleTeamsAuto = null;
 int g_iRoundsSinceAuto = 0;
 StringMap g_hScrambleImmunity = null;
@@ -109,6 +110,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
+    MarkNativeAsOptional("DGM_GetLastRoundDurationSeconds");
     return APLRes_Success;
 }
 
@@ -125,6 +127,7 @@ public void OnPluginStart()
     g_hRandom = CreateConVar("sm_ws_random", "1", "Enable random scramble mode.", _, true, 0.0, true, 1.0);
     g_hFragBalance = CreateConVar("sm_ws_frags", "0", "Enable frag-balanced random scramble mode.", _, true, 0.0, true, 1.0);
     g_hDisableTfAuto = CreateConVar("sm_whalescramble_disable_tf_auto", "1", "Disable TF2's built-in mp_scrambleteams_auto while WhaleScramble owns auto scrambles.", _, true, 0.0, true, 1.0);
+    g_hShortRoundAutoSeconds = CreateConVar("sm_whalescramble_short_round_seconds", "60", "Automatically whale scramble when the previous round duration is under this many seconds. 0 disables.", _, true, 0.0, true, 600.0);
     g_hMpScrambleTeamsAuto = FindConVar("mp_scrambleteams_auto");
     g_hScrambleImmunity = new StringMap();
 
@@ -305,12 +308,18 @@ public Action SayListener(int client, const char[] command, int argc)
 
 public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 {
+    bool fullRound = event.GetBool("full_round");
     LogWhale("Round win: full_round=%d voteRunning=%d activeKind=%d activeTeam=%d.",
-        event.GetBool("full_round") ? 1 : 0,
+        fullRound ? 1 : 0,
         g_bVoteRunning ? 1 : 0,
         g_eActiveVoteKind,
         g_iActiveSurrenderTeam);
     ResetSurrenderVotes("round_win");
+
+    if (fullRound)
+    {
+        CreateTimer(0.1, Timer_CheckShortRoundAutoScramble, _, TIMER_FLAG_NO_MAPCHANGE);
+    }
 
     if (g_hAutoRounds == null)
     {
@@ -319,7 +328,7 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 
     // full_round is 1 if the entire map/round is over (Red lost or Blue finished final stage)
     // full_round is 0 if it was just a stage completion (e.g., Goldrush Stage 1)
-    if (!(event.GetBool("full_round")))
+    if (!fullRound)
         return;
 
     int roundsRequired = g_hAutoRounds.IntValue;
@@ -341,6 +350,38 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
     }
 
     ArmAutoScrambleForNextRound();
+}
+
+public Action Timer_CheckShortRoundAutoScramble(Handle timer)
+{
+    if (g_hShortRoundAutoSeconds == null)
+    {
+        return Plugin_Stop;
+    }
+
+    int threshold = g_hShortRoundAutoSeconds.IntValue;
+    if (threshold <= 0)
+    {
+        return Plugin_Stop;
+    }
+
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetLastRoundDurationSeconds") != FeatureStatus_Available)
+    {
+        LogWhale("Short-round auto scramble skipped: DGM_GetLastRoundDurationSeconds unavailable.");
+        return Plugin_Stop;
+    }
+
+    int duration = DGM_GetLastRoundDurationSeconds();
+    if (duration <= 0 || duration >= threshold)
+    {
+        LogWhale("Short-round auto scramble skipped: duration=%d threshold=%d.", duration, threshold);
+        return Plugin_Stop;
+    }
+
+    CPrintToChatAll("{blue}[WhaleScramble]{default} Round ended in under {lightgreen}%d{default} seconds, scrambling!", threshold);
+    LogWhale("Short-round auto scramble armed: duration=%d threshold=%d.", duration, threshold);
+    ArmAutoScrambleForNextRound();
+    return Plugin_Stop;
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
