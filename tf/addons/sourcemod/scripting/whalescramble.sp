@@ -70,6 +70,7 @@ ConVar g_hRandom = null;
 ConVar g_hFragBalance = null;
 ConVar g_hDisableTfAuto = null;
 ConVar g_hShortRoundAutoSeconds = null;
+ConVar g_hKothNoCapAuto = null;
 ConVar g_hMpScrambleTeamsAuto = null;
 int g_iRoundsSinceAuto = 0;
 StringMap g_hScrambleImmunity = null;
@@ -77,6 +78,8 @@ bool g_bAutoScramblePendingRoundStart = false;
 float g_flAutoScramblePendingRoundStartUntil = 0.0;
 bool g_bExecuteSwapImmediately = false;
 bool g_bSuppressSwapRespawn = false;
+bool g_bKothRedCapped = false;
+bool g_bKothBluCapped = false;
 
 #define TEAM_RED  2
 #define TEAM_BLU  3
@@ -128,6 +131,7 @@ public void OnPluginStart()
     g_hFragBalance = CreateConVar("sm_ws_frags", "0", "Enable frag-balanced random scramble mode.", _, true, 0.0, true, 1.0);
     g_hDisableTfAuto = CreateConVar("sm_whalescramble_disable_tf_auto", "1", "Disable TF2's built-in mp_scrambleteams_auto while WhaleScramble owns auto scrambles.", _, true, 0.0, true, 1.0);
     g_hShortRoundAutoSeconds = CreateConVar("sm_whalescramble_short_round_seconds", "60", "Automatically whale scramble when the previous round duration is under this many seconds. 0 disables.", _, true, 0.0, true, 600.0);
+    g_hKothNoCapAuto = CreateConVar("sm_whalescramble_koth_no_cap", "1", "Automatically whale scramble when a full KOTH round ends with either team never capturing the point.", _, true, 0.0, true, 1.0);
     g_hMpScrambleTeamsAuto = FindConVar("mp_scrambleteams_auto");
     g_hScrambleImmunity = new StringMap();
 
@@ -148,6 +152,7 @@ public void OnPluginStart()
     AddCommandListener(SayListener, "say_team");
     HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_PostNoCopy);
     HookEvent("teamplay_round_start", Event_RoundStart, EventHookMode_PostNoCopy);
+    HookEvent("teamplay_point_captured", Event_PointCaptured, EventHookMode_PostNoCopy);
     HookEvent("teamplay_game_over", Event_GameOver, EventHookMode_PostNoCopy);
     HookEvent("player_team", Event_PlayerTeam, EventHookMode_Post);
 }
@@ -319,6 +324,7 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
     if (fullRound)
     {
         CreateTimer(0.1, Timer_CheckShortRoundAutoScramble, _, TIMER_FLAG_NO_MAPCHANGE);
+        CheckKothNoCapAutoScramble();
     }
 
     if (g_hAutoRounds == null)
@@ -386,6 +392,9 @@ public Action Timer_CheckShortRoundAutoScramble(Handle timer)
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
+    g_bKothRedCapped = false;
+    g_bKothBluCapped = false;
+
     if (!ConsumeAutoScramblePending())
     {
         return;
@@ -401,6 +410,57 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
     {
         LogWhale("Pending auto scramble could not start on round start.");
     }
+}
+
+public void Event_PointCaptured(Event event, const char[] name, bool dontBroadcast)
+{
+    int team = event.GetInt("team");
+    if (team == TEAM_RED)
+    {
+        g_bKothRedCapped = true;
+    }
+    else if (team == TEAM_BLU)
+    {
+        g_bKothBluCapped = true;
+    }
+}
+
+static void CheckKothNoCapAutoScramble()
+{
+    if (g_hKothNoCapAuto == null || !g_hKothNoCapAuto.BoolValue)
+    {
+        return;
+    }
+
+    if (!IsCurrentKothGamemode())
+    {
+        return;
+    }
+
+    if (g_bKothRedCapped && g_bKothBluCapped)
+    {
+        return;
+    }
+
+    CPrintToChatAll("{blue}[WhaleScramble]{default} KOTH steamroll detected, scrambling!");
+    LogWhale("KOTH no-cap auto scramble armed: redCapped=%d bluCapped=%d.", g_bKothRedCapped ? 1 : 0, g_bKothBluCapped ? 1 : 0);
+    ArmAutoScrambleForNextRound();
+}
+
+static bool IsCurrentKothGamemode()
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    char gamemodeKey[32];
+    if (!DGM_GetGameModeKey(gamemodeKey, sizeof(gamemodeKey)))
+    {
+        return false;
+    }
+
+    return StrEqual(gamemodeKey, "koth", false);
 }
 
 public void Event_GameOver(Event event, const char[] name, bool dontBroadcast)
