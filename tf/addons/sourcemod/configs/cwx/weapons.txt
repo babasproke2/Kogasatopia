@@ -80,11 +80,23 @@
                 "attributes_game"
                 {
                         "headshot damage increase"      "0.40"
-                        "damage penalty"        "0.70"
+                        "damage penalty"        "0.85"
+                        "sniper fires tracer"   "1"
                 }
                 "attributes_custom"
                 {
+                        "clientmodel override" "models/weapons/c_models/c_sniperrifle/c_aru_sniperrifle.mdl"
                         "wall climb enabled"    "1"
+                        "saysound on kill"  "bluearchive"
+                }
+        }
+        "aru_sniper_rifle_reskinonly"
+        {
+                "inherits" "Upgradeable TF_WEAPON_SNIPERRIFLE"
+                "name" "Wine Red (Stock Reskin)"
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/weapons/c_models/c_sniperrifle/c_aru_sniperrifle.mdl"
                         "saysound on kill"  "bluearchive"
                 }
         }
