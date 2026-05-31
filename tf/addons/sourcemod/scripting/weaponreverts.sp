@@ -17,18 +17,18 @@
 #define REQUIRE_PLUGIN
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
-#define ACC_MAX_DIST		768.0
-#define ACC_THRESH_NEAR		  32.0
-#define ACC_THRESH_FAR		  12.0
-#define ACC_STREAK_TARGET	   2
-#define ACC_STREAK_WINDOW	   4.0
+#define FLS_MAX_DIST		768.0
+#define FLS_THRESH_NEAR		  32.0
+#define FLS_THRESH_FAR		  12.0
+#define FLS_STREAK_TARGET	   2
+#define FLS_STREAK_WINDOW	   4.0
 #define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
 
-#define ACC_EXPLODE_DAMAGE	 50.0
-#define ACC_EXPLODE_RADIUS	 180.0
-#define ACC_EXPLODE_SOUND	"ambient/fire/gascan_ignite1.wav"
-#define ACC_NOTIFY_SOUND "vo/taunts/pyro/pyro_taunt_rps_exert_21.mp3"
-#define ACC_NOTIFY_2 "vo/taunts/pyro/pyro_taunt_rps_exert_23.mp3"
+#define FLS_EXPLODE_DAMAGE	 50.0
+#define FLS_EXPLODE_RADIUS	 180.0
+#define FLS_EXPLODE_SOUND	"ambient/fire/gascan_ignite1.wav"
+#define FLS_NOTIFY_SOUND "vo/taunts/pyro/pyro_taunt_rps_exert_21.mp3"
+#define FLS_NOTIFY_2 "vo/taunts/pyro/pyro_taunt_rps_exert_23.mp3"
 #define SOUND_ARROW_HEAL "weapons/fx/rics/arrow_impact_crossbow_heal.wav"
 #define SOUND_NEON_SIGN "weapons/neon_sign_hit_world_02.wav"
 #define SOUND_DISPENSER_METAL "weapons/dispenser_generate_metal.wav"
@@ -258,9 +258,9 @@ public void PreCacheWeaponSounds() {
 	PrecacheSound(SOUND_ARROW_HEAL, true);
 	PrecacheSound(SOUND_NEON_SIGN, true);
 	PrecacheSound(SOUND_FLAME_OUT, true);
-	PrecacheSound(ACC_EXPLODE_SOUND, true);
-	PrecacheSound(ACC_NOTIFY_SOUND, true);
-	PrecacheSound(ACC_NOTIFY_2, true);
+	PrecacheSound(FLS_EXPLODE_SOUND, true);
+	PrecacheSound(FLS_NOTIFY_SOUND, true);
+	PrecacheSound(FLS_NOTIFY_2, true);
 	PrecacheSound(BURP_SOUND, true);
 	PrecacheSound(ATTR_SECONDARY_REFILL_SOUND, true);
 }
@@ -535,7 +535,7 @@ static void FlameShotgun_Explode(int attacker, int victim, float position[3], fl
 	DispatchKeyValue(bomb, "health", "1");
 	DispatchSpawn(bomb);
 
-	EmitAmbientSound(ACC_EXPLODE_SOUND, position, victim, SNDLEVEL_NORMAL);
+	EmitAmbientSound(FLS_EXPLODE_SOUND, position, victim, SNDLEVEL_NORMAL);
 
 	int particle = CreateEntityByName("info_particle_system");
 	if (particle != -1)
@@ -619,8 +619,8 @@ static void Accuracy_OnFlameShotgunStack(int attacker, int victim, int weapon = 
 	}
 
 	tf2_players[victim].accuracyStreak++;
-	tf2_players[victim].accuracyStreakExpiresAt = now + ACC_STREAK_WINDOW;
-	if (tf2_players[victim].accuracyStreak >= ACC_STREAK_TARGET)
+	tf2_players[victim].accuracyStreakExpiresAt = now + FLS_STREAK_WINDOW;
+	if (tf2_players[victim].accuracyStreak >= FLS_STREAK_TARGET)
 	{
 		float boomPos[3];
 		GetClientAbsOrigin(victim, boomPos);
@@ -630,8 +630,8 @@ static void Accuracy_OnFlameShotgunStack(int attacker, int victim, int weapon = 
 		{
 			TF2_IgnitePlayer(victim, attacker, 4.0);
 		}
-		FlameShotgun_Explode(attacker, victim, boomPos, ACC_EXPLODE_DAMAGE, ACC_EXPLODE_RADIUS);
-		EmitAmbientSound(ACC_NOTIFY_2, eye, attacker, SNDLEVEL_NORMAL);
+		FlameShotgun_Explode(attacker, victim, boomPos, FLS_EXPLODE_DAMAGE, FLS_EXPLODE_RADIUS);
+		EmitAmbientSound(FLS_NOTIFY_2, eye, attacker, SNDLEVEL_NORMAL);
 
 		int maxClip = GetWeaponMaxClip(weapon);
 		if (maxClip > 0)
@@ -648,7 +648,7 @@ static void Accuracy_OnFlameShotgunStack(int attacker, int victim, int weapon = 
 	}
 	else
 	{
-		EmitAmbientSound(ACC_NOTIFY_SOUND, eye, attacker, SNDLEVEL_NORMAL);
+		EmitAmbientSound(FLS_NOTIFY_SOUND, eye, attacker, SNDLEVEL_NORMAL);
 	}
 }
 
