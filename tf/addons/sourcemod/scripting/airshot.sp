@@ -86,6 +86,32 @@ public void OnClientDisconnect(int client)
 	ResetAirshotState(client);
 }
 
+public void OnEntityCreated(int entity, const char[] classname)
+{
+	if (StrEqual(classname, "tf_projectile_healing_bolt", false))
+	{
+		SDKHook(entity, SDKHook_Touch, OnCrossbowBoltTouch);
+	}
+}
+
+public void OnCrossbowBoltTouch(int entity, int other)
+{
+	if (other <= 0 || other > MaxClients)
+		return;
+
+	int attacker = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+	int weapon = -1;
+	if (HasEntProp(entity, Prop_Send, "m_hLauncher"))
+	{
+		weapon = GetEntPropEnt(entity, Prop_Send, "m_hLauncher");
+	}
+
+	if (IsMedicCrossbowAirshot(attacker, other, weapon, entity, 1.0))
+	{
+		QueueAirshotBroadcast(attacker, other);
+	}
+}
+
 public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
 {
 	if (IsMedicCrossbowAirshot(attacker, victim, weapon, inflictor, damage))
@@ -259,8 +285,6 @@ static bool IsMedicCrossbowAirshot(int attacker, int victim, int weapon, int inf
 	if (!IsValidClient(attacker) || !IsValidClient(victim) || attacker == victim)
 		return false;
 	if (IsFakeClient(attacker) || IsFakeClient(victim))
-		return false;
-	if (GetClientTeam(attacker) == GetClientTeam(victim))
 		return false;
 	if (TF2_GetPlayerClass(attacker) != TFClass_Medic)
 		return false;
