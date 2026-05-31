@@ -81,7 +81,7 @@ public void OnPluginStart()
     g_hActionDelay = CreateConVar("sm_autobalance_action_delay", "10", "Seconds an imbalance must persist before normal autobalance can move a player.", _, true, 0.0, true, 120.0);
     g_hMaxUnbalanceTime = CreateConVar("sm_autobalance_max_unbalance_time", "5", "Maximum seconds an imbalance may persist before forced autobalance. 0 disables.", _, true, 0.0, true, 300.0);
     g_hForceThresholdDelta = CreateConVar("sm_autobalance_force_threshold_delta", "1", "Force autobalance when team-size diff is at least normal threshold plus this value.", _, true, 0.0, true, 10.0);
-    g_hSimpleSelection = CreateConVar("sm_autobalance_simple_selection", "1", "If enabled, autobalance prefers the most recently joined dead non-Engineer on the oversized team, then falls back to lower-priority eligible players by userID.", _, true, 0.0, true, 1.0);
+    g_hSimpleSelection = CreateConVar("sm_autobalance_simple_selection", "1", "If enabled, autobalance prefers the most recently joined dead player without Engineer buildings on the oversized team, then falls back to lower-priority eligible players by userID.", _, true, 0.0, true, 1.0);
     g_hIgnoreWinning = CreateConVar("sm_autobalance_ignore_winning", "3", "0 disables. 1 blocks losing-to-winning moves. Values above 1 allow losing-to-winning moves when value is >= current team-size diff.", _, true, 0.0);
     g_hDatabaseConfig = CreateConVar("sm_autobalance_database", "default", "Database config name from databases.cfg to use for persistent autobalance immunity.");
     char dbConfig[64];
@@ -570,6 +570,7 @@ static bool ClientHasDecapitationHeads(int client)
 static bool IsProtectedBalanceCandidate(int client, int team, bool clanProtectionAvailable)
 {
     if (IsMedicWithProtectedUber(client)) return true;
+    if (IsEngineerWithBuildings(client)) return true;
     if (IsClientImmune(client)) return true;
     if (HasClanTeammateProtection(client, team, clanProtectionAvailable)) return true;
 
@@ -618,7 +619,7 @@ static int GetSimpleSelectionPriority(int client)
         priority += 2;
     }
 
-    if (TF2_GetPlayerClass(client) != TFClass_Engineer)
+    if (!IsEngineerWithBuildings(client))
     {
         priority += 1;
     }
@@ -663,7 +664,9 @@ static bool IsVolunteerCandidate(int client, int team)
 {
     if (!IsBasicBalanceCandidate(client, team)) return false;
     if (!IsClientVolunteer(client)) return false;
-    if (TF2_GetPlayerClass(client) == TFClass_Engineer) return false;
+    if (IsClientImmune(client)) return false;
+    if (HasAutobalancePurchaseImmunity(client)) return false;
+    if (IsEngineerWithBuildings(client)) return false;
     if (IsMedicWithProtectedUber(client)) return false;
 
     return true;
@@ -746,11 +749,6 @@ static bool ResolveAutobalancePurchaseImmunity(int &pick, int team, bool clanPro
     }
 
     int usesRemaining = PointsStore_ConsumePurchaseUse(pick, POINTS_STORE_AB_IMMUNITY_ITEM);
-    if (usesRemaining < 0)
-    {
-        return true;
-    }
-
     CPrintToChat(pick, "{magenta}[Store]{default} You were protected by your {gold}Autobalance Immunity (16 times){default}! Uses remaining: {lightgreen}%d", usesRemaining);
     if (loggingEnabled)
     {
@@ -791,6 +789,33 @@ static int SelectAutobalanceReplacementForPass(int protectedClient, int team, bo
     }
 
     return bestClient;
+}
+
+static bool IsEngineerWithBuildings(int client)
+{
+    if (client <= 0 || !IsClientInGame(client) || TF2_GetPlayerClass(client) != TFClass_Engineer)
+    {
+        return false;
+    }
+
+    return ClientOwnsBuilding(client, "obj_sentrygun")
+        || ClientOwnsBuilding(client, "obj_dispenser")
+        || ClientOwnsBuilding(client, "obj_teleporter");
+}
+
+static bool ClientOwnsBuilding(int client, const char[] classname)
+{
+    int entity = -1;
+    while ((entity = FindEntityByClassname(entity, classname)) != -1)
+    {
+        if (HasEntProp(entity, Prop_Send, "m_hBuilder")
+            && GetEntPropEnt(entity, Prop_Send, "m_hBuilder") == client)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static bool IsClientPersistentlyImmune(int client)
