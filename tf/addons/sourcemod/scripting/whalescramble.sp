@@ -2397,7 +2397,7 @@ static int GetScrambleScore(int client, bool ignoreClass, bool forced)
     {
         TFClassType cls = TF2_GetPlayerClass(client);
         if (cls == TFClass_Spy
-            || (forced && (cls == TFClass_Engineer || cls == TFClass_Medic)))
+            || (forced && (IsEngineerWithBuildings(client) || cls == TFClass_Medic)))
         {
             return 0;
         }
@@ -2414,7 +2414,34 @@ static bool IsSimpleScrambleEligibleClass(int client, bool forced)
     }
 
     TFClassType cls = TF2_GetPlayerClass(client);
-    return !forced || (cls != TFClass_Engineer && cls != TFClass_Medic);
+    return !forced || (!IsEngineerWithBuildings(client) && cls != TFClass_Medic);
+}
+
+static bool IsEngineerWithBuildings(int client)
+{
+    if (client <= 0 || !IsClientInGame(client) || TF2_GetPlayerClass(client) != TFClass_Engineer)
+    {
+        return false;
+    }
+
+    return ClientOwnsBuilding(client, "obj_sentrygun")
+        || ClientOwnsBuilding(client, "obj_dispenser")
+        || ClientOwnsBuilding(client, "obj_teleporter");
+}
+
+static bool ClientOwnsBuilding(int client, const char[] classname)
+{
+    int entity = -1;
+    while ((entity = FindEntityByClassname(entity, classname)) != -1)
+    {
+        if (HasEntProp(entity, Prop_Send, "m_hBuilder")
+            && GetEntPropEnt(entity, Prop_Send, "m_hBuilder") == client)
+        {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 static bool SelectRandomPlayers(const int candidates[MAXPLAYERS + 1], int candidateCount, int selected[MAX_SWAP_BUFFER], int selectedCount)
