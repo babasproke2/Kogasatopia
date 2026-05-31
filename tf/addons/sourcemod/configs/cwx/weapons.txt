@@ -20,6 +20,7 @@
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_minigun/nonomi_minigun.mdl"
+                        "saysound on kill"  "bluearchive"
                 }
         }
         "hoshino_shotgun_scattergun"
@@ -29,6 +30,7 @@
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
+                        "saysound on kill"  "bluearchive"
                 }
         }
         "hoshino_shotgun"
@@ -38,6 +40,7 @@
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
+                        "saysound on kill"  "bluearchive"
                 }
         }
         "hoshino_shotgun_secondary"
@@ -47,6 +50,7 @@
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
+                        "saysound on kill"  "bluearchive"
                 }
         }
         "hoshino_shotgun_secondary2"
@@ -56,6 +60,7 @@
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
+                        "saysound on kill"  "bluearchive"
                 }
         }
         "hoshino_shotgun_secondary3"
@@ -65,6 +70,22 @@
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
+                        "saysound on kill"  "bluearchive"
+                }
+        }
+        "aru_sniper_rifle"
+        {
+                "inherits" "Upgradeable TF_WEAPON_SNIPERRIFLE"
+                "name" "Wine Red • Admire"
+                "attributes_game"
+                {
+                        "headshot damage increase"      "0.40"
+                        "damage penalty"        "0.70"
+                }
+                "attributes_custom"
+                {
+                        "wall climb enabled"    "1"
+                        "saysound on kill"  "bluearchive"
                 }
         }
         "reimugohei"
@@ -671,6 +692,7 @@
                     "replace sound"     "ambassador"
 		    "duel declared"		"1.0"
 		    "drain ammo on hit building"	"100"
+                    "saysound on kill"  "cow"
 		}
 	}
         "medic1"
