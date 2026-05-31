@@ -86,6 +86,7 @@ int g_iLastFullRoundWinner = 0;
 int g_iWinStreak = 0;
 bool g_bScrambledThisRound = false;
 bool g_bLastRoundHadScramble = false;
+int g_iRoundStartTimestamp = 0;
 
 #define TEAM_RED  2
 #define TEAM_BLU  3
@@ -399,6 +400,7 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
     g_bKothRedCapped = false;
     g_bKothBluCapped = false;
     g_bScrambledThisRound = false;
+    g_iRoundStartTimestamp = GetTime();
 
     if (!ConsumeAutoScramblePending())
     {
@@ -2110,6 +2112,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
     delete pack;
 
     bool suppressRespawn = g_bSuppressSwapRespawn;
+    bool setupScramble = IsSetupActive();
     if (GetFeatureStatus(FeatureType_Native, "FilterAlerts_SuppressTeamAlertWindow") == FeatureStatus_Available)
     {
         FilterAlerts_SuppressTeamAlertWindow(2.0);
@@ -2166,6 +2169,10 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         StartScrambleCooldown();
         CPrintToChatAll("{tomato}[{purple}Gap{tomato}]{default} {gold}Whalescrambling{default} %d players!", moved);
         LogWhale("Scramble executed: moved=%d pairs=%d suppressRespawn=%d.", moved, pairCount, suppressRespawn ? 1 : 0);
+        if (setupScramble)
+        {
+            ApplySetupScramblePolish();
+        }
         for (int i = 0; i < pairCount; i++)
         {
             int r = pairR[i];
@@ -2233,6 +2240,106 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         LogWhale("Scramble executed: no eligible pairs.");
     }
     return Plugin_Stop;
+}
+
+static bool IsSetupActive()
+{
+    if (HasGameRulesProp("m_bInSetup"))
+    {
+        return GameRules_GetProp("m_bInSetup", 1) != 0;
+    }
+
+    if (HasGameRulesProp("m_flSetupTimeEnd"))
+    {
+        float setupEnd = GameRules_GetPropFloat("m_flSetupTimeEnd");
+        return setupEnd > 0.0 && setupEnd > GetGameTime();
+    }
+
+    return false;
+}
+
+static bool HasGameRulesProp(const char[] prop)
+{
+    int ent = FindEntityByClassname(-1, "tf_gamerules");
+    if (ent == -1)
+    {
+        ent = FindEntityByClassname(-1, "game_rules_proxy");
+    }
+
+    return ent != -1 && HasEntProp(ent, Prop_Send, prop);
+}
+
+static void ApplySetupScramblePolish()
+{
+    RestoreSetupTimerAfterScramble();
+    RespawnSetupScramblePlayers();
+    FillSetupMedicUbers();
+}
+
+static void RestoreSetupTimerAfterScramble()
+{
+    int elapsed = GetTime() - g_iRoundStartTimestamp;
+    if (elapsed <= 0)
+    {
+        return;
+    }
+
+    int timerEnt = FindEntityByClassname(-1, "team_round_timer");
+    if (timerEnt == -1)
+    {
+        return;
+    }
+
+    SetVariantInt(elapsed);
+    AcceptEntityInput(timerEnt, "AddTime");
+    g_iRoundStartTimestamp = GetTime();
+    LogWhale("Setup scramble polish: restored %d seconds to setup timer.", elapsed);
+}
+
+static void RespawnSetupScramblePlayers()
+{
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i))
+        {
+            continue;
+        }
+
+        int team = GetClientTeam(i);
+        if (team != TEAM_RED && team != TEAM_BLU)
+        {
+            continue;
+        }
+
+        if (TF2_GetPlayerClass(i) == TFClass_Unknown)
+        {
+            TF2_SetPlayerClass(i, TFClass_Scout);
+        }
+
+        if (!IsPlayerAlive(i))
+        {
+            TF2_RespawnPlayer(i);
+        }
+    }
+}
+
+static void FillSetupMedicUbers()
+{
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsClientInGame(i) || TF2_GetPlayerClass(i) != TFClass_Medic)
+        {
+            continue;
+        }
+
+        int medigun = GetPlayerWeaponSlot(i, 1);
+        if (medigun <= MaxClients || !IsValidEntity(medigun) || !HasEntProp(medigun, Prop_Send, "m_flChargeLevel"))
+        {
+            continue;
+        }
+
+        SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", 1.0);
+    }
 }
 
 public Action Timer_ResetScrambleCooldown(Handle timer)
