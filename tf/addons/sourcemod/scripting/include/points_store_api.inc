@@ -32,9 +32,10 @@ native int PointsStore_GetBonusPoints(int client);
  * @param type          Message type key.
  * @param target        Optional target client or event value.
  * @param delay         Delay in seconds. 0.0 = immediate.
+ * @param perMap        Positive cap for successful awards of this type per map. 0 = unlimited.
  * @return              True on success.
  */
-native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0);
+native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0, int perMap = 0);
 
 /**
  * Spends currency immediately without sound or chat output.

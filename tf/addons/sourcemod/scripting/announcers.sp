@@ -34,7 +34,7 @@ native bool SaySounds_CanClientUseCommand(int client, const char[] commandName, 
 native bool SaySounds_IsCommandPaid(const char[] commandName);
 native bool SaySounds_GetCommandGroup(const char[] commandName, char[] groupName, int groupLen);
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
-native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound, bool chatAlert, float randomChance, const char[] type, int target = 0, float delay = 3.0);
+native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound, bool chatAlert, float randomChance, const char[] type, int target = 0, float delay = 3.0, int perMap = 0);
 
 static const char g_KillstreakLabels[][] =
 {

@@ -72,7 +72,7 @@ char g_CurrencyLongLabel[BP_CURRENCY_LONG_MAX];
 char g_CurrencyColorTag[BP_CURRENCY_COLOR_MAX + 2];
 char g_CurrencyPrefix[96];
 float g_NextSendAllowedAt[MAXPLAYERS + 1];
-StringMap g_WelfareCollectedSteamIds = null;
+StringMap g_PerMapAwardCounts = null;
 StringMap g_LotteryPendingSteamIds = null;
 int g_LotteryPendingTicketWrites = 0;
 
@@ -176,7 +176,7 @@ public void OnPluginStart()
     g_ItemPrices = new ArrayList();
     g_ItemDurations = new ArrayList();
     g_ItemUses = new ArrayList();
-    g_WelfareCollectedSteamIds = new StringMap();
+    g_PerMapAwardCounts = new StringMap();
     g_LotteryPendingSteamIds = new StringMap();
     g_LotteryWords = new ArrayList(ByteCountToCells(LOTTO_WORD_MAX));
     g_LotteryRarities = new ArrayList();
@@ -249,7 +249,7 @@ public void OnPluginEnd()
     delete g_ItemPrices;
     delete g_ItemDurations;
     delete g_ItemUses;
-    delete g_WelfareCollectedSteamIds;
+    delete g_PerMapAwardCounts;
     delete g_LotteryPendingSteamIds;
     delete g_LotteryWords;
     delete g_LotteryRarities;
@@ -285,9 +285,9 @@ public void OnPluginEnd()
 public void OnMapStart()
 {
     PluginStats_OnMapStart();
-    if (g_WelfareCollectedSteamIds != null)
+    if (g_PerMapAwardCounts != null)
     {
-        g_WelfareCollectedSteamIds.Clear();
+        g_PerMapAwardCounts.Clear();
     }
 }
 
@@ -3436,7 +3436,7 @@ void LogPointsStoreEvent(const char[] format, any ...)
     QueuePointsStoreEvent(message);
 }
 
-void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAfter, const char[] type, int target, bool playSound, bool chatAlert, float randomChance, bool saveQueued)
+void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAfter, const char[] type, int target, bool playSound, bool chatAlert, float randomChance, bool saveQueued, int perMap = 0, int perMapUsed = 0)
 {
     if (!IsPointsEventLoggingEnabled())
     {
@@ -3470,7 +3470,7 @@ void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAf
     }
 
     LogPointsStoreEvent(
-        "event=bp_delta|time=%d|client=%d|steamid64=%s|name=\"%s\"|class=%s|delta=%d|balance_before=%d|balance_after=%d|type=%s|target_value=%d|target_client=%d|target_steamid64=%s|target_name=\"%s\"|target_class=%s|play_sound=%d|chat_alert=%d|random_chance=%.3f|save_queued=%d",
+        "event=bp_delta|time=%d|client=%d|steamid64=%s|name=\"%s\"|class=%s|delta=%d|balance_before=%d|balance_after=%d|type=%s|target_value=%d|target_client=%d|target_steamid64=%s|target_name=\"%s\"|target_class=%s|play_sound=%d|chat_alert=%d|random_chance=%.3f|save_queued=%d|per_map=%d|per_map_used=%d",
         GetTime(),
         client,
         steamId,
@@ -3488,10 +3488,12 @@ void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAf
         playSound ? 1 : 0,
         chatAlert ? 1 : 0,
         randomChance,
-        saveQueued ? 1 : 0);
+        saveQueued ? 1 : 0,
+        perMap,
+        perMapUsed);
 }
 
-void LogBonusPointsRejected(const char[] reason, int client, int points, const char[] type, int target, int balance, float randomChance, float randomRoll)
+void LogBonusPointsRejected(const char[] reason, int client, int points, const char[] type, int target, int balance, float randomChance, float randomRoll, int perMap = 0, int perMapUsed = 0)
 {
     if (!IsPointsEventLoggingEnabled())
     {
@@ -3512,7 +3514,7 @@ void LogBonusPointsRejected(const char[] reason, int client, int points, const c
     SanitizeLogField(safeType, sizeof(safeType));
 
     LogPointsStoreEvent(
-        "event=bp_rejected|time=%d|reason=%s|client=%d|steamid64=%s|name=\"%s\"|class=%s|requested_delta=%d|balance=%d|type=%s|target_value=%d|random_chance=%.3f|random_roll=%.3f",
+        "event=bp_rejected|time=%d|reason=%s|client=%d|steamid64=%s|name=\"%s\"|class=%s|requested_delta=%d|balance=%d|type=%s|target_value=%d|random_chance=%.3f|random_roll=%.3f|per_map=%d|per_map_used=%d",
         GetTime(),
         safeReason,
         client,
@@ -3524,10 +3526,12 @@ void LogBonusPointsRejected(const char[] reason, int client, int points, const c
         safeType,
         target,
         randomChance,
-        randomRoll);
+        randomRoll,
+        perMap,
+        perMapUsed);
 }
 
-void LogBonusPointsDeferredQueue(int client, int points, const char[] type, int target, float delay, bool playSound, bool chatAlert, float randomChance)
+void LogBonusPointsDeferredQueue(int client, int points, const char[] type, int target, float delay, bool playSound, bool chatAlert, float randomChance, int perMap = 0)
 {
     if (!IsPointsEventLoggingEnabled())
     {
@@ -3545,7 +3549,7 @@ void LogBonusPointsDeferredQueue(int client, int points, const char[] type, int 
     SanitizeLogField(safeType, sizeof(safeType));
 
     LogPointsStoreEvent(
-        "event=bp_deferred_queue|time=%d|client=%d|steamid64=%s|name=\"%s\"|class=%s|requested_delta=%d|type=%s|target_value=%d|delay=%.2f|play_sound=%d|chat_alert=%d|random_chance=%.3f",
+        "event=bp_deferred_queue|time=%d|client=%d|steamid64=%s|name=\"%s\"|class=%s|requested_delta=%d|type=%s|target_value=%d|delay=%.2f|play_sound=%d|chat_alert=%d|random_chance=%.3f|per_map=%d",
         GetTime(),
         client,
         steamId,
@@ -3557,7 +3561,8 @@ void LogBonusPointsDeferredQueue(int client, int points, const char[] type, int 
         delay,
         playSound ? 1 : 0,
         chatAlert ? 1 : 0,
-        randomChance);
+        randomChance,
+        perMap);
 }
 
 void LogPurchaseEvent(const char[] eventName, const char[] reason, int client, const char[] itemKey, const char[] itemName, int price, int balance)
@@ -3809,7 +3814,76 @@ void PlayWelfareSound()
     SaySounds_PlayCommand(0, BP_WELFARE_SOUND_COMMAND, false);
 }
 
-bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0)
+
+bool BuildPerMapAwardKey(int client, const char[] type, char[] key, int maxlen)
+{
+    key[0] = '\0';
+
+    if (g_PerMapAwardCounts == null || type[0] == '\0')
+    {
+        return false;
+    }
+
+    char steamId[32];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    {
+        return false;
+    }
+
+    Format(key, maxlen, "%s:%s", steamId, type);
+    return true;
+}
+
+int GetPerMapAwardCount(int client, const char[] type)
+{
+    char key[128];
+    if (!BuildPerMapAwardKey(client, type, key, sizeof(key)))
+    {
+        return 0;
+    }
+
+    int count = 0;
+    g_PerMapAwardCounts.GetValue(key, count);
+    return count;
+}
+
+bool CanApplyPerMapAward(int client, int points, const char[] type, int perMap, int &used)
+{
+    used = 0;
+    if (points <= 0 || perMap <= 0)
+    {
+        return true;
+    }
+
+    used = GetPerMapAwardCount(client, type);
+    return used < perMap;
+}
+
+int IncrementPerMapAwardCount(int client, const char[] type)
+{
+    char key[128];
+    if (!BuildPerMapAwardKey(client, type, key, sizeof(key)))
+    {
+        return 0;
+    }
+
+    int count = 0;
+    g_PerMapAwardCounts.GetValue(key, count);
+    count++;
+    g_PerMapAwardCounts.SetValue(key, count, true);
+    return count;
+}
+
+void BuildPerMapAwardSuffix(int perMapUsed, int perMap, char[] suffix, int maxlen)
+{
+    suffix[0] = '\0';
+    if (perMap > 0 && perMapUsed > 0)
+    {
+        Format(suffix, maxlen, " (%d/%d)", perMapUsed, perMap);
+    }
+}
+
+bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, int perMap = 0)
 {
     if (!IsClientInGameHuman(client) || points == 0)
     {
@@ -3845,7 +3919,14 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
 
     if (points < 0 && g_ClientBonusPoints[client] < -points)
     {
-        LogBonusPointsRejected("insufficient_points", client, points, type, target, g_ClientBonusPoints[client], randomChance, randomRoll);
+        LogBonusPointsRejected("insufficient_points", client, points, type, target, g_ClientBonusPoints[client], randomChance, randomRoll, perMap, 0);
+        return false;
+    }
+
+    int perMapUsed = 0;
+    if (!CanApplyPerMapAward(client, points, type, perMap, perMapUsed))
+    {
+        LogBonusPointsRejected("per_map_limit", client, points, type, target, g_ClientBonusPoints[client], randomChance, randomRoll, perMap, perMapUsed);
         return false;
     }
 
@@ -3857,10 +3938,14 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
     }
 
     bool saveQueued = QueueBonusPointsDeltaSave(client, points);
-    LogBonusPointsDelta(client, points, balanceBefore, g_ClientBonusPoints[client], type, target, playSound, chatAlert, randomChance, saveQueued);
+    if (points > 0 && perMap > 0)
+    {
+        perMapUsed = IncrementPerMapAwardCount(client, type);
+    }
+    LogBonusPointsDelta(client, points, balanceBefore, g_ClientBonusPoints[client], type, target, playSound, chatAlert, randomChance, saveQueued, perMap, perMapUsed);
     if (!saveQueued)
     {
-        LogBonusPointsRejected("save_not_queued", client, points, type, target, g_ClientBonusPoints[client], randomChance, randomRoll);
+        LogBonusPointsRejected("save_not_queued", client, points, type, target, g_ClientBonusPoints[client], randomChance, randomRoll, perMap, perMapUsed);
     }
 
     if (playSound)
@@ -3873,11 +3958,11 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
         return true;
     }
 
-    PrintBonusPointsDelta(client, points, type, target);
+    PrintBonusPointsDelta(client, points, type, target, perMapUsed, perMap);
     return true;
 }
 
-bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0)
+bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0, int perMap = 0)
 {
     if (delay < 0.0)
     {
@@ -3886,7 +3971,7 @@ bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool ch
 
     if (delay == 0.0)
     {
-        return ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target);
+        return ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target, perMap);
     }
 
     if (!IsClientInGameHuman(client) || points == 0)
@@ -3895,7 +3980,7 @@ bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool ch
         return false;
     }
 
-    LogBonusPointsDeferredQueue(client, points, type, target, delay, playSound, chatAlert, randomChance);
+    LogBonusPointsDeferredQueue(client, points, type, target, delay, playSound, chatAlert, randomChance, perMap);
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
@@ -3904,6 +3989,7 @@ bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool ch
     pack.WriteCell(chatAlert ? 1 : 0);
     pack.WriteFloat(randomChance);
     pack.WriteString(type);
+    pack.WriteCell(perMap);
     if (StrEqual(type, "killstreak", false) || StrEqual(type, "multikill", false))
     {
         pack.WriteCell(target);
@@ -3949,14 +4035,15 @@ public Action Timer_DeferredApplyBonusPoints(Handle timer, any data)
     float randomChance = pack.ReadFloat();
     char type[64];
     pack.ReadString(type, sizeof(type));
+    int perMap = pack.ReadCell();
     int targetValue = pack.ReadCell();
     int target = (StrEqual(type, "killstreak", false) || StrEqual(type, "multikill", false)) ? targetValue : GetClientOfUserId(targetValue);
 
-    ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target);
+    ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target, perMap);
     return Plugin_Stop;
 }
 
-void PrintBonusPointsDelta(int client, int points, const char[] type, int target)
+void PrintBonusPointsDelta(int client, int points, const char[] type, int target, int perMapUsed = 0, int perMap = 0)
 {
     char prefix[96];
     GetCurrencyPrefix(prefix, sizeof(prefix));
@@ -3971,11 +4058,14 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
     sign[0] = '+';
     sign[1] = '\0';
 
+    char perMapSuffix[24];
+    BuildPerMapAwardSuffix(perMapUsed, perMap, perMapSuffix, sizeof(perMapSuffix));
+
     if (StrEqual(type, "points_diff", false) && IsClientInGameHuman(target))
     {
         char targetName[256];
         BuildPurchaseDisplayName(target, targetName, sizeof(targetName));
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for killing %s", prefix, sign, points, targetName);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for killing %s%s", prefix, sign, points, targetName, perMapSuffix);
         return;
     }
 
@@ -3983,25 +4073,25 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
     {
         char targetName[256];
         BuildPurchaseDisplayName(target, targetName, sizeof(targetName));
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for killing {gold}Top-scoring player{default} (%s)", prefix, sign, points, targetName);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for killing {gold}Top-scoring player{default} (%s)%s", prefix, sign, points, targetName, perMapSuffix);
         return;
     }
 
     if (StrEqual(type, "player_dom", false) && IsClientInGameHuman(target))
     {
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for Dominating %N", prefix, sign, points, target);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for Dominating %N%s", prefix, sign, points, target, perMapSuffix);
         return;
     }
 
     if (StrEqual(type, "player_revenge", false) && IsClientInGameHuman(target))
     {
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for Revenge on %N", prefix, sign, points, target);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for Revenge on %N%s", prefix, sign, points, target, perMapSuffix);
         return;
     }
 
     if (StrEqual(type, "killstreak", false))
     {
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for Killstreak: %d", prefix, sign, points, target);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for Killstreak: %d%s", prefix, sign, points, target, perMapSuffix);
         return;
     }
 
@@ -4011,11 +4101,11 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
         GetMultikillBonusPointsLabel(target, multikillLabel, sizeof(multikillLabel));
         if (multikillLabel[0] != '\0')
         {
-            CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s", prefix, sign, points, multikillLabel);
+            CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s%s", prefix, sign, points, multikillLabel, perMapSuffix);
         }
         else
         {
-            CPrintToChat(client, "%s {limegreen}%s%i{default} for Multikill: %d", prefix, sign, points, target);
+            CPrintToChat(client, "%s {limegreen}%s%i{default} for Multikill: %d%s", prefix, sign, points, target, perMapSuffix);
         }
         return;
     }
@@ -4024,11 +4114,11 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
     GetBonusPointsTypeLabel(type, label, sizeof(label));
     if (label[0] != '\0')
     {
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s", prefix, sign, points, label);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s%s", prefix, sign, points, label, perMapSuffix);
         return;
     }
 
-    CPrintToChat(client, "%s {limegreen}%s%i", prefix, sign, points);
+    CPrintToChat(client, "%s {limegreen}%s%i%s", prefix, sign, points, perMapSuffix);
 }
 
 public Action Command_Shop(int client, int args)
@@ -4252,30 +4342,17 @@ public Action Command_Welfare(int client, int args)
         return Plugin_Handled;
     }
 
-    char steamId[32];
-    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
-    {
-        CPrintToChat(client, "%s Could not read your SteamID64.", prefix);
-        return Plugin_Handled;
-    }
-
-    int alreadyCollected = 0;
-    if (g_WelfareCollectedSteamIds != null && g_WelfareCollectedSteamIds.GetValue(steamId, alreadyCollected))
+    if (GetPerMapAwardCount(client, "welfare") >= 1)
     {
         CPrintToChat(client, "%s You already collected {gold}!welfare{default} this map.", prefix);
         return Plugin_Handled;
     }
 
     int amount = GetRandomInt(BP_WELFARE_MIN, BP_WELFARE_MAX);
-    if (!ApplyBonusPoints(client, amount, false, false, 1.0, "welfare", 0, 0.0))
+    if (!ApplyBonusPoints(client, amount, false, false, 1.0, "welfare", 0, 0.0, 1))
     {
         CPrintToChat(client, "%s Could not collect welfare right now.", prefix);
         return Plugin_Handled;
-    }
-
-    if (g_WelfareCollectedSteamIds != null)
-    {
-        g_WelfareCollectedSteamIds.SetValue(steamId, 1, true);
     }
 
     PlayWelfareSound();
@@ -4637,7 +4714,8 @@ public any Native_PointsStore_ApplyBonusPoints(Handle plugin, int numParams)
 
     int target = (numParams >= 7) ? GetNativeCell(7) : 0;
     float delay = (numParams >= 8) ? view_as<float>(GetNativeCell(8)) : 3.0;
-    return ApplyBonusPoints(client, points, playSound, chatAlert, randomChance, type, target, delay);
+    int perMap = (numParams >= 9) ? GetNativeCell(9) : 0;
+    return ApplyBonusPoints(client, points, playSound, chatAlert, randomChance, type, target, delay, perMap);
 }
 
 public any Native_PointsStore_SpendBonusPoints(Handle plugin, int numParams)
