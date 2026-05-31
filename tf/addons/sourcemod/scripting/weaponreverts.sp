@@ -587,7 +587,7 @@ public Action Accuracy_Timer_RemoveEntity(Handle timer, int ref)
 	return Plugin_Stop;
 }
 
-static void Accuracy_OnMeatshot(int attacker, int victim, int weapon = -1)
+static void Accuracy_OnFlameShotgunStack(int attacker, int victim, int weapon = -1)
 {
 	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
 		return;
@@ -734,9 +734,10 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 
 	if (total < 1)
 		return;
+			
 
-	if (pellets >= 9) // 9/10, this is only for the flame shotgun
-			Accuracy_OnMeatshot(attacker, victim);
+	if (pellets > 7) // 8/10, this is only for the flame shotgun
+			Accuracy_OnFlameShotgunStack(attacker, victim);
 
 	if (pellets < total)
 	{
