@@ -732,13 +732,17 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 		return;
 	}
 
-	if (total <= 0 || pellets < total)
+	if (total < 1)
+		return;
+
+	if (pellets >= 9) // 9/10, this is only for the flame shotgun
+			Accuracy_OnMeatshot(attacker, victim);
+
+	if (pellets < total)
 	{
 		ScatterPellets_Debug("ignored: not a full pellet shot");
 		return;
 	}
-
-	Accuracy_OnMeatshot(attacker, victim); // This is only for the flame shotgun
 
 	if (!kill)
 	{
