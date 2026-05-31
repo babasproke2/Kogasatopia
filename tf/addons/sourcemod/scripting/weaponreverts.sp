@@ -451,16 +451,28 @@ static bool Accuracy_IsValidFlameShotgun(int weapon)
 
 static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float &damage, int &damagetype)
 {
-	if (!IsValidEntity(entity) || attacker <= 0 || attacker > MaxClients || !IsClientInGame(attacker))
-		return Plugin_Continue;
+	DrainBuildingAmmoOnHit(attacker, entity, false);
+	return Plugin_Continue;
+}
+
+static Action OnBuildingTraceAttack(int entity, int &attacker, int &inflictor, float &damage, int &damagetype, int &ammotype, int hitbox, int hitgroup)
+{
+	DrainBuildingAmmoOnHit(attacker, entity, true);
+	return Plugin_Continue;
+}
+
+static bool DrainBuildingAmmoOnHit(int attacker, int entity, bool alliedOnly)
+{
+	if (!IsValidEntity(entity) || !Accuracy_IsValidClient(attacker))
+		return false;
 
 	int weapon = GetEntPropEnt(attacker, Prop_Data, "m_hActiveWeapon");
-	if (weapon <= MaxClients || !IsValidEntity(weapon))
-		return Plugin_Continue;
+	if (!IsValidWeaponEntity(weapon))
+		return false;
 
 	int drainAttr = TF2CustAttr_GetInt(weapon, "drain ammo on hit building");
-	if (drainAttr <= 0)
-		return Plugin_Continue;
+	if (drainAttr < 1)
+		return false;
 
 	char classname[64];
 	GetEntityClassname(entity, classname, sizeof(classname));
@@ -468,7 +480,13 @@ static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float
 	bool isSentry = StrEqual(classname, "obj_sentrygun");
 
 	if (!isDispenser && !isSentry)
-		return Plugin_Continue;
+		return false;
+
+	if (alliedOnly)
+	{
+		if (!HasEntProp(entity, Prop_Send, "m_iTeamNum") || GetEntProp(entity, Prop_Send, "m_iTeamNum") != GetClientTeam(attacker))
+			return false;
+	}
 
 	int drained = 0;
 
@@ -503,7 +521,7 @@ static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float
 		}
 	}
 
-	return Plugin_Continue;
+	return drained > 0;
 }
 
 public void Event_PlayerBuiltObject(Event event, const char[] name, bool dontBroadcast)
@@ -1951,6 +1969,7 @@ static void HookBuildingEntity(int entity)
 		return;
 
 	SDKHook(entity, SDKHook_OnTakeDamage, OnBuildingDamaged);
+	SDKHook(entity, SDKHook_TraceAttack, OnBuildingTraceAttack);
 }
 
 float ValveRemapVal(float val, float a, float b, float c, float d) {
