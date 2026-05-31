@@ -33,6 +33,9 @@ bool      g_bVolunteerDbReady = false;
 int       g_iPersistentVolunteerCount = 0;
 ConVar  g_hLogEnabled;
 ConVar  g_hDiffThreshold;
+ConVar  g_hActionDelay;
+ConVar  g_hMaxUnbalanceTime;
+ConVar  g_hForceThresholdDelta;
 ConVar  g_hSimpleSelection;
 ConVar  g_hIgnoreWinning;
 ConVar  g_hDatabaseConfig;
@@ -41,6 +44,7 @@ ConVar  g_hMpTeamsUnbalanceLimit;
 int     g_iSavedAutoteamBalance;
 int     g_iSavedUnbalanceLimit;
 Handle  g_hAutoBalanceTimer = INVALID_HANDLE;
+float   g_fImbalanceDetectedAt = 0.0;
 
 public Plugin myinfo =
 {
@@ -74,6 +78,9 @@ public void OnPluginStart()
     LoadTranslations("common.phrases");
     g_hLogEnabled = CreateConVar("sm_autobalance_log", "1", "Enable autobalance debug logging.", _, true, 0.0, true, 1.0);
     g_hDiffThreshold = CreateConVar("sm_autobalance_diff", "1", "Autobalance when team size difference is above this value.", _, true, 1.0, true, 10.0);
+    g_hActionDelay = CreateConVar("sm_autobalance_action_delay", "10", "Seconds an imbalance must persist before normal autobalance can move a player.", _, true, 0.0, true, 120.0);
+    g_hMaxUnbalanceTime = CreateConVar("sm_autobalance_max_unbalance_time", "5", "Maximum seconds an imbalance may persist before forced autobalance. 0 disables.", _, true, 0.0, true, 300.0);
+    g_hForceThresholdDelta = CreateConVar("sm_autobalance_force_threshold_delta", "1", "Force autobalance when team-size diff is at least normal threshold plus this value.", _, true, 0.0, true, 10.0);
     g_hSimpleSelection = CreateConVar("sm_autobalance_simple_selection", "1", "If enabled, autobalance prefers the most recently joined dead non-Engineer on the oversized team, then falls back to lower-priority eligible players by userID.", _, true, 0.0, true, 1.0);
     g_hIgnoreWinning = CreateConVar("sm_autobalance_ignore_winning", "3", "0 disables. 1 blocks losing-to-winning moves. Values above 1 allow losing-to-winning moves when value is >= current team-size diff.", _, true, 0.0);
     g_hDatabaseConfig = CreateConVar("sm_autobalance_database", "default", "Database config name from databases.cfg to use for persistent autobalance immunity.");
@@ -230,6 +237,37 @@ public Action Timer_Autobalance(Handle timer)
 
     if (diff <= diffThreshold)
     {
+        g_fImbalanceDetectedAt = 0.0;
+        return Plugin_Continue;
+    }
+
+    float now = GetEngineTime();
+    if (g_fImbalanceDetectedAt <= 0.0)
+    {
+        g_fImbalanceDetectedAt = now;
+    }
+
+    float imbalanceAge = now - g_fImbalanceDetectedAt;
+    float actionDelay = (g_hActionDelay != null) ? g_hActionDelay.FloatValue : 0.0;
+    float maxUnbalanceTime = (g_hMaxUnbalanceTime != null) ? g_hMaxUnbalanceTime.FloatValue : 0.0;
+    int forceThresholdDelta = (g_hForceThresholdDelta != null) ? g_hForceThresholdDelta.IntValue : 1;
+    if (forceThresholdDelta < 0)
+    {
+        forceThresholdDelta = 0;
+    }
+
+    bool forceByThreshold = diff >= (diffThreshold + forceThresholdDelta);
+    bool forceByTime = maxUnbalanceTime > 0.0 && imbalanceAge >= maxUnbalanceTime;
+    bool forceBalance = forceByThreshold || forceByTime;
+    if (!forceBalance && imbalanceAge < actionDelay)
+    {
+        if (IsBalanceLoggingEnabled())
+        {
+            LogBalance(
+                "Delay balance: diff=%d threshold=%d age=%.1f actionDelay=%.1f forceThreshold=%d maxTime=%.1f",
+                diff, diffThreshold, imbalanceAge, actionDelay, diffThreshold + forceThresholdDelta, maxUnbalanceTime
+            );
+        }
         return Plugin_Continue;
     }
 
@@ -260,15 +298,19 @@ public Action Timer_Autobalance(Handle timer)
     if (loggingEnabled)
     {
         LogBalance(
-            "Imbalance: RED=%d BLU=%d GREEN=%d YELLOW=%d | from=%s(%d) to=%s(%d) force=yes",
+            "Imbalance: RED=%d BLU=%d GREEN=%d YELLOW=%d | from=%s(%d) to=%s(%d) force=%s age=%.1f",
             teamCounts[TEAM_RED], teamCounts[TEAM_BLUE], teamCounts[TEAM_GREEN], teamCounts[TEAM_YELLOW],
-            fromTeamName, biggestCount, toTeamName, smallestCount
+            fromTeamName, biggestCount, toTeamName, smallestCount,
+            forceBalance ? "yes" : "no",
+            imbalanceAge
         );
     }
     PrintToServer(
-        "[autobalance_4teams] Imbalance: RED=%d BLU=%d GREEN=%d YELLOW=%d | from=%s(%d) to=%s(%d) force=yes",
+        "[autobalance_4teams] Imbalance: RED=%d BLU=%d GREEN=%d YELLOW=%d | from=%s(%d) to=%s(%d) force=%s age=%.1f",
         teamCounts[TEAM_RED], teamCounts[TEAM_BLUE], teamCounts[TEAM_GREEN], teamCounts[TEAM_YELLOW],
-        fromTeamName, biggestCount, toTeamName, smallestCount
+        fromTeamName, biggestCount, toTeamName, smallestCount,
+        forceBalance ? "yes" : "no",
+        imbalanceAge
     );
 
     // ------------------------------------------------------------------
@@ -423,6 +465,7 @@ public Action Timer_Autobalance(Handle timer)
     ChangeClientTeam(pick, smallestTeam);
     TF2_RespawnPlayer(pick);
     SetClientMapImmunity(pick, true);
+    g_fImbalanceDetectedAt = 0.0;
 
     CPrintToChatAllEx(
         pick,
