@@ -72,6 +72,7 @@ ConVar g_hDisableTfAuto = null;
 ConVar g_hShortRoundAutoSeconds = null;
 ConVar g_hKothNoCapAuto = null;
 ConVar g_hWinStreakAuto = null;
+ConVar g_hNoSequentialAuto = null;
 ConVar g_hMpScrambleTeamsAuto = null;
 int g_iRoundsSinceAuto = 0;
 StringMap g_hScrambleImmunity = null;
@@ -83,6 +84,8 @@ bool g_bKothRedCapped = false;
 bool g_bKothBluCapped = false;
 int g_iLastFullRoundWinner = 0;
 int g_iWinStreak = 0;
+bool g_bScrambledThisRound = false;
+bool g_bLastRoundHadScramble = false;
 
 #define TEAM_RED  2
 #define TEAM_BLU  3
@@ -136,6 +139,7 @@ public void OnPluginStart()
     g_hShortRoundAutoSeconds = CreateConVar("sm_whalescramble_short_round_seconds", "60", "Automatically whale scramble when the previous round duration is under this many seconds. 0 disables.", _, true, 0.0, true, 600.0);
     g_hKothNoCapAuto = CreateConVar("sm_whalescramble_koth_no_cap", "1", "Automatically whale scramble when a full KOTH round ends with either team never capturing the point.", _, true, 0.0, true, 1.0);
     g_hWinStreakAuto = CreateConVar("sm_whalescramble_win_streak", "2", "Automatically whale scramble after one team wins this many full rounds in a row. 0 disables.", _, true, 0.0, true, 20.0);
+    g_hNoSequentialAuto = CreateConVar("sm_whalescramble_no_sequential", "1", "Block auto scrambles from happening in consecutive rounds or more than once in one round.", _, true, 0.0, true, 1.0);
     g_hMpScrambleTeamsAuto = FindConVar("mp_scrambleteams_auto");
     g_hScrambleImmunity = new StringMap();
 
@@ -330,6 +334,7 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
         CreateTimer(0.1, Timer_CheckShortRoundAutoScramble, _, TIMER_FLAG_NO_MAPCHANGE);
         CheckKothNoCapAutoScramble();
         CheckWinStreakAutoScramble(event.GetInt("team"));
+        g_bLastRoundHadScramble = g_bScrambledThisRound;
     }
 
     if (g_hAutoRounds == null)
@@ -354,13 +359,7 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
         return;
     }
 
-    if (g_bAutoScramblePendingRoundStart)
-    {
-        LogWhale("Auto scramble already pending.");
-        return;
-    }
-
-    ArmAutoScrambleForNextRound();
+    TryArmAutoScrambleForNextRound("round-count");
 }
 
 public Action Timer_CheckShortRoundAutoScramble(Handle timer)
@@ -391,7 +390,7 @@ public Action Timer_CheckShortRoundAutoScramble(Handle timer)
 
     CPrintToChatAll("{blue}[WhaleScramble]{default} Round ended in under {lightgreen}%d{default} seconds, scrambling!", threshold);
     LogWhale("Short-round auto scramble armed: duration=%d threshold=%d.", duration, threshold);
-    ArmAutoScrambleForNextRound();
+    TryArmAutoScrambleForNextRound("short-round");
     return Plugin_Stop;
 }
 
@@ -399,6 +398,7 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
     g_bKothRedCapped = false;
     g_bKothBluCapped = false;
+    g_bScrambledThisRound = false;
 
     if (!ConsumeAutoScramblePending())
     {
@@ -449,7 +449,7 @@ static void CheckKothNoCapAutoScramble()
 
     CPrintToChatAll("{blue}[WhaleScramble]{default} KOTH steamroll detected, scrambling!");
     LogWhale("KOTH no-cap auto scramble armed: redCapped=%d bluCapped=%d.", g_bKothRedCapped ? 1 : 0, g_bKothBluCapped ? 1 : 0);
-    ArmAutoScrambleForNextRound();
+    TryArmAutoScrambleForNextRound("koth-no-cap");
 }
 
 static bool IsCurrentKothGamemode()
@@ -503,15 +503,9 @@ static void CheckWinStreakAutoScramble(int winningTeam)
         return;
     }
 
-    if (g_bAutoScramblePendingRoundStart)
-    {
-        LogWhale("Win-streak auto scramble already pending: team=%d streak=%d threshold=%d.", winningTeam, g_iWinStreak, threshold);
-        return;
-    }
-
     CPrintToChatAll("{blue}[WhaleScramble]{default} Win streak reached {lightgreen}%d{default}, scrambling!", threshold);
     LogWhale("Win-streak auto scramble armed: team=%d streak=%d threshold=%d.", winningTeam, g_iWinStreak, threshold);
-    ArmAutoScrambleForNextRound();
+    TryArmAutoScrambleForNextRound("win-streak");
 }
 
 public void Event_GameOver(Event event, const char[] name, bool dontBroadcast)
@@ -1303,6 +1297,34 @@ static void ArmAutoScrambleForNextRound()
     g_bAutoScramblePendingRoundStart = true;
     g_flAutoScramblePendingRoundStartUntil = GetEngineTime() + 20.0;
     LogWhale("Auto scramble armed for next round start.");
+}
+
+static bool TryArmAutoScrambleForNextRound(const char[] reason)
+{
+    if (g_bAutoScramblePendingRoundStart)
+    {
+        LogWhale("Auto scramble already pending; reason=%s.", reason);
+        return false;
+    }
+
+    if (g_hNoSequentialAuto != null && g_hNoSequentialAuto.BoolValue)
+    {
+        if (g_bScrambledThisRound)
+        {
+            LogWhale("Auto scramble blocked by no-sequential guard: already scrambled this round; reason=%s.", reason);
+            return false;
+        }
+
+        if (g_bLastRoundHadScramble)
+        {
+            LogWhale("Auto scramble blocked by no-sequential guard: previous round scrambled; reason=%s.", reason);
+            return false;
+        }
+    }
+
+    LogWhale("Auto scramble arming accepted: reason=%s.", reason);
+    ArmAutoScrambleForNextRound();
+    return true;
 }
 
 static bool ConsumeAutoScramblePending()
@@ -2139,6 +2161,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
     moved = pairCount * 2;
     if (moved > 0)
     {
+        g_bScrambledThisRound = true;
         ResetSurrenderVotes("whalescramble_execute");
         StartScrambleCooldown();
         CPrintToChatAll("{tomato}[{purple}Gap{tomato}]{default} {gold}Whalescrambling{default} %d players!", moved);
