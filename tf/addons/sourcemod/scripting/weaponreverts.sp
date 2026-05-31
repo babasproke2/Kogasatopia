@@ -738,7 +738,7 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 		return;
 	}
 
-	Accuracy_OnMeatshot(attacker, victim);
+	Accuracy_OnMeatshot(attacker, victim); // This is only for the flame shotgun
 
 	if (!kill)
 	{
