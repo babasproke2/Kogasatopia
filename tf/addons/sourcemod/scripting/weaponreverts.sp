@@ -515,7 +515,7 @@ public void Event_PlayerBuiltObject(Event event, const char[] name, bool dontBro
 	HookBuildingEntity(ent);
 }
 
-static void Accuracy_Explode(int attacker, int victim, float position[3], float damage, float radius)
+static void FlameShotgun_Explode(int attacker, int victim, float position[3], float damage, float radius)
 {
 	if (!Accuracy_IsValidClient(attacker) || g_bAccuracyExploding[attacker])
 		return;
@@ -609,16 +609,6 @@ static void Accuracy_OnFlameShotgunStack(int attacker, int victim, int weapon = 
 		return;
 	}
 
-	int maxClip = GetWeaponMaxClip(weapon);
-	if (maxClip > 0)
-	{
-		int clip = GetClip(weapon);
-		if (clip >= 0 && clip < maxClip)
-		{
-			SetClip_Weapon(weapon, clip + 1);
-		}
-	}
-
 	float eye[3];
 	GetClientEyePosition(attacker, eye);
 
@@ -640,8 +630,18 @@ static void Accuracy_OnFlameShotgunStack(int attacker, int victim, int weapon = 
 		{
 			TF2_IgnitePlayer(victim, attacker, 4.0);
 		}
-		Accuracy_Explode(attacker, victim, boomPos, ACC_EXPLODE_DAMAGE, ACC_EXPLODE_RADIUS);
+		FlameShotgun_Explode(attacker, victim, boomPos, ACC_EXPLODE_DAMAGE, ACC_EXPLODE_RADIUS);
 		EmitAmbientSound(ACC_NOTIFY_2, eye, attacker, SNDLEVEL_NORMAL);
+
+		int maxClip = GetWeaponMaxClip(weapon);
+		if (maxClip > 0)
+		{
+			int clip = GetClip(weapon);
+			if (clip >= 0 && clip < maxClip)
+			{
+				SetClip_Weapon(weapon, maxClip);
+			}
+		}
 
 		tf2_players[victim].accuracyStreak = 0;
 		tf2_players[victim].accuracyStreakExpiresAt = 0.0;
@@ -734,7 +734,7 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 		return;
 			
 
-	if (pellets > 7) // 8/10, this is only for the flame shotgun
+	if (pellets > 6) // 7/10, this is only for the flame shotgun, virtually 7/9
 			Accuracy_OnFlameShotgunStack(attacker, victim);
 
 	if (pellets < total)
