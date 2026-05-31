@@ -134,16 +134,25 @@ void OnDroppedWeaponSpawnPost(int weapon) {
  */
 void OnInventoryAppliedPost(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (!client) {
+	if (!IsValidViewmodelClient(client)) {
 		return;
 	}
 	UpdateClientWeaponModel(client);
+	CreateTimer(0.1, Timer_DelayedUpdateClientWeaponModel, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
 	
 	/**
 	 * start processing weapon switches, since other plugins may be equipping new weapons in
 	 * post_inventory_application -- and that's still within the player's spawn function call
 	 */
 	g_bIgnoreWeaponSwitch[client] = false;
+}
+
+Action Timer_DelayedUpdateClientWeaponModel(Handle timer, any userid) {
+	int client = GetClientOfUserId(userid);
+	if (IsValidViewmodelClient(client)) {
+		UpdateClientWeaponModel(client);
+	}
+	return Plugin_Stop;
 }
 
 Action OnPlayerSpawnPre(int client) {
@@ -165,12 +174,17 @@ void OnWeaponSwitchPost(int client, int weapon) {
  * Called on weapon switch.  Detaches any old viewmodel overrides and attaches replacements.
  */
 void UpdateClientWeaponModel(int client) {
-	DetachVMs(client);
+	if (!IsValidViewmodelClient(client)) {
+		ResetClientModelRefs(client);
+		return;
+	}
 	
 	int weapon = TF2_GetClientActiveWeapon(client);
 	if (!IsValidEntity(weapon)) {
 		return;
 	}
+	
+	DetachVMs(client);
 	
 	int bitsActiveModels = MODEL_NONE_ACTIVE;
 	
@@ -445,6 +459,11 @@ bool SetAttachedSapperModel(int sapper, const char[] worldmodel) {
  * Detaches any custom viewmodels on the client and displays the original viewmodel.
  */
 void DetachVMs(int client) {
+	if (!IsValidViewmodelClient(client)) {
+		ResetClientModelRefs(client);
+		return;
+	}
+
 	MaybeRemoveWearable(client, g_iLastViewmodelRef[client]);
 	g_iLastViewmodelRef[client] = INVALID_ENT_REFERENCE;
 	MaybeRemoveWearable(client, g_iLastArmModelRef[client]);
@@ -496,6 +515,10 @@ int GetArmViewModel(int client, char[] buffer, int maxlen) {
 	}
 	
 	return strcopy(buffer, maxlen, armModels[ view_as<int>(playerClass) ]);
+}
+
+bool IsValidViewmodelClient(int client) {
+	return client > 0 && client <= MaxClients && IsClientInGame(client);
 }
 
 void ResetClientModelRefs(int client) {
