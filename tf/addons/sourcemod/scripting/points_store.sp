@@ -3698,14 +3698,6 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     {
         strcopy(label, maxlen, "Airshot");
     }
-    else if (StrEqual(type, "medic_kill", false))
-    {
-        strcopy(label, maxlen, "Medic Kill");
-    }
-    else if (StrEqual(type, "heavy_kill", false))
-    {
-        strcopy(label, maxlen, "Heavy Kill");
-    }
     else if (StrEqual(type, "medic_drop", false))
     {
         strcopy(label, maxlen, "Medic Drop");
