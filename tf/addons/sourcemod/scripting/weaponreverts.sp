@@ -447,7 +447,7 @@ static void VitaSaw_ApplyStoredCharge(int client)
 	VitaSaw_ClearStoredCharge(client);
 }
 
-static bool Accuracy_IsValidShotgun(int weapon)
+static bool Accuracy_IsValidFlameShotgun(int weapon)
 {
 	return (IsValidWeaponEntity(weapon) && TF2CustAttr_GetInt(weapon, "flame shotgun attributes") != 0);
 }
@@ -603,7 +603,7 @@ static void Accuracy_OnMeatshot(int attacker, int victim, int weapon = -1)
 		ScatterPellets_Debug("meatshot ignored: no valid active weapon");
 		return;
 	}
-	if (!Accuracy_IsValidShotgun(weapon))
+	if (!Accuracy_IsValidFlameShotgun(weapon))
 	{
 		char classname[64];
 		GetEntityClassname(weapon, classname, sizeof(classname));
