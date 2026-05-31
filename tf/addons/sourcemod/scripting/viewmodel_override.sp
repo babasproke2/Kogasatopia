@@ -122,6 +122,7 @@ void OnDroppedWeaponSpawnPost(int weapon) {
 		if (FileExists(wm, true)) {
 			SetEntityModel(weapon, wm);
 			SetWeaponWorldModel(weapon, wm);
+			MarkValidatedAttachedEntity(weapon);
 		}
 	}
 }
@@ -186,6 +187,7 @@ void UpdateClientWeaponModel(int client) {
 		if (IsValidEntity(weaponvm)) {
 			SetEntityModel(weaponvm, vm);
 			TF2Util_EquipPlayerWearable(client, weaponvm);
+			MarkValidatedAttachedEntity(weaponvm);
 			
 			g_iLastViewmodelRef[client] = EntIndexToEntRef(weaponvm);
 			bitsActiveModels |= MODEL_VIEW_ACTIVE;
@@ -197,6 +199,7 @@ void UpdateClientWeaponModel(int client) {
 			&& FileExistsAndLog(wm, true)) {
 		// this allows other players to see the given weapon with the correct model
 		SetWeaponWorldModel(weapon, wm);
+		MarkValidatedAttachedEntity(weapon);
 		
 		// the following shows the weapon in third-person, as m_nModelIndexOverrides is messy
 		int weaponwm = CanCreateOverrideWearable() ? TF2_SpawnWearable() : -1;
@@ -204,6 +207,7 @@ void UpdateClientWeaponModel(int client) {
 			SetEntityModel(weaponwm, wm);
 			
 			TF2Util_EquipPlayerWearable(client, weaponwm);
+			MarkValidatedAttachedEntity(weaponwm);
 			g_iLastWorldModelRef[client] = EntIndexToEntRef(weaponwm);
 			
 			SetEntityRenderMode(weapon, RENDER_TRANSCOLOR);
@@ -294,6 +298,7 @@ void UpdateClientWeaponModel(int client) {
 				&& FileExistsAndLog(ohvm, true)) {
 			PrecacheModelAndLog(ohvm);
 			SetEntityModel(shield, ohvm);
+			MarkValidatedAttachedEntity(shield);
 			
 			if (TF2Util_IsEntityWeapon(weapon)
 					&& TF2Util_GetWeaponSlot(weapon) == TFWeaponSlot_Melee) {
@@ -302,6 +307,7 @@ void UpdateClientWeaponModel(int client) {
 					SetEntityModel(offhandwearable, ohvm);
 					
 					TF2Util_EquipPlayerWearable(client, offhandwearable);
+					MarkValidatedAttachedEntity(offhandwearable);
 					g_iLastOffHandViewmodelRef[client] = EntIndexToEntRef(offhandwearable);
 					
 					bitsActiveModels |= MODEL_OFFHAND_ACTIVE;
@@ -333,6 +339,7 @@ void UpdateClientWeaponModel(int client) {
 		
 		SetEntityModel(armvm, armvmPath);
 		TF2Util_EquipPlayerWearable(client, armvm);
+		MarkValidatedAttachedEntity(armvm);
 		
 		g_iLastArmModelRef[client] = EntIndexToEntRef(armvm);
 		
@@ -358,6 +365,7 @@ void UpdateClientWeaponModel(int client) {
 			if (IsValidEntity(weaponvm)) {
 				SetEntityModel(weaponvm, vm);
 				TF2Util_EquipPlayerWearable(client, weaponvm);
+				MarkValidatedAttachedEntity(weaponvm);
 				
 				g_iLastViewmodelRef[client] = EntIndexToEntRef(weaponvm);
 				
@@ -522,8 +530,16 @@ stock int TF2_SpawnWearableViewmodel() {
 	if (IsValidEntity(wearable)) {
 		SetEntProp(wearable, Prop_Send, "m_iItemDefinitionIndex", DEFINDEX_UNDEFINED);
 		DispatchSpawn(wearable);
+		MarkValidatedAttachedEntity(wearable);
 	}
 	return wearable;
+}
+
+void MarkValidatedAttachedEntity(int entity) {
+	if (entity > MaxClients && IsValidEntity(entity)
+			&& HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity")) {
+		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
+	}
 }
 
 bool CanCreateOverrideWearable() {
