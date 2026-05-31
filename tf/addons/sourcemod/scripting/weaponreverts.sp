@@ -458,7 +458,7 @@ static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float
 	if (weapon <= MaxClients || !IsValidEntity(weapon))
 		return Plugin_Continue;
 
-	int drainAttr = TF2CustAttr_GetInt(weapon, "drain ammo on hit sentry");
+	int drainAttr = TF2CustAttr_GetInt(weapon, "drain ammo on hit building");
 	if (drainAttr <= 0)
 		return Plugin_Continue;
 
