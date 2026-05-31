@@ -16,7 +16,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
 #define HEADSHOT_SUPPRESS_WINDOW 0.5
 #define AIRSHOT_MIN_HEIGHT 50.0
-#define MEDIC_CROSSBOW_AIRSHOT_MIN_HEIGHT 170.0
+#define MEDIC_CROSSBOW_AIRSHOT_MIN_HEIGHT 100.0 // Supstats2 uses a height of 170.0
 #define SOUND_AIRSHOT "misc/taps_02.wav"
 #define SOUND_AIRSHOT_DOWNLOAD "sound/misc/taps_02.wav"
 #define SAYSOUND_AIRSHOT_COMMAND "airshot"
