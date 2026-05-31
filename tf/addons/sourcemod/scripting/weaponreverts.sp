@@ -17,9 +17,6 @@
 #define REQUIRE_PLUGIN
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
-#define FLS_MAX_DIST		768.0
-#define FLS_THRESH_NEAR		  32.0
-#define FLS_THRESH_FAR		  12.0
 #define FLS_STREAK_TARGET	   2
 #define FLS_STREAK_WINDOW	   4.0
 #define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
