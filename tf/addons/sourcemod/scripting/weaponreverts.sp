@@ -605,9 +605,7 @@ static void Accuracy_OnFlameShotgunStack(int attacker, int victim, int weapon = 
 	}
 	if (!Accuracy_IsValidFlameShotgun(weapon))
 	{
-		char classname[64];
-		GetEntityClassname(weapon, classname, sizeof(classname));
-		ScatterPellets_Debug("meatshot ignored: weapon lacks flame shotgun attributes weapon=%d class=%s", weapon, classname);
+		ScatterPellets_Debug("meatshot ignored: weapon lacks flame shotgun attributes");
 		return;
 	}
 
