@@ -2,6 +2,7 @@
 #pragma newdecls required
 #include <sourcemod>
 #include <clientprefs>
+#include <sdkhooks>
 #include <sdktools>
 #include <tf2>
 #include <tf2_stocks>
@@ -15,6 +16,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
 #define HEADSHOT_SUPPRESS_WINDOW 0.5
 #define AIRSHOT_MIN_HEIGHT 50.0
+#define MEDIC_CROSSBOW_AIRSHOT_MIN_HEIGHT 170.0
 #define SOUND_AIRSHOT "misc/taps_02.wav"
 #define SOUND_AIRSHOT_DOWNLOAD "sound/misc/taps_02.wav"
 #define SAYSOUND_AIRSHOT_COMMAND "airshot"
@@ -34,7 +36,7 @@ public Plugin myinfo =
 {
 	name = "[TF2] Airshot",
 	author = "Jerry",
-	description = "Detects projectile airshot kills for Soldier and Demoman.",
+	description = "Detects projectile airshots.",
 	version = "1.0",
 	url = ""
 };
@@ -42,6 +44,14 @@ public void OnPluginStart()
 {
 	HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
 	g_bSaySoundsAvailable = LibraryExists("saysounds");
+
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		if (IsClientInGame(client))
+		{
+			SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
+		}
+	}
 }
 
 public void OnLibraryAdded(const char[] name)
@@ -67,12 +77,25 @@ public void OnMapStart()
 }
 public void OnClientPutInServer(int client)
 {
+	SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 	ResetAirshotState(client);
 }
 public void OnClientDisconnect(int client)
 {
+	SDKUnhook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 	ResetAirshotState(client);
 }
+
+public Action OnTakeDamage(int victim, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
+{
+	if (IsMedicCrossbowAirshot(attacker, victim, weapon, inflictor, damage))
+	{
+		QueueAirshotBroadcast(attacker, victim);
+	}
+
+	return Plugin_Continue;
+}
+
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
 	int victim = GetClientOfUserId(event.GetInt("userid"));
@@ -126,6 +149,16 @@ public void WhaleTracker_OnAirshot(int attacker, int victim)
 		return;
 	if (IsFakeClient(attacker) || IsFakeClient(victim))
 		return;
+
+	QueueAirshotBroadcast(attacker, victim);
+}
+
+static void QueueAirshotBroadcast(int attacker, int victim)
+{
+	if (g_iPendingAirshotAttacker[victim] == attacker)
+	{
+		return;
+	}
 
 	g_iPendingAirshotAttacker[victim] = attacker;
 	CreateTimer(0.0, Timer_BroadcastAirshot, GetClientUserId(victim));
@@ -219,11 +252,58 @@ static void BuildTeamColorTag(int client, char[] colorTag, int length)
 	}
 }
 
-static bool IsVictimInAir(int victim)
+static bool IsMedicCrossbowAirshot(int attacker, int victim, int weapon, int inflictor, float damage)
+{
+	if (damage <= 0.0)
+		return false;
+	if (!IsValidClient(attacker) || !IsValidClient(victim) || attacker == victim)
+		return false;
+	if (IsFakeClient(attacker) || IsFakeClient(victim))
+		return false;
+	if (GetClientTeam(attacker) == GetClientTeam(victim))
+		return false;
+	if (TF2_GetPlayerClass(attacker) != TFClass_Medic)
+		return false;
+
+	int primary = GetPlayerWeaponSlot(attacker, 0);
+	if (primary <= MaxClients || !IsValidEntity(primary))
+		return false;
+
+	char classname[64];
+	GetEntityClassname(primary, classname, sizeof(classname));
+	if (!StrEqual(classname, "tf_weapon_crossbow", false))
+		return false;
+	if (weapon != primary && !IsCrossbowProjectileFromWeapon(inflictor, primary))
+		return false;
+
+	return IsMedicCrossbowAirshotVictim(victim);
+}
+
+static bool IsCrossbowProjectileFromWeapon(int inflictor, int weapon)
+{
+	if (inflictor <= MaxClients || !IsValidEntity(inflictor))
+		return false;
+
+	if (HasEntProp(inflictor, Prop_Send, "m_hLauncher")
+		&& GetEntPropEnt(inflictor, Prop_Send, "m_hLauncher") == weapon)
+	{
+		return true;
+	}
+
+	char classname[64];
+	GetEntityClassname(inflictor, classname, sizeof(classname));
+	return StrEqual(classname, "tf_projectile_healing_bolt", false);
+}
+
+static bool IsMedicCrossbowAirshotVictim(int victim)
 {
 	int flags = GetEntityFlags(victim);
-	return !(flags & FL_ONGROUND);
+	if ((flags & (FL_ONGROUND | FL_INWATER)) != 0)
+		return false;
+
+	return DistanceAboveGroundBox(victim) >= MEDIC_CROSSBOW_AIRSHOT_MIN_HEIGHT;
 }
+
 static float DistanceAboveGround(int client)
 {
 	float start[3];
@@ -240,6 +320,27 @@ static float DistanceAboveGround(int client)
 	CloseHandle(trace);
 	return GetVectorDistance(start, hitPos);
 }
+
+static float DistanceAboveGroundBox(int client)
+{
+	float start[3];
+	float end[3];
+	float direction[3] = { 0.0, 0.0, -16384.0 };
+	float hullMins[3] = { -24.0, -24.0, 0.0 };
+	float hullMaxs[3] = { 24.0, 24.0, 0.0 };
+	GetClientAbsOrigin(client, start);
+	AddVectors(direction, start, end);
+
+	Handle trace = TR_TraceHullFilterEx(start, end, hullMins, hullMaxs, MASK_PLAYERSOLID, TraceEntityFilterPlayers, client);
+	if (trace == INVALID_HANDLE)
+		return 0.0;
+
+	float hitPos[3];
+	TR_GetEndPosition(hitPos, trace);
+	CloseHandle(trace);
+	return GetVectorDistance(start, hitPos, false);
+}
+
 public bool TraceEntityFilterPlayers(int entity, int contentsMask, any data)
 {
 	if (entity == data)
