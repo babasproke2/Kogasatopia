@@ -715,7 +715,7 @@ bool TryApplyAmplifierToClient(int client, int amp, int metalPerPlayer, int meta
 	}
 	else if (zapDamage > 0.0)
 	{
-		DealElectricDamage(client, builder, clientPos, GetAmplifierDamage(amp, zapDamage));
+		DealElectricDamage(client, builder, amplifierPos, GetAmplifierDamage(amp, zapDamage), AmplifierDistance[amp]);
 		return true;
 	}
 	else
@@ -1328,24 +1328,22 @@ stock bool:IsValidClient(client)
 	return (client > 0 && client <= MaxClients && IsClientInGame(client));
 }
 
-void DealElectricDamage(int client, int builder, const float pos[3], float damage)
+void DealElectricDamage(int client, int builder, const float amplifierPos[3], float damage, float maxDistance)
 {
-    if (!IsClientInGame(client) || !IsPlayerAlive(client))
+    if (!IsClientInGame(client) || !IsPlayerAlive(client) || maxDistance <= 0.0)
         return;
 
-    float Pos[3];
-    GetEntPropVector(client, Prop_Send, "m_vecOrigin", Pos);
+    float clientPos[3];
+    GetEntPropVector(client, Prop_Send, "m_vecOrigin", clientPos);
 
-    float dist = GetVectorDistance(Pos, pos);
-	float defaultDistance = GetConVarFloat(cvarDistance);
-    if (dist > defaultDistance) // beyond these units: no damage
+    float dist = GetVectorDistance(clientPos, amplifierPos);
+    if (dist > maxDistance)
         return;
 
-    // Damage scales inversely with distance (closer = more damage)
-    float damageFinal = damage * (1.0 - (dist / defaultDistance));
+    // Damage scales inversely with distance (closer = more damage).
+    float damageFinal = damage * (1.0 - (dist / maxDistance));
     if (damageFinal < 0.0) damageFinal = 0.0;
 
-    // Apply electric-type damage
     SDKHooks_TakeDamage(client, builder, builder, damageFinal, 256); // 256 = DMG_SHOCK
 }
 
