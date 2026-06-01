@@ -10,6 +10,7 @@
 #include <controlpoints>
 #undef REQUIRE_EXTENSIONS
 #include <tf2setupuber>
+#include <tf2_setuptime>
 #define REQUIRE_EXTENSIONS
 // I forked the controlpoints file from powerlord to add new gamemodes, you can get it at https://github.com/babasproke2/sourcemod-snippets
 
@@ -46,10 +47,6 @@ Handle g_hSetupStartTimer = INVALID_HANDLE;
 bool g_bSetupActive = false;
 bool g_bNoEngineerSetupReduced = false;
 bool g_bSetupUberUnavailableLogged = false;
-bool g_bGameRulesPropsCached = false;
-bool g_bHasInSetupProp = false;
-bool g_bHasSetupTimeEndProp = false;
-int g_iGameRulesEntity = -1;
 int g_iSetupStartChecks = 0;
 int g_iRoundStartTimestamp = 0;
 int g_iLastRoundDuration = 0;
@@ -938,6 +935,11 @@ public any Native_DGM_IsRoundRunning(Handle plugin, int numParams)
     return DGM_InternalIsRoundRunning();
 }
 
+public any Native_DGM_IsSetupActive(Handle plugin, int numParams)
+{
+    return DGM_IsRealSetupActive();
+}
+
 public any Native_DGM_GetLastRoundDurationSeconds(Handle plugin, int numParams)
 {
     return g_iLastRoundDuration;
@@ -954,6 +956,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
 {
     MarkNativeAsOptional("TF2SetupUber_SetMultiplier");
     MarkNativeAsOptional("TF2SetupUber_IsAvailable");
+    MarkNativeAsOptional("TF2_IsSetupTimeActive");
     RegPluginLibrary("dgm");
     CreateNative("DGM_GetGameMode", Native_DGM_GetGameMode);
     CreateNative("DGM_RealPlayerCount", Native_DGM_RealPlayerCount);
@@ -968,6 +971,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     CreateNative("DGM_ServerCapacitycheck", Native_DGM_ServerCapacitycheck);
     CreateNative("DGM_TeamsGameplayReady", Native_DGM_TeamsGameplayReady);
     CreateNative("DGM_IsRoundRunning", Native_DGM_IsRoundRunning);
+    CreateNative("DGM_IsSetupActive", Native_DGM_IsSetupActive);
     CreateNative("DGM_GetLastRoundDurationSeconds", Native_DGM_GetLastRoundDurationSeconds);
     CreateNative("DGM_GetRoundDurationSeconds", Native_DGM_GetRoundDurationSeconds);
     CreateNative("DGM_GetObjectiveLeader", Native_DGM_GetObjectiveLeader);
@@ -1043,56 +1047,16 @@ bool DGM_InternalIsRoundRunning()
     return (GameRules_GetRoundState() == RoundState_RoundRunning);
 }
 
-int DGM_GetGameRulesEntity()
+bool DGM_IsSetupTimeExtensionAvailable()
 {
-    if (g_iGameRulesEntity != -1 && IsValidEntity(g_iGameRulesEntity))
-    {
-        return g_iGameRulesEntity;
-    }
-
-    int ent = FindEntityByClassname(-1, "tf_gamerules");
-    if (ent == -1)
-    {
-        ent = FindEntityByClassname(-1, "game_rules_proxy");
-    }
-
-    if (ent != g_iGameRulesEntity)
-    {
-        g_iGameRulesEntity = ent;
-        g_bGameRulesPropsCached = false;
-        g_bHasInSetupProp = false;
-        g_bHasSetupTimeEndProp = false;
-    }
-
-    return g_iGameRulesEntity;
-}
-
-void DGM_EnsureGameRulesProps()
-{
-    int ent = DGM_GetGameRulesEntity();
-    if (ent == -1 || g_bGameRulesPropsCached)
-    {
-        return;
-    }
-
-    g_bHasInSetupProp = HasEntProp(ent, Prop_Send, "m_bInSetup");
-    g_bHasSetupTimeEndProp = HasEntProp(ent, Prop_Send, "m_flSetupTimeEnd");
-    g_bGameRulesPropsCached = true;
+    return GetFeatureStatus(FeatureType_Native, "TF2_IsSetupTimeActive") == FeatureStatus_Available;
 }
 
 bool DGM_IsRealSetupActive()
 {
-    DGM_EnsureGameRulesProps();
-
-    if (g_bHasInSetupProp)
+    if (DGM_IsSetupTimeExtensionAvailable())
     {
-        return GameRules_GetProp("m_bInSetup", 1) != 0;
-    }
-
-    if (g_bHasSetupTimeEndProp)
-    {
-        float setupEnd = GameRules_GetPropFloat("m_flSetupTimeEnd");
-        return setupEnd > 0.0 && setupEnd > GetGameTime();
+        return TF2_IsSetupTimeActive();
     }
 
     return false;
@@ -1569,10 +1533,6 @@ public void OnMapStart()
 
     g_bSetupActive = false;
     g_bNoEngineerSetupReduced = false;
-    g_iGameRulesEntity = -1;
-    g_bGameRulesPropsCached = false;
-    g_bHasInSetupProp = false;
-    g_bHasSetupTimeEndProp = false;
     DGM_RefreshRespawnVisualState();
     DGM_UpdateSetupState();
 }

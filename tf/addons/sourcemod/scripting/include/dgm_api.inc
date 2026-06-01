@@ -24,6 +24,7 @@ native float DGM_GetPopulationRatio();
 native bool DGM_ServerCapacitycheck(float capacityRatio = 0.50, bool inGameOnly = true);
 native bool DGM_TeamsGameplayReady();
 native bool DGM_IsRoundRunning();
+native bool DGM_IsSetupActive();
 native int DGM_GetLastRoundDurationSeconds();
 native int DGM_GetRoundDurationSeconds(int firstTimestamp, int secondTimestamp);
 native DGMObjectiveLeader DGM_GetObjectiveLeader(int &redOwned, int &blueOwned, int &neutralOwned, int &total);
