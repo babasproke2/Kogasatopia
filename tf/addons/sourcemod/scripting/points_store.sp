@@ -3726,6 +3726,10 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     {
         strcopy(label, maxlen, "Demo sync kill");
     }
+    else if (StrEqual(type, "soldier_sync_kill", false))
+    {
+        strcopy(label, maxlen, "Soldier sync kill");
+    }
     else if (StrEqual(type, "player_dom", false))
     {
         strcopy(label, maxlen, "Dominating");
