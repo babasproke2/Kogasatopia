@@ -753,7 +753,7 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 
 	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 	{
-		bool awarded = PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, MEATSHOT_KILL_BONUS_TYPE, 0, 3.0, 15);
+		bool awarded = PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, MEATSHOT_KILL_BONUS_TYPE, 0, 3.0, 10);
 		ScatterPellets_Debug("points_store award result: %d", awarded ? 1 : 0);
 	}
 	else
