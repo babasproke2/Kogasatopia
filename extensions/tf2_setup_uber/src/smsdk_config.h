@@ -6,7 +6,7 @@
 
 #define SMEXT_CONF_NAME          "TF2 Setup Uber"
 #define SMEXT_CONF_DESCRIPTION   "Lets SourceMod plugins change the TF2 setup-time Medigun UberCharge multiplier"
-#define SMEXT_CONF_VERSION       "1.0.0.0"
+#define SMEXT_CONF_VERSION       "1.1.0.0"
 #define SMEXT_CONF_AUTHOR        "Hombre"
 #define SMEXT_CONF_URL           "https://www.sourcemod.net/"
 #define SMEXT_CONF_LOGTAG        "TF2SETUPUBER"

@@ -4,16 +4,21 @@
     {
         "Signatures"
         {
-            "CWeaponMedigun::HealTargetThink"
+            "CWeaponMedigun::FindAndHealTargets"
             {
                 "library"   "server"
 
                 /* Linux and Linux64 C++ symbol. */
-                "linux"     "@_ZN14CWeaponMedigun15HealTargetThinkEv"
-                "linux64"   "@_ZN14CWeaponMedigun15HealTargetThinkEv"
+                "linux"     "@_ZN14CWeaponMedigun18FindAndHealTargetsEv"
+                "linux64"   "@_ZN14CWeaponMedigun18FindAndHealTargetsEv"
 
-                /* 32-bit Windows signature. Re-scan for Windows64 if needed. */
-                "windows"   "\x55\x8B\xEC\x51\x53\x57\x8B\xF9\x8B\x8F\x2A\x2A\x00\x00\x85\xC9\x0F\x84\x5B\x02\x00\x00"
+                /*
+                 * Windows/Windows64 need a fresh byte signature for the current
+                 * TF2 server binary.  The first release had a Windows signature
+                 * for HealTargetThink(), but that was the wrong function.
+                 */
+                // "windows"   ""
+                // "windows64" ""
             }
         }
     }
