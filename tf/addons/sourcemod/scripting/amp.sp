@@ -909,7 +909,7 @@ public Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBro
 		if (AmplifierMini[entindex])
 			explosionDamage = RoundToFloor(float(explosionDamage) * AMPLIFIER_MINI_MODIFIER);
 
-		CreateAmplifierExplosion(position, attacker, entwasbuilding, explosionDamage);
+		CreateAmplifierExplosion(position, attacker, entwasbuilding, explosionDamage, AmplifierDistance[entindex]);
 	}
 	return Plugin_Changed;
 }
@@ -1348,7 +1348,7 @@ void DealElectricDamage(int client, int builder, const float amplifierPos[3], fl
 }
 
 
-void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbuilding = false, int damage)
+void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbuilding = false, int damage, float radiusUnits = 0.0)
 {
 	if (entwasbuilding) return;
     int explosion = CreateEntityByName("env_explosion");
@@ -1356,7 +1356,9 @@ void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbu
         return;
     }
 
-	int radius = RoundFloat(GetConVarFloat(cvarDistance));
+    if (radiusUnits <= 0.0)
+        radiusUnits = GetConVarFloat(cvarDistance);
+	int radius = RoundFloat(radiusUnits);
     char sDamage[16], sRadius[16];
     IntToString(damage, sDamage, sizeof(sDamage));
     IntToString(radius, sRadius, sizeof(sRadius));
