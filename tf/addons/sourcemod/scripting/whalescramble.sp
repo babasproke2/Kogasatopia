@@ -121,6 +121,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     MarkNativeAsOptional("DGM_GetLastRoundDurationSeconds");
+    MarkNativeAsOptional("DGM_IsSetupActive");
     return APLRes_Success;
 }
 
@@ -2250,29 +2251,13 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
 
 static bool IsSetupActive()
 {
-    if (HasGameRulesProp("m_bInSetup"))
+    if (GetFeatureStatus(FeatureType_Native, "DGM_IsSetupActive") != FeatureStatus_Available)
     {
-        return GameRules_GetProp("m_bInSetup", 1) != 0;
+        LogWhale("Setup scramble polish skipped: DGM_IsSetupActive unavailable.");
+        return false;
     }
 
-    if (HasGameRulesProp("m_flSetupTimeEnd"))
-    {
-        float setupEnd = GameRules_GetPropFloat("m_flSetupTimeEnd");
-        return setupEnd > 0.0 && setupEnd > GetGameTime();
-    }
-
-    return false;
-}
-
-static bool HasGameRulesProp(const char[] prop)
-{
-    int ent = FindEntityByClassname(-1, "tf_gamerules");
-    if (ent == -1)
-    {
-        ent = FindEntityByClassname(-1, "game_rules_proxy");
-    }
-
-    return ent != -1 && HasEntProp(ent, Prop_Send, prop);
+    return DGM_IsSetupActive();
 }
 
 static void ApplySetupScramblePolish()
