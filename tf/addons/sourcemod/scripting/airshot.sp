@@ -219,7 +219,7 @@ public Action Timer_BroadcastAirshot(Handle timer, any userid)
 	{
 		if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 		{
-			PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "airshot_kill", 0, 3.0, 10);
+			PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "airshot_kill", 0, 3.0, 0); // Temporarily disabled per-map cap; old cap: 10
 		}
 		if (g_bSaySoundsAvailable)
 		{

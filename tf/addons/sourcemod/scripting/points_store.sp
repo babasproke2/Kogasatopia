@@ -4349,7 +4349,7 @@ public Action Command_Welfare(int client, int args)
     }
 
     int amount = GetRandomInt(BP_WELFARE_MIN, BP_WELFARE_MAX);
-    if (!ApplyBonusPoints(client, amount, false, false, 1.0, "welfare", 0, 0.0, 1))
+    if (!ApplyBonusPoints(client, amount, false, false, 1.0, "welfare", 0, 0.0, 0)) // Temporarily disabled per-map cap; old cap: 1
     {
         CPrintToChat(client, "%s Could not collect welfare right now.", prefix);
         return Plugin_Handled;
