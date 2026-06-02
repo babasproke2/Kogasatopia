@@ -4065,7 +4065,7 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
     {
         char targetName[256];
         BuildPurchaseDisplayName(target, targetName, sizeof(targetName));
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for killing %s%s", prefix, sign, points, targetName, perMapSuffix);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}killing{default} %s%s", prefix, sign, points, targetName, perMapSuffix);
         return;
     }
 
@@ -4079,19 +4079,19 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
 
     if (StrEqual(type, "player_dom", false) && IsClientInGameHuman(target))
     {
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for Dominating %N%s", prefix, sign, points, target, perMapSuffix);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Dominating{default} %N%s", prefix, sign, points, target, perMapSuffix);
         return;
     }
 
     if (StrEqual(type, "player_revenge", false) && IsClientInGameHuman(target))
     {
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for Revenge on %N%s", prefix, sign, points, target, perMapSuffix);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Revenge{default} on %N%s", prefix, sign, points, target, perMapSuffix);
         return;
     }
 
     if (StrEqual(type, "killstreak", false))
     {
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for Killstreak: %d%s", prefix, sign, points, target, perMapSuffix);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Killstreak: %d{default}%s", prefix, sign, points, target, perMapSuffix);
         return;
     }
 
@@ -4101,11 +4101,11 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
         GetMultikillBonusPointsLabel(target, multikillLabel, sizeof(multikillLabel));
         if (multikillLabel[0] != '\0')
         {
-            CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s%s", prefix, sign, points, multikillLabel, perMapSuffix);
+            CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s{default}%s", prefix, sign, points, multikillLabel, perMapSuffix);
         }
         else
         {
-            CPrintToChat(client, "%s {limegreen}%s%i{default} for Multikill: %d%s", prefix, sign, points, target, perMapSuffix);
+            CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Multikill: %d{default}%s", prefix, sign, points, target, perMapSuffix);
         }
         return;
     }
@@ -4114,7 +4114,7 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
     GetBonusPointsTypeLabel(type, label, sizeof(label));
     if (label[0] != '\0')
     {
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s%s", prefix, sign, points, label, perMapSuffix);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s{default}%s", prefix, sign, points, label, perMapSuffix);
         return;
     }
 
