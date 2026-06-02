@@ -4355,6 +4355,11 @@ public Action Command_Welfare(int client, int args)
         return Plugin_Handled;
     }
 
+    if (GetPerMapAwardCount(client, "welfare") < 1)
+    {
+        IncrementPerMapAwardCount(client, "welfare");
+    }
+
     PlayWelfareSound();
 
     char displayName[256];
