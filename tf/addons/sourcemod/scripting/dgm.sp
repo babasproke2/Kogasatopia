@@ -1230,6 +1230,43 @@ void DGM_SetSetupTimerTime(int timerEnt, int time)
     AcceptEntityInput(timerEnt, "SetSetupTime");
 }
 
+int DGM_GetSetupTimerLength(int timerEnt)
+{
+    if (!IsValidEntity(timerEnt))
+    {
+        return -1;
+    }
+
+    if (HasEntProp(timerEnt, Prop_Send, "m_nSetupTimeLength"))
+    {
+        return GetEntProp(timerEnt, Prop_Send, "m_nSetupTimeLength");
+    }
+
+    if (HasEntProp(timerEnt, Prop_Data, "m_nSetupTimeLength"))
+    {
+        return GetEntProp(timerEnt, Prop_Data, "m_nSetupTimeLength");
+    }
+
+    return DGM_GetRoundTimerRemaining(timerEnt);
+}
+
+bool DGM_ShouldApplySetupTimerTime(int timerEnt, int proposedTime, int executor)
+{
+    if (executor > 0)
+    {
+        return true;
+    }
+
+    int currentSetupTime = DGM_GetSetupTimerLength(timerEnt);
+    if (currentSetupTime >= 0 && currentSetupTime < proposedTime)
+    {
+        PrintToServer("[Kogasa] Setup time left unchanged: map setup time is %i seconds, below configured %i seconds.", currentSetupTime, proposedTime);
+        return false;
+    }
+
+    return true;
+}
+
 void DGM_CheckNoEngineerSetupReduction()
 {
     if (g_bNoEngineerSetupReduced
@@ -1390,13 +1427,18 @@ void DGM_UpdateSetupState()
     DGM_QueueSetupStartCheck();
 }
 
-public void SetSetupTime()
+void SetSetupTime(int executor)
 {
     int timerEnt = DGM_FindSetupRoundTimer();
 
     if (timerEnt != -1)
     {
         int time = GetConVarInt(g_cvSetSetupTime);
+        if (!DGM_ShouldApplySetupTimerTime(timerEnt, time, executor))
+        {
+            return;
+        }
+
         DGM_SetSetupTimerTime(timerEnt, time);
         PrintToServer("[Kogasa] Setup time set to %i seconds.", time);
     }
@@ -1962,7 +2004,7 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
     }
     if (GetConVarInt(g_cvSetSetupTime) != 0)
     {
-        SetSetupTime();
+        SetSetupTime(0);
         DGM_UpdateSetupState();
     }
 
