@@ -18,8 +18,10 @@
 
 #include "include/dgm_api.inc"
 #define DGM_MAX_CONTROL_POINTS 8
-#define DGM_SETUP_START_CHECK_INTERVAL 1.0
-#define DGM_SETUP_START_CHECK_MAX 10
+#define DGM_SETUP_START_CHECK_INTERVAL 0.25
+#define DGM_SETUP_START_CHECK_MAX 80
+#define DGM_SETUP_FALSE_CONFIRM_MAX 3
+#define DGM_RT_STATE_SETUP 0
 
 ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
@@ -48,6 +50,7 @@ bool g_bSetupActive = false;
 bool g_bNoEngineerSetupReduced = false;
 bool g_bSetupUberUnavailableLogged = false;
 int g_iSetupStartChecks = 0;
+int g_iSetupFalseChecks = 0;
 int g_iRoundStartTimestamp = 0;
 int g_iLastRoundDuration = 0;
 
@@ -1052,14 +1055,51 @@ bool DGM_IsSetupTimeExtensionAvailable()
     return GetFeatureStatus(FeatureType_Native, "TF2_IsSetupTimeActive") == FeatureStatus_Available;
 }
 
-bool DGM_IsRealSetupActive()
+bool DGM_IsSetupGameRulesActive()
 {
-    if (DGM_IsSetupTimeExtensionAvailable())
+    if (GameRules_GetProp("m_bInSetup", 1) != 0)
     {
-        return TF2_IsSetupTimeActive();
+        return true;
+    }
+
+    if (DGM_IsSetupTimeExtensionAvailable() && TF2_IsSetupTimeActive())
+    {
+        return true;
     }
 
     return false;
+}
+
+bool DGM_HasSetupRoundTimer()
+{
+    int timerEnt = -1;
+
+    while ((timerEnt = FindEntityByClassname(timerEnt, "team_round_timer")) != -1)
+    {
+        if (!IsValidEntity(timerEnt))
+        {
+            continue;
+        }
+
+        if (HasEntProp(timerEnt, Prop_Send, "m_bIsDisabled")
+            && GetEntProp(timerEnt, Prop_Send, "m_bIsDisabled") != 0)
+        {
+            continue;
+        }
+
+        if (HasEntProp(timerEnt, Prop_Send, "m_nState")
+            && GetEntProp(timerEnt, Prop_Send, "m_nState") == DGM_RT_STATE_SETUP)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool DGM_IsRealSetupActive()
+{
+    return DGM_IsSetupGameRulesActive() || DGM_HasSetupRoundTimer();
 }
 
 bool DGM_HasWaitingForPlayersTimer()
@@ -1142,18 +1182,40 @@ bool DGM_RedHasEngineer()
     return false;
 }
 
-int DGM_FindRoundTimer()
+int DGM_FindSetupRoundTimer()
 {
+    int firstVisible = -1;
+    int firstAny = -1;
     int timerEnt = -1;
+
     while ((timerEnt = FindEntityByClassname(timerEnt, "team_round_timer")) != -1)
     {
-        if (IsValidEntity(timerEnt))
+        if (!IsValidEntity(timerEnt))
+        {
+            continue;
+        }
+
+        if (firstAny == -1)
+        {
+            firstAny = timerEnt;
+        }
+
+        bool visible = !HasEntProp(timerEnt, Prop_Send, "m_bShowInHUD")
+            || GetEntProp(timerEnt, Prop_Send, "m_bShowInHUD") != 0;
+
+        if (visible && firstVisible == -1)
+        {
+            firstVisible = timerEnt;
+        }
+
+        if (HasEntProp(timerEnt, Prop_Send, "m_nState")
+            && GetEntProp(timerEnt, Prop_Send, "m_nState") == DGM_RT_STATE_SETUP)
         {
             return timerEnt;
         }
     }
 
-    return -1;
+    return firstVisible != -1 ? firstVisible : firstAny;
 }
 
 void DGM_SetRoundTimerTime(int timerEnt, int time)
@@ -1162,10 +1224,15 @@ void DGM_SetRoundTimerTime(int timerEnt, int time)
     AcceptEntityInput(timerEnt, "SetTime");
 }
 
+void DGM_SetSetupTimerTime(int timerEnt, int time)
+{
+    SetVariantInt(time);
+    AcceptEntityInput(timerEnt, "SetSetupTime");
+}
+
 void DGM_CheckNoEngineerSetupReduction()
 {
     if (g_bNoEngineerSetupReduced
-        || !g_bSetupActive
         || !DGM_IsRealSetupActive()
         || !DGM_IsNoEngineerSetupReductionGamemode()
         || !DGM_AreTeamsGameplayReady()
@@ -1174,13 +1241,13 @@ void DGM_CheckNoEngineerSetupReduction()
         return;
     }
 
-    int timerEnt = DGM_FindRoundTimer();
+    int timerEnt = DGM_FindSetupRoundTimer();
     if (timerEnt == -1 || DGM_GetRoundTimerRemaining(timerEnt) <= 25)
     {
         return;
     }
 
-    DGM_SetRoundTimerTime(timerEnt, 25);
+    DGM_SetSetupTimerTime(timerEnt, 25);
     g_bNoEngineerSetupReduced = true;
     PrintToChatAll("No Engineers detected; setup time reduced");
     PrintToServer("[Kogasa] Setup time reduced to 25 seconds: no RED Engineers detected.");
@@ -1194,7 +1261,7 @@ public Action Timer_CheckNoEngineerSetupReduction(Handle timer)
 
 void DGM_QueueNoEngineerSetupReductionCheck()
 {
-    if (g_bNoEngineerSetupReduced || !g_bSetupActive)
+    if (g_bNoEngineerSetupReduced || !DGM_IsRealSetupActive())
     {
         return;
     }
@@ -1233,7 +1300,7 @@ public Action Timer_CheckSetupStart(Handle timer)
         return Plugin_Stop;
     }
 
-    if (DGM_InternalIsRoundRunning() || g_iSetupStartChecks >= DGM_SETUP_START_CHECK_MAX)
+    if (g_iSetupStartChecks >= DGM_SETUP_START_CHECK_MAX)
     {
         g_hSetupStartTimer = INVALID_HANDLE;
         return Plugin_Stop;
@@ -1254,12 +1321,18 @@ int DGM_CalculateRoundDurationSeconds(int firstTimestamp, int secondTimestamp)
 
 void DGM_SetSetupActive(bool setupActive)
 {
+    if (setupActive)
+    {
+        g_iSetupFalseChecks = 0;
+    }
+
     if (g_bSetupActive == setupActive)
     {
         return;
     }
 
     g_bSetupActive = setupActive;
+
     if (setupActive)
     {
         g_bNoEngineerSetupReduced = false;
@@ -1267,20 +1340,24 @@ void DGM_SetSetupActive(bool setupActive)
         PrintToChatAll("Setup detected, bhop enabled");
         ServerCommand("exec d_setup.cfg");
         ServerExecute();
+
         if (DGM_HasWaitingForPlayersTimer())
         {
             DGM_OpenWaitingSetupDoorsForBhop();
         }
+
         if (g_hSetupStateTimer == INVALID_HANDLE)
         {
-            g_hSetupStateTimer = CreateTimer(2.0, Timer_SetupStateMonitor, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+            g_hSetupStateTimer = CreateTimer(1.0, Timer_SetupStateMonitor, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
         }
+
         DGM_QueueNoEngineerSetupReductionCheck();
     }
     else
     {
         ServerCommand("exec d_endsetup.cfg");
         ServerExecute();
+
         if (g_hSetupStateTimer != INVALID_HANDLE)
         {
             KillTimer(g_hSetupStateTimer);
@@ -1293,13 +1370,20 @@ void DGM_UpdateSetupState()
 {
     if (DGM_IsSetupBhopActive())
     {
+        g_iSetupFalseChecks = 0;
         DGM_SetSetupActive(true);
         return;
     }
 
     if (g_bSetupActive)
     {
-        DGM_SetSetupActive(false);
+        g_iSetupFalseChecks++;
+
+        if (g_iSetupFalseChecks >= DGM_SETUP_FALSE_CONFIRM_MAX)
+        {
+            DGM_SetSetupActive(false);
+        }
+
         return;
     }
 
@@ -1308,11 +1392,12 @@ void DGM_UpdateSetupState()
 
 public void SetSetupTime()
 {
-    int timerEnt = FindEntityByClassname(-1, "team_round_timer");
+    int timerEnt = DGM_FindSetupRoundTimer();
+
     if (timerEnt != -1)
     {
         int time = GetConVarInt(g_cvSetSetupTime);
-        DGM_SetRoundTimerTime(timerEnt, time);
+        DGM_SetSetupTimerTime(timerEnt, time);
         PrintToServer("[Kogasa] Setup time set to %i seconds.", time);
     }
 }
@@ -1533,6 +1618,7 @@ public void OnMapStart()
 
     g_bSetupActive = false;
     g_bNoEngineerSetupReduced = false;
+    g_iSetupFalseChecks = 0;
     DGM_RefreshRespawnVisualState();
     DGM_UpdateSetupState();
 }
@@ -1549,8 +1635,17 @@ public void ConVarChange_SetupUberMultiplier(ConVar convar, const char[] oldValu
 
 public Action Timer_SetupStateMonitor(Handle timer)
 {
-    if (!DGM_IsSetupBhopActive())
+    if (DGM_IsSetupBhopActive())
     {
+        g_iSetupFalseChecks = 0;
+        return Plugin_Continue;
+    }
+
+    g_iSetupFalseChecks++;
+
+    if (g_iSetupFalseChecks >= DGM_SETUP_FALSE_CONFIRM_MAX)
+    {
+        g_hSetupStateTimer = INVALID_HANDLE;
         DGM_SetSetupActive(false);
         return Plugin_Stop;
     }
@@ -1567,6 +1662,13 @@ public void OnConfigsExecuted()
     g_iRoundStartTimestamp = 0;
     g_iLastRoundDuration = 0;
     DGM_ApplySetupUberMultiplier();
+    RequestFrame(DGM_FrameUpdateSetupState);
+    DGM_QueueSetupStartCheck();
+}
+
+public void DGM_FrameUpdateSetupState(any data)
+{
+    DGM_UpdateSetupState();
 }
 
 // Fires when a control point is captured
@@ -1863,6 +1965,9 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
         SetSetupTime();
         DGM_UpdateSetupState();
     }
+
+    RequestFrame(DGM_FrameUpdateSetupState);
+    DGM_QueueSetupStartCheck();
 	if (GetConVarInt(g_cvAutoAddTime)) {
         int addTime = GetConVarInt(g_cvAutoAddTime);
 		int entityTimer = FindEntityByClassname(-1, "tf_logic_koth");
@@ -1905,7 +2010,7 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 
 public Action Command_ResetSetup(int client , int args)
 {
-    int timerEnt = FindEntityByClassname(-1, "team_round_timer");
+    int timerEnt = DGM_FindSetupRoundTimer();
     if (timerEnt == -1)
     {
         if (client > 0) PrintToChat(client, "No team_round_timer entity found.");
@@ -1925,7 +2030,7 @@ public Action Command_ResetSetup(int client , int args)
 	char temp[ 4 ];
 	GetCmdArg( 1, temp, 4 );
 	time = StringToInt(temp) + 1;
-    DGM_SetRoundTimerTime(timerEnt, time);
+    DGM_SetSetupTimerTime(timerEnt, time);
 
     if (client > 0) PrintToChatAll("Setup time reduced to %i seconds.", time);
     PrintToServer("[Kogasa] Setup time set to %i seconds.", time);
