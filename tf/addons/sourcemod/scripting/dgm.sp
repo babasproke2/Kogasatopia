@@ -1306,13 +1306,9 @@ void DGM_QueueNoEngineerSetupReductionCheck()
     CreateTimer(1.0, Timer_CheckNoEngineerSetupReduction, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
-void DGM_StopSetupStartTimer()
+void DGM_ClearSetupStartTimer()
 {
-    if (g_hSetupStartTimer != INVALID_HANDLE)
-    {
-        KillTimer(g_hSetupStartTimer);
-        g_hSetupStartTimer = INVALID_HANDLE;
-    }
+    g_hSetupStartTimer = INVALID_HANDLE;
 }
 
 void DGM_QueueSetupStartCheck()
@@ -1373,7 +1369,7 @@ void DGM_SetSetupActive(bool setupActive)
     if (setupActive)
     {
         g_bNoEngineerSetupReduced = false;
-        DGM_StopSetupStartTimer();
+        DGM_ClearSetupStartTimer();
         PrintToChatAll("Setup detected, bhop enabled");
         ServerCommand("exec d_setup.cfg");
         ServerExecute();
@@ -1650,13 +1646,8 @@ public void OnPluginStart()
 
 public void OnMapStart()
 {
-    DGM_StopSetupStartTimer();
-
-    if (g_hSetupStateTimer != INVALID_HANDLE)
-    {
-        KillTimer(g_hSetupStateTimer);
-        g_hSetupStateTimer = INVALID_HANDLE;
-    }
+    DGM_ClearSetupStartTimer();
+    g_hSetupStateTimer = INVALID_HANDLE;
 
     g_bSetupActive = false;
     g_bNoEngineerSetupReduced = false;
