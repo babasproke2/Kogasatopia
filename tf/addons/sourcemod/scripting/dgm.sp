@@ -1994,7 +1994,13 @@ public void Event_RoundFullyActive(Event event, const char[] name, bool dontBroa
         return;
     }
 
-    DGM_SetSetupActive(false);
+    if (g_bSetupActive)
+    {
+        DGM_UpdateSetupState();
+        return;
+    }
+
+    DGM_QueueSetupStartCheck();
 }
 
 public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
