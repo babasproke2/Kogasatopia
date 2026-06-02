@@ -20,6 +20,9 @@
 #define FLS_STREAK_TARGET	   2
 #define FLS_STREAK_WINDOW	   4.0
 #define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
+#define AMBASSADOR_HEADSHOT_KILL_BONUS_TYPE "ambassador_headshot_kill"
+#define AMBASSADOR_ITEMDEF 61
+#define FESTIVE_AMBASSADOR_ITEMDEF 1006
 
 #define FLS_EXPLODE_DAMAGE	 50.0
 #define FLS_EXPLODE_RADIUS	 180.0
@@ -362,6 +365,38 @@ static bool Accuracy_IsValidClient(int client)
 static bool IsValidWeaponEntity(int weapon)
 {
 	return (weapon > MaxClients && IsValidEntity(weapon));
+}
+
+static bool IsAmbassadorHeadshotWeapon(int weapon)
+{
+	if (!IsValidWeaponEntity(weapon))
+		return false;
+
+	int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
+	return (defIndex == AMBASSADOR_ITEMDEF || defIndex == FESTIVE_AMBASSADOR_ITEMDEF);
+}
+
+static void TryAwardAmbassadorHeadshotKill(Event event, int attacker, int victim)
+{
+	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
+		return;
+	if (IsFakeClient(attacker) || IsFakeClient(victim))
+		return;
+	if (GetClientTeam(attacker) <= 1 || GetClientTeam(attacker) == GetClientTeam(victim))
+		return;
+	if (event.GetInt("customkill") != TF_CUSTOM_HEADSHOT)
+		return;
+	if (event.GetInt("death_flags") & TF_DEATHFLAG_DEADRINGER)
+		return;
+
+	int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
+	if (!IsAmbassadorHeadshotWeapon(weapon))
+		return;
+
+	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+	{
+		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, AMBASSADOR_HEADSHOT_KILL_BONUS_TYPE, 0, 3.0, 0);
+	}
 }
 
 static void VitaSaw_ClearStoredCharge(int client)
@@ -830,6 +865,8 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	{
 		return Plugin_Continue;
 	}
+
+	TryAwardAmbassadorHeadshotKill(event, attacker, client);
 
 	if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
 	{

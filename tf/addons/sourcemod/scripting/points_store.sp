@@ -3714,6 +3714,10 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     {
         strcopy(label, maxlen, "Meatshot kill");
     }
+    else if (StrEqual(type, "ambassador_headshot_kill", false))
+    {
+        strcopy(label, maxlen, "Ambassador headshot kill");
+    }
     else if (StrEqual(type, "uber_deployed", false))
     {
         strcopy(label, maxlen, "UberCharge");
