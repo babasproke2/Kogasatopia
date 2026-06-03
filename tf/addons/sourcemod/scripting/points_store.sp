@@ -1236,7 +1236,7 @@ void PrintClientLotteryTicket(int client)
     char currencyLong[BP_CURRENCY_LONG_MAX];
     BuildLotteryTicketDisplay(g_ClientLotteryTicket[client], display, sizeof(display));
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
-    CPrintToChat(client, "%s[Lottery]{default} Your ticket: %s\n{gold}Price: %d %s{default}", colorTag, display, g_ClientLotteryTicketValue[client], currencyLong);
+    CPrintToChat(client, "%s[Lottery]{default} Your ticket: %s\n{gold}Value:{default} %s%d %s{default}", colorTag, display, colorTag, g_ClientLotteryTicketValue[client], currencyLong);
 }
 
 void AttemptLotteryAllTicketPurchase(int client)
