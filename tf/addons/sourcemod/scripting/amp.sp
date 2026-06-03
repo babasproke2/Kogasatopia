@@ -13,8 +13,14 @@
 #include <conch_no_speed>
 #include "include/dgm_api.inc"
 
-#define MP 34
-#define ME 2048
+#define MAX_AMPLIFIER_CLIENTS (MAXPLAYERS + 1)
+#define MAX_AMPLIFIER_ENTITIES 2048
+
+// Compatibility aliases used by the existing public/native data layout.
+// Keep the old names local to avoid touching external config/schema/command contracts.
+#define MP MAX_AMPLIFIER_CLIENTS
+#define ME MAX_AMPLIFIER_ENTITIES
+
 #define PLUGIN_VERSION "2.5"
 
 // Models and Sounds
@@ -33,6 +39,15 @@
 #define AMPLIFIER_HEALTH 150
 #define AMPLIFIER_MINI_HEALTH 100
 #define AMPLIFIER_MINI_MODIFIER 0.75
+
+// Entity classes / commands
+#define BUILDING_DISPENSER "obj_dispenser"
+#define BUILDING_SENTRY "obj_sentrygun"
+#define BUILDING_SAPPER "obj_attachment_sapper"
+#define DESTROY_DISPENSER "destroy 0"
+#define DESTROY_SENTRY "destroy 2"
+#define DMG_SHOCK 256
+#define TIMER_NO_MAPCHANGE TIMER_FLAG_NO_MAPCHANGE
 
 // Sprites
 int g_BeamSprite;
@@ -97,6 +112,64 @@ Handle g_hCookieSentry;
     #define TF2_IsCloaked(%1) (((%1) & TF_CONDFLAG_CLOAKED) != TF_CONDFLAG_NONE)
 #endif
 
+static bool IsValidPlayerIndex(int client)
+{
+    return client > 0 && client < sizeof(g_PlayerState);
+}
+
+static bool IsTrackedEntityIndex(int ent)
+{
+    return ent > 0 && ent < sizeof(BuildingRef);
+}
+
+static int GetTrackedEntityLimit(int maxEntities = 0)
+{
+    int limit = maxEntities > 0 ? maxEntities : GetMaxEntities();
+    if (limit > sizeof(BuildingRef))
+    {
+        limit = sizeof(BuildingRef);
+    }
+
+    return limit;
+}
+
+static bool IsValidCookieHandle(Handle cookie)
+{
+    return cookie != null && cookie != INVALID_HANDLE;
+}
+
+static bool IsDispenserClass(const char[] classname)
+{
+    return StrEqual(classname, BUILDING_DISPENSER);
+}
+
+static bool IsSentryClass(const char[] classname)
+{
+    return StrEqual(classname, BUILDING_SENTRY);
+}
+
+static bool IsAmplifierBuildingClass(const char[] classname)
+{
+    return IsDispenserClass(classname) || IsSentryClass(classname);
+}
+
+static void ResetAmplifierBuildingState(int ent)
+{
+    if (!IsTrackedEntityIndex(ent))
+    {
+        return;
+    }
+
+    AmplifierOn[ent] = false;
+    AmplifierMini[ent] = false;
+    AmplifierSapped[ent] = false;
+    AmplifierDistance[ent] = 0.0;
+    AmplifierCondition[ent] = DefaultCondition;
+    AmplifierFill[ent] = 0.0;
+    BuildingRef[ent] = 0;
+    ClearAmplifierConditionForBuilding(ent);
+}
+
 static void ResetPlayerState(int client, bool resetPreferences = true)
 {
     if (client <= 0 || client >= sizeof(g_PlayerState))
@@ -114,14 +187,14 @@ static void ResetPlayerState(int client, bool resetPreferences = true)
     }
 }
 
-public Plugin:myinfo = {
-	name = "The Amplifier (Unified)",
-	author = "RainBolt Dash (plugin); Jumento M.D. (idea & model); Naris and FlaminSarge (helpers); Bad Hombre (new fork)",
-	description = "Adds The Amplifier for Dispenser and/or Sentry",
-	version = PLUGIN_VERSION,
+public Plugin myinfo = {
+    name = "The Amplifier (Unified)",
+    author = "RainBolt Dash (plugin); Jumento M.D. (idea & model); Naris and FlaminSarge (helpers); Bad Hombre (new fork)",
+    description = "Adds The Amplifier for Dispenser and/or Sentry",
+    version = PLUGIN_VERSION,
 };
 
-public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
 	MarkNativeAsOptional("DGM_RealPlayerCount");
 	CreateNative("ControlAmplifier", Native_ControlAmplifier);
@@ -134,7 +207,7 @@ public APLRes:AskPluginLoad2(Handle:myself, bool:late, String:error[], err_max)
 	return APLRes_Success;
 }
 
-public OnPluginStart()
+public void OnPluginStart()
 {
 	CreateConVar("amplifier_version", PLUGIN_VERSION, "The Amplifier Version", FCVAR_REPLICATED|FCVAR_NOTIFY);
 	cvarEffectLength = CreateConVar("amplifier_effect_length", "3.0", "Length in seconds for the Amplifier condition to last", FCVAR_PLUGIN);
@@ -148,7 +221,7 @@ public OnPluginStart()
 	cvarEnableZap = CreateConVar("amplifier_zap", "0.0", "Should Amplifier pulses harm the enemy team? 0 to disable, >0 for damage.", FCVAR_PLUGIN, true, 0.0, true, 50.0);
 
 	HookEvent("player_builtobject", Event_Build);
-    HookEvent("object_destroyed", Event_ObjectDestroyed);
+	HookEvent("object_destroyed", Event_ObjectDestroyed);
 	HookEvent("player_death", event_player_death);
 
 	RegConsoleCmd("sm_amplifier", CallPanel, "Select engineer's building type");
@@ -168,15 +241,17 @@ public OnPluginStart()
 	g_hCookieDisp = RegClientCookie("amplifier_dispenser", "Dispenser Amplifier preference", CookieAccess_Public);
 	g_hCookieSentry = RegClientCookie("amplifier_sentry", "Sentry Amplifier preference", CookieAccess_Public);
 
-	for (new i = 1; i <= MaxClients; i++)
+	for (int i = 1; i <= MaxClients; i++)
 	{
 		ResetPlayerState(i);
 		if (IsClientInGame(i))
+		{
 			OnClientPostAdminCheck(i);
+		}
 	}
 }
 
-public OnPluginEnd()
+public void OnPluginEnd()
 {
 	if (g_hAmplifierTimer != INVALID_HANDLE)
 	{
@@ -198,7 +273,7 @@ public OnPluginEnd()
 	ConvertAllAmplifiersToBuildings();
 }
 
-public OnConfigsExecuted()
+public void OnConfigsExecuted()
 {
 	if (g_hAmplifierTimer == INVALID_HANDLE)
 	{
@@ -206,7 +281,7 @@ public OnConfigsExecuted()
 	}
 }
 
-public OnMapStart()
+public void OnMapStart()
 {
 	AddToDownload();
 	PrecacheSound(AMPLIFIER_SOUND, true);
@@ -218,14 +293,23 @@ public OnMapStart()
 	PrecacheGeneric("particles/powerups.pcf", true);
 }
 
-public OnMapEnd()
+public void OnMapEnd()
 {
+	for (int ent = 1; ent < GetTrackedEntityLimit(); ent++)
+	{
+		ResetAmplifierBuildingState(ent);
+	}
+
 	g_hAmplifierTimer = INVALID_HANDLE;
 }
 
-public OnClientPostAdminCheck(client)
+public void OnClientPostAdminCheck(int client)
 {
-	if (IsFakeClient(client)) return;
+	if (!IsValidClient(client) || IsFakeClient(client))
+	{
+		return;
+	}
+
 	ResetPlayerState(client, false);
 
 	if (AreClientCookiesCached(client))
@@ -234,34 +318,48 @@ public OnClientPostAdminCheck(client)
 	}
 }
 
-public OnClientCookiesCached(client)
+public void OnClientCookiesCached(int client)
 {
+	if (!IsValidClient(client) || IsFakeClient(client))
+	{
+		return;
+	}
+
 	LoadClientPreferences(client);
 }
 
-public OnClientDisconnect(client)
+public void OnClientDisconnect(int client)
 {
 	ResetPlayerState(client);
 }
 
-void LoadClientPreferences(client)
+void LoadClientPreferences(int client)
 {
-	new String:szValue[8];
+	if (!IsValidClient(client) || !AreClientCookiesCached(client))
+	{
+		return;
+	}
+
+	char szValue[8];
 
 	GetClientCookie(client, g_hCookieDisp, szValue, sizeof(szValue));
 	if (szValue[0] != '\0')
-		g_PlayerState[client].useDispenser = bool:StringToInt(szValue);
+	{
+		g_PlayerState[client].useDispenser = view_as<bool>(StringToInt(szValue));
+	}
 
 	GetClientCookie(client, g_hCookieSentry, szValue, sizeof(szValue));
 	if (szValue[0] != '\0')
-		g_PlayerState[client].useSentry = bool:StringToInt(szValue);
+	{
+		g_PlayerState[client].useSentry = view_as<bool>(StringToInt(szValue));
+	}
 }
 
-void SaveClientPreferences(client)
+void SaveClientPreferences(int client)
 {
-	if (!AreClientCookiesCached(client)) return;
+	if (!IsValidClient(client) || !AreClientCookiesCached(client)) return;
 
-	new String:szValue[8];
+	char szValue[8];
 
 	IntToString(g_PlayerState[client].useDispenser, szValue, sizeof(szValue));
 	SetClientCookie(client, g_hCookieDisp, szValue);
@@ -297,86 +395,123 @@ bool IsPlayercountForceActive()
 	return DGM_RealPlayerCount() < forcePlayercount;
 }
 
-public AddToDownload()
+public void AddToDownload()
 {
-	new String:strLine[256];
-	new String:extensions[][] = {".mdl", ".dx80.vtx", ".dx90.vtx", ".sw.vtx", ".vvd", ".phy"};
-	new String:extensionsb[][] = {".vtf", ".vmt"};
+	char strLine[256];
+	static const char extensions[][] = {".mdl", ".dx80.vtx", ".dx90.vtx", ".sw.vtx", ".vvd", ".phy"};
+	static const char textureExtensions[][] = {".vtf", ".vmt"};
+	static const char textures[][] = {"", "_blue", "_anim", "_anim_blue", "_anim2", "_anim2_blue", "_holo", "_bolt", "_holo_blue", "_radar"};
 
-	for (new i = 0; i < sizeof(extensions); i++)
+	for (int i = 0; i < sizeof(extensions); i++)
 	{
-		Format(strLine, 256, "%s%s", AmplifierModel, extensions[i]);
+		Format(strLine, sizeof(strLine), "%s%s", AmplifierModel, extensions[i]);
 		AddFileToDownloadsTable(strLine);
-		for (new j = 1; j <= 8; j++)
+		for (int j = 1; j <= 8; j++)
 		{
-			Format(strLine, 256, "%s%i%s", AMPgib, j, extensions[i]);
+			Format(strLine, sizeof(strLine), "%s%i%s", AMPgib, j, extensions[i]);
 			AddFileToDownloadsTable(strLine);
 		}
 	}
 
-	for (new i = 0; i < sizeof(extensionsb); i++)
+	for (int i = 0; i < sizeof(textureExtensions); i++)
 	{
-		new String:textures[][] = {"", "_blue", "_anim", "_anim_blue", "_anim2", "_anim2_blue", "_holo", "_bolt", "_holo_blue", "_radar"};
-		for (new j = 0; j < sizeof(textures); j++)
+		for (int j = 0; j < sizeof(textures); j++)
 		{
-			Format(strLine, 256, "%s%s%s", AmplifierTex, textures[j], extensionsb[i]);
+			Format(strLine, sizeof(strLine), "%s%s%s", AmplifierTex, textures[j], textureExtensions[i]);
 			AddFileToDownloadsTable(strLine);
 		}
 	}
 
-	Format(strLine, 256, "%s.mdl", AmplifierModel);
+	Format(strLine, sizeof(strLine), "%s.mdl", AmplifierModel);
 	PrecacheModel(strLine, true);
-	for (new i = 1; i <= 8; i++)
+	for (int i = 1; i <= 8; i++)
 	{
-		Format(strLine, 256, "%s%i.mdl", AMPgib, i);
+		Format(strLine, sizeof(strLine), "%s%i.mdl", AMPgib, i);
 		PrecacheModel(strLine, true);
 	}
 }
 
-RemoveBuilding(client, const String:buildingClass[])
+bool GetDestroyCommandForBuilding(const char[] buildingClass, char[] destroyCmd, int destroyCmdSize)
 {
-	new String:classname[64];
-	new String:destroyCmd[32];
-
-	if (!strcmp(buildingClass, "obj_dispenser"))
-		Format(destroyCmd, 32, "destroy 0");
-	else if (!strcmp(buildingClass, "obj_sentrygun"))
-		Format(destroyCmd, 32, "destroy 2");
-	else
-		return;
-
-	for (new j = 1; j < ME; j++)
+	if (IsDispenserClass(buildingClass))
 	{
-		new ent = EntRefToEntIndex(BuildingRef[j]);
-		if (ent > 0)
-		{
-			GetEdictClassname(ent, classname, sizeof(classname));
-			if (!strcmp(classname, buildingClass) && GetEntPropEnt(ent, Prop_Send, "m_hBuilder") == client)
-			{
-				Format(classname, 64, "%i", GetEntPropEnt(ent, Prop_Send, "m_iMaxHealth") + 1);
-				SetVariantString(classname);
-				AcceptEntityInput(ent, "RemoveHealth");
-				FakeClientCommand(client, destroyCmd);
+		strcopy(destroyCmd, destroyCmdSize, DESTROY_DISPENSER);
+		return true;
+	}
 
-				Event event = CreateEvent("object_removed", true);
-				if (event != null)
-				{
-					SetEventInt(event, "userid", GetClientUserId(client));
-					SetEventInt(event, "index", ent);
-					event.Fire();
-				}
-				AcceptEntityInput(ent, "kill");
-				AmplifierFill[ent] = 0.0;
+	if (IsSentryClass(buildingClass))
+	{
+		strcopy(destroyCmd, destroyCmdSize, DESTROY_SENTRY);
+		return true;
+	}
+
+	destroyCmd[0] = '\0';
+	return false;
+}
+
+void RemoveBuilding(int client, const char[] buildingClass)
+{
+	if (!IsValidClient(client))
+	{
+		return;
+	}
+
+	char destroyCmd[32];
+	if (!GetDestroyCommandForBuilding(buildingClass, destroyCmd, sizeof(destroyCmd)))
+	{
+		return;
+	}
+
+	char classname[64];
+
+	for (int j = 1; j < GetTrackedEntityLimit(); j++)
+	{
+		int ent = EntRefToEntIndex(BuildingRef[j]);
+		if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent))
+		{
+			if (BuildingRef[j] != 0)
+			{
+				BuildingRef[j] = 0;
+				ClearAmplifierConditionForBuilding(j);
+			}
+			continue;
 		}
+
+		GetEdictClassname(ent, classname, sizeof(classname));
+		if (!StrEqual(classname, buildingClass) || GetEntPropEnt(ent, Prop_Send, "m_hBuilder") != client)
+		{
+			continue;
+		}
+
+		char health[16];
+		IntToString(GetEntProp(ent, Prop_Send, "m_iMaxHealth") + 1, health, sizeof(health));
+		SetVariantString(health);
+		AcceptEntityInput(ent, "RemoveHealth");
+		FakeClientCommand(client, destroyCmd);
+
+		Event event = CreateEvent("object_removed", true);
+		if (event != null)
+		{
+			SetEventInt(event, "userid", GetClientUserId(client));
+			SetEventInt(event, "index", ent);
+			event.Fire();
+		}
+
+		AcceptEntityInput(ent, "kill");
+		AmplifierFill[ent] = 0.0;
 	}
 }
-}
 
-public AmpHelpPanelH(Handle:menu, MenuAction:action, param1, param2) { }
+public int AmpHelpPanelH(Handle menu, MenuAction action, int param1, int param2) { return 0; }
 
-public Action:HelpPanel(client, Args)
+public Action HelpPanel(int client, int args)
 {
-	new Handle:panel = CreatePanel();
+	if (!IsValidClient(client))
+	{
+		return Plugin_Continue;
+	}
+
+	Handle panel = CreatePanel();
 
 	SetPanelTitle(panel, "Amplifier Info");
 	DrawPanelText(panel, "Amplifiers buff allies with 40% faster reload speed and health on hit");
@@ -387,12 +522,18 @@ public Action:HelpPanel(client, Args)
 	DrawPanelItem(panel, "Close");
 
 	SendPanelToClient(panel, client, AmpHelpPanelH, 20);
-	CloseHandle(panel);
+	delete panel;
+	return Plugin_Continue;
 }
 
-public Action:PadHelpPanel(client, Args)
+public Action PadHelpPanel(int client, int args)
 {
-	new Handle:panel = CreatePanel();
+	if (!IsValidClient(client))
+	{
+		return Plugin_Continue;
+	}
+
+	Handle panel = CreatePanel();
 
 	DrawPanelText(panel, "Jump/Speed Pad Info");
 	DrawPanelText(panel, "Teleporters can be converted to Jump or Speed pads");
@@ -401,22 +542,25 @@ public Action:PadHelpPanel(client, Args)
 	DrawPanelItem(panel, "Close");
 
 	SendPanelToClient(panel, client, AmpHelpPanelH, 20);
-	CloseHandle(panel);
-}
-
-public Action:CallPanel(client, Args)
-{
-	if (!NativeControl && IsValidClient(client))
-		ShowAmplifierMenu(client);
+	delete panel;
 	return Plugin_Continue;
 }
 
-void ShowAmplifierMenu(client)
+public Action CallPanel(int client, int args)
+{
+	if (!NativeControl && IsValidClient(client))
+	{
+		ShowAmplifierMenu(client);
+	}
+	return Plugin_Continue;
+}
+
+void ShowAmplifierMenu(int client)
 {
 	if (!IsValidClient(client))
 		return;
 
-	new Handle:menu = CreateMenu(MenuHandler_Amplifier);
+	Handle menu = CreateMenu(MenuHandler_Amplifier);
 
 	SetMenuTitle(menu, "Amplifier Settings");
 
@@ -442,53 +586,93 @@ void ShowAmplifierMenu(client)
 // Engipads attachment
 bool GetClientCookieBool(int client, Handle cookie)
 {
-    char value[8];
-    GetClientCookie(client, cookie, value, sizeof(value));
-    return (StrEqual(value, "1") || StrEqual(value, "true"));
+	if (!IsValidClient(client) || !IsValidCookieHandle(cookie) || !AreClientCookiesCached(client))
+	{
+		return false;
+	}
+
+	char value[8];
+	GetClientCookie(client, cookie, value, sizeof(value));
+	return StrEqual(value, "1") || StrEqual(value, "true");
 }
 
-public MenuHandler_Amplifier(Handle:menu, MenuAction:action, param1, param2)
+void SetClientCookieBool(int client, Handle cookie, bool value)
+{
+	if (!IsValidClient(client) || !IsValidCookieHandle(cookie) || !AreClientCookiesCached(client))
+	{
+		return;
+	}
+
+	char szToggle[8];
+	Format(szToggle, sizeof(szToggle), "%s", value ? "1" : "0");
+	SetClientCookie(client, cookie, szToggle);
+}
+
+void ToggleAmplifierBuildingPreference(int client, bool sentry)
+{
+	if (!IsValidClient(client))
+	{
+		return;
+	}
+
+	if (sentry)
+	{
+		g_PlayerState[client].useSentry = !g_PlayerState[client].useSentry;
+		SaveClientPreferences(client);
+
+		if (g_PlayerState[client].useSentry)
+		{
+			CPrintToChat(client, "{orange}[Amplifier]{default} Sentries will now be {green}Amplifiers{default}!");
+			RemoveBuilding(client, BUILDING_SENTRY);
+		}
+		else
+		{
+			CPrintToChat(client, "{orange}[Amplifier]{default} Sentries will now be {lightgreen}Normal{default}!");
+			RemoveBuilding(client, BUILDING_SENTRY);
+		}
+	}
+	else
+	{
+		g_PlayerState[client].useDispenser = !g_PlayerState[client].useDispenser;
+		SaveClientPreferences(client);
+
+		if (g_PlayerState[client].useDispenser)
+		{
+			CPrintToChat(client, "{orange}[Amplifier]{default} Dispensers will now be {green}Amplifiers{default}!");
+			RemoveBuilding(client, BUILDING_DISPENSER);
+		}
+		else
+		{
+			CPrintToChat(client, "{orange}[Amplifier]{default} Dispensers will now be {lightgreen}Normal{default}!");
+			RemoveBuilding(client, BUILDING_DISPENSER);
+		}
+	}
+
+	ShowAmplifierMenu(client);
+}
+
+public int MenuHandler_Amplifier(Handle menu, MenuAction action, int param1, int param2)
 {
 	if (action == MenuAction_Select)
 	{
-		new String:info[32];
-		GetMenuItem(menu, param2, info, sizeof(info));
+		if (!IsValidClient(param1))
+		{
+			return 0;
+		}
+
+		char info[32];
+		if (!GetMenuItem(menu, param2, info, sizeof(info)))
+		{
+			return 0;
+		}
 
 		if (StrEqual(info, "disp"))
 		{
-			g_PlayerState[param1].useDispenser = !g_PlayerState[param1].useDispenser;
-			SaveClientPreferences(param1);
-
-			if (g_PlayerState[param1].useDispenser)
-			{
-				CPrintToChat(param1, "{orange}[Amplifier]{default} Dispensers will now be {green}Amplifiers{default}!");
-				RemoveBuilding(param1, "obj_dispenser");
-			}
-			else
-			{
-				CPrintToChat(param1, "{orange}[Amplifier]{default} Dispensers will now be {lightgreen}Normal{default}!");
-				RemoveBuilding(param1, "obj_dispenser");
-			}
-
-			ShowAmplifierMenu(param1);
+			ToggleAmplifierBuildingPreference(param1, false);
 		}
 		else if (StrEqual(info, "sentry"))
 		{
-			g_PlayerState[param1].useSentry = !g_PlayerState[param1].useSentry;
-			SaveClientPreferences(param1);
-
-			if (g_PlayerState[param1].useSentry)
-			{
-				CPrintToChat(param1, "{orange}[Amplifier]{default} Sentries will now be {green}Amplifiers{default}!");
-				RemoveBuilding(param1, "obj_sentrygun");
-			}
-			else
-			{
-				CPrintToChat(param1, "{orange}[Amplifier]{default} Sentries will now be {lightgreen}Normal{default}!");
-				RemoveBuilding(param1, "obj_sentrygun");
-			}
-
-			ShowAmplifierMenu(param1);
+			ToggleAmplifierBuildingPreference(param1, true);
 		}
 		else if (StrEqual(info, "info"))
 		{
@@ -498,25 +682,23 @@ public MenuHandler_Amplifier(Handle:menu, MenuAction:action, param1, param2)
 		{
 			bool usePadSpeed = GetClientCookieBool(param1, g_hPadCookie);
 			usePadSpeed = !usePadSpeed; // toggle it
-
-			char szToggle[8];
-			Format(szToggle, sizeof(szToggle), "%s", usePadSpeed ? "1" : "0");
-
-			SetClientCookie(param1, g_hPadCookie, szToggle);
+			SetClientCookieBool(param1, g_hPadCookie, usePadSpeed);
 
 			PrintToChat(param1, "[Kogasa] Teleporter mode set to: %s", usePadSpeed ? "Speed/Jump" : "Normal");
 			ShowAmplifierMenu(param1);
 		}
 	}
-	else if (action == MenuAction_End)
+	else if (action == MenuAction_End && menu != INVALID_HANDLE)
 	{
-		CloseHandle(menu);
+		delete menu;
 	}
+
+	return 0;
 }
 
 bool IsAmplifierModel(int ent)
 {
-	if (ent <= 0 || !IsValidEntity(ent))
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent))
 		return false;
 
 	char modelname[256];
@@ -526,20 +708,27 @@ bool IsAmplifierModel(int ent)
 
 bool IsActiveAmplifier(int ent)
 {
-	return ent > 0 && IsValidEntity(ent) && AmplifierOn[ent] && !AmplifierSapped[ent] && IsAmplifierModel(ent);
+	return IsTrackedEntityIndex(ent) && IsValidEntity(ent) && AmplifierOn[ent] && !AmplifierSapped[ent] && IsAmplifierModel(ent);
 }
 
 bool GetAmplifierMetal(int ent, int &metal, char[] buildingClass, int classSize)
 {
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent))
+	{
+		metal = 0;
+		buildingClass[0] = '\0';
+		return false;
+	}
+
 	GetEdictClassname(ent, buildingClass, classSize);
 
-	if (!strcmp(buildingClass, "obj_dispenser"))
+	if (IsDispenserClass(buildingClass))
 	{
 		metal = GetEntProp(ent, Prop_Send, "m_iAmmoMetal");
 		return true;
 	}
 
-	if (!strcmp(buildingClass, "obj_sentrygun"))
+	if (IsSentryClass(buildingClass))
 	{
 		metal = GetEntProp(ent, Prop_Send, "m_iAmmoShells");
 		return true;
@@ -551,14 +740,20 @@ bool GetAmplifierMetal(int ent, int &metal, char[] buildingClass, int classSize)
 
 void SetAmplifierMetal(int ent, const char[] buildingClass, int metal)
 {
-	if (!strcmp(buildingClass, "obj_dispenser"))
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent))
+		return;
+
+	if (IsDispenserClass(buildingClass))
 		SetEntProp(ent, Prop_Send, "m_iAmmoMetal", metal);
-	else if (!strcmp(buildingClass, "obj_sentrygun"))
+	else if (IsSentryClass(buildingClass))
 		SetEntProp(ent, Prop_Send, "m_iAmmoShells", metal);
 }
 
 void UpdateAmplifierFill(int ent, int metal, int metalMax)
 {
+	if (!IsTrackedEntityIndex(ent))
+		return;
+
 	if (metalMax <= 0)
 	{
 		AmplifierFill[ent] = 0.0;
@@ -580,7 +775,7 @@ void UpdateAmplifierFill(int ent, int metal, int metalMax)
 
 float GetAmplifierWaveRadius(int ent, float colorScale)
 {
-	return colorScale * AmplifierDistance[ent];
+	return IsTrackedEntityIndex(ent) ? colorScale * AmplifierDistance[ent] : 0.0;
 }
 
 float GetEmptyAmplifierWaveRadius(int ent)
@@ -595,7 +790,7 @@ float GetEmptyAmplifierWaveRadius(int ent)
 float GetAmplifierEffectLength(int ent)
 {
 	float effectLength = GetConVarFloat(cvarEffectLength);
-	if (ent > 0 && ent < ME && AmplifierMini[ent])
+	if (IsTrackedEntityIndex(ent) && AmplifierMini[ent])
 	{
 		effectLength = float(RoundToFloor(effectLength * AMPLIFIER_MINI_MODIFIER));
 		if (effectLength < 1.0)
@@ -607,7 +802,7 @@ float GetAmplifierEffectLength(int ent)
 
 float GetAmplifierDamage(int ent, float damage)
 {
-	if (ent > 0 && ent < ME && AmplifierMini[ent])
+	if (IsTrackedEntityIndex(ent) && AmplifierMini[ent])
 		return float(RoundToFloor(damage * AMPLIFIER_MINI_MODIFIER));
 
 	return damage;
@@ -615,7 +810,10 @@ float GetAmplifierDamage(int ent, float damage)
 
 void ClearAmplifierConditionForClient(int client, int maxEntities)
 {
-	for (int ent = 1; ent < maxEntities; ent++)
+	if (!IsValidPlayerIndex(client))
+		return;
+
+	for (int ent = 1; ent < GetTrackedEntityLimit(maxEntities); ent++)
 	{
 		ConditionApplied[ent][client] = false;
 	}
@@ -623,6 +821,9 @@ void ClearAmplifierConditionForClient(int client, int maxEntities)
 
 void ClearAmplifierConditionForBuilding(int ent)
 {
+	if (!IsTrackedEntityIndex(ent))
+		return;
+
 	for (int client = 1; client <= MaxClients; client++)
 	{
 		ConditionApplied[ent][client] = false;
@@ -633,7 +834,7 @@ int CollectActiveAmplifiers(int maxEntities, int activeAmps[ME])
 {
 	int activeCount = 0;
 
-	for (int slot = 1; slot < maxEntities; slot++)
+	for (int slot = 1; slot < GetTrackedEntityLimit(maxEntities); slot++)
 	{
 		int ref = BuildingRef[slot];
 		if (ref == 0)
@@ -681,20 +882,23 @@ bool TryApplyAmplifierToClient(int client, int amp, int metalPerPlayer, int meta
 	if (!TraceTargetIndex(amp, client, amplifierPos, clientPos))
 		return false;
 
-	TFTeam clientTeam = TFTeam:GetClientTeam(client);
-	TFTeam team = TFTeam:GetEntProp(amp, Prop_Send, "m_iTeamNum");
+	TFTeam clientTeam = view_as<TFTeam>(GetClientTeam(client));
+	TFTeam team = view_as<TFTeam>(GetEntProp(amp, Prop_Send, "m_iTeamNum"));
 
 	if (TF2_GetPlayerClass(client) == TFClass_Spy && TF2_IsPlayerInCondition(client, TFCond_Disguised) && !TF2_IsPlayerInCondition(client, TFCond_Cloaked))
 		team = clientTeam;
 
 	TFCond Condition = DefaultCondition;
-	new Action:res = Plugin_Continue;
-	new builder = GetEntPropEnt(amp, Prop_Send, "m_hBuilder");
-	Call_StartForward(fwdOnAmplify);
-	Call_PushCell(builder);
-	Call_PushCell(client);
-	Call_PushCell(Condition);
-	Call_Finish(res);
+	Action res = Plugin_Continue;
+	int builder = GetEntPropEnt(amp, Prop_Send, "m_hBuilder");
+	if (fwdOnAmplify != null)
+	{
+		Call_StartForward(fwdOnAmplify);
+		Call_PushCell(builder);
+		Call_PushCell(client);
+		Call_PushCell(Condition);
+		Call_Finish(res);
+	}
 	if (res != Plugin_Continue)
 		return false;
 
@@ -732,7 +936,7 @@ void ApplyAmplifierEffectsToPlayers(int activeAmps[ME], int activeCount, int max
 {
 	for (int client = 1; client <= MaxClients; client++)
 	{
-		if (!IsClientInGame(client))
+		if (!IsValidClient(client))
 			continue;
 
 		g_PlayerState[client].nearAmplifier = false;
@@ -776,8 +980,8 @@ void PulseAmplifierBuilding(int ent, int metalPerPlayer, int metalMax)
 	GetEntPropVector(ent, Prop_Send, "m_vecOrigin", pos);
 	pos[2] += 90;
 
-	new beamColor[4];
-	if (TFTeam:GetEntProp(ent, Prop_Send, "m_iTeamNum") == TFTeam_Red)
+	int beamColor[4];
+	if (view_as<TFTeam>(GetEntProp(ent, Prop_Send, "m_iTeamNum")) == TFTeam_Red)
 		beamColor = {255, 75, 75, 255};
 	else
 		beamColor = {75, 75, 255, 255};
@@ -804,7 +1008,7 @@ void PulseAmplifierBuilding(int ent, int metalPerPlayer, int metalMax)
 	}
 	else
 	{
-		new emptyColor[4] = {75, 75, 75, 100};
+		int emptyColor[4] = {75, 75, 75, 100};
 		TE_SetupBeamRingPoint(pos, 10.0, GetEmptyAmplifierWaveRadius(ent), g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, emptyColor, 3, 0); // 144 is the final non-mini value at colorscale 0.
 		TE_SendToAll();
 	}
@@ -830,9 +1034,9 @@ void PulseAmplifierBuildings(int activeAmps[ME], int activeCount, int metalPerPl
 	}
 }
 
-public Action:Timer_amplifier(Handle hTimer)
+public Action Timer_amplifier(Handle hTimer)
 {
-	int maxEntities = GetMaxEntities();
+	int maxEntities = GetTrackedEntityLimit();
 	int metalPerPlayer = GetConVarInt(cvarMetal);
 	int metalMax = GetConVarInt(cvarMetalMax);
 	float zapDamage = GetConVarFloat(cvarEnableZap);
@@ -844,32 +1048,39 @@ public Action:Timer_amplifier(Handle hTimer)
 	return Plugin_Continue;
 }
 
-public Action:event_player_death(Handle:event, const String:name[], bool:dontBroadcast)
+public Action event_player_death(Event event, const char[] name, bool dontBroadcast)
 {
-	new Attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
-
-	new maxEntities = GetMaxEntities();
-	for (new i = 1; i < maxEntities; i++)
+	int attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
+	if (!IsValidPlayerIndex(attacker))
 	{
-		new ent = EntRefToEntIndex(BuildingRef[i]);
-		if (ent <= 0 || !AmplifierOn[ent] || AmplifierSapped[ent] || Attacker == i) continue;
+		return Plugin_Continue;
+	}
 
-		if (ConditionApplied[ent][Attacker])
+	int maxEntities = GetTrackedEntityLimit();
+	for (int i = 1; i < maxEntities; i++)
+	{
+		int ent = EntRefToEntIndex(BuildingRef[i]);
+		if (!IsTrackedEntityIndex(ent) || !AmplifierOn[ent] || AmplifierSapped[ent] || attacker == i)
 		{
-			new builder = GetEntPropEnt(ent, Prop_Send, "m_hBuilder");
-			if (builder > 0)
+			continue;
+		}
+
+		if (ConditionApplied[ent][attacker])
+		{
+			int builder = GetEntPropEnt(ent, Prop_Send, "m_hBuilder");
+			if (IsValidPlayerIndex(builder))
 			{
-			g_PlayerState[builder].engiAssists++;
-			if (g_PlayerState[builder].engiAssists >= 4)
+				g_PlayerState[builder].engiAssists++;
+				if (g_PlayerState[builder].engiAssists >= 4)
 				{
 					Event escortEvent = CreateEvent("player_escort_score", true);
 					if (escortEvent != null)
 					{
-						SetEventInt(escortEvent, "player", builder);
-						SetEventInt(escortEvent, "points", 1);
+						escortEvent.SetInt("player", builder);
+						escortEvent.SetInt("points", 1);
 						escortEvent.Fire();
 					}
-				g_PlayerState[builder].engiAssists = 0;
+					g_PlayerState[builder].engiAssists = 0;
 				}
 			}
 			break;
@@ -878,9 +1089,9 @@ public Action:event_player_death(Handle:event, const String:name[], bool:dontBro
 	return Plugin_Continue;
 }
 
-public Action:Event_Build(Handle:event, const String:name[], bool:dontBroadcast)
+public Action Event_Build(Event event, const char[] name, bool dontBroadcast)
 {
-	new ent = GetEventInt(event, "index");
+	int ent = GetEventInt(event, "index");
 	CheckBuilding(ent);
 	CheckSapper(ent);
 	return Plugin_Continue;
@@ -889,13 +1100,15 @@ public Action:Event_Build(Handle:event, const String:name[], bool:dontBroadcast)
 public Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast)
 {
     int entindex = event.GetInt("index"); // the destroyed entity
-    if (!IsValidEntity(entindex))
+    if (!IsTrackedEntityIndex(entindex) || !IsValidEntity(entindex))
         return Plugin_Continue;
     char modelname[PLATFORM_MAX_PATH];
     GetEntPropString(entindex, Prop_Data, "m_ModelName", modelname, sizeof(modelname));
 	if (StrContains(modelname, "plifier") == -1)
 		return Plugin_Continue;
 
+	bool wasMini = AmplifierMini[entindex];
+	float amplifierDistance = AmplifierDistance[entindex];
 	int attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
 	bool entwasbuilding = event.GetBool("was_building"); // building in progress
 	float position[3];
@@ -903,25 +1116,33 @@ public Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBro
 	int explosionDamage = GetConVarInt(cvarEnableExplosion);
 	if (explosionDamage > 0)
 	{
-		if (AmplifierMini[entindex])
+		if (wasMini)
 			explosionDamage = RoundToFloor(float(explosionDamage) * AMPLIFIER_MINI_MODIFIER);
 
-		CreateAmplifierExplosion(position, attacker, entwasbuilding, explosionDamage, AmplifierDistance[entindex]);
+		CreateAmplifierExplosion(position, attacker, entwasbuilding, explosionDamage, amplifierDistance);
 	}
+
+	ResetAmplifierBuildingState(entindex);
 	return Plugin_Changed;
 }
 
-CheckBuilding(ent)
+void CheckBuilding(int ent)
 {
-    new String:classname[64];
-    new Client = GetEntPropEnt(ent, Prop_Send, "m_hBuilder");
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent))
+	{
+		return;
+	}
+
+    char classname[64];
+    int Client = GetEntPropEnt(ent, Prop_Send, "m_hBuilder");
     GetEdictClassname(ent, classname, sizeof(classname));
 
-	bool isDispenser = !strcmp(classname, "obj_dispenser");
-	bool isSentry = !strcmp(classname, "obj_sentrygun");
+	bool isDispenser = IsDispenserClass(classname);
+	bool isSentry = IsSentryClass(classname);
 
-	if ((!isDispenser && !isSentry) || Client <= 0) return;
+	if ((!isDispenser && !isSentry) || !IsValidClient(Client)) return;
 
+	ResetAmplifierBuildingState(ent);
 	BuildingRef[ent] = EntIndexToEntRef(ent);
 
     bool shouldConvert = false;
@@ -946,6 +1167,7 @@ CheckBuilding(ent)
     if (shouldConvert)
     {
         AmplifierOn[ent] = false;
+		AmplifierMini[ent] = false;
         SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
 		if (GetEntPropFloat(ent, Prop_Send, "m_flModelScale") != 1.0)
 		{
@@ -972,11 +1194,11 @@ CheckBuilding(ent)
 			AmplifierDistance[ent] *= AMPLIFIER_MINI_MODIFIER;
 		}
 
-		new String:s[128];
-		Format(s, 128, "%s.mdl", AmplifierModel);
+		char s[128];
+		Format(s, sizeof(s), "%s.mdl", AmplifierModel);
 		SetEntityModel(ent, s);
 		SetEntProp(ent, Prop_Send, "m_nSkin", GetEntProp(ent, Prop_Send, "m_nSkin") + 2);
-        CreateTimer(1.0, BuildingCheckStage1, EntIndexToEntRef(ent));
+        CreateTimer(1.0, BuildingCheckStage1, EntIndexToEntRef(ent), TIMER_NO_MAPCHANGE);
 
         if (forcedConversion && effectiveForceAmplifier == 2 && !playerRequestedAmplifier)
         {
@@ -992,49 +1214,53 @@ CheckBuilding(ent)
     }
 }
 
-public Action:BuildingCheckStage1(Handle hTimer, any:ref)
+public Action BuildingCheckStage1(Handle hTimer, any ref)
 {
-	if (EntRefToEntIndex(ref) > 0)
-		CreateTimer(0.1, BuildingCheckStage2, ref, TIMER_REPEAT);
+	int ent = EntRefToEntIndex(ref);
+	if (IsTrackedEntityIndex(ent) && IsValidEntity(ent))
+	{
+		CreateTimer(0.1, BuildingCheckStage2, ref, TIMER_REPEAT | TIMER_NO_MAPCHANGE);
+	}
 	return Plugin_Continue;
 }
 
-public Action:BuildingCheckStage2(Handle hTimer, any:ref)
+void SetAmplifierHealth(int ent, int health)
 {
-	new ent = EntRefToEntIndex(ref);
-	if (ent <= 0 || !IsValidEntity(ent)) return Plugin_Stop;
+	SetEntProp(ent, Prop_Send, "m_iMaxHealth", health);
+	char sHealth[16];
+	IntToString(health, sHealth, sizeof(sHealth));
+	SetVariantString(sHealth);
+	AcceptEntityInput(ent, "SetHealth");
+}
+
+public Action BuildingCheckStage2(Handle hTimer, any ref)
+{
+	int ent = EntRefToEntIndex(ref);
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent)) return Plugin_Stop;
 
 	if (GetEntPropFloat(ent, Prop_Send, "m_flPercentageConstructed") < 1.0)
 		return Plugin_Continue;
 
 	AmplifierOn[ent] = true;
-	new String:modelname[128];
-	Format(modelname, 128, "%s.mdl", AmplifierModel);
+	char modelname[128];
+	Format(modelname, sizeof(modelname), "%s.mdl", AmplifierModel);
 	SetEntProp(ent, Prop_Send, "m_iUpgradeLevel", 1);
 	SetEntityModel(ent, modelname);
 
 	if (AmplifierMini[ent])
 	{
-		SetEntProp(ent, Prop_Send, "m_iMaxHealth", AMPLIFIER_MINI_HEALTH);
-		char sHealth[16];
-		IntToString(AMPLIFIER_MINI_HEALTH, sHealth, sizeof(sHealth));
-		SetVariantString(sHealth);
-		AcceptEntityInput(ent, "SetHealth");
+		SetAmplifierHealth(ent, AMPLIFIER_MINI_HEALTH);
 	}
 	else
 	{
-		SetEntProp(ent, Prop_Send, "m_iMaxHealth", AMPLIFIER_HEALTH);
-		char sHealth[16];
-		IntToString(AMPLIFIER_HEALTH, sHealth, sizeof(sHealth));
-		SetVariantString(sHealth);
-		AcceptEntityInput(ent, "SetHealth");
+		SetAmplifierHealth(ent, AMPLIFIER_HEALTH);
 	}
 
-	new String:buildingClass[64];
+	char buildingClass[64];
 	GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
-	if (!strcmp(buildingClass, "obj_dispenser"))
+	if (IsDispenserClass(buildingClass))
 		SetEntProp(ent, Prop_Send, "m_iAmmoMetal", 0);
-	else if (!strcmp(buildingClass, "obj_sentrygun"))
+	else if (IsSentryClass(buildingClass))
 		SetEntProp(ent, Prop_Send, "m_iAmmoShells", 0);
 	AmplifierFill[ent] = 0.0;
 
@@ -1044,29 +1270,32 @@ public Action:BuildingCheckStage2(Handle hTimer, any:ref)
 	return Plugin_Stop;
 }
 
-CheckSapper(ent)
+void CheckSapper(int ent)
 {
-	CreateTimer(0.5, SapperCheckStage1, EntIndexToEntRef(ent));
+	if (IsTrackedEntityIndex(ent) && IsValidEntity(ent))
+	{
+		CreateTimer(0.5, SapperCheckStage1, EntIndexToEntRef(ent), TIMER_NO_MAPCHANGE);
+	}
 }
 
-public Action:SapperCheckStage1(Handle:hTimer, any:ref)
+public Action SapperCheckStage1(Handle hTimer, any ref)
 {
-	new ent = EntRefToEntIndex(ref);
+	int ent = EntRefToEntIndex(ref);
 	if (ent > 0 && IsValidEntity(ent))
 	{
-		new String:classname[64];
+		char classname[64];
 		GetEdictClassname(ent, classname, sizeof(classname));
-		if (!strcmp(classname, "obj_attachment_sapper"))
+		if (StrEqual(classname, BUILDING_SAPPER))
 		{
-			new maxEntities = GetMaxEntities();
-			for (new i = 1; i < maxEntities; i++)
+			int maxEntities = GetTrackedEntityLimit();
+			for (int i = 1; i < maxEntities; i++)
 			{
-				new ampref = BuildingRef[i];
-				new ampent = EntRefToEntIndex(ampref);
-				if (ampent > 0 && GetEntProp(ampent, Prop_Send, "m_bHasSapper") == 1 && !AmplifierSapped[ampent])
+				int ampref = BuildingRef[i];
+				int ampent = EntRefToEntIndex(ampref);
+				if (IsTrackedEntityIndex(ampent) && IsValidEntity(ampent) && GetEntProp(ampent, Prop_Send, "m_bHasSapper") == 1 && !AmplifierSapped[ampent])
 				{
 					AmplifierSapped[ampent] = true;
-					CreateTimer(0.5, SapperCheckStage2, ampref, TIMER_REPEAT);
+					CreateTimer(0.5, SapperCheckStage2, ampref, TIMER_REPEAT | TIMER_NO_MAPCHANGE);
 					break;
 				}
 			}
@@ -1180,6 +1409,9 @@ public Action Timer_RemoveAmplifierEffect(Handle timer, int userid)
 
 stock int CheckAmpAttributesDisp(int client)
 {
+	if (!IsValidClient(client))
+		return 0;
+
 	int weapon = GetPlayerWeaponSlot(client, 4);
 	if (weapon <= MaxClients || !IsValidEntity(weapon))
 		return 0;
@@ -1189,6 +1421,9 @@ stock int CheckAmpAttributesDisp(int client)
 
 stock int CheckAmpAttributesSentry(int client)
 {
+	if (!IsValidClient(client))
+		return 0;
+
 	int weapon = GetPlayerWeaponSlot(client, 4);
 	if (weapon <= MaxClients || !IsValidEntity(weapon))
 		return 0;
@@ -1198,99 +1433,113 @@ stock int CheckAmpAttributesSentry(int client)
 
 void ConvertAllAmplifiersToBuildings()
 {
-	new maxEntities = GetMaxEntities();
-	for (new i = 1; i < maxEntities; i++)
+	int maxEntities = GetTrackedEntityLimit();
+	for (int i = 1; i < maxEntities; i++)
 	{
-		new ent = EntRefToEntIndex(BuildingRef[i]);
-		if (ent > 0 && AmplifierOn[ent])
+		int ent = EntRefToEntIndex(BuildingRef[i]);
+		if (IsTrackedEntityIndex(ent) && IsValidEntity(ent) && AmplifierOn[ent])
 		{
-			new String:buildingClass[64];
+			char buildingClass[64];
 			GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
 
 			AmplifierOn[ent] = false;
 			SetEntProp(ent, Prop_Send, "m_bDisabled", 0);
 			AmplifierFill[ent] = 0.0;
 
-			new String:modelname[128];
-			if (!strcmp(buildingClass, "obj_dispenser"))
+			char modelname[128];
+			if (IsDispenserClass(buildingClass))
 				Format(modelname, sizeof(modelname), "models/buildables/dispenser.mdl");
-			else if (!strcmp(buildingClass, "obj_sentrygun"))
+			else if (IsSentryClass(buildingClass))
 				Format(modelname, sizeof(modelname), "models/buildables/sentry1.mdl");
+			else
+				continue;
 
 			SetEntityModel(ent, modelname);
 			SetEntPropFloat(ent, Prop_Send, "m_flModelScale", 1.0);
+			ResetAmplifierBuildingState(ent);
 		}
 	}
 }
 
 // Natives
-public Native_ControlAmplifier(Handle:plugin, numParams)
+public any Native_ControlAmplifier(Handle plugin, int numParams)
 {
-	NativeControl = GetNativeCell(1);
+	NativeControl = view_as<bool>(GetNativeCell(1));
+	return 0;
 }
 
-public Native_SetAmplifierDisp(Handle:plugin, numParams)
+public any Native_SetAmplifierDisp(Handle plugin, int numParams)
 {
-	new client = GetNativeCell(1);
-	g_PlayerState[client].useDispenser = bool:GetNativeCell(2);
+	int client = GetNativeCell(1);
+	if (!IsValidPlayerIndex(client))
+		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
 
-	float distance = Float:GetNativeCell(3);
+	g_PlayerState[client].useDispenser = view_as<bool>(GetNativeCell(2));
+
+	float distance = view_as<float>(GetNativeCell(3));
 	NativeDistanceDisp[client] = (distance < 0.0) ? GetConVarFloat(cvarDistance) : distance;
 
-	TFCond condition = TFCond:GetNativeCell(4);
+	TFCond condition = view_as<TFCond>(GetNativeCell(4));
 	NativeConditionDisp[client] = (condition < TFCond_Slowed) ? DefaultCondition : condition;
+	return 0;
 }
 
-public Native_SetAmplifierSentry(Handle:plugin, numParams)
+public any Native_SetAmplifierSentry(Handle plugin, int numParams)
 {
-	new client = GetNativeCell(1);
-	g_PlayerState[client].useSentry = bool:GetNativeCell(2);
+	int client = GetNativeCell(1);
+	if (!IsValidPlayerIndex(client))
+		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
 
-	float distance = Float:GetNativeCell(3);
+	g_PlayerState[client].useSentry = view_as<bool>(GetNativeCell(2));
+
+	float distance = view_as<float>(GetNativeCell(3));
 	NativeDistanceSentry[client] = (distance < 0.0) ? GetConVarFloat(cvarDistance) : distance;
 
-	TFCond condition = TFCond:GetNativeCell(4);
+	TFCond condition = view_as<TFCond>(GetNativeCell(4));
 	NativeConditionSentry[client] = (condition < TFCond_Slowed) ? DefaultCondition : condition;
+	return 0;
 }
 
-public Native_HasAmplifier(Handle:plugin, numParams)
+public any Native_HasAmplifier(Handle plugin, int numParams)
 {
-	new count = 0;
-	new client = GetNativeCell(1);
-	new maxEntities = GetMaxEntities();
-	for (new i = 1; i < maxEntities; i++)
+	int count = 0;
+	int client = GetNativeCell(1);
+	int maxEntities = GetTrackedEntityLimit();
+	for (int i = 1; i < maxEntities; i++)
 	{
-		new ampref = BuildingRef[i];
-		new ampent = EntRefToEntIndex(ampref);
-		if (ampent > 0 && GetEntPropEnt(ampent, Prop_Send, "m_hBuilder") == client)
+		int ampref = BuildingRef[i];
+		int ampent = EntRefToEntIndex(ampref);
+		if (IsTrackedEntityIndex(ampent) && IsValidEntity(ampent) && GetEntPropEnt(ampent, Prop_Send, "m_hBuilder") == client)
 			count++;
 	}
 	return count;
 }
 
-public Native_ConvertToAmplifier(Handle:plugin, numParams)
+public any Native_ConvertToAmplifier(Handle plugin, int numParams)
 {
-	new ent = GetNativeCell(1);
-	if (ent <= 0 || !IsValidEntity(ent)) return;
+	int ent = GetNativeCell(1);
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent)) return 0;
 
-	new client = GetNativeCell(2);
+	int client = GetNativeCell(2);
+	if (!IsValidPlayerIndex(client))
+		return ThrowNativeError(SP_ERROR_NATIVE, "Invalid client index %d", client);
 
-	new String:buildingClass[64];
+	char buildingClass[64];
 	GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
-	bool isDispenser = !strcmp(buildingClass, "obj_dispenser");
+	bool isDispenser = IsDispenserClass(buildingClass);
 
 	bool saveDisp = g_PlayerState[client].useDispenser;
 	bool saveSentry = g_PlayerState[client].useSentry;
 	float saveDistDisp = NativeDistanceDisp[client];
 	float saveDistSentry = NativeDistanceSentry[client];
-	new TFCond:saveCondDisp = NativeConditionDisp[client];
-	new TFCond:saveCondSentry = NativeConditionSentry[client];
-	new savePercentDisp = NativePercentDisp[client];
-	new savePercentSentry = NativePercentSentry[client];
+	TFCond saveCondDisp = NativeConditionDisp[client];
+	TFCond saveCondSentry = NativeConditionSentry[client];
+	int savePercentDisp = NativePercentDisp[client];
+	int savePercentSentry = NativePercentSentry[client];
 
-	float distance = Float:GetNativeCell(3);
-	new TFCond:condition = TFCond:GetNativeCell(4);
-	new percent = GetNativeCell(5);
+	float distance = view_as<float>(GetNativeCell(3));
+	TFCond condition = view_as<TFCond>(GetNativeCell(4));
+	int percent = GetNativeCell(5);
 
 	if (isDispenser)
 	{
@@ -1317,17 +1566,18 @@ public Native_ConvertToAmplifier(Handle:plugin, numParams)
 	NativePercentSentry[client] = savePercentSentry;
 	g_PlayerState[client].useDispenser = saveDisp;
 	g_PlayerState[client].useSentry = saveSentry;
+	return 0;
 }
 
 // Utility Functions
-stock bool:IsValidClient(client)
+stock bool IsValidClient(int client)
 {
-	return (client > 0 && client <= MaxClients && IsClientInGame(client));
+	return IsValidPlayerIndex(client) && client <= MaxClients && IsClientInGame(client);
 }
 
 void DealElectricDamage(int client, int builder, const float amplifierPos[3], float damage, float maxDistance)
 {
-    if (!IsClientInGame(client) || !IsPlayerAlive(client) || maxDistance <= 0.0)
+    if (!IsValidClient(client) || !IsPlayerAlive(client) || maxDistance <= 0.0)
         return;
 
     float clientPos[3];
@@ -1341,11 +1591,12 @@ void DealElectricDamage(int client, int builder, const float amplifierPos[3], fl
     float damageFinal = damage * (1.0 - (dist / maxDistance));
     if (damageFinal < 0.0) damageFinal = 0.0;
 
-    SDKHooks_TakeDamage(client, builder, builder, damageFinal, 256); // 256 = DMG_SHOCK
+	int attacker = IsValidClient(builder) ? builder : 0;
+    SDKHooks_TakeDamage(client, attacker, attacker, damageFinal, DMG_SHOCK);
 }
 
 
-void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbuilding = false, int damage, float radiusUnits = 0.0)
+void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbuilding = false, int damage = 0, float radiusUnits = 0.0)
 {
 	if (entwasbuilding) return;
     int explosion = CreateEntityByName("env_explosion");
@@ -1368,7 +1619,9 @@ void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbu
     TeleportEntity(explosion, position, NULL_VECTOR, NULL_VECTOR);
 
     // Set attacker if valid
-    if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker)) {
+    bool validAttacker = IsValidClient(attacker);
+    if (validAttacker)
+    {
         SetEntPropEnt(explosion, Prop_Send, "m_hOwnerEntity", attacker);
     }
 
@@ -1382,33 +1635,39 @@ void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbu
 	int particle = CreateEntityByName("info_particle_system");
 	if (particle != -1)
 	{
-		int team = GetClientTeam(attacker);
+		int team = validAttacker ? GetClientTeam(attacker) : 0;
 		TeleportEntity(particle, position, NULL_VECTOR, NULL_VECTOR);
-		char storedParticle[64] = "powerup_supernova_explode_red_spikes";
-		if (team == 2) storedParticle = "powerup_supernova_explode_blue_spikes";
+		char storedParticle[64];
+		strcopy(storedParticle, sizeof(storedParticle), "powerup_supernova_explode_red_spikes");
+		if (team == 2)
+		{
+			strcopy(storedParticle, sizeof(storedParticle), "powerup_supernova_explode_blue_spikes");
+		}
 		DispatchKeyValue(particle, "effect_name", storedParticle);
 		DispatchKeyValue(particle, "start_active", "0");
 		DispatchSpawn(particle);
 		ActivateEntity(particle);
 		AcceptEntityInput(particle, "Start");
-		CreateTimer(2.0, Timer_RemoveEntity, EntIndexToEntRef(particle));
+		CreateTimer(2.0, Timer_RemoveEntity, EntIndexToEntRef(particle), TIMER_NO_MAPCHANGE);
 	}
 
 	// Clean up explosion entity
-	CreateTimer(0.1, Timer_RemoveEntity, EntIndexToEntRef(explosion));
+	CreateTimer(0.1, Timer_RemoveEntity, EntIndexToEntRef(explosion), TIMER_NO_MAPCHANGE);
 }
 
-public Action Timer_RemoveEntity(Handle timer, int ref) {
+public Action Timer_RemoveEntity(Handle timer, int ref)
+{
     int entity = EntRefToEntIndex(ref);
-    if (entity != INVALID_ENT_REFERENCE) {
+    if (entity != INVALID_ENT_REFERENCE && entity > MaxClients && IsValidEntity(entity))
+    {
         RemoveEntity(entity);
     }
     return Plugin_Stop;
 }
 
-public void killAllSentries()
+void KillAllSentries()
 {
-    int maxEnts = GetMaxEntities();
+    int maxEnts = GetTrackedEntityLimit();
     char classname[64];
     for (int ent = MaxClients + 1; ent < maxEnts; ent++)
     {
@@ -1416,7 +1675,7 @@ public void killAllSentries()
             continue;
 
         GetEdictClassname(ent, classname, sizeof(classname));
-        bool isSentry = !strcmp(classname, "obj_sentrygun");
+        bool isSentry = IsSentryClass(classname);
         if (isSentry)
         {
             AcceptEntityInput(ent, "Kill");
@@ -1424,9 +1683,14 @@ public void killAllSentries()
     }
 }
 
+public void killAllSentries()
+{
+    KillAllSentries();
+}
+
 public Action Command_KillSentries(int client, int args)
 {
-    killAllSentries();
+    KillAllSentries();
 
     if (client > 0 && IsClientInGame(client))
     {
@@ -1443,14 +1707,14 @@ public Action Command_KillSentries(int client, int args)
 // Ray Trace
 #tryinclude <raytrace>
 #if !defined _raytrace_included
-stock bool:TraceTargetIndex(client, target, Float:clientLoc[3], Float:targetLoc[3])
+stock bool TraceTargetIndex(int client, int target, float clientLoc[3], float targetLoc[3])
 {
 	targetLoc[2] += 50.0;
 	TR_TraceRayFilter(clientLoc, targetLoc, MASK_SOLID, RayType_EndPoint, TraceRayDontHitSelf, client);
 	return (!TR_DidHit() || TR_GetEntityIndex() == target);
 }
 
-public bool:TraceRayDontHitSelf(entity, mask, any:data)
+public bool TraceRayDontHitSelf(int entity, int mask, any data)
 {
 	return (entity != data);
 }
