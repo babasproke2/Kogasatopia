@@ -773,9 +773,16 @@ void UpdateAmplifierFill(int ent, int metal, int metalMax)
 	AmplifierFill[ent] = fill;
 }
 
-float GetAmplifierWaveRadius(int ent, float colorScale)
+float GetAmplifierEffectiveRadius(int ent)
 {
-	return IsTrackedEntityIndex(ent) ? colorScale * AmplifierDistance[ent] : 0.0;
+	// Keep the gameplay range and non-empty visual pulse range in lock-step.
+	// AmplifierFill affects color/pitch only, not the wave's visible reach.
+	return IsTrackedEntityIndex(ent) ? AmplifierDistance[ent] : 0.0;
+}
+
+float GetAmplifierWaveRadius(int ent)
+{
+	return GetAmplifierEffectiveRadius(ent);
 }
 
 float GetEmptyAmplifierWaveRadius(int ent)
@@ -877,7 +884,7 @@ bool TryApplyAmplifierToClient(int client, int amp, int metalPerPlayer, int meta
 	GetEntPropVector(client, Prop_Send, "m_vecOrigin", clientPos);
 	GetEntPropVector(amp, Prop_Send, "m_vecOrigin", amplifierPos);
 
-	if (GetVectorDistance(clientPos, amplifierPos) > AmplifierDistance[amp])
+	if (GetVectorDistance(clientPos, amplifierPos) > GetAmplifierEffectiveRadius(amp))
 		return false;
 	if (!TraceTargetIndex(amp, client, amplifierPos, clientPos))
 		return false;
@@ -916,7 +923,7 @@ bool TryApplyAmplifierToClient(int client, int amp, int metalPerPlayer, int meta
 	}
 	else if (zapDamage > 0.0)
 	{
-		DealElectricDamage(client, builder, amplifierPos, GetAmplifierDamage(amp, zapDamage), AmplifierDistance[amp]);
+		DealElectricDamage(client, builder, amplifierPos, GetAmplifierDamage(amp, zapDamage), GetAmplifierEffectiveRadius(amp));
 		return true;
 	}
 	else
@@ -1003,7 +1010,7 @@ void PulseAmplifierBuilding(int ent, int metalPerPlayer, int metalMax)
 
 	if (oldMetal > 0)
 	{
-		TE_SetupBeamRingPoint(pos, 10.0, GetAmplifierWaveRadius(ent, colorScale), g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, beamColor, 3, 0);
+		TE_SetupBeamRingPoint(pos, 10.0, GetAmplifierWaveRadius(ent), g_BeamSprite, g_HaloSprite, 0, 15, 3.0, 5.0, 0.0, beamColor, 3, 0);
 		TE_SendToAll();
 	}
 	else
@@ -1108,7 +1115,7 @@ public Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBro
 		return Plugin_Continue;
 
 	bool wasMini = AmplifierMini[entindex];
-	float amplifierDistance = AmplifierDistance[entindex];
+	float amplifierDistance = GetAmplifierEffectiveRadius(entindex);
 	int attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
 	bool entwasbuilding = event.GetBool("was_building"); // building in progress
 	float position[3];
