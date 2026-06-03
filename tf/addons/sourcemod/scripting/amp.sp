@@ -46,7 +46,6 @@
 #define BUILDING_SAPPER "obj_attachment_sapper"
 #define DESTROY_DISPENSER "destroy 0"
 #define DESTROY_SENTRY "destroy 2"
-#define DMG_SHOCK 256
 #define TIMER_NO_MAPCHANGE TIMER_FLAG_NO_MAPCHANGE
 
 // Sprites
@@ -146,11 +145,6 @@ static bool IsDispenserClass(const char[] classname)
 static bool IsSentryClass(const char[] classname)
 {
     return StrEqual(classname, BUILDING_SENTRY);
-}
-
-static bool IsAmplifierBuildingClass(const char[] classname)
-{
-    return IsDispenserClass(classname) || IsSentryClass(classname);
 }
 
 static void ResetAmplifierBuildingState(int ent)
