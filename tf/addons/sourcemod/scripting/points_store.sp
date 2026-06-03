@@ -232,6 +232,9 @@ public void OnPluginStart()
     RegConsoleCmd("sm_gamble", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_lotto", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_ticket", Command_Lottery, "Open the currency lottery.");
+    RegConsoleCmd("sm_lottorefund", Command_LotteryRefund, "Refund your current lottery ticket.");
+    RegConsoleCmd("sm_lotteryrefund", Command_LotteryRefund, "Refund your current lottery ticket.");
+    RegConsoleCmd("sm_refund", Command_LotteryRefund, "Refund your current lottery ticket.");
     RegAdminCmd("sm_dolottery", Command_DoLottery, ADMFLAG_GENERIC, "Draw the current currency lottery.");
     RegAdminCmd("sm_dolotto", Command_DoLottery, ADMFLAG_GENERIC, "Draw the current currency lottery.");
 
@@ -984,6 +987,17 @@ public Action Command_Lottery(int client, int args)
     }
 
     ShowLotteryMenu(client);
+    return Plugin_Handled;
+}
+
+public Action Command_LotteryRefund(int client, int args)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return Plugin_Handled;
+    }
+
+    RefundLotteryTicket(client);
     return Plugin_Handled;
 }
 
