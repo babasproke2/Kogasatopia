@@ -4149,7 +4149,13 @@ bool CanApplyPerMapAward(int client, int points, const char[] type, int perMap, 
         return true;
     }
 
-    used = GetPerMapAwardCount(client, type);
+    char key[128];
+    if (!BuildPerMapAwardKey(client, type, key, sizeof(key)))
+    {
+        return false;
+    }
+
+    g_PerMapAwardCounts.GetValue(key, used);
     return used < perMap;
 }
 
@@ -4643,15 +4649,10 @@ public Action Command_Welfare(int client, int args)
     }
 
     int amount = GetRandomInt(BP_WELFARE_MIN, BP_WELFARE_MAX);
-    if (!ApplyBonusPoints(client, amount, false, false, 1.0, "welfare", 0, 0.0, 0)) // Temporarily disabled per-map cap; old cap: 1
+    if (!ApplyBonusPoints(client, amount, false, false, 1.0, "welfare", 0, 0.0, 1))
     {
         CPrintToChat(client, "%s Could not collect welfare right now.", prefix);
         return Plugin_Handled;
-    }
-
-    if (GetPerMapAwardCount(client, "welfare") < 1)
-    {
-        IncrementPerMapAwardCount(client, "welfare");
     }
 
     PlayWelfareSound();
