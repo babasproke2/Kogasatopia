@@ -966,6 +966,15 @@ public Action Command_Lottery(int client, int args)
     {
         char amountArg[32];
         GetCmdArg(1, amountArg, sizeof(amountArg));
+        StripQuotes(amountArg);
+        TrimString(amountArg);
+
+        if (StrEqual(amountArg, "all", false))
+        {
+            AttemptLotteryAllTicketPurchase(client);
+            return Plugin_Handled;
+        }
+
         int amount = 0;
         if (ParsePositiveInteger(amountArg, amount))
         {
@@ -995,9 +1004,15 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
     int amount = 0;
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    if (StrEqual(text, "all", false))
+    {
+        AttemptLotteryAllTicketPurchase(client);
+        return Plugin_Handled;
+    }
+
     if (!ParsePositiveInteger(text, amount))
     {
-        CPrintToChat(client, "%s[Lottery]{default} Ticket value must be a positive integer.", colorTag);
+        CPrintToChat(client, "%s[Lottery]{default} Ticket value must be a positive integer or {gold}all{default}.", colorTag);
         return Plugin_Handled;
     }
 
@@ -1173,7 +1188,7 @@ void PromptLotteryCustomAmount(int client)
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
     g_LotteryWaitingCustom[client] = true;
-    CPrintToChat(client, "%s[Lottery]{default} Type your ticket value in chat. Values are rounded down to the nearest %s%d{default}.", colorTag, colorTag, LOTTO_TICKET_UNIT);
+    CPrintToChat(client, "%s[Lottery]{default} Type your ticket value, or {gold}all{default}. Values are rounded down to the nearest %s%d{default}.", colorTag, colorTag, LOTTO_TICKET_UNIT);
 }
 
 void PrintClientLotteryTicket(int client)
@@ -1194,6 +1209,34 @@ void PrintClientLotteryTicket(int client)
     char display[LOTTO_TICKET_PRINT_MAX];
     BuildLotteryTicketDisplay(g_ClientLotteryTicket[client], display, sizeof(display));
     CPrintToChat(client, "%s[Lottery]{default} Your ticket: %s", colorTag, display);
+}
+
+void AttemptLotteryAllTicketPurchase(int client)
+{
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+
+    if (!IsLotteryReadyForClient(client))
+    {
+        return;
+    }
+
+    if (g_ClientLotteryHasTicket[client])
+    {
+        ShowOwnedLotteryTicketMenu(client);
+        return;
+    }
+
+    if (!AreBonusPointsReady(client))
+    {
+        LoadClientBonusPoints(client);
+        CPrintToChat(client, "%s[Lottery]{default} Your %s are loading. Try again in a moment.", colorTag, currencyLong);
+        return;
+    }
+
+    AttemptLotteryTicketPurchase(client, GetCachedBonusPoints(client));
 }
 
 void AttemptLotteryTicketPurchase(int client, int amount)
