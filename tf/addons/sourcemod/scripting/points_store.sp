@@ -4038,6 +4038,14 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     {
         strcopy(label, maxlen, "Soldier sync kill");
     }
+    else if (StrEqual(type, "reflect", false))
+    {
+        strcopy(label, maxlen, "Reflect");
+    }
+    else if (StrEqual(type, "reflect_direct_hit", false))
+    {
+        strcopy(label, maxlen, "Reflect direct hit");
+    }
     else if (StrEqual(type, "player_dom", false))
     {
         strcopy(label, maxlen, "Dominating");
