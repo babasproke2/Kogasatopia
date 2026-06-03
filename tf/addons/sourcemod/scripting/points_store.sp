@@ -965,7 +965,7 @@ public Action Command_Lottery(int client, int args)
         return Plugin_Handled;
     }
 
-    if (args >= 1 && !g_ClientLotteryHasTicket[client])
+    if (args >= 1)
     {
         char amountArg[32];
         GetCmdArg(1, amountArg, sizeof(amountArg));
@@ -1292,7 +1292,7 @@ void AttemptLotteryTicketPurchase(int client, int amount)
 
     if (g_ClientLotteryHasTicket[client])
     {
-        ShowOwnedLotteryTicketMenu(client);
+        AttemptLotteryTicketReplacement(client, amount);
         return;
     }
 
@@ -1376,6 +1376,239 @@ void AttemptLotteryTicketPurchase(int client, int amount)
         amount,
         GetTime());
     g_Database.Query(SQL_OnLotteryTicketInserted, query, pack);
+}
+
+void AttemptLotteryTicketReplacement(int client, int amount)
+{
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+
+    if (!IsLotteryReadyForClient(client))
+    {
+        return;
+    }
+
+    if (g_LotteryDrawInProgress)
+    {
+        CPrintToChat(client, "%s[Lottery]{default} A lottery draw is already in progress.", colorTag);
+        return;
+    }
+
+    if (!g_ClientLotteryHasTicket[client] || g_ClientLotteryTicketValue[client] <= 0)
+    {
+        AttemptLotteryTicketPurchase(client, amount);
+        return;
+    }
+
+    if (g_LotteryWords == null || g_LotteryWords.Length <= 0)
+    {
+        CPrintToChat(client, "%s[Lottery]{default} No lottery words are configured.", colorTag);
+        return;
+    }
+
+    if (!AreBonusPointsReady(client))
+    {
+        LoadClientBonusPoints(client);
+        CPrintToChat(client, "%s[Lottery]{default} Your %s are loading. Try again in a moment.", colorTag, currencyLong);
+        return;
+    }
+
+    int oldAmount = g_ClientLotteryTicketValue[client];
+    int postRefundBalance = GetCachedBonusPoints(client) + oldAmount;
+    if (postRefundBalance < amount)
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Refunding your current ticket would only give you %s%d %s{default}.", colorTag, colorTag, postRefundBalance, currencyLong);
+        return;
+    }
+
+    char steamId[32];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Could not read your SteamID64.", colorTag);
+        return;
+    }
+
+    if (IsLotteryTicketWritePending(steamId))
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Your lottery ticket is still being saved. Try again in a moment.", colorTag);
+        return;
+    }
+
+    char ticket[LOTTO_TICKET_MAX];
+    GenerateLotteryTicket(ticket, sizeof(ticket));
+    if (ticket[0] == '\0')
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Could not generate a ticket.", colorTag);
+        return;
+    }
+
+    char displayName[LOTTO_NAME_MAX];
+    BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
+
+    char escapedSteamId[65];
+    char escapedTicket[(LOTTO_TICKET_MAX * 2) + 1];
+    char escapedName[(LOTTO_NAME_MAX * 2) + 1];
+    if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId))
+        || !EscapeSql(ticket, escapedTicket, sizeof(escapedTicket))
+        || !EscapeSql(displayName, escapedName, sizeof(escapedName)))
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Could not prepare your ticket.", colorTag);
+        return;
+    }
+
+    int balanceDelta = oldAmount - amount;
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(g_CurrentLotteryId);
+    pack.WriteCell(amount);
+    pack.WriteCell(oldAmount);
+    pack.WriteCell(balanceDelta);
+    pack.WriteString(steamId);
+    pack.WriteString(ticket);
+    pack.WriteString(displayName);
+    BeginLotteryTicketWrite(steamId);
+
+    Transaction txn = new Transaction();
+    char query[8192];
+    Format(query, sizeof(query),
+        "UPDATE %s SET display_name = '%s', ticket = '%s', ticket_value = %d, created_at = %d WHERE lottery_id = %d AND steamid64 = '%s'",
+        LOTTO_TICKET_TABLE,
+        escapedName,
+        escapedTicket,
+        amount,
+        GetTime(),
+        g_CurrentLotteryId,
+        escapedSteamId);
+    txn.AddQuery(query);
+
+    if (balanceDelta != 0)
+    {
+        if (g_IsMySql)
+        {
+            Format(query, sizeof(query),
+                "INSERT INTO %s (steamid64, balance) SELECT '%s', %d FROM DUAL WHERE EXISTS (SELECT 1 FROM %s WHERE lottery_id = %d AND steamid64 = '%s' AND ticket = '%s') ON DUPLICATE KEY UPDATE balance = GREATEST(0, balance + VALUES(balance))",
+                BP_BALANCE_TABLE,
+                escapedSteamId,
+                balanceDelta,
+                LOTTO_TICKET_TABLE,
+                g_CurrentLotteryId,
+                escapedSteamId,
+                escapedTicket);
+        }
+        else
+        {
+            Format(query, sizeof(query),
+                "INSERT INTO %s (steamid64, balance) SELECT '%s', %d WHERE EXISTS (SELECT 1 FROM %s WHERE lottery_id = %d AND steamid64 = '%s' AND ticket = '%s') ON CONFLICT(steamid64) DO UPDATE SET balance = MAX(0, balance + excluded.balance), updated_at = CURRENT_TIMESTAMP",
+                BP_BALANCE_TABLE,
+                escapedSteamId,
+                balanceDelta,
+                LOTTO_TICKET_TABLE,
+                g_CurrentLotteryId,
+                escapedSteamId,
+                escapedTicket);
+        }
+        txn.AddQuery(query);
+    }
+
+    g_Database.Execute(txn, SQLTxn_OnLotteryTicketReplaced, SQLTxn_OnLotteryTicketReplaceFailure, pack);
+}
+
+public void SQLTxn_OnLotteryTicketReplaced(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    int lotteryId = pack.ReadCell();
+    int amount = pack.ReadCell();
+    int oldAmount = pack.ReadCell();
+    int balanceDelta = pack.ReadCell();
+    char steamId[32];
+    char ticket[LOTTO_TICKET_MAX];
+    char displayName[LOTTO_NAME_MAX];
+    pack.ReadString(steamId, sizeof(steamId));
+    pack.ReadString(ticket, sizeof(ticket));
+    pack.ReadString(displayName, sizeof(displayName));
+    delete pack;
+    FinishLotteryTicketWrite(steamId);
+
+    int client = GetClientOfUserId(userId);
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
+    if (numQueries <= 0 || results[0] == null || results[0].AffectedRows <= 0)
+    {
+        if (IsClientInGameHuman(client))
+        {
+            CPrintToChat(client, "%s[Lottery]{default} Your existing ticket could not be replaced. Try again in a moment.", colorTag);
+            LoadClientLotteryTicket(client);
+        }
+        return;
+    }
+
+    if (IsClientAuthorizedHuman(client) && lotteryId == g_CurrentLotteryId)
+    {
+        char currentSteamId[32];
+        if (GetClientSteamId64(client, currentSteamId, sizeof(currentSteamId)) && StrEqual(currentSteamId, steamId, false))
+        {
+            int balanceBefore = GetCachedBonusPoints(client);
+            if (g_ClientBonusPointsLoaded[client])
+            {
+                g_ClientBonusPoints[client] += balanceDelta;
+                if (g_ClientBonusPoints[client] < 0)
+                {
+                    g_ClientBonusPoints[client] = 0;
+                }
+            }
+
+            g_ClientLotteryTicketLoaded[client] = true;
+            g_ClientLotteryHasTicket[client] = true;
+            g_ClientLotteryId[client] = lotteryId;
+            g_ClientLotteryTicketValue[client] = amount;
+            strcopy(g_ClientLotteryTicket[client], sizeof(g_ClientLotteryTicket[]), ticket);
+
+            char currencyLong[BP_CURRENCY_LONG_MAX];
+            char display[LOTTO_TICKET_PRINT_MAX];
+            GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+            BuildLotteryTicketDisplay(ticket, display, sizeof(display));
+
+            if (balanceDelta != 0)
+            {
+                LogBonusPointsDelta(client, balanceDelta, balanceBefore, GetCachedBonusPoints(client), "lottery_ticket_replace", lotteryId, false, false, 1.0, true, 0, 0);
+            }
+
+            CPrintToChatAllEx(client, "{default}%s changed his {gold}!lottery{default} ticket from %s%d %s{default} to %s%d %s{default}", displayName, colorTag, oldAmount, currencyLong, colorTag, amount, currencyLong);
+            CPrintToChat(client, "%s[Lottery]{default} Your ticket: %s", colorTag, display);
+        }
+    }
+}
+
+public void SQLTxn_OnLotteryTicketReplaceFailure(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    pack.ReadCell();
+    pack.ReadCell();
+    pack.ReadCell();
+    pack.ReadCell();
+    char steamId[32];
+    pack.ReadString(steamId, sizeof(steamId));
+    delete pack;
+    FinishLotteryTicketWrite(steamId);
+
+    int client = GetClientOfUserId(userId);
+    if (IsClientInGameHuman(client))
+    {
+        char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+        GetCurrencyColorTag(colorTag, sizeof(colorTag));
+        CPrintToChat(client, "%s[Lottery]{default} Your ticket could not be replaced. Try again in a moment.", colorTag);
+        LoadClientLotteryTicket(client);
+    }
+
+    LogError("[points_store] Lottery ticket replacement failed for %s (query %d): %s", steamId, failIndex, error);
 }
 
 public void SQL_OnLotteryTicketInserted(Database db, DBResultSet results, const char[] error, any data)
