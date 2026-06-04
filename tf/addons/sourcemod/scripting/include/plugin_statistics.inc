@@ -8,6 +8,7 @@
     #undef REQUIRE_EXTENSIONS
 #endif
 #include <socket>
+#include "kogasa_sql.inc"
 #if defined PLUGIN_STATS_RESTORE_REQUIRE_EXTENSIONS
     #define REQUIRE_EXTENSIONS
     #undef PLUGIN_STATS_RESTORE_REQUIRE_EXTENSIONS
@@ -92,11 +93,7 @@ stock void PluginStats_Shutdown()
 {
     PluginStats_Flush();
 
-    if (g_PluginStatsFlushTimer != null)
-    {
-        KillTimer(g_PluginStatsFlushTimer);
-        g_PluginStatsFlushTimer = null;
-    }
+    KogasaSql_CancelTimer(g_PluginStatsFlushTimer);
 
 	    delete g_PluginStatsQueue;
 	    g_PluginStatsQueue = null;
@@ -105,19 +102,9 @@ stock void PluginStats_Shutdown()
 	    g_PluginStatsInflight = null;
 
 	    PluginStats_RustDisconnectSocket();
-	    if (g_PluginStatsRustReconnectTimer != null)
-	    {
-	        KillTimer(g_PluginStatsRustReconnectTimer);
-	        g_PluginStatsRustReconnectTimer = null;
-	    }
+	    KogasaSql_CancelTimer(g_PluginStatsRustReconnectTimer);
 
-	    if (g_PluginStatsDb != null)
-    {
-        delete g_PluginStatsDb;
-        g_PluginStatsDb = null;
-    }
-
-    g_PluginStatsDbReady = false;
+	    KogasaSql_Close(g_PluginStatsDb, g_PluginStatsDbReady);
 }
 
 stock void PluginStats_OnMapStart()
@@ -169,7 +156,7 @@ stock void PluginStats_ScheduleFlushTimer()
         return;
     }
 
-    g_PluginStatsFlushTimer = CreateTimer(PluginStats_GetFlushInterval(), PluginStats_TimerFlush);
+    g_PluginStatsFlushTimer = CreateTimer(PluginStats_GetFlushInterval(), PluginStats_TimerFlush, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
 stock float PluginStats_GetFlushInterval()
@@ -282,7 +269,7 @@ stock void PluginStats_Flush()
 	        return;
 	    }
 
-	    if (!g_PluginStatsDbReady || g_PluginStatsDb == null)
+	    if (!KogasaSql_IsReady(g_PluginStatsDb, g_PluginStatsDbReady))
 	    {
 	        PluginStats_ConnectDatabase();
 	        return;
@@ -341,11 +328,11 @@ stock void PluginStats_FormatValues(PluginStatsEvent event, char[] output, int m
     char eventName[128];
     char message[1024];
 
-    SQL_EscapeString(g_PluginStatsDb, event.MapSessionId, mapSessionId, sizeof(mapSessionId));
-    SQL_EscapeString(g_PluginStatsDb, event.MapName, mapName, sizeof(mapName));
-    SQL_EscapeString(g_PluginStatsDb, event.Gamemode, gamemode, sizeof(gamemode));
-    SQL_EscapeString(g_PluginStatsDb, event.EventName, eventName, sizeof(eventName));
-    SQL_EscapeString(g_PluginStatsDb, event.Message, message, sizeof(message));
+    KogasaSql_Escape(g_PluginStatsDb, event.MapSessionId, mapSessionId, sizeof(mapSessionId), "plugin_statistics");
+    KogasaSql_Escape(g_PluginStatsDb, event.MapName, mapName, sizeof(mapName), "plugin_statistics");
+    KogasaSql_Escape(g_PluginStatsDb, event.Gamemode, gamemode, sizeof(gamemode), "plugin_statistics");
+    KogasaSql_Escape(g_PluginStatsDb, event.EventName, eventName, sizeof(eventName), "plugin_statistics");
+    KogasaSql_Escape(g_PluginStatsDb, event.Message, message, sizeof(message), "plugin_statistics");
 
     FormatEx(output, maxlen,
         "(%d, %d, '%s', '%s', '%s', '%s', '%s', %d, %d, 0, NULL, NULL, %d)",
@@ -363,6 +350,12 @@ stock void PluginStats_FormatValues(PluginStatsEvent event, char[] output, int m
 
 stock void PluginStats_ConnectDatabase()
 {
+    KogasaSql_Close(g_PluginStatsDb, g_PluginStatsDbReady);
+    if (!KogasaSql_CheckConfigOrLog("plugin_statistics", g_PluginStatsDbConfig))
+    {
+        return;
+    }
+
     SQL_TConnect(PluginStats_OnConnect, g_PluginStatsDbConfig);
 }
 
@@ -375,10 +368,7 @@ stock void PluginStats_OnConnect(Handle owner, Handle hndl, const char[] error, 
         return;
     }
 
-    if (g_PluginStatsDb != null)
-    {
-        delete g_PluginStatsDb;
-    }
+    KogasaSql_Close(g_PluginStatsDb, g_PluginStatsDbReady);
 
     g_PluginStatsDb = view_as<Database>(hndl);
     g_PluginStatsDbReady = true;
@@ -424,6 +414,11 @@ stock void PluginStats_OnSchemaComplete(Database db, DBResultSet results, const 
     if (error[0])
     {
         LogError("[plugin_statistics] Schema update failed for %s: %s", g_PluginStatsTable, error);
+        if (KogasaSql_IsTransientError(error))
+        {
+            g_PluginStatsDbReady = false;
+            PluginStats_ConnectDatabase();
+        }
     }
 }
 
@@ -435,7 +430,7 @@ stock void PluginStats_OnWriteComplete(Database db, DBResultSet results, const c
     }
 
     LogError("[plugin_statistics] Write failed for %s: %s", g_PluginStatsTable, error);
-    if (StrContains(error, "Lost connection", false) != -1 || StrContains(error, "server has gone away", false) != -1)
+    if (KogasaSql_IsTransientError(error))
     {
         g_PluginStatsDbReady = false;
         PluginStats_ConnectDatabase();
@@ -555,7 +550,7 @@ stock void PluginStats_RustScheduleReconnect()
         return;
     }
 
-    g_PluginStatsRustReconnectTimer = CreateTimer(2.0, PluginStats_RustReconnectTimer);
+    g_PluginStatsRustReconnectTimer = CreateTimer(2.0, PluginStats_RustReconnectTimer, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
 stock Action PluginStats_RustReconnectTimer(Handle timer, any data)
@@ -589,8 +584,7 @@ stock void PluginStats_RustConnectSocket()
 
     if (g_PluginStatsRustReconnectTimer != null)
     {
-        KillTimer(g_PluginStatsRustReconnectTimer);
-        g_PluginStatsRustReconnectTimer = null;
+        KogasaSql_CancelTimer(g_PluginStatsRustReconnectTimer);
     }
 
     PluginStats_RustDisconnectSocket();
