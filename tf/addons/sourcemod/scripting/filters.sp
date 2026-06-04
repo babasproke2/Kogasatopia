@@ -5,6 +5,7 @@
 #include <clientprefs>
 #include <basecomm>
 #include <morecolors>
+#include "include/kogasa_sql.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -539,7 +540,7 @@ static void Filters_StartTimers()
 {
     if (g_hPollOutboxTimer == null)
     {
-        g_hPollOutboxTimer = CreateTimer(FILTERS_OUTBOX_POLL_INTERVAL, Timer_PollOutbox, _, TIMER_REPEAT);
+        g_hPollOutboxTimer = CreateTimer(FILTERS_OUTBOX_POLL_INTERVAL, Timer_PollOutbox, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
     }
 }
 
@@ -615,22 +616,40 @@ public void OnMapStart()
 Database g_hFiltersDb = null;
 bool g_bDbReady = false;
 char g_sDbConfig[32] = FILTERS_DEFAULT_DB_CONFIG;
+Handle g_hFiltersDbReconnectTimer = null;
 
 static bool Filters_DbAvailable()
 {
-    return g_bDbReady && g_hFiltersDb != null;
+    return KogasaSql_IsReady(g_hFiltersDb, g_bDbReady);
 }
 
 void Filters_SQLConnect()
 {
-    if (g_hFiltersDb != null)
+    KogasaSql_CancelTimer(g_hFiltersDbReconnectTimer);
+    KogasaSql_Close(g_hFiltersDb, g_bDbReady);
+    if (!KogasaSql_CheckConfigOrLog("Filters", g_sDbConfig))
     {
-        delete g_hFiltersDb;
-        g_hFiltersDb = null;
-        g_bDbReady = false;
+        return;
     }
+
     Filters_LogDebug("Connecting to database config '%s'", g_sDbConfig);
     Database.Connect(T_Filters_SQLConnect, g_sDbConfig);
+}
+
+void Filters_ScheduleSqlReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+{
+    g_bDbReady = false;
+    if (g_hFiltersDbReconnectTimer == null)
+    {
+        g_hFiltersDbReconnectTimer = CreateTimer(delay, Timer_ReconnectFiltersSql, _, TIMER_FLAG_NO_MAPCHANGE);
+    }
+}
+
+public Action Timer_ReconnectFiltersSql(Handle timer, any data)
+{
+    g_hFiltersDbReconnectTimer = null;
+    Filters_SQLConnect();
+    return Plugin_Stop;
 }
 
 public void T_Filters_SQLConnect(Database db, const char[] error, any data)
@@ -638,12 +657,14 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
     if (db == null)
     {
         LogError("[Filters] DB connection failed: %s", error);
+        Filters_ScheduleSqlReconnect();
         return;
     }
 
     g_hFiltersDb = db;
     g_bDbReady = true;
     g_bOutboxStampReady = false;
+    KogasaSql_CancelTimer(g_hFiltersDbReconnectTimer);
     if (!g_hFiltersDb.SetCharset("utf8mb4"))
     {
         LogError("[Filters] Failed to set utf8mb4 charset");
@@ -710,6 +731,10 @@ public void Filters_SimpleSqlCallback(Database db, DBResultSet results, const ch
     if (error[0] != '\0')
     {
         LogError("[Filters] SQL error: %s", error);
+        if (KogasaSql_IsTransientError(error))
+        {
+            Filters_ScheduleSqlReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+        }
     }
 }
 
@@ -718,6 +743,10 @@ public void Filters_SchemaQueryCallback(Database db, DBResultSet results, const 
     if (error[0] != '\0')
     {
         LogError("[Filters] Schema query failed: %s", error);
+        if (KogasaSql_IsTransientError(error))
+        {
+            Filters_ScheduleSqlReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+        }
     }
 
     if (g_iPendingSchemaQueries > 0)
@@ -3462,17 +3491,9 @@ public void OnClientDisconnect(int client)
 
 public void OnPluginEnd()
 {
-    if (g_hPollOutboxTimer != null)
-    {
-        delete g_hPollOutboxTimer;
-        g_hPollOutboxTimer = null;
-    }
-
-    if (g_ConnectQueueTimer != null)
-    {
-        delete g_ConnectQueueTimer;
-        g_ConnectQueueTimer = null;
-    }
+    KogasaSql_CancelTimer(g_hPollOutboxTimer);
+    KogasaSql_CancelTimer(g_ConnectQueueTimer);
+    KogasaSql_CancelTimer(g_hFiltersDbReconnectTimer);
 
     if (g_ConnectQueue != null)
     {
@@ -3486,12 +3507,7 @@ public void OnPluginEnd()
         g_WebNameColors = null;
     }
 
-    if (g_hFiltersDb != null)
-    {
-        delete g_hFiltersDb;
-        g_hFiltersDb = null;
-        g_bDbReady = false;
-    }
+    KogasaSql_Close(g_hFiltersDb, g_bDbReady);
 
     if (g_PrenameIdRules != null)
     {
