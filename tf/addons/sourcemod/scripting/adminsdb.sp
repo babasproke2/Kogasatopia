@@ -76,7 +76,7 @@ void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
     g_bDatabaseReady = false;
     if (g_hReconnectTimer == null)
     {
-        g_hReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
+        g_hReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase);
     }
 }
 

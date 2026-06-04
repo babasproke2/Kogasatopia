@@ -156,7 +156,7 @@ stock void PluginStats_ScheduleFlushTimer()
         return;
     }
 
-    g_PluginStatsFlushTimer = CreateTimer(PluginStats_GetFlushInterval(), PluginStats_TimerFlush, _, TIMER_FLAG_NO_MAPCHANGE);
+    g_PluginStatsFlushTimer = CreateTimer(PluginStats_GetFlushInterval(), PluginStats_TimerFlush);
 }
 
 stock float PluginStats_GetFlushInterval()
@@ -550,7 +550,7 @@ stock void PluginStats_RustScheduleReconnect()
         return;
     }
 
-    g_PluginStatsRustReconnectTimer = CreateTimer(2.0, PluginStats_RustReconnectTimer, _, TIMER_FLAG_NO_MAPCHANGE);
+    g_PluginStatsRustReconnectTimer = CreateTimer(2.0, PluginStats_RustReconnectTimer);
 }
 
 stock Action PluginStats_RustReconnectTimer(Handle timer, any data)
