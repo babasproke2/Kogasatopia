@@ -1,6 +1,7 @@
 #include <sourcemod>
 #include <geoip>
 #include "include/dgm_api.inc"
+#include "include/kogasa_sql.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -17,6 +18,7 @@ char g_sQuickStatsPath[PLATFORM_MAX_PATH];
 Database g_hDb = null;
 ArrayList g_hEventQueue = null;
 Handle g_hFlushTimer = null;
+Handle g_hDatabaseReconnectTimer = null;
 bool g_bDbReady = false;
 
 bool g_bClientIsAdmin[MAXPLAYERS + 1] = { false, ... };
@@ -97,20 +99,13 @@ public void OnPluginEnd()
 {
     FlushAnalyticsEvents();
 
-    if (g_hFlushTimer != null)
-    {
-        KillTimer(g_hFlushTimer);
-        g_hFlushTimer = null;
-    }
+    KogasaSql_CancelTimer(g_hFlushTimer);
+    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
 
     delete g_hEventQueue;
     g_hEventQueue = null;
 
-    if (g_hDb != null)
-    {
-        delete g_hDb;
-        g_hDb = null;
-    }
+    KogasaSql_Close(g_hDb, g_bDbReady);
 }
 
 public void OnAllPluginsLoaded()
@@ -242,7 +237,7 @@ void FlushAnalyticsEvents()
         return;
     }
 
-    if (!g_bDbReady || g_hDb == null)
+    if (!KogasaSql_IsReady(g_hDb, g_bDbReady))
     {
         ConnectAnalyticsDb();
         return;
@@ -299,14 +294,14 @@ void FormatAnalyticsEventValues(AnalyticsEvent event, char[] output, int maxlen,
     char country[160];
     char reason[384];
 
-    SQL_EscapeString(g_hDb, event.MapName, mapName, sizeof(mapName));
-    SQL_EscapeString(g_hDb, event.Gamemode, gamemode, sizeof(gamemode));
-    SQL_EscapeString(g_hDb, event.EventType, eventType, sizeof(eventType));
-    SQL_EscapeString(g_hDb, event.PlayerName, playerName, sizeof(playerName));
-    SQL_EscapeString(g_hDb, event.SteamId, steamId, sizeof(steamId));
-    SQL_EscapeString(g_hDb, event.IpSubnet, ipSubnet, sizeof(ipSubnet));
-    SQL_EscapeString(g_hDb, event.Country, country, sizeof(country));
-    SQL_EscapeString(g_hDb, event.Reason, reason, sizeof(reason));
+    KogasaSql_Escape(g_hDb, event.MapName, mapName, sizeof(mapName), "analytics");
+    KogasaSql_Escape(g_hDb, event.Gamemode, gamemode, sizeof(gamemode), "analytics");
+    KogasaSql_Escape(g_hDb, event.EventType, eventType, sizeof(eventType), "analytics");
+    KogasaSql_Escape(g_hDb, event.PlayerName, playerName, sizeof(playerName), "analytics");
+    KogasaSql_Escape(g_hDb, event.SteamId, steamId, sizeof(steamId), "analytics");
+    KogasaSql_Escape(g_hDb, event.IpSubnet, ipSubnet, sizeof(ipSubnet), "analytics");
+    KogasaSql_Escape(g_hDb, event.Country, country, sizeof(country), "analytics");
+    KogasaSql_Escape(g_hDb, event.Reason, reason, sizeof(reason), "analytics");
 
     FormatEx(output, maxlen,
         "(%d, %d, '%s', '%s', '%s', %d, '%s', '%s', '%s', '%s', %d, '%s', %d, %d, 0, NULL, NULL, %d)",
@@ -336,10 +331,10 @@ public void SQL_OnWriteComplete(Database db, DBResultSet results, const char[] e
 
     LogError("[analytics] SQL write failed: %s", error);
 
-    if (StrContains(error, "Lost connection", false) != -1 || StrContains(error, "server has gone away", false) != -1)
+    if (KogasaSql_IsTransientError(error))
     {
         g_bDbReady = false;
-        ConnectAnalyticsDb();
+        ScheduleAnalyticsReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
     }
 }
 
@@ -349,13 +344,12 @@ public void SQL_OnConnect(Handle owner, Handle hndl, const char[] error, any dat
     {
         g_bDbReady = false;
         LogError("[analytics] Database connect failed: %s", error);
+        ScheduleAnalyticsReconnect(KOGASA_SQL_RECONNECT_DELAY);
         return;
     }
 
-    if (g_hDb != null)
-    {
-        delete g_hDb;
-    }
+    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
+    KogasaSql_Close(g_hDb, g_bDbReady);
 
     g_hDb = view_as<Database>(hndl);
     g_bDbReady = true;
@@ -364,7 +358,29 @@ public void SQL_OnConnect(Handle owner, Handle hndl, const char[] error, any dat
 
 void ConnectAnalyticsDb()
 {
+    if (!KogasaSql_CheckConfigOrLog("analytics", ANALYTICS_DB_CONFIG))
+    {
+        return;
+    }
+
     SQL_TConnect(SQL_OnConnect, ANALYTICS_DB_CONFIG);
+}
+
+void ScheduleAnalyticsReconnect(float delay)
+{
+    if (g_hDatabaseReconnectTimer != null)
+    {
+        return;
+    }
+
+    g_hDatabaseReconnectTimer = CreateTimer(delay, Timer_ReconnectAnalyticsDatabase);
+}
+
+public Action Timer_ReconnectAnalyticsDatabase(Handle timer)
+{
+    g_hDatabaseReconnectTimer = null;
+    ConnectAnalyticsDb();
+    return Plugin_Stop;
 }
 
 void EnsureAnalyticsSchema()
@@ -412,6 +428,11 @@ public void SQL_OnSchemaComplete(Database db, DBResultSet results, const char[] 
     if (error[0])
     {
         LogError("[analytics] SQL schema update failed: %s", error);
+        if (KogasaSql_IsTransientError(error))
+        {
+            g_bDbReady = false;
+            ScheduleAnalyticsReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+        }
     }
 }
 
