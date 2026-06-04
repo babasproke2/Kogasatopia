@@ -8,6 +8,7 @@
 #include <points_store_api>
 #define REQUIRE_PLUGIN
 #include <whaletracker_api>
+#include "include/kogasa_sql.inc"
 
 #define PLUGIN_NAME               "Clans"
 #define PLUGIN_AUTHOR             "Draggy"
@@ -536,7 +537,7 @@ void ScheduleDatabaseInitialization()
         g_hDbInitTimer = null;
     }
 
-    g_hDbInitTimer = CreateTimer(0.5, Timer_FinishDatabaseInitialization);
+    g_hDbInitTimer = CreateTimer(0.5, Timer_FinishDatabaseInitialization, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public Action Timer_FinishDatabaseInitialization(Handle timer, any data)
@@ -591,12 +592,12 @@ void FinishDatabaseInitialization()
 
     if (g_hInviteCleanupTimer == null)
     {
-        g_hInviteCleanupTimer = CreateTimer(INVITE_CLEANUP_INTERVAL, Timer_CleanupExpiredInvites, 0, TIMER_REPEAT);
+        g_hInviteCleanupTimer = CreateTimer(INVITE_CLEANUP_INTERVAL, Timer_CleanupExpiredInvites, 0, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
     }
 
     if (g_hClanWarFlushTimer == null)
     {
-        g_hClanWarFlushTimer = CreateTimer(CLAN_WAR_FLUSH_INTERVAL, Timer_FlushClanWarDeltas, 0, TIMER_REPEAT);
+        g_hClanWarFlushTimer = CreateTimer(CLAN_WAR_FLUSH_INTERVAL, Timer_FlushClanWarDeltas, 0, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
     }
 
     StartDatabaseKeepaliveTimer();
@@ -621,9 +622,7 @@ bool IsMySql()
 
 bool IsDatabaseConnectionLostError(const char[] error)
 {
-    return StrContains(error, "Lost connection", false) != -1
-        || StrContains(error, "server has gone away", false) != -1
-        || StrContains(error, "Server has gone away", false) != -1;
+    return KogasaSql_IsTransientError(error);
 }
 
 bool ValidateDatabaseHandle(Database db)
@@ -664,7 +663,7 @@ void StartDatabaseKeepaliveTimer()
         return;
     }
 
-    g_hDbKeepaliveTimer = CreateTimer(CLAN_DB_KEEPALIVE_INTERVAL, Timer_DatabaseKeepalive, 0, TIMER_REPEAT);
+    g_hDbKeepaliveTimer = CreateTimer(CLAN_DB_KEEPALIVE_INTERVAL, Timer_DatabaseKeepalive, 0, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 }
 
 void DropDatabaseConnection()
@@ -698,7 +697,7 @@ void ScheduleDatabaseReconnect(float delay = CLAN_DB_RECONNECT_INTERVAL)
         return;
     }
 
-    g_hDbReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase);
+    g_hDbReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
 public Action Timer_ReconnectDatabase(Handle timer, any data)
@@ -853,19 +852,7 @@ int FindClientByNameQuery(const char[] query)
 void EscapeSql(const char[] input, char[] output, int maxlen)
 {
     output[0] = '\0';
-
-    if (g_Database == null)
-    {
-        strcopy(output, maxlen, input);
-        return;
-    }
-
-    int written = 0;
-    if (!g_Database.Escape(input, output, maxlen, written))
-    {
-        LogError("[Clans] Failed to escape SQL string of length %d.", strlen(input));
-        strcopy(output, maxlen, input);
-    }
+    KogasaSql_Escape(g_Database, input, output, maxlen, "Clans");
 }
 
 void GetClanRankLabel(ClanRank rank, char[] buffer, int maxlen)
