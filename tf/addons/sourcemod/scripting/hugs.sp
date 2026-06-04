@@ -3,6 +3,7 @@
 	#include <sdktools>
 	#include <dbi>
 	#include <morecolors>
+	#include "include/kogasa_sql.inc"
 	
 
 	#pragma semicolon 1
@@ -45,6 +46,7 @@ char g_szLastRapists[MAXPLAYERS + 1][HISTORY_STRING_LEN];
 	bool g_bStatsPending[MAXPLAYERS + 1];
 
 	Database g_hDatabase = null;
+bool g_bDatabaseReady = false;
 Handle g_hDbReconnectTimer = null;
 ConVar g_hMultiplierCvar = null;
 int g_iMultiplier = 1;
@@ -148,6 +150,12 @@ native bool Filters_IsRedlisted(int client);
 
 		ConnectToDatabase();
 		EnsureRedlistCookie();
+	}
+
+	public void OnPluginEnd()
+	{
+		KogasaSql_CancelTimer(g_hDbReconnectTimer);
+		KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
 	}
 
 	void EnsureRedlistCookie()
@@ -1402,7 +1410,7 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 			}
 
 			char steamEsc[64];
-			SQL_EscapeString(g_hDatabase, g_szClientSteamId[target], steamEsc, sizeof(steamEsc));
+			KogasaSql_Escape(g_hDatabase, g_szClientSteamId[target], steamEsc, sizeof(steamEsc), "Hugs");
 
 			char query[256];
 			Format(query, sizeof(query),
@@ -1729,7 +1737,7 @@ void ResetClientStats(int client)
 
 	bool IsDatabaseReady()
 	{
-		return (g_hDatabase != null);
+		return KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady);
 	}
 
 	void AttemptLoadClientStats(int client)
@@ -1755,7 +1763,7 @@ void ResetClientStats(int client)
 		}
 
 		char steamEsc[96];
-		SQL_EscapeString(g_hDatabase, g_szClientSteamId[client], steamEsc, sizeof(steamEsc));
+		KogasaSql_Escape(g_hDatabase, g_szClientSteamId[client], steamEsc, sizeof(steamEsc), "Hugs");
 
 	char query[768];
 	Format(query, sizeof(query), "SELECT hugs_given, hugs_received, feeds_given, feeds_received, rapes_given, rapes_received, last_hugger1, last_hugger2, last_hugger3, last_hugger4, last_hugger5, last_feeder1, last_feeder2, last_feeder3, last_feeder4, last_feeder5, last_rapists FROM %s WHERE steamid = '%s'", HUGS_DB_TABLE, steamEsc);
@@ -1782,6 +1790,10 @@ void ResetClientStats(int client)
 	if (error[0])
 	{
 		LogError("[Hugs] Failed to load stats: %s", error);
+		if (KogasaSql_IsTransientError(error))
+		{
+			ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+		}
 		ScheduleStatsRetry(client);
 		return;
 	}
@@ -1854,22 +1866,22 @@ void ResetClientStats(int client)
 		}
 
 		char steamEsc[96];
-		SQL_EscapeString(g_hDatabase, g_szClientSteamId[client], steamEsc, sizeof(steamEsc));
+		KogasaSql_Escape(g_hDatabase, g_szClientSteamId[client], steamEsc, sizeof(steamEsc), "Hugs");
 
 		char name[MAX_NAME_LENGTH];
 		GetClientName(client, name, sizeof(name));
 		char nameEsc[MAX_NAME_LENGTH * 2 + 1];
-		SQL_EscapeString(g_hDatabase, name, nameEsc, sizeof(nameEsc));
+		KogasaSql_Escape(g_hDatabase, name, nameEsc, sizeof(nameEsc), "Hugs");
 
 	char rapistsEsc[HISTORY_STRING_LEN * 2 + 1];
 	char huggerEscaped[MAX_HISTORY_ENTRIES][MAX_NAME_LENGTH * 2 + 1];
 	char feederEscaped[MAX_HISTORY_ENTRIES][MAX_NAME_LENGTH * 2 + 1];
 	for (int i = 0; i < MAX_HISTORY_ENTRIES; i++)
 	{
-		SQL_EscapeString(g_hDatabase, g_szLastHuggers[client][i], huggerEscaped[i], sizeof(huggerEscaped[]));
-		SQL_EscapeString(g_hDatabase, g_szLastFeeders[client][i], feederEscaped[i], sizeof(feederEscaped[]));
+		KogasaSql_Escape(g_hDatabase, g_szLastHuggers[client][i], huggerEscaped[i], sizeof(huggerEscaped[]), "Hugs");
+		KogasaSql_Escape(g_hDatabase, g_szLastFeeders[client][i], feederEscaped[i], sizeof(feederEscaped[]), "Hugs");
 	}
-	SQL_EscapeString(g_hDatabase, g_szLastRapists[client], rapistsEsc, sizeof(rapistsEsc));
+	KogasaSql_Escape(g_hDatabase, g_szLastRapists[client], rapistsEsc, sizeof(rapistsEsc), "Hugs");
 
     char query[3072];
     Format(query, sizeof(query), "REPLACE INTO %s (steamid, name, hugs_given, hugs_received, feeds_given, feeds_received, rapes_given, rapes_received, last_hugger1, last_hugger2, last_hugger3, last_hugger4, last_hugger5, last_feeder1, last_feeder2, last_feeder3, last_feeder4, last_feeder5, last_rapists) VALUES ('%s', '%s', %d, %d, %d, %d, %d, %d, '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')",
@@ -1885,6 +1897,10 @@ void ResetClientStats(int client)
 		if (error[0])
 		{
 			LogError("[Hugs] Failed to save stats: %s", error);
+			if (KogasaSql_IsTransientError(error))
+			{
+				ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+			}
 		}
 	}
 
@@ -1893,26 +1909,20 @@ void ResetClientStats(int client)
 		if (error[0])
 		{
 			LogError("[Hugs] Failed to update rapes_given: %s", error);
+			if (KogasaSql_IsTransientError(error))
+			{
+				ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+			}
 		}
 	}
 
 	void ConnectToDatabase()
 	{
-		if (g_hDatabase != null)
-		{
-			delete g_hDatabase;
-			g_hDatabase = null;
-		}
+		KogasaSql_CancelTimer(g_hDbReconnectTimer);
+		KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
 
-		if (g_hDbReconnectTimer != null)
+		if (!KogasaSql_CheckConfigOrLog("Hugs", HUGS_DB_CONFIG))
 		{
-			CloseHandle(g_hDbReconnectTimer);
-			g_hDbReconnectTimer = null;
-		}
-
-		if (!SQL_CheckConfig(HUGS_DB_CONFIG))
-		{
-			LogError("[Hugs] Database config '%s' not found.", HUGS_DB_CONFIG);
 			return;
 		}
 
@@ -1926,19 +1936,27 @@ void ResetClientStats(int client)
 		return Plugin_Stop;
 	}
 
+	void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+	{
+		g_bDatabaseReady = false;
+		if (g_hDbReconnectTimer == null)
+		{
+			g_hDbReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
+		}
+	}
+
 	public void SQL_OnDatabaseConnected(Handle owner, Handle hndl, const char[] error, any data)
 	{
 		if (hndl == null)
 		{
 			LogError("[Hugs] Failed to connect to database: %s", error[0] ? error : "unknown error");
-			if (g_hDbReconnectTimer == null)
-			{
-				g_hDbReconnectTimer = CreateTimer(10.0, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
-			}
+			ScheduleDatabaseReconnect();
 			return;
 		}
 
 		g_hDatabase = view_as<Database>(hndl);
+		g_bDatabaseReady = true;
+		KogasaSql_CancelTimer(g_hDbReconnectTimer);
 		EnsureStatsTable();
 	}
 
@@ -2020,6 +2038,10 @@ void ResetClientStats(int client)
 		if (error[0])
 		{
 			LogError("[Hugs] SQL error: %s", error);
+			if (KogasaSql_IsTransientError(error))
+			{
+				ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+			}
 		}
 
 		if (g_iSchemaOpsPending > 0)
