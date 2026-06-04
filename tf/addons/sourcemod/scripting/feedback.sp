@@ -2,12 +2,14 @@
 #pragma newdecls required
 
 #include <sourcemod>
+#include "include/kogasa_sql.inc"
 
 #define FEEDBACK_DB_CONFIG "default"
 #define FEEDBACK_TABLE "whaletracker_feedback"
 #define FEEDBACK_MAX_MESSAGE 512
 
 Database g_hDatabase = null;
+bool g_bDatabaseReady = false;
 Handle g_hReconnectTimer = null;
 
 public Plugin myinfo =
@@ -27,36 +29,17 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
-    if (g_hReconnectTimer != null)
-    {
-        CloseHandle(g_hReconnectTimer);
-        g_hReconnectTimer = null;
-    }
-
-    if (g_hDatabase != null)
-    {
-        delete g_hDatabase;
-        g_hDatabase = null;
-    }
+    KogasaSql_CancelTimer(g_hReconnectTimer);
+    KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
 }
 
 void ConnectToDatabase()
 {
-    if (g_hDatabase != null)
-    {
-        delete g_hDatabase;
-        g_hDatabase = null;
-    }
+    KogasaSql_CancelTimer(g_hReconnectTimer);
+    KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
 
-    if (g_hReconnectTimer != null)
+    if (!KogasaSql_CheckConfigOrLog("Feedback", FEEDBACK_DB_CONFIG))
     {
-        CloseHandle(g_hReconnectTimer);
-        g_hReconnectTimer = null;
-    }
-
-    if (!SQL_CheckConfig(FEEDBACK_DB_CONFIG))
-    {
-        LogError("[Feedback] Database config '%s' not found.", FEEDBACK_DB_CONFIG);
         return;
     }
 
@@ -70,26 +53,33 @@ public Action Timer_ReconnectDatabase(Handle timer, any data)
     return Plugin_Stop;
 }
 
+void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+{
+    g_bDatabaseReady = false;
+    if (g_hReconnectTimer == null)
+    {
+        g_hReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
+    }
+}
+
 public void SQL_OnDatabaseConnected(Handle owner, Handle hndl, const char[] error, any data)
 {
     if (hndl == null)
     {
         LogError("[Feedback] Database connect failed: %s", error[0] ? error : "unknown error");
-
-        if (g_hReconnectTimer == null)
-        {
-            g_hReconnectTimer = CreateTimer(10.0, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
-        }
+        ScheduleDatabaseReconnect();
         return;
     }
 
     g_hDatabase = view_as<Database>(hndl);
+    g_bDatabaseReady = true;
+    KogasaSql_CancelTimer(g_hReconnectTimer);
     EnsureFeedbackTable();
 }
 
 void EnsureFeedbackTable()
 {
-    if (g_hDatabase == null)
+    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         return;
     }
@@ -112,6 +102,10 @@ public void SQL_OnSchemaOpComplete(Database db, DBResultSet results, const char[
     if (error[0])
     {
         LogError("[Feedback] Failed to ensure table: %s", error);
+        if (KogasaSql_IsTransientError(error))
+        {
+            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+        }
     }
 }
 
@@ -126,7 +120,7 @@ public void SQL_OnSchemaOpComplete(Database db, DBResultSet results, const char[
 
 void OpenFeedbackBrowser(int client, int page)
 {
-    if (g_hDatabase == null)
+    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         PrintToChat(client, "[Kogasa] Feedback database is unavailable right now.");
         return;
@@ -157,6 +151,10 @@ public void SQL_OnFeedbackBrowse(Database db, DBResultSet results, const char[] 
     if (error[0])
     {
         LogError("[Feedback] Failed to fetch feedback: %s", error);
+        if (KogasaSql_IsTransientError(error))
+        {
+            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+        }
         PrintToChat(client, "[Kogasa] Could not load feedback right now.");
         return;
     }
@@ -265,7 +263,7 @@ public Action Command_Feedback(int client, int args)
         return Plugin_Handled;
     }
 
-    if (g_hDatabase == null)
+    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         ReplyToCommand(client, "[Kogasa] Feedback database is unavailable right now.");
         return Plugin_Handled;
@@ -300,8 +298,8 @@ public Action Command_Feedback(int client, int args)
 
     char escapedName[(MAX_NAME_LENGTH * 2) + 1];
     char escapedMessage[(FEEDBACK_MAX_MESSAGE * 2) + 1];
-    SQL_EscapeString(g_hDatabase, name, escapedName, sizeof(escapedName));
-    SQL_EscapeString(g_hDatabase, message, escapedMessage, sizeof(escapedMessage));
+    KogasaSql_Escape(g_hDatabase, name, escapedName, sizeof(escapedName), "Feedback");
+    KogasaSql_Escape(g_hDatabase, message, escapedMessage, sizeof(escapedMessage), "Feedback");
 
     char query[2048];
     Format(query, sizeof(query),
@@ -331,8 +329,8 @@ public void SQL_OnFeedbackInserted(Database db, DBResultSet results, const char[
 
     LogError("[Feedback] Failed to save feedback: %s", error);
 
-    if (StrContains(error, "Lost connection", false) != -1 || StrContains(error, "server has gone away", false) != -1)
+    if (KogasaSql_IsTransientError(error))
     {
-        ConnectToDatabase();
+        ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
     }
 }
