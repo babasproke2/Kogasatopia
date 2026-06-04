@@ -306,8 +306,13 @@ static int OnEquipMenuEvent(Menu menu, MenuAction action, int param1, int param2
 			
 			// TODO: we should be making this a submenu with item description?
 			if (uid[0]) {
-				SetClientCustomLoadoutItem(client, g_iPlayerClassInMenu[client], uid,
-						LOADOUT_FLAG_UPDATE_BACKEND | LOADOUT_FLAG_ATTEMPT_REGEN);
+				if (SetClientCustomLoadoutItem(client, g_iPlayerClassInMenu[client], uid,
+						LOADOUT_FLAG_UPDATE_BACKEND | LOADOUT_FLAG_ATTEMPT_REGEN)) {
+					CustomItemDefinition item;
+					if (GetCustomItemDefinition(uid, item) && item.description[0]) {
+						CPrintToChat(client, "{gold}[CWX]{default} %s", item.description);
+					}
+				}
 			} else {
 				UnsetClientCustomLoadoutItem(client, g_iPlayerClassInMenu[client],
 						g_iPlayerSlotInMenu[client],

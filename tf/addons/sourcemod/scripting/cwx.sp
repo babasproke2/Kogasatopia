@@ -3,6 +3,7 @@
  */
 #pragma semicolon 1
 #include <sourcemod>
+#include <morecolors>
 
 #pragma newdecls required
 
@@ -34,7 +35,7 @@
 
 public Plugin myinfo = {
 	name = "[TF2] Custom Weapons X",
-	author = "nosoop",
+	author = "nosoop, Hombre",
 	description = "Allows server operators to design their own weapons.",
 	version = "X.0.10" ... VERSION_SUFFIX,
 	url = "https://github.com/nosoop/SM-TFCustomWeaponsX"
