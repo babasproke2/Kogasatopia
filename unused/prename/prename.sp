@@ -1,5 +1,6 @@
 #include <sourcemod>
 #include <sdktools_functions>
+#include "../../tf/addons/sourcemod/scripting/include/kogasa_sql.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -13,6 +14,7 @@ StringMap g_IdRules = null;
 StringMap g_OutputMap = null;
 Database g_Db = null;
 bool g_DbReady = false;
+Handle g_hDbReconnectTimer = null;
 char g_DebugLogPath[PLATFORM_MAX_PATH];
 bool g_DebugMigrate = false;
 
@@ -36,7 +38,43 @@ public void OnPluginStart()
 
     BuildPath(Path_SM, g_DebugLogPath, sizeof(g_DebugLogPath), "logs/prename_migrate.log");
 
+    ConnectDatabase();
+}
+
+public void OnPluginEnd()
+{
+    KogasaSql_CancelTimer(g_hDbReconnectTimer);
+    KogasaSql_Close(g_Db, g_DbReady);
+    delete g_IdRules;
+    g_IdRules = null;
+    delete g_OutputMap;
+    g_OutputMap = null;
+}
+
+static void ConnectDatabase()
+{
+    KogasaSql_CancelTimer(g_hDbReconnectTimer);
+    if (!KogasaSql_CheckConfigOrLog("Prename", DB_CONFIG))
+    {
+        return;
+    }
     SQL_TConnect(SQL_OnConnect, DB_CONFIG);
+}
+
+static void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+{
+    g_DbReady = false;
+    if (g_hDbReconnectTimer == null)
+    {
+        g_hDbReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
+    }
+}
+
+public Action Timer_ReconnectDatabase(Handle timer, any data)
+{
+    g_hDbReconnectTimer = null;
+    ConnectDatabase();
+    return Plugin_Stop;
 }
 
 public void OnClientPutInServer(int client)
@@ -435,8 +473,8 @@ static void SaveRule(const char[] pattern, const char[] newname)
 
     char escapedPattern[MAX_PATTERN * 2];
     char escapedNewname[MAX_RENAME * 2];
-    SQL_EscapeString(g_Db, pattern, escapedPattern, sizeof(escapedPattern));
-    SQL_EscapeString(g_Db, newname, escapedNewname, sizeof(escapedNewname));
+    KogasaSql_Escape(g_Db, pattern, escapedPattern, sizeof(escapedPattern), "Prename");
+    KogasaSql_Escape(g_Db, newname, escapedNewname, sizeof(escapedNewname), "Prename");
 
     char query[256];
     Format(query, sizeof(query),
@@ -453,7 +491,7 @@ static void DeleteRule(const char[] pattern)
     }
 
     char escapedPattern[MAX_PATTERN * 2];
-    SQL_EscapeString(g_Db, pattern, escapedPattern, sizeof(escapedPattern));
+    KogasaSql_Escape(g_Db, pattern, escapedPattern, sizeof(escapedPattern), "Prename");
 
     char query[256];
     Format(query, sizeof(query),
@@ -487,11 +525,13 @@ public void SQL_OnConnect(Handle owner, Handle hndl, const char[] error, any dat
     if (hndl == null)
     {
         LogError("[Prename] DB connection failed: %s", error);
+        ScheduleDatabaseReconnect();
         return;
     }
 
     g_Db = view_as<Database>(hndl);
     g_DbReady = true;
+    KogasaSql_CancelTimer(g_hDbReconnectTimer);
 
     char query[256];
     Format(query, sizeof(query),
@@ -554,6 +594,10 @@ public void SQL_GenericCallback(Database db, DBResultSet results, const char[] e
     if (error[0])
     {
         LogError("[Prename] SQL error: %s", error);
+        if (KogasaSql_IsTransientError(error))
+        {
+            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+        }
     }
 }
 
