@@ -173,8 +173,8 @@ public void OnConfigsExecuted()
 
     if (StrEqual(hostname, "Team Fortress", false))
     {
-        PrintToServer("[MapsDB] Hostname isn't set. Executing server_once.cfg");
-        ServerCommand("exec server_once.cfg");
+        PrintToServer("[MapsDB] Hostname isn't set. Executing mapsdb/server_once.cfg");
+        ServerCommand("exec mapsdb/server_once.cfg");
     }
 }
 
