@@ -202,9 +202,12 @@ Action DisplayItemDescriptions(int client, int argc) {
 			continue;
 		}
 
-		char dedupeKey[MAX_ITEM_DESCRIPTION_LENGTH];
-		strcopy(dedupeKey, sizeof(dedupeKey), item.description);
-		if (!dedupeKey[0]) {
+		char description[MAX_ITEM_DESCRIPTION_LENGTH * 2];
+		bool hasDescription = FormatItemDescription(item, description, sizeof(description));
+
+		char dedupeKey[MAX_ITEM_DESCRIPTION_LENGTH * 2];
+		strcopy(dedupeKey, sizeof(dedupeKey), description);
+		if (!hasDescription) {
 			strcopy(dedupeKey, sizeof(dedupeKey), uid);
 		}
 
@@ -213,8 +216,8 @@ Action DisplayItemDescriptions(int client, int argc) {
 		}
 		printedDescriptions.SetValue(dedupeKey, 1);
 
-		if (item.description[0]) {
-			CPrintToChat(client, "%s", item.description);
+		if (hasDescription) {
+			CPrintToChat(client, "%s", description);
 		} else {
 			CPrintToChat(client, "{gold}[CWX]{default} This weapon has no set description.");
 		}
@@ -223,6 +226,28 @@ Action DisplayItemDescriptions(int client, int argc) {
 	delete itemList;
 	delete printedDescriptions;
 	return Plugin_Handled;
+}
+
+bool FormatItemDescription(const CustomItemDefinition item, char[] buffer, int maxlen) {
+	buffer[0] = '\0';
+
+	bool hasPositive = item.descriptionPositive[0] != '\0';
+	bool hasNegative = item.descriptionNegative[0] != '\0';
+	if (!hasPositive && !hasNegative) {
+		return false;
+	}
+
+	if (hasPositive && hasNegative) {
+		Format(buffer, maxlen, "{default}%s: {green}%s, {red}%s",
+				item.displayName, item.descriptionPositive, item.descriptionNegative);
+	} else if (hasPositive) {
+		Format(buffer, maxlen, "{default}%s: {green}%s",
+				item.displayName, item.descriptionPositive);
+	} else {
+		Format(buffer, maxlen, "{default}%s: {red}%s",
+				item.displayName, item.descriptionNegative);
+	}
+	return true;
 }
 
 public void OnMapStart() {

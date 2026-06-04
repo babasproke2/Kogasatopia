@@ -10,7 +10,8 @@ enum struct CustomItemDefinition {
 	char uid[MAX_ITEM_IDENTIFIER_LENGTH];
 	int defindex;
 	char displayName[128];
-	char description[MAX_ITEM_DESCRIPTION_LENGTH];
+	char descriptionPositive[MAX_ITEM_DESCRIPTION_LENGTH];
+	char descriptionNegative[MAX_ITEM_DESCRIPTION_LENGTH];
 	KeyValues localizedNames;
 	char className[128];
 	int loadoutPosition[NUM_PLAYER_CLASSES];
@@ -153,6 +154,21 @@ void LoadCustomItemConfig() {
 	// TODO process other config logic here.
 }
 
+void ReadItemDescription(KeyValues config, CustomItemDefinition item) {
+	item.descriptionPositive[0] = '\0';
+	item.descriptionNegative[0] = '\0';
+
+	if (config.GetDataType("description") == KvData_None
+			&& config.JumpToKey("description", false)) {
+		config.GetString("positive", item.descriptionPositive, sizeof(item.descriptionPositive), "");
+		config.GetString("negative", item.descriptionNegative, sizeof(item.descriptionNegative), "");
+		config.GoBack();
+		return;
+	}
+
+	config.GetString("description", item.descriptionPositive, sizeof(item.descriptionPositive), "");
+}
+
 bool CreateItemFromSection(KeyValues config) {
 	CustomItemDefinition item;
 	item.Init();
@@ -162,7 +178,7 @@ bool CreateItemFromSection(KeyValues config) {
 	config.GetSectionName(item.uid, sizeof(item.uid));
 	
 	config.GetString("name", item.displayName, sizeof(item.displayName));
-	config.GetString("description", item.description, sizeof(item.description));
+	ReadItemDescription(config, item);
 	
 	char inheritFromItem[64];
 	config.GetString("inherits", inheritFromItem, sizeof(inheritFromItem));

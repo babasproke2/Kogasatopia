@@ -309,8 +309,10 @@ static int OnEquipMenuEvent(Menu menu, MenuAction action, int param1, int param2
 				if (SetClientCustomLoadoutItem(client, g_iPlayerClassInMenu[client], uid,
 						LOADOUT_FLAG_UPDATE_BACKEND | LOADOUT_FLAG_ATTEMPT_REGEN)) {
 					CustomItemDefinition item;
-					if (GetCustomItemDefinition(uid, item) && item.description[0]) {
-						CPrintToChat(client, "{gold}[CWX]{default} %s", item.description);
+					char description[MAX_ITEM_DESCRIPTION_LENGTH * 2];
+					if (GetCustomItemDefinition(uid, item)
+							&& FormatItemDescription(item, description, sizeof(description))) {
+						CPrintToChat(client, "{gold}[CWX]{default} %s", description);
 					}
 				}
 			} else {
