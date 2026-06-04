@@ -17,6 +17,7 @@
         {
                 "inherits"    "TF_WEAPON_MINIGUN"
                 "name"                  "Little Machine Gun V"
+                "description"             "{default}[Primary] Nonomi's Minigun - Stock Reskin"
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_minigun/nonomi_minigun.mdl"
@@ -37,6 +38,7 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_PRIMARY"
                 "name"                  "Eye of Horus"
+                "description"             "{default}[Primary] Hoshino's Shotgun - Stock Reskin"
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
@@ -47,6 +49,7 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_SOLDIER"
                 "name"                  "Eye of Horus"
+                "description"             "{default}[Secondary] Hoshino's Shotgun - Stock Reskin"
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
@@ -57,6 +60,7 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_HWG"
                 "name"                  "Eye of Horus"
+                "description"             "{default}[Secondary] Hoshino's Shotgun - Stock Reskin"
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
@@ -67,6 +71,7 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_PYRO"
                 "name"                  "Eye of Horus"
+                "description"             "{default}[Secondary] Hoshino's Shotgun - Stock Reskin"
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
@@ -77,6 +82,7 @@
         {
                 "inherits" "Upgradeable TF_WEAPON_SNIPERRIFLE"
                 "name" "Wine Red • Admire"
+                "description"             "{default}[Primary] Wine Red:{green}Enables wall climb, +50% headshot damage,{red} crits become minicrits, fires tracer"
                 "attributes_game"
                 {
                         "headshot damage increase"      "0.40"
@@ -104,6 +110,7 @@
         {
                 "inherits"    "The Disciplinary Action"
                 "name"                  "Reimu's Gohei - Disc. Action"
+                "description"             "{default}[Melee] Reimu's Gohei - Stock, Whip and Market Gardener options"
                 "used_by_classes"
                 {
                         "soldier" "melee"
@@ -122,6 +129,7 @@
         {
                 "inherits"    "The Market Gardener"
                 "name"                  "Reimu's Gohei - Market Gardener"
+                "description"             "{default}[Melee] Reimu's Gohei - Stock, Whip and Market Gardener options"
                 "used_by_classes"
                 {
                         "soldier" "melee"
@@ -137,6 +145,7 @@
         {
                 "inherits"    "Prinny Machete"
                 "name"                  "Reimu's Gohei"
+                "description"             "{default}[Melee] Reimu's Gohei - Stock Reskin"
                 "attributes_custom"
                 {
                         "clientmodel override" "models/touhou/reimu_gohei/reimu_gohei.mdl"
@@ -184,6 +193,7 @@
         {
                 "inherits"    "TF_WEAPON_KNIFE"
                 "name"                  "Reimu's Purification Rod"
+                "description"             "{default}[Melee] Reimu's Gohei - Stock Reskin"
                 "used_by_classes"
                 {
                         "spy" "melee"
@@ -216,6 +226,7 @@
         {
                 "inherits"    "The C.A.P.P.E.R"
                 "name"                  "Reisen's Bunny Pistol"
+                "description"             "{default}[Secondary] Reisen's Bunny Pistol:{green}+35% jump height, +30% damage,{red} consecutive shots become less accurate, 50% fire rate penalty"
                 "used_by_classes"
                 {
                         "scout" "secondary"
@@ -241,6 +252,7 @@
         {
                 "inherits"    "Crit-a-Cola"
                 "name"                  "Sproke / Redbull"
+                "description"             "{default}[Secondary] Sproke (Redbull on Blu): {green}Ammo becomes magazine for 12 seconds, {red}ammo is set to 0 when effect ends,{default} FaN/Popper receive +25% reload speed instead"
                 "attributes_custom"
                 {
                         "sproke attribute"  "12"
@@ -251,6 +263,7 @@
         {
                 "inherits"                      "Baby Face's Blaster"
                 "name"                          "Vanilla Baby Face"
+                "description"             "{default}[Primary] Vanilla Baby Face"
                 "used_by_classes"
                 {
                     "scout" "primary"
@@ -265,6 +278,7 @@
 		"defindex"	"9"
 		"item_class"	"tf_weapon_shotgun_primary"
                 "name"                  "The Shotgun"
+                "description"             "{default}[Primary] Stock Shotgun"
         }
         "hitscanflamethrower"
         {
@@ -275,6 +289,7 @@
 		"defindex"	"9"
 		"item_class"	"tf_weapon_shotgun_primary"
                 "name"                  "Hitscan Flamethrower"
+                "description"             "{default}[Primary] Hitscan Flamethrower: A shotgun that fires two bullets with a tighter spread, deals 80 base damage, consumes 5 ammo per shot, +30 health on kill"
                 "attributes_game"
                 {
                         "mod max primary clip override" "-1"
@@ -296,6 +311,7 @@
         {
 		"inherits" "TF_WEAPON_SHOTGUN_PYRO"
                 "name"                  "Flame Shotgun"
+                "description"             "{default}[Secondary] Flame Shotgun: {green}Hitting a target accurately twice creates a fiery explosion, explosions restore clip,{red} -15% clip size, -35% damage penalty"
                 "attributes_game"
                 {
                         "clip size penalty"                             "0.833333"
@@ -346,6 +362,7 @@
         {
 		"inherits" "TF_WEAPON_SHOTGUN_PYRO"
                 "name"                  "Hitscan Flaregun"
+                "description"             "{default}[Secondary] Hitscan Flaregun: Fires one bullet that deals 65 base damage, mini crits burning targets"
                 "attributes_game"
                 {
                         "clip size penalty"                             "0.6666"
@@ -365,6 +382,7 @@
         {
 		"inherits" "Upgradeable TF_WEAPON_SMG"
                 "name"                  "Soldier's M16"
+                "description"             "{default}[Secondary] Soldier's M16: SMG, {red}50% less accurate, {green}dealing 20 damage refills your rocket launcher clip by 1"
                 "used_by_classes"
                 {
                     "soldier" "secondary"
@@ -384,6 +402,7 @@
         "lightningpistol"
         {
                 "name"                  "Lightning Pistol"
+                "description"             "{default}[Secondary] Lightning Pistol: {chartreuse}+35% firing rate, +200% clip size, 40% more accurate, +100% ammo,{red} -40% damage, -15% reload speed"
 		"inherits"		"The C.A.P.P.E.R"
                 "used_by_classes"
                 {
@@ -408,6 +427,7 @@
         "soldierpistol"
         {
                 "name"                  "Soldier's Pistol"
+                "description"             "{default}[Secondary] Soldier's Pistol"
                 "inherits"               "TTG Max Pistol"
                 "used_by_classes"
                 {
@@ -421,6 +441,7 @@
         "soldiernewshotgun"
         {
                 "name"                  "F.U.T.A."
+                "description"             "{default}[Secondary] The F.U.T.A.: {green}+30% blast jump damage resistance, +15% tighter spread,{red} -50% clip size"
                 "inherits"               "TF_WEAPON_SHOTGUN_SOLDIER"
                 "used_by_classes"
                 {
@@ -436,6 +457,7 @@
         "oldpanic"
         {
                 "name"                  "Old Panic Attack"
+                "description"             "{default}[Secondary] Old Panic Attack: {chartreuse}Hold fire to load up to 4 shells, fires faster as HP decreases"
                 "inherits"              "Panic Attack Shotgun"
                 "used_by_classes"
                 {
@@ -461,6 +483,7 @@
         "blackwatchdemo"
         {
                 "name"                  "The Black Watch"
+                "description"             "{default}[Primary] Black Watch: {green}Hitting an enemy directly restores 1 ammo, +25% clip size, {red}15% slower fire rate, 10% slower reload rate"
                 "inherits"              "TF_WEAPON_GRENADELAUNCHER"
                 "used_by_classes"
                 {
@@ -482,6 +505,7 @@
         "blackwatchironbomber"
         {
                 "name"                  "Black Watch (Bomber)"
+                "description"             "{default}[Primary] Black Watch: {green}Hitting an enemy directly restores 1 ammo, +25% clip size, {red}15% slower fire rate, 10% slower reload rate"
                 "inherits"              "The Iron Bomber"
                 "used_by_classes"
                 {
@@ -503,6 +527,7 @@
         "straightdemo"
         {
                 "name"                  "Grenade Launcher (fixed spin)"
+                "description"             "{default}[Primary] Grenade Launcher (straight grenades)"
                 "inherits"              "TF_WEAPON_GRENADELAUNCHER"
                 "used_by_classes"
                 {
@@ -516,6 +541,7 @@
         "demomangunboats"
         {
                 "name"                  "Demoman Gunboats"
+                "description"             "{default}[Primary] Demoman Gunboats"
                 "inherits"              "The Gunboats"
                 "used_by_classes"
                 {
@@ -544,6 +570,7 @@
         "familybsns"
         {
                 "name"                  "The Family Business"
+                "description"             "{default}[Secondary] The Family Business"
                 "inherits"              "The Family Business"
                 "used_by_classes"
                 {
@@ -554,6 +581,7 @@
         "pyro1"
         {
                 "name"                  "TF2C Twin Barrel"
+                "description"             "{default}[Secondary] TF2C Twin Barrel: {chartreuse}Holster reload, +20% bullets per shot, first shot is a recoil jump,{red} 10% wider spread, 15% slower draw speed"
 		"defindex"		"39"
                 "item_class"              "tf_weapon_shotgun"
                 "used_by_classes"
@@ -584,6 +612,7 @@
         "pyro3"
         {
                 "name"                  "TF2C Harvester"
+                "description"             "{default}[Melee] TF2C Harvester: {chartreuse}Afterburn is returned as health while held,{red} enemies are extinguished on your death"
 		"inherits"		"TF_WEAPON_FIREAXE"
                 "used_by_classes"
                 {
@@ -602,6 +631,7 @@
 	"engi1" // we just need a unique identifier here - this is not necessarily a UUID
 	{
 		"name"			"Pretty Boy's Pocket Pistol"		
+                "description"             "{default}[Secondary] The Winger, Pretty Boy's Pocket Pistol"
 		"inherits"		"Pretty Boy's Pocket Pistol"
 		
 		"used_by_classes"
@@ -612,6 +642,7 @@
 	"engi2"
 	{
 		"name"			"The Winger"
+                "description"             "{default}[Secondary] The Winger, Pretty Boy's Pocket Pistol"
 		"inherits"		"The Winger"
                 "used_by_classes"
                 {
@@ -621,6 +652,7 @@
         "engi3"
         {
                 "name"                  "Boost/Jump Pads"
+                "description"             "{default}[PDA1] Boost/Jump pads (Or use !pads for convenience)"
                 "inherits"              "TF_WEAPON_PDA_ENGINEER_BUILD"
                 "used_by_classes"
                 {
@@ -634,6 +666,7 @@
         "deaglescout"
         {
                 "name"                  "The Desert Eagle"
+                "description"             "{default}[Secondary] Desert Eagle: {green}Can headshot, +70%, damage, +50% more accurate,{red} 45% slower fire rate, 40% smaller clip size, crits have falloff"
                 "inherits"              "TF_WEAPON_PISTOL_SCOUT"
                 "attributes_game"
                 {
@@ -654,6 +687,7 @@
         "engi4"
         {
                 "name"                  "Amplifier (Dispenser)"
+                "description"             "{default}[PDA2] Amplifier Dispenser Replacement (Or use !amp or !a)"
                 "inherits"              "TF_WEAPON_PDA_ENGINEER_DESTROY"
                 "used_by_classes"
                 {
@@ -667,6 +701,7 @@
         "engi5"
         {
                 "name"                  "Amplifier (Sentry)"
+                "description"             "{default}[PDA2] Amplifier Dispenser Replacement (Or use !amp or !a)"
                 "inherits"              "TF_WEAPON_PDA_ENGINEER_DESTROY"
                 "used_by_classes"
                 {
@@ -680,6 +715,7 @@
 	"cobsongun"
         {
                 "name"                  "Conagher's Bull"
+                "description"             "{default}[Secondary] Conagher's Bull: Drain 25 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 60% tighter spread"
 		"inherits"		"Upgradeable TF_WEAPON_PISTOL"
                 "used_by_classes"
                 {
@@ -710,6 +746,7 @@
         "medic1"
         {
                 "name"                  "TF2C Shock Therapy"
+                "description"             "{default}[Melee] TF2C Shock Therapy: {green}Hit allies to fully overheal them, {unique} enemies take charge as damage,{red} 30s recharge time, -15% healing on medigun"
                 "inherits"              "Prinny Machete"
                 //"defindex"              "1071"
                 //"item_class"          "saxxy"
@@ -730,6 +767,7 @@
         "medic2"
         {
                 "name"                  "The Mantreads"
+                "description"             "{default}[Melee] The Mantreads"
                 "inherits"              "The Mantreads"
                 "used_by_classes"
                 {
@@ -739,6 +777,7 @@
         "spy1"
         {
                 "name"                  "TF2C L'escampette"
+                "description"             "{default}[PDA] TF2C L'escampette: {chartreuse}Move 30% faster while cloaked,{red} 50% less cloak, 10% cloak lost on hit, no pickups while cloaked"
                 "inherits"              "The Dead Ringer"
                 "used_by_classes"
                 {
@@ -761,6 +800,7 @@
         "spy2"
         {
                 "name"                  "The Surfboard"
+                "description"             "{default}[Building] The Surfboard: {chartreuse}-60% damage taken from sentries, {red} 60% less sapper damage"
                 "inherits"              "The Ap-Sap"
                 "used_by_classes"
                 {
@@ -776,6 +816,7 @@
         "spy3"
         {
                 "name"                  "Wall Climbing Kit"
+                "description"             "{default}[Secondary] Wall Climbing Kit: {chartreuse}enables wall climb,{red} -10 health on wearer"
                 "inherits"              "The Gunboats"
                 "used_by_classes"
                 {
@@ -795,6 +836,7 @@
         "spy4"
         {
                 "name"                  "The Enforcer (Alt)"
+                "description"             "{default}[Secondary] Enforcer (Alt): {green}No fire rate penalty, +10% damage,{red} -25% damage while disguised, +0.5s time to cloak"
                 "inherits"              "The Enforcer"
                 "used_by_classes"
                 {
@@ -816,6 +858,7 @@
 	"demomanbanana"
 	{
 		"name"		"Demoman Banana"
+                "description"             "{default}[Secondary] Demoman Banana: {green}Throw and eat to heal yourself!"
 		"inherits"	"The Second Banana"
 		"used_by_classes"
 		{
@@ -824,7 +867,8 @@
 	}
         "oldclaid"
         {
-                "name"          "Old Claidheamh Mòr"
+                "name"          "Old Claidheamh MÃ²r"
+                "description"             "{default}[Melee] Old Claidheamh Mòr: -15 max health, no damage vuln."
                 "inherits"      "The Claidheamohmor"
                 "used_by_classes"
                 {

@@ -201,7 +201,6 @@ public OnPluginStart()
     g_hNewsGitFormat = CreateConVar("sm_wsmg_news_git", "{green}Git info: {default}%s, %s, %s, %s, %s{default}", "Git news format used by !news and git welcome mode.");
     
     RegConsoleCmd("sm_info", Command_ListInfo, "Displays an brief message to the client about the server.");
-    RegConsoleCmd("sm_c", Command_InfoC, "Lists custom class weapon data to the client");
     RegConsoleCmd("sm_c2", Command_InfoC2, "Lists custom class weapon page 2 data to the client");
     RegConsoleCmd("sm_reverts", Command_InfoReverts, "Lists custom class weapon data to the client");
     RegConsoleCmd("sm_revert", Command_InfoReverts, "Lists custom class weapon data to the client");

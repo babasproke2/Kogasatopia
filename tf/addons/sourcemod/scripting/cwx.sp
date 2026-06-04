@@ -48,6 +48,9 @@ public Plugin myinfo = {
 // this is the maximum length of the item name displayed to players
 #define MAX_ITEM_NAME_LENGTH 128
 
+// this is the maximum length of the per-weapon description printed by sm_c
+#define MAX_ITEM_DESCRIPTION_LENGTH 512
+
 // this is the number of slots allocated to our thing
 #define NUM_ITEMS 7
 
@@ -135,6 +138,7 @@ public void OnPluginStart() {
 	RegAdminCmd("sm_cw", DisplayItems, 0);
 	RegAdminCmd("sm_cwc", DisplayItems, 0);
 	RegAdminCmd("sm_weps", DisplayItems, 0);
+	RegAdminCmd("sm_c", DisplayItemDescriptions, 0);
 	AddCommandListener(DisplayItemsCompat, "sm_cus");
 	AddCommandListener(DisplayItemsCompat, "sm_custom");
 	
@@ -170,6 +174,55 @@ public void OnAllPluginsLoaded() {
 	
 	g_attrdef_AllowedInMedievalMode =
 			TF2Econ_TranslateAttributeNameToDefinitionIndex("allowed in medieval mode");
+}
+
+Action DisplayItemDescriptions(int client, int argc) {
+	if (!client || !IsClientInGame(client)) {
+		return Plugin_Handled;
+	}
+
+	int playerClass = view_as<int>(TF2_GetPlayerClass(client));
+	if (!playerClass) {
+		return Plugin_Handled;
+	}
+
+	StringMap printedDescriptions = new StringMap();
+	StringMapSnapshot itemList = GetCustomItemList();
+
+	for (int i; i < itemList.Length; i++) {
+		char uid[MAX_ITEM_IDENTIFIER_LENGTH];
+		itemList.GetKey(i, uid, sizeof(uid));
+
+		CustomItemDefinition item;
+		if (!GetCustomItemDefinition(uid, item)) {
+			continue;
+		}
+
+		if (item.loadoutPosition[playerClass] == -1) {
+			continue;
+		}
+
+		char dedupeKey[MAX_ITEM_DESCRIPTION_LENGTH];
+		strcopy(dedupeKey, sizeof(dedupeKey), item.description);
+		if (!dedupeKey[0]) {
+			strcopy(dedupeKey, sizeof(dedupeKey), uid);
+		}
+
+		if (printedDescriptions.ContainsKey(dedupeKey)) {
+			continue;
+		}
+		printedDescriptions.SetValue(dedupeKey, 1);
+
+		if (item.description[0]) {
+			CPrintToChat(client, "%s", item.description);
+		} else {
+			CPrintToChat(client, "{gold}[CWX]{default} This weapon has no set description.");
+		}
+	}
+
+	delete itemList;
+	delete printedDescriptions;
+	return Plugin_Handled;
 }
 
 public void OnMapStart() {

@@ -10,7 +10,7 @@ enum struct CustomItemDefinition {
 	char uid[MAX_ITEM_IDENTIFIER_LENGTH];
 	int defindex;
 	char displayName[128];
-	char description[256];
+	char description[MAX_ITEM_DESCRIPTION_LENGTH];
 	KeyValues localizedNames;
 	char className[128];
 	int loadoutPosition[NUM_PLAYER_CLASSES];
