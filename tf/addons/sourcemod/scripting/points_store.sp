@@ -9,6 +9,7 @@
 #define REQUIRE_PLUGIN
 #include "include/dgm_api.inc"
 #include "include/plugin_statistics.inc"
+#include "include/kogasa_sql.inc"
 
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
@@ -67,6 +68,7 @@ ConVar g_CvarSendCooldown = null;
 ConVar g_CvarEnableWelfare = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
+Handle g_hDatabaseReconnectTimer = null;
 char g_CurrencyShortLabel[BP_CURRENCY_SHORT_MAX];
 char g_CurrencyLongLabel[BP_CURRENCY_LONG_MAX];
 char g_CurrencyColorTag[BP_CURRENCY_COLOR_MAX + 2];
@@ -281,8 +283,8 @@ public void OnPluginEnd()
         g_ClientPurchaseUsesRemaining[i] = null;
     }
 
-    delete g_Database;
-    g_Database = null;
+    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
+    KogasaSql_Close(g_Database, g_DatabaseReady);
     PluginStats_Shutdown();
 }
 
@@ -320,19 +322,14 @@ public void OnClientDisconnect(int client)
 
 void ConnectDatabase()
 {
-    g_DatabaseReady = false;
+    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
+    KogasaSql_Close(g_Database, g_DatabaseReady);
     g_LotteryReady = false;
     g_LotteryCreating = false;
     g_CurrentLotteryId = 0;
     g_CurrentLotteryHash[0] = '\0';
     g_CurrentLotteryHashColor[0] = '\0';
     CancelPendingLotteryCall();
-
-    if (g_Database != null)
-    {
-        delete g_Database;
-        g_Database = null;
-    }
 
     char dbConfig[64];
     g_CvarDatabase.GetString(dbConfig, sizeof(dbConfig));
@@ -342,9 +339,8 @@ void ConnectDatabase()
         strcopy(dbConfig, sizeof(dbConfig), BP_TRANS_DB_CONFIG_DEFAULT);
     }
 
-    if (!SQL_CheckConfig(dbConfig))
+    if (!KogasaSql_CheckConfigOrLog("points_store", dbConfig))
     {
-        LogError("[bonuspoints_transactions] Database config '%s' not found.", dbConfig);
         return;
     }
 
@@ -356,6 +352,7 @@ public void SQL_OnDatabaseConnected(Handle owner, Handle hndl, const char[] erro
     if (hndl == null)
     {
         LogError("[bonuspoints_transactions] Database connection failed: %s", error[0] ? error : "unknown error");
+        ScheduleDatabaseReconnect();
         return;
     }
 
@@ -365,8 +362,25 @@ public void SQL_OnDatabaseConnected(Handle owner, Handle hndl, const char[] erro
     DBDriver driver = g_Database.Driver;
     driver.GetIdentifier(driverIdent, sizeof(driverIdent));
     g_IsMySql = StrEqual(driverIdent, "mysql", false);
+    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
 
     EnsureSchema();
+}
+
+void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+{
+    g_DatabaseReady = false;
+    if (g_hDatabaseReconnectTimer == null)
+    {
+        g_hDatabaseReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
+    }
+}
+
+public Action Timer_ReconnectDatabase(Handle timer, any data)
+{
+    g_hDatabaseReconnectTimer = null;
+    ConnectDatabase();
+    return Plugin_Stop;
 }
 
 void EnsureSchema()
@@ -481,8 +495,7 @@ public void SQL_OnPurchaseUsesColumnReady(Database db, DBResultSet results, cons
 
 bool IsDuplicateColumnError(const char[] error)
 {
-    return StrContains(error, "Duplicate column", false) != -1
-        || StrContains(error, "duplicate column", false) != -1;
+    return KogasaSql_IsDuplicateColumnError(error);
 }
 
 void EnsureBalanceSchema()
