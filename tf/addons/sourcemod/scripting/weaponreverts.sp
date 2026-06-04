@@ -98,6 +98,7 @@ ConVar g_hPomsonDamageMult;
 ConVar g_hBisonDamageMult;
 ConVar g_hScattergunPelletsDebug;
 KeyValues g_hWeaponRevertsConfig = null;
+KeyValues g_hWeaponRevertsCommandsConfig = null;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 Handle g_hHealTimer = INVALID_HANDLE;
 
@@ -121,6 +122,14 @@ public Plugin myinfo =
 	version = "6.0",
 	url = "https://kogasa.tf"
 };
+
+public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
+{
+	RegPluginLibrary("weaponreverts");
+	CreateNative("WeaponReverts_GetWeaponInfo", Native_GetWeaponInfo);
+	CreateNative("WeaponReverts_CanClassUseWeapon", Native_CanClassUseWeapon);
+	return APLRes_Success;
+}
 
 stock void ResetClientArrays(int client)
 {
@@ -1708,6 +1717,20 @@ static void LoadWeaponRevertsConfig()
 	{
 		LogError("[weaponreverts] Failed to load %s", path);
 	}
+
+	if (g_hWeaponRevertsCommandsConfig != null)
+	{
+		delete g_hWeaponRevertsCommandsConfig;
+		g_hWeaponRevertsCommandsConfig = null;
+	}
+
+	g_hWeaponRevertsCommandsConfig = new KeyValues("WeaponRevertsCommands");
+	BuildPath(Path_SM, path, sizeof(path), "configs/weaponreverts_commands.cfg");
+
+	if (!g_hWeaponRevertsCommandsConfig.ImportFromFile(path))
+	{
+		LogError("[weaponreverts] Failed to load %s", path);
+	}
 }
 
 public Action Command_ReloadWeaponRevertsConfig(int client, int args)
@@ -1752,6 +1775,111 @@ static bool WeaponReverts_IsAllowedForClient(int client)
 
 	g_hWeaponRevertsConfig.GoBack();
 	return allowed;
+}
+
+static void WeaponReverts_GetWeaponClasses(int index, char[] buffer, int maxlen)
+{
+	buffer[0] = '\0';
+
+	if (g_hWeaponRevertsCommandsConfig == null)
+		return;
+
+	char indexKey[16];
+	IntToString(index, indexKey, sizeof(indexKey));
+
+	g_hWeaponRevertsCommandsConfig.Rewind();
+	if (!g_hWeaponRevertsCommandsConfig.GotoFirstSubKey(true))
+		return;
+
+	do
+	{
+		char className[32];
+		g_hWeaponRevertsCommandsConfig.GetSectionName(className, sizeof(className));
+
+		if (g_hWeaponRevertsCommandsConfig.JumpToKey(indexKey, false))
+		{
+			if (buffer[0] != '\0')
+				StrCat(buffer, maxlen, ",");
+			StrCat(buffer, maxlen, className);
+			g_hWeaponRevertsCommandsConfig.GoBack();
+		}
+	}
+	while (g_hWeaponRevertsCommandsConfig.GotoNextKey(true));
+
+	g_hWeaponRevertsCommandsConfig.Rewind();
+}
+
+static bool WeaponReverts_ClassCanUseWeapon(const char[] className, int index)
+{
+	if (g_hWeaponRevertsCommandsConfig == null)
+		return false;
+
+	char indexKey[16];
+	IntToString(index, indexKey, sizeof(indexKey));
+
+	g_hWeaponRevertsCommandsConfig.Rewind();
+	if (!g_hWeaponRevertsCommandsConfig.JumpToKey(className, false))
+		return false;
+
+	bool found = g_hWeaponRevertsCommandsConfig.JumpToKey(indexKey, false);
+	g_hWeaponRevertsCommandsConfig.Rewind();
+	return found;
+}
+
+static bool WeaponReverts_GetConfiguredInfo(int index, char[] weaponName, int weaponNameLen, char[] positive, int positiveLen, char[] negative, int negativeLen, char[] type, int typeLen, char[] classes, int classesLen)
+{
+	if (g_hWeaponRevertsConfig == null)
+		return false;
+
+	char indexKey[16];
+	IntToString(index, indexKey, sizeof(indexKey));
+
+	g_hWeaponRevertsConfig.Rewind();
+	if (!g_hWeaponRevertsConfig.JumpToKey(indexKey, false))
+		return false;
+
+	g_hWeaponRevertsConfig.GetString("weapon_name", weaponName, weaponNameLen, "Unknown Weapon");
+	positive[0] = '\0';
+	negative[0] = '\0';
+	strcopy(type, typeLen, "buff");
+
+	if (g_hWeaponRevertsConfig.JumpToKey("change_description", false))
+	{
+		g_hWeaponRevertsConfig.GetString("positive", positive, positiveLen, "");
+		g_hWeaponRevertsConfig.GetString("negative", negative, negativeLen, "");
+		g_hWeaponRevertsConfig.GetString("type", type, typeLen, "buff");
+		g_hWeaponRevertsConfig.GoBack();
+	}
+
+	g_hWeaponRevertsConfig.Rewind();
+	WeaponReverts_GetWeaponClasses(index, classes, classesLen);
+	return true;
+}
+
+public int Native_GetWeaponInfo(Handle plugin, int numParams)
+{
+	int index = GetNativeCell(1);
+
+	char weaponName[128];
+	char positive[256];
+	char negative[256];
+	char type[32];
+	char classes[128];
+	bool found = WeaponReverts_GetConfiguredInfo(index, weaponName, sizeof(weaponName), positive, sizeof(positive), negative, sizeof(negative), type, sizeof(type), classes, sizeof(classes));
+
+	SetNativeString(2, found ? weaponName : "", GetNativeCell(3), true);
+	SetNativeString(4, found ? positive : "", GetNativeCell(5), true);
+	SetNativeString(6, found ? negative : "", GetNativeCell(7), true);
+	SetNativeString(8, found ? type : "buff", GetNativeCell(9), true);
+	SetNativeString(10, found ? classes : "", GetNativeCell(11), true);
+	return found;
+}
+
+public int Native_CanClassUseWeapon(Handle plugin, int numParams)
+{
+	char className[32];
+	GetNativeString(1, className, sizeof(className));
+	return WeaponReverts_ClassCanUseWeapon(className, GetNativeCell(2));
 }
 
 static void WeaponReverts_ApplyGameAttributeSection(int entity)
