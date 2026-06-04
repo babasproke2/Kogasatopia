@@ -2,6 +2,7 @@
 #include <dbi>
 #include <files>
 #include <morecolors>
+#include "include/kogasa_sql.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -13,6 +14,7 @@
 
 char g_sAdminsFile[PLATFORM_MAX_PATH];
 Database g_hDatabase = null;
+bool g_bDatabaseReady = false;
 Handle g_hReconnectTimer = null;
 static const char STEAM64_BASE_STR[] = "76561197960265728";
 
@@ -36,36 +38,17 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
-    if (g_hReconnectTimer != null)
-    {
-        CloseHandle(g_hReconnectTimer);
-        g_hReconnectTimer = null;
-    }
-
-    if (g_hDatabase != null)
-    {
-        delete g_hDatabase;
-        g_hDatabase = null;
-    }
+    KogasaSql_CancelTimer(g_hReconnectTimer);
+    KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
 }
 
 void ConnectToDatabase()
 {
-    if (g_hDatabase != null)
-    {
-        delete g_hDatabase;
-        g_hDatabase = null;
-    }
+    KogasaSql_CancelTimer(g_hReconnectTimer);
+    KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
 
-    if (g_hReconnectTimer != null)
+    if (!KogasaSql_CheckConfigOrLog("AdminsDB", ADMIN_DB_CONFIG))
     {
-        CloseHandle(g_hReconnectTimer);
-        g_hReconnectTimer = null;
-    }
-
-    if (!SQL_CheckConfig(ADMIN_DB_CONFIG))
-    {
-        LogError("[AdminsDB] Database config '%s' not found.", ADMIN_DB_CONFIG);
         return;
     }
 
@@ -77,16 +60,24 @@ public void SQL_OnDatabaseConnected(Handle owner, Handle hndl, const char[] erro
     if (hndl == null)
     {
         LogError("[AdminsDB] Database connection failed: %s", error[0] ? error : "unknown error");
-        if (g_hReconnectTimer == null)
-        {
-            g_hReconnectTimer = CreateTimer(10.0, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
-        }
+        ScheduleDatabaseReconnect();
         return;
     }
 
     g_hDatabase = view_as<Database>(hndl);
+    g_bDatabaseReady = true;
+    KogasaSql_CancelTimer(g_hReconnectTimer);
     EnsureAdminTable();
     SyncAdmins();
+}
+
+void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+{
+    g_bDatabaseReady = false;
+    if (g_hReconnectTimer == null)
+    {
+        g_hReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
+    }
 }
 
 public Action Timer_ReconnectDatabase(Handle timer, any data)
@@ -98,7 +89,7 @@ public Action Timer_ReconnectDatabase(Handle timer, any data)
 
 void EnsureAdminTable()
 {
-    if (g_hDatabase == null)
+    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         return;
     }
@@ -110,7 +101,7 @@ void EnsureAdminTable()
 
 void SyncAdmins()
 {
-    if (g_hDatabase == null)
+    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         LogError("[AdminsDB] Cannot sync admins: no database connection");
         return;
@@ -371,6 +362,10 @@ public void SQLErrorCheckCallback(Database db, DBResultSet results, const char[]
     if (error[0])
     {
         LogError("[AdminsDB] SQL error: %s", error);
+        if (KogasaSql_IsTransientError(error))
+        {
+            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+        }
     }
 }
 
