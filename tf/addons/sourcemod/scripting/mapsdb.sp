@@ -1,5 +1,6 @@
 #include <sourcemod>
 #include "include/dgm_api.inc"
+#include "include/kogasa_sql.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -21,9 +22,12 @@ char g_sMapSessionId[64];
 Database g_hDb = null;
 Handle g_hSampleTimer = null;
 Handle g_hPopulationSampleTimer = null;
+Handle g_hDatabaseReconnectTimer = null;
 ConVar g_cvPopulationSampleInterval = null;
 ConVar g_cvSampleDebug = null;
 bool g_bLateLoad = false;
+bool g_bDbReady = false;
+bool g_bDbConnecting = false;
 int g_iMapStartedAt = 0;
 int g_iRoundStartedAt = 0;
 int g_iLastPopulationSampleAt = 0;
@@ -97,12 +101,9 @@ public void OnPluginEnd()
 {
     FinalizeCurrentMapSession("plugin_end");
     StopSampleTimer();
-
-    if (g_hDb != null)
-    {
-        delete g_hDb;
-        g_hDb = null;
-    }
+    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
+    KogasaSql_Close(g_hDb, g_bDbReady);
+    g_bDbConnecting = false;
 }
 
 public void OnMapStart()
@@ -207,7 +208,7 @@ public Action Timer_RunSecretsConfig(Handle timer)
 
 public Action Timer_RecordPopularitySample(Handle timer)
 {
-    if (g_hDb == null)
+    if (!KogasaSql_IsReady(g_hDb, g_bDbReady))
     {
         ConnectMapsDb();
         return Plugin_Continue;
@@ -230,7 +231,7 @@ public Action Timer_RecordPopularitySample(Handle timer)
     int now = GetTime();
 
     char escapedMap[256];
-    SQL_EscapeString(g_hDb, mapName, escapedMap, sizeof(escapedMap));
+    KogasaSql_Escape(g_hDb, mapName, escapedMap, sizeof(escapedMap), "MapsDB");
 
     char query[512];
     FormatEx(query, sizeof(query),
@@ -253,7 +254,7 @@ public Action Timer_RecordPopularitySample(Handle timer)
 
 public Action Timer_RecordPopulationSample(Handle timer)
 {
-    if (g_hDb == null)
+    if (!KogasaSql_IsReady(g_hDb, g_bDbReady))
     {
         ConnectMapsDb();
         return Plugin_Continue;
@@ -310,9 +311,9 @@ public Action Timer_RecordPopulationSample(Handle timer)
     char escapedMap[256];
     char escapedGamemode[96];
     char escapedSessionId[128];
-    SQL_EscapeString(g_hDb, mapName, escapedMap, sizeof(escapedMap));
-    SQL_EscapeString(g_hDb, gamemode, escapedGamemode, sizeof(escapedGamemode));
-    SQL_EscapeString(g_hDb, g_sMapSessionId, escapedSessionId, sizeof(escapedSessionId));
+    KogasaSql_Escape(g_hDb, mapName, escapedMap, sizeof(escapedMap), "MapsDB");
+    KogasaSql_Escape(g_hDb, gamemode, escapedGamemode, sizeof(escapedGamemode), "MapsDB");
+    KogasaSql_Escape(g_hDb, g_sMapSessionId, escapedSessionId, sizeof(escapedSessionId), "MapsDB");
 
     char query[2048];
     FormatEx(query, sizeof(query),
@@ -379,9 +380,9 @@ public void SQL_OnWriteComplete(Database db, DBResultSet results, const char[] e
 
     LogError("[MapsDB] SQL write failed: %s", error);
 
-    if (StrContains(error, "Lost connection", false) != -1 || StrContains(error, "server has gone away", false) != -1)
+    if (KogasaSql_IsTransientError(error))
     {
-        ConnectMapsDb();
+        ScheduleMapsDbReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
     }
 }
 
@@ -389,23 +390,56 @@ public void SQL_OnConnect(Handle owner, Handle hndl, const char[] error, any dat
 {
     if (hndl == null)
     {
+        g_bDbConnecting = false;
+        g_bDbReady = false;
         LogError("[MapsDB] Database connect failed: %s", error);
+        ScheduleMapsDbReconnect(KOGASA_SQL_RECONNECT_DELAY);
         return;
     }
 
-    if (g_hDb != null)
-    {
-        delete g_hDb;
-    }
+    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
+    KogasaSql_Close(g_hDb, g_bDbReady);
 
     g_hDb = view_as<Database>(hndl);
+    g_bDbConnecting = false;
+    g_bDbReady = true;
     EnsurePopulationSampleSchema();
     EnsureMapSessionSchema();
 }
 
 static void ConnectMapsDb()
 {
+    if (g_bDbConnecting)
+    {
+        return;
+    }
+
+    if (!KogasaSql_CheckConfigOrLog("MapsDB", MAPSDB_DB_CONFIG))
+    {
+        return;
+    }
+
+    g_bDbConnecting = true;
     SQL_TConnect(SQL_OnConnect, MAPSDB_DB_CONFIG);
+}
+
+static void ScheduleMapsDbReconnect(float delay)
+{
+    g_bDbReady = false;
+
+    if (g_hDatabaseReconnectTimer != null)
+    {
+        return;
+    }
+
+    g_hDatabaseReconnectTimer = CreateTimer(delay, Timer_ReconnectMapsDb);
+}
+
+public Action Timer_ReconnectMapsDb(Handle timer)
+{
+    g_hDatabaseReconnectTimer = null;
+    ConnectMapsDb();
+    return Plugin_Stop;
 }
 
 static void EnsurePopulationSampleSchema()
@@ -516,7 +550,7 @@ static void UpsertMapSessionRollup(
     int weekday,
     int hourOfDay)
 {
-    if (g_hDb == null || !escapedSessionId[0])
+    if (!KogasaSql_IsReady(g_hDb, g_bDbReady) || !escapedSessionId[0])
     {
         return;
     }
@@ -571,7 +605,7 @@ static void UpsertMapSessionRollup(
 
 static void FinalizeCurrentMapSession(const char[] reason)
 {
-    if (g_hDb == null || !g_sMapSessionId[0])
+    if (!KogasaSql_IsReady(g_hDb, g_bDbReady) || !g_sMapSessionId[0])
     {
         return;
     }
@@ -581,8 +615,8 @@ static void FinalizeCurrentMapSession(const char[] reason)
 
     char escapedSessionId[128];
     char escapedReason[64];
-    SQL_EscapeString(g_hDb, g_sMapSessionId, escapedSessionId, sizeof(escapedSessionId));
-    SQL_EscapeString(g_hDb, reason, escapedReason, sizeof(escapedReason));
+    KogasaSql_Escape(g_hDb, g_sMapSessionId, escapedSessionId, sizeof(escapedSessionId), "MapsDB");
+    KogasaSql_Escape(g_hDb, reason, escapedReason, sizeof(escapedReason), "MapsDB");
 
     char query[1024];
     FormatEx(query, sizeof(query),
@@ -611,6 +645,10 @@ public void SQL_OnSchemaComplete(Database db, DBResultSet results, const char[] 
     }
 
     LogError("[MapsDB] SQL schema update failed: %s", error);
+    if (KogasaSql_IsTransientError(error))
+    {
+        ScheduleMapsDbReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+    }
 }
 
 static void StopSampleTimer()
