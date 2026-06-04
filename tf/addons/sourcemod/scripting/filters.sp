@@ -794,7 +794,7 @@ public Action Timer_PollOutbox(Handle timer, any data)
     char needle[128];
     Format(needle, sizeof(needle), "|%s|", hostStamp);
     char escapedNeedle[192];
-    SQL_EscapeString(g_hFiltersDb, needle, escapedNeedle, sizeof(escapedNeedle));
+    KogasaSql_Escape(g_hFiltersDb, needle, escapedNeedle, sizeof(escapedNeedle), "filters");
     char query[512];
     Format(query, sizeof(query), "SELECT id, iphash, display_name, message, host_ip, host_port, webchatonly, alert, server_ip, server_port, delivered_to FROM whaletracker_chat_outbox WHERE delivered_to IS NULL OR LOCATE('%s', delivered_to) = 0 ORDER BY id ASC LIMIT 20", escapedNeedle);
     g_hFiltersDb.Query(Filters_OutboxQueryCallback, query);
@@ -926,7 +926,7 @@ static void Filters_MarkOutboxDelivered(int rowId)
         return;
     }
     char escapedStamp[192];
-    SQL_EscapeString(g_hFiltersDb, stamp, escapedStamp, sizeof(escapedStamp));
+    KogasaSql_Escape(g_hFiltersDb, stamp, escapedStamp, sizeof(escapedStamp), "filters");
     char query[512];
     Format(query, sizeof(query), "UPDATE whaletracker_chat_outbox SET delivered_to = CASE WHEN delivered_to IS NULL OR delivered_to = '' THEN '|%s|' WHEN LOCATE('|%s|', delivered_to) = 0 THEN CONCAT(delivered_to, '|%s|') ELSE delivered_to END WHERE id = %d", escapedStamp, escapedStamp, escapedStamp, rowId);
     g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
@@ -996,11 +996,11 @@ static void Filters_QueueOutboxMessage(int timestamp, const char[] iphash, const
     char sanitizedMsg[512];
     char escapedMsg[512];
     Filters_SanitizeDbMessage(message, sanitizedMsg, sizeof(sanitizedMsg));
-    SQL_EscapeString(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg));
+    KogasaSql_Escape(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg), "filters");
     char escapedHash[128];
-    SQL_EscapeString(g_hFiltersDb, iphash, escapedHash, sizeof(escapedHash));
+    KogasaSql_Escape(g_hFiltersDb, iphash, escapedHash, sizeof(escapedHash), "filters");
     char escapedDisplay[256];
-    SQL_EscapeString(g_hFiltersDb, displayName, escapedDisplay, sizeof(escapedDisplay));
+    KogasaSql_Escape(g_hFiltersDb, displayName, escapedDisplay, sizeof(escapedDisplay), "filters");
     int webFlag = webchatOnly ? 1 : 0;
     int alert = alertFlag ? 1 : 0;
 
@@ -1011,7 +1011,7 @@ static void Filters_QueueOutboxMessage(int timestamp, const char[] iphash, const
         int localPort;
         Filters_GetLocalHostStamp(localIp, sizeof(localIp), localPort);
         char escapedIp[128];
-        SQL_EscapeString(g_hFiltersDb, localIp, escapedIp, sizeof(escapedIp));
+        KogasaSql_Escape(g_hFiltersDb, localIp, escapedIp, sizeof(escapedIp), "filters");
         Format(query, sizeof(query),
             "INSERT INTO whaletracker_chat_outbox (created_at, iphash, display_name, message, host_ip, host_port, webchatonly, alert) VALUES (%d, '%s', '%s', '%s', '%s', %d, %d, %d)",
             timestamp,
@@ -1097,9 +1097,9 @@ void Filters_LogChatMessage(int client, const char[] message)
     char escapedName[MAX_NAME_LENGTH * 2];
     char sanitizedMsg[512];
     char escapedMsg[512];
-    SQL_EscapeString(g_hFiltersDb, name, escapedName, sizeof(escapedName));
+    KogasaSql_Escape(g_hFiltersDb, name, escapedName, sizeof(escapedName), "filters");
     Filters_SanitizeDbMessage(message, sanitizedMsg, sizeof(sanitizedMsg));
-    SQL_EscapeString(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg));
+    KogasaSql_Escape(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg), "filters");
     char query[1024];
     if (hasSteam)
     {
@@ -1143,12 +1143,12 @@ void Filters_InsertSystemMessage(bool webchatOnly, bool alertFlag, const char[] 
     char sanitizedMsg[512];
     char escapedMsg[512];
     Filters_SanitizeDbMessage(message, sanitizedMsg, sizeof(sanitizedMsg));
-    SQL_EscapeString(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg));
+    KogasaSql_Escape(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg), "filters");
     char localIp[64];
     int localPort;
     Filters_GetLocalHostStamp(localIp, sizeof(localIp), localPort);
     char escapedIp[128];
-    SQL_EscapeString(g_hFiltersDb, localIp, escapedIp, sizeof(escapedIp));
+    KogasaSql_Escape(g_hFiltersDb, localIp, escapedIp, sizeof(escapedIp), "filters");
 
     // Broadcast immediately to the local server unless webchat-only.
     if (!webchatOnly)
@@ -2668,8 +2668,8 @@ public Action Command_WebSay(int client, int args)
         char escapedMsg[512];
         char escapedHash[64];
         Filters_SanitizeDbMessage(msgPart, sanitizedMsg, sizeof(sanitizedMsg));
-        SQL_EscapeString(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg));
-        SQL_EscapeString(g_hFiltersDb, hash, escapedHash, sizeof(escapedHash));
+        KogasaSql_Escape(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg), "filters");
+        KogasaSql_Escape(g_hFiltersDb, hash, escapedHash, sizeof(escapedHash), "filters");
         char query[1024];
         Format(query, sizeof(query),
             "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, NULL, NULL, '%s', '%s', 1)",
@@ -3075,9 +3075,9 @@ void SaveNamePreferencesToDb(int client)
     char escapedSteam[64];
     char escapedColor[64];
     char escapedPattern[64];
-    SQL_EscapeString(g_hFiltersDb, steamId64, escapedSteam, sizeof(escapedSteam));
-    SQL_EscapeString(g_hFiltersDb, g_NameColors[client], escapedColor, sizeof(escapedColor));
-    SQL_EscapeString(g_hFiltersDb, g_NamePatterns[client], escapedPattern, sizeof(escapedPattern));
+    KogasaSql_Escape(g_hFiltersDb, steamId64, escapedSteam, sizeof(escapedSteam), "filters");
+    KogasaSql_Escape(g_hFiltersDb, g_NameColors[client], escapedColor, sizeof(escapedColor), "filters");
+    KogasaSql_Escape(g_hFiltersDb, g_NamePatterns[client], escapedPattern, sizeof(escapedPattern), "filters");
 
     char query[384];
     Format(query, sizeof(query),
@@ -3103,7 +3103,7 @@ void LoadNamePreferencesFromDb(int client)
     }
 
     char escapedSteam[64];
-    SQL_EscapeString(g_hFiltersDb, steamId64, escapedSteam, sizeof(escapedSteam));
+    KogasaSql_Escape(g_hFiltersDb, steamId64, escapedSteam, sizeof(escapedSteam), "filters");
 
     char query[256];
     Format(query, sizeof(query), "SELECT color, pattern FROM filters_namecolors WHERE steamid = '%s' LIMIT 1", escapedSteam);
@@ -4281,8 +4281,8 @@ static void Prename_SaveRule(const char[] pattern, const char[] newname)
 
     char escapedPattern[PRENAME_MAX_PATTERN * 2];
     char escapedNewname[PRENAME_MAX_RENAME * 2];
-    SQL_EscapeString(g_hFiltersDb, pattern, escapedPattern, sizeof(escapedPattern));
-    SQL_EscapeString(g_hFiltersDb, newname, escapedNewname, sizeof(escapedNewname));
+    KogasaSql_Escape(g_hFiltersDb, pattern, escapedPattern, sizeof(escapedPattern), "filters");
+    KogasaSql_Escape(g_hFiltersDb, newname, escapedNewname, sizeof(escapedNewname), "filters");
 
     char query[256];
     Format(query, sizeof(query),
@@ -4304,7 +4304,7 @@ static void Prename_DeleteRule(const char[] pattern)
     }
 
     char escapedPattern[PRENAME_MAX_PATTERN * 2];
-    SQL_EscapeString(g_hFiltersDb, pattern, escapedPattern, sizeof(escapedPattern));
+    KogasaSql_Escape(g_hFiltersDb, pattern, escapedPattern, sizeof(escapedPattern), "filters");
 
     char query[256];
     Format(query, sizeof(query), "DELETE FROM prename_rules WHERE pattern = '%s'", escapedPattern);
@@ -4325,8 +4325,8 @@ static void Prename_SyncPointsCacheValue(const char[] steamId, const char[] pren
 
     char escapedSteam[64];
     char escapedPrename[PRENAME_MAX_RENAME * 2];
-    SQL_EscapeString(g_hFiltersDb, steamId, escapedSteam, sizeof(escapedSteam));
-    SQL_EscapeString(g_hFiltersDb, prename, escapedPrename, sizeof(escapedPrename));
+    KogasaSql_Escape(g_hFiltersDb, steamId, escapedSteam, sizeof(escapedSteam), "filters");
+    KogasaSql_Escape(g_hFiltersDb, prename, escapedPrename, sizeof(escapedPrename), "filters");
 
     char query[256];
     Format(query, sizeof(query),
