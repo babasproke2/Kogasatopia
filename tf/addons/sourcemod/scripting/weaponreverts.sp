@@ -97,6 +97,7 @@ ConVar g_sEnabled;
 ConVar g_hPomsonDamageMult;
 ConVar g_hBisonDamageMult;
 ConVar g_hScattergunPelletsDebug;
+KeyValues g_hWeaponRevertsConfig = null;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 Handle g_hHealTimer = INVALID_HANDLE;
 
@@ -154,7 +155,9 @@ public void OnPluginStart() {
 	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hScattergunPelletsDebug = CreateConVar("reverts_scattergun_pellets_debug", "0", "Log tracked shotgun/scattergun pellet forward diagnostics.");
+	LoadWeaponRevertsConfig();
 	RegAdminCmd("sm_scatterpellets_status", Command_ScatterPelletsStatus, ADMFLAG_GENERIC, "Print scattergun pellet integration status.");
+	RegAdminCmd("sm_weaponreverts_reload", Command_ReloadWeaponRevertsConfig, ADMFLAG_CONFIG, "Reload weapon revert definitions from configs/weaponreverts.cfg.");
 	if (GetConVarInt(g_sEnabled)) {
 		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
 	// This is used to ignore clients without the m_iAmmo netprop
@@ -1688,6 +1691,144 @@ public TF2_OnConditionRemoved(int client, TFCond condition)
 	}
 }
 
+static void LoadWeaponRevertsConfig()
+{
+	if (g_hWeaponRevertsConfig != null)
+	{
+		delete g_hWeaponRevertsConfig;
+		g_hWeaponRevertsConfig = null;
+	}
+
+	g_hWeaponRevertsConfig = new KeyValues("WeaponReverts");
+
+	char path[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, path, sizeof(path), "configs/weaponreverts.cfg");
+
+	if (!g_hWeaponRevertsConfig.ImportFromFile(path))
+	{
+		LogError("[weaponreverts] Failed to load %s", path);
+	}
+}
+
+public Action Command_ReloadWeaponRevertsConfig(int client, int args)
+{
+	LoadWeaponRevertsConfig();
+	ReplyToCommand(client, "[WeaponReverts] Reloaded configs/weaponreverts.cfg");
+	return Plugin_Handled;
+}
+
+static void WeaponReverts_GetClassKey(TFClassType class, char[] buffer, int maxlen)
+{
+	switch (class)
+	{
+		case TFClass_Scout: strcopy(buffer, maxlen, "scout");
+		case TFClass_Soldier: strcopy(buffer, maxlen, "soldier");
+		case TFClass_Pyro: strcopy(buffer, maxlen, "pyro");
+		case TFClass_DemoMan: strcopy(buffer, maxlen, "demoman");
+		case TFClass_Heavy: strcopy(buffer, maxlen, "heavy");
+		case TFClass_Engineer: strcopy(buffer, maxlen, "engineer");
+		case TFClass_Medic: strcopy(buffer, maxlen, "medic");
+		case TFClass_Sniper: strcopy(buffer, maxlen, "sniper");
+		case TFClass_Spy: strcopy(buffer, maxlen, "spy");
+		default: strcopy(buffer, maxlen, "");
+	}
+}
+
+static bool WeaponReverts_IsAllowedForClient(int client)
+{
+	if (!g_hWeaponRevertsConfig.JumpToKey("classes", false))
+		return true;
+
+	char classKey[16];
+	WeaponReverts_GetClassKey(TF2_GetPlayerClass(client), classKey, sizeof(classKey));
+
+	bool allowed = false;
+	if (classKey[0] != '\0')
+	{
+		char value[8];
+		g_hWeaponRevertsConfig.GetString(classKey, value, sizeof(value));
+		allowed = (value[0] != '\0' && StringToInt(value) != 0);
+	}
+
+	g_hWeaponRevertsConfig.GoBack();
+	return allowed;
+}
+
+static void WeaponReverts_ApplyGameAttributeSection(int entity)
+{
+	if (!g_hWeaponRevertsConfig.JumpToKey("game_attributes", false))
+		return;
+
+	if (g_hWeaponRevertsConfig.GotoFirstSubKey(false))
+	{
+		do
+		{
+			char attr[128];
+			char value[64];
+			g_hWeaponRevertsConfig.GetSectionName(attr, sizeof(attr));
+			g_hWeaponRevertsConfig.GetString(NULL_STRING, value, sizeof(value));
+
+			if (attr[0] != '\0' && value[0] != '\0')
+			{
+				TF2Attrib_SetByName(entity, attr, StringToFloat(value));
+			}
+		}
+		while (g_hWeaponRevertsConfig.GotoNextKey(false));
+
+		g_hWeaponRevertsConfig.GoBack();
+	}
+
+	g_hWeaponRevertsConfig.GoBack();
+}
+
+static void WeaponReverts_ApplyCustomAttributeSection(int entity)
+{
+	if (!g_hWeaponRevertsConfig.JumpToKey("custom_attributes", false))
+		return;
+
+	if (g_hWeaponRevertsConfig.GotoFirstSubKey(false))
+	{
+		do
+		{
+			char attr[128];
+			char value[128];
+			g_hWeaponRevertsConfig.GetSectionName(attr, sizeof(attr));
+			g_hWeaponRevertsConfig.GetString(NULL_STRING, value, sizeof(value));
+
+			if (attr[0] != '\0' && value[0] != '\0')
+			{
+				TF2CustAttr_SetString(entity, attr, value);
+			}
+		}
+		while (g_hWeaponRevertsConfig.GotoNextKey(false));
+
+		g_hWeaponRevertsConfig.GoBack();
+	}
+
+	g_hWeaponRevertsConfig.GoBack();
+}
+
+static void WeaponReverts_ApplyConfiguredAttributes(int client, int index, int entity)
+{
+	if (g_hWeaponRevertsConfig == null)
+		return;
+
+	char indexKey[16];
+	IntToString(index, indexKey, sizeof(indexKey));
+
+	g_hWeaponRevertsConfig.Rewind();
+	if (!g_hWeaponRevertsConfig.JumpToKey(indexKey, false))
+		return;
+
+	if (WeaponReverts_IsAllowedForClient(client))
+	{
+		WeaponReverts_ApplyGameAttributeSection(entity);
+		WeaponReverts_ApplyCustomAttributeSection(entity);
+	}
+
+	g_hWeaponRevertsConfig.Rewind();
+}
+
 public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, quality, entity)
 {
 	if (GetConVarInt(g_sEnabled)) {
@@ -1703,233 +1844,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 			}
 		}
 
-		switch (index)
-		{
-			case 163: //The Crit-a-Cola 
-			{	
-				TF2Attrib_SetByName(entity, "energy buff dmg taken multiplier", 1.25); // Changes the damage taken from +35% to +20%
-				TF2Attrib_SetByName(entity, "mod_mark_attacker_for_death", 0.00); // Disable this attribute 
-			}
-			case 220: //The Shortstop
-			{
-				TF2Attrib_SetByName(entity, "reload time increased hidden", 1.0);
-				TF2Attrib_SetByName(entity, "healing received bonus", 1.20); // Self explanatory
-				TF2Attrib_SetByName(entity, "damage force increase", 1.40); // Increased 20% -> 40%
-				TF2Attrib_SetByName(entity, "airblast vulnerability multiplier hidden", 1.40); // Increased 20% -> 40%
-			} 
-			case 317: //The Candy Cane
-			{
-				TF2Attrib_SetByName(entity, "health from packs increased", 1.40); // Add the backscratche
-			}
-			case 355: //Fan-o-Wa
-			{
-				TF2Attrib_SetByName(entity, "switch from wep deploy time decreased", 0.80);
-				TF2Attrib_SetByName(entity, "single wep deploy time decreased", 0.80);
-				TF2Attrib_SetByName(entity, "mark for death", 0.0); // Remove this and handle it ourselves
-				TF2CustAttr_SetInt(entity, "mark for death multiple", 1);
-			}
-			case 772: //Baby Face's Blaster index
-			{
-				TF2Attrib_SetByName(entity, "lose hype on take damage", 0.0); // Removed
-				TF2Attrib_SetByName(entity, "move speed penalty", 0.80); // Increased to 20%
-			}
-			case 1103: //The Back Scatte
-			{
-				TF2Attrib_SetByName(entity, "weapon spread bonus", 0.90); // Self explanatory
-				TF2Attrib_SetByName(entity, "spread penalty", 1.00); // Remove this attribute
-			}
-			case 348: //The Sharpened Volcano Fragment
-			{
-				TF2Attrib_SetByName(entity, "minicrit vs burning player", 1.00); //Add this attribute for lossy
-			}
-			case 265: //The Sticky Jumpe
-			{
-				TF2Attrib_SetByName(entity, "max pipebombs decreased", 0.0); // Remove pipebomb restriction
-			}
-			case 130: //The Scottish Resistance
-			{
-				TF2Attrib_SetByName(entity, "sticky arm time penalty", 0.4); // Reduce this from 0.8 to 0.4
-			}
-			case 414: //Liberty Launcher index
-			{
-				TF2Attrib_SetByName(entity, "fire rate bonus", 0.90); // Increase RoF
-			}
-			case 1101: //The K.E.Y.E. Jumpe
-			{
-				TF2Attrib_SetByName(entity, "rocket jump damage reduction", 0.75); // Half of the gunboats protection
-			}
-			case 133: //The Gunboats
-			{
-				TF2Attrib_SetByName(entity, "rocket jump damage reduction", 0.25); // Reverted to release
-			}
-			case 1104: //The Air Strike
-			{
-				TF2Attrib_SetByName(entity, "Reload time decreased", 0.85); // Increase reload speed
-			}
-			case 730: //The Beggars
-			{
-				TF2Attrib_SetByName(entity, "Blast radius decreased", 1.00); // Set explosion radius debuff to 0
-			}
-			case 128: //The Equalize
-			{
-				TF2Attrib_SetByName(entity, "dmg from ranged reduced", 0.80); // Less damage from ranged while held
-			}
-			case 588: //The Pomson 6000
-			{
-				TF2Attrib_SetByName(entity, "energy weapon penetration", 1.00); // Penetrate targets
-				TF2Attrib_SetByName(entity, "subtract victim medigun charge on hit", 1.00);
-				TF2Attrib_SetByName(entity, "subtract victim cloak on hit", 1.00);
-			}
-			case 405, 608: //Demoman boots
-			{
-				TF2Attrib_SetByName(entity, "move speed bonus shield required", 1.00); // Remove this attribute
-				TF2Attrib_SetByName(entity, "move speed bonus", 1.10); // Add this attribute
-				//TF2Attrib_SetByName(entity, "boots falling stomp", 1.00); // Add this property	
-			}
-			case 327: //The Claidheahm Moh
-			{
-				TF2Attrib_SetByName(entity, "heal on kill", 25.00); // Re-add this attribute
-			}
-			case 11, 425, 199: //Heavy's Shotguns
-			{
-				if(TF2_GetPlayerClass(client) == TFClass_Heavy) {
-					TF2Attrib_SetByName(entity, "mult_player_movespeed_active", 1.10);
-				}
-			}
-			case 239, 1084, 1100: //The Gloves of Running Urgently
-			{
-				TF2Attrib_SetByName(entity, "mod_maxhealth_drain_rate", 0.0); //Disable max health drain
-				TF2Attrib_SetByName(entity, "damage penalty", 0.70); //Decrease damage by 30%
-				TF2Attrib_SetByName(entity, "self mark for death", 1.00); //Mark for death
-			}
-			case 310: // The Warrior's Spirit
-			{
-				TF2Attrib_SetByName(entity, "dmg taken increased", 1.00); // Remove overall vuln
-				TF2Attrib_SetByName(entity, "dmg from melee increased", 1.30); // Replace with melee vuln
-				TF2Attrib_SetByName(entity, "single wep holster time increased", 1.50); // Increase holster time
-			}
-			case 426: //The Eviction Notice
-			{
-				TF2Attrib_SetByName(entity, "mod_maxhealth_drain_rate", 0.0); // Disable max health drain
-				TF2Attrib_SetByName(entity, "fire rate bonus", 0.40); // Fire 60% faste
-			}
-			case 811, 832: //The Huo Long Heate
-			{
-				TF2Attrib_SetByName(entity, "damage penalty", 1.00); // Remove the damage penalty
-			}
-			case 41: // The Natascha
-			{
-				TF2Attrib_SetByName(entity, "slow enemy on hit", 0.0); // Remove slowdown
-				TF2Attrib_SetByName(entity, "aiming movespeed increased", 1.15); // Increased move speed when revved
-			}
-			case 998: //The Vaccinato
-			{
-				TF2Attrib_SetByName(entity, "ubercharge rate penalty", 0.05);
-			}
-			case 1144, 131, 1099, 406: //Demoshields
-			{
-				TF2Attrib_SetByName(entity, "rocket jump damage reduction", 0.35); // Reduce self inflicted damage by 65%, this is a listed buff
-				TF2Attrib_SetByName(entity, "dmg taken from fire reduced", 0.90); // Reduce this attribute
-				TF2Attrib_SetByName(entity, "dmg taken from blast reduced", 0.90); // Reduce this attribute
-			}
-			case 528: // Short Circuit
-			{
-				TF2CustAttr_SetInt(entity, "taser damage becomes metal", 1); // Damage dealt with primary fire becomes metal
-				TF2CustAttr_SetFloat(entity, "mult metal from carts", 0.25); // Reduced metal from carts
-			}
-			// Nerf section ends here
-			case 609: //Scottish Handshake
-			{
-				TF2Attrib_SetByName(entity, "fire rate penalty", 1.20);
-				TF2Attrib_SetByName(entity, "crit mod disabled", 0.00);
-				TF2Attrib_SetByName(entity, "mod crit while airborne", 1.00);
-			}
-			/*case 442: //The Righteous Bison
-			{
-				TF2Attrib_SetByName(entity, "fire rate bonus", 0.55); // Increase firing rate by 45%
-			}*/ // Removal candidate
-			case 38, 457, 1000: //Axtinguisher, Plummeter, Festive Axtinguisher indexes
-			{
-				TF2Attrib_SetByName(entity, "attack_minicrits_and_consumes_burning", 0.0); // Remove the base properties
-				TF2Attrib_SetByName(entity, "crit vs burning players", 1.0); // Self explanatory
-				TF2Attrib_SetByName(entity, "dmg penalty vs nonburning", 0.50); // Self explanatory
-				TF2Attrib_SetByName(entity, "damage penalty", 1.00); // Sets the damage penalty to 0%
-			}
-			case 1181: //The Hot Hand
-			{
-				TF2Attrib_SetByName(entity, "fire rate bonus", 0.50); // Increase firing rate
-			}
-			case 1179: //The Thermal Thruste
-			{
-				TF2Attrib_SetByName(entity, "thermal_thruster_air_launch", 1.0); // Able to re-launch while already in-flight 
-				TF2Attrib_SetByName(entity, "dmg taken increased", 1.15); // Take 15% more damage
-			}
-			case 351: //The Detonato
-			{
-				TF2Attrib_SetByName(entity, "blast dmg to self increased", 0.75); // Halve the blast damage penalty
-			}
-			case 215: // The Degrease
-			{
-				TF2Attrib_SetByName(entity, "deploy time decreased", 0.65); // Modify all swap speeds
-				TF2Attrib_SetByName(entity, "switch from wep deploy time decreased", 1.00); // Remove the holster bonus
-				TF2Attrib_SetByName(entity, "single wep deploy time decreased", 1.00); // Remove the deploy bonus
-			}
-			case 595: // The Manmelte
-			{
-				TF2Attrib_SetByName(entity, "damage bonus", 1.20);
-			}
-			case 1178: // The Dragon's Fury
-			{
-				TF2CustAttr_SetInt(entity, "airblast jump", 1);
-			}
-			case 17, 204, 36, 412: // Syringe guns
-			{
-				TF2Attrib_SetByName(entity, "add uber charge on hit", 0.0125); // 1.25% uber per projectile hit
-				TF2CustAttr_SetInt(entity, "holster reload", 40);
-			}
-			case 171: // The Tribalman's Shiv
-			{
-				TF2Attrib_SetByName(entity, "damage penalty", 0.75);
-			}
-			case 751: // The Cleaner's Carbine
-			{
-				TF2Attrib_SetByName(entity, "critboost on kill", 2.0); // Self explanatory
-			}
-			case 1098: // The Classic
-			{
-				TF2Attrib_SetByName(entity, "sniper charge per sec", 1.20) // Increased by 20%
-			}
-			case 460: // The Enforce
-			{
-				TF2Attrib_SetByName(entity, "weapon spread bonus", 0.60); // 40% more accurate
-				TF2Attrib_SetByName(entity, "damage bonus while disguised", 1.00); // Remove this bonus
-				TF2Attrib_SetByName(entity, "damage bonus", 1.20);
-			}
-			case 225, 574: // Your Eternal Reward
-			{
-				TF2Attrib_SetByName(entity, "mult cloak meter consume rate", 1.00); // Self explanatory
-				TF2Attrib_SetByName(entity, "fire rate bonus", 0.90); // Increase RoF
-			}
-			case 461: // The Big Earne
-			{
-				TF2Attrib_SetByName(entity, "add cloak on kill", 50.0); // Increase the cloak gain from 30 to 50
-				TF2Attrib_SetByName(entity, "max health additive penalty", -20.0); // Change the penalty from -25 to 20
-			}
-			case 810, 831: // Red-Tape sappers
-			{
-				TF2Attrib_SetByName(entity, "sapper damage penalty", 0.30); // Change this from 100% to 70%
-			}
-			case 155: // Southern Hospitality
-			{
-				TF2Attrib_SetByName(entity, "metal regen", 15.00); // This activates every 5 seconds, so let's use 15
-				TF2Attrib_SetByName(entity, "damage bonus", 1.10);
-			}
-			case 56, 1092, 1005: // Bow & Arrows / Huntsman
-			{
-				TF2Attrib_SetByName(entity, "max health additive bonus", 15.00); // Self explanatory
-				TF2CustAttr_SetInt(entity, "wall climb enabled", 1);
-			}
-		}
+		WeaponReverts_ApplyConfiguredAttributes(client, index, entity);
 	}
 }
 
