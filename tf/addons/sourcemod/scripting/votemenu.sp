@@ -9,6 +9,7 @@
 #include "include/dgm_api.inc"
 #define REQUIRE_PLUGIN
 #include "include/plugin_statistics.inc"
+#include "include/kogasa_sql.inc"
 
 // Configuration locations
 #define VOTEMENU_CONFIG      "configs/votemenu.cfg"
@@ -42,6 +43,7 @@ ConVar g_CvarAdminsFree = null;
 ConVar g_CvarDatabase = null;
 Database g_Database = null;
 bool g_DatabaseReady = false;
+Handle g_hDatabaseReconnectTimer = null;
 bool g_PendingVoteCharge = false;
 int g_PendingChargeUserId = 0;
 int g_PendingChargeCost = 0;
@@ -90,9 +92,8 @@ public void OnPluginStart()
 public void OnPluginEnd()
 {
     PluginStats_Shutdown();
-    delete g_Database;
-    g_Database = null;
-    g_DatabaseReady = false;
+    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
+    KogasaSql_Close(g_Database, g_DatabaseReady);
 }
 
 public void OnMapStart()
@@ -208,6 +209,7 @@ public void SQL_OnVoteMenuDatabaseConnected(Handle owner, Handle hndl, const cha
     {
         g_DatabaseReady = false;
         LogError("[votemenu] Database connection failed: %s", error[0] ? error : "unknown error");
+        ScheduleVoteMenuDatabaseReconnect();
         return;
     }
 
@@ -218,16 +220,13 @@ public void SQL_OnVoteMenuDatabaseConnected(Handle owner, Handle hndl, const cha
 
     g_Database = view_as<Database>(hndl);
     g_DatabaseReady = true;
+    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
 }
 
 static void ConnectVoteMenuDatabase()
 {
-    g_DatabaseReady = false;
-    if (g_Database != null)
-    {
-        delete g_Database;
-        g_Database = null;
-    }
+    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
+    KogasaSql_Close(g_Database, g_DatabaseReady);
 
     char dbConfig[64];
     if (g_CvarDatabase != null)
@@ -240,13 +239,28 @@ static void ConnectVoteMenuDatabase()
         strcopy(dbConfig, sizeof(dbConfig), VOTEMENU_DB_CONFIG_DEFAULT);
     }
 
-    if (!SQL_CheckConfig(dbConfig))
+    if (!KogasaSql_CheckConfigOrLog("votemenu", dbConfig))
     {
-        LogError("[votemenu] Database config '%s' not found.", dbConfig);
         return;
     }
 
     SQL_TConnect(SQL_OnVoteMenuDatabaseConnected, dbConfig);
+}
+
+static void ScheduleVoteMenuDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+{
+    g_DatabaseReady = false;
+    if (g_hDatabaseReconnectTimer == null)
+    {
+        g_hDatabaseReconnectTimer = CreateTimer(delay, Timer_ReconnectVoteMenuDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
+    }
+}
+
+public Action Timer_ReconnectVoteMenuDatabase(Handle timer, any data)
+{
+    g_hDatabaseReconnectTimer = null;
+    ConnectVoteMenuDatabase();
+    return Plugin_Stop;
 }
 
 static bool IsVoteMenuBusy()
@@ -335,7 +349,7 @@ static bool PrepareVoteMenuCharge(int client)
     }
 
     int cost = GetVoteMenuCost();
-    if (!g_DatabaseReady || g_Database == null)
+    if (!KogasaSql_IsReady(g_Database, g_DatabaseReady))
     {
         CPrintToChat(client, "{red}[Vote]{default} Vote payments are not ready yet.");
         ConnectVoteMenuDatabase();
