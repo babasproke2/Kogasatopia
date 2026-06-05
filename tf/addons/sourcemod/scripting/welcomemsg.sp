@@ -14,8 +14,8 @@ ConVar g_hGitRepoCommitMessage;
 ConVar g_hGitRepoCommitDate;
 
 static const char g_Info[][] = {
-    "{default}Some weapons have better stats; use {gold}!r{default} to read about your class.\n",
-    "{default}We have new weapons; check {gold}!c{default} for the list and {gold}!cw{default} to equip.\n",
+    "{default}Some weapons have better stats; use {gold}!reverts{default} to read about your class.\n",
+    "{default}We have new weapons; check {gold}!cw{default} to equip.\n",
     "{default}Random crits and bullet spread are disabled\n",
     "{default}Some classes such as {grey}Heavy{default} are limited;\n",
     "{default}Visit our group with {gold}!steam{default} {default}to learn more and see when people are playing.\n"
@@ -204,7 +204,6 @@ public OnPluginStart()
     RegConsoleCmd("sm_c2", Command_InfoC2, "Lists custom class weapon page 2 data to the client");
     RegConsoleCmd("sm_reverts", Command_InfoReverts, "Lists custom class weapon data to the client");
     RegConsoleCmd("sm_revert", Command_InfoReverts, "Lists custom class weapon data to the client");
-    RegConsoleCmd("sm_r", Command_InfoReverts, "Lists custom class weapon data to the client");
     RegConsoleCmd("sm_cmds", Command_cmds, "Lists highlighted server commands to the client");
     RegConsoleCmd("sm_news", Command_news, "Read the server news");
     RegConsoleCmd("sm_commands", Command_cmds, "Lists highlighted server commands to the client");
@@ -407,7 +406,7 @@ public bool IsUncleCycleActive()
 
 // Array of command categories and their descriptions
 static const char g_CommandInfo[][] = {
-    "{lightgreen}Weapons:{default} {gold}!reverts !r !rp !c !cp !cw{default}",
+    "{lightgreen}Weapons:{default} {gold}!reverts !rp !cp !cw{default}",
     "{lightgreen}WhaleTracker:{default} {gold}!pts !ptsme !bp !sendbp !ranks !stats{default}",
     "{lightgreen}Tags/Clans:{default} {gold}!tags !clan !clans !clanhelp !claninfo !clanmembers{default}",
     "{lightgreen}Clan tools:{default} {gold}!clantag !claninvite !clankick !clanwar{default}",
@@ -738,18 +737,6 @@ static bool ShowClassPanel(int client, TFClassType class, bool revert)
     return false;
 }
 
-public Action Command_InfoC(int client, int args)
-{
-    if (!client || !IsClientInGame(client))
-        return Plugin_Handled;
-    if (!IsWeaponRevertsLoaded())
-    {
-        CPrintToChat(client, "{green}[Info] {default}Weapon reverts/Custom weapons are currently not loaded; this is temporary.");
-        return Plugin_Handled;
-    }
-    PrintClassInfo(client, false);
-    return Plugin_Handled;
-}
 
 public Action Command_InfoReverts(int client, int args)
 {
