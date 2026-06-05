@@ -15,7 +15,6 @@
 #define VOTEMENU_CONFIG      "configs/votemenu.cfg"
 #define VOTEMENU_CFG_PREFIX  ""          // Files are expected to be relative to tf/cfg
 
-#define VOTE_DURATION 20
 #define VOTEMENU_CURRENCY_SHORT_MAX 32
 #define VOTEMENU_DB_CONFIG_DEFAULT "default"
 #define POINTS_STORE_BALANCE_TABLE "points_store_balances"
@@ -41,6 +40,7 @@ ConVar g_CvarShopCost = null;
 ConVar g_CvarAdmins = null;
 ConVar g_CvarAdminsFree = null;
 ConVar g_CvarDatabase = null;
+ConVar g_CvarVoteDuration = null;
 Database g_Database = null;
 bool g_DatabaseReady = false;
 Handle g_hDatabaseReconnectTimer = null;
@@ -81,6 +81,7 @@ public void OnPluginStart()
     g_CvarAdmins = CreateConVar("sm_votemenu_admins_only", "0", "Restrict votemenu usage to admins.", _, true, 0.0, true, 1.0);
     g_CvarAdminsFree = CreateConVar("sm_votemenu_admins_free", "0", "Let admins use votemenu without points_store currency integration.", _, true, 0.0, true, 1.0);
     g_CvarDatabase = CreateConVar("sm_votemenu_database", VOTEMENU_DB_CONFIG_DEFAULT, "Database config used for offline paid-vote charges.");
+    g_CvarVoteDuration = CreateConVar("sm_votemenu_duration", "7.0", "Vote menu vote duration in seconds.", _, true, 1.0, true, 30.0);
     g_CvarDatabase.AddChangeHook(OnVoteMenuDatabaseChanged);
     g_VoteOptions = new ArrayList(sizeof(VoteOption));
     g_MapStartedAt = GetTime();
@@ -445,7 +446,8 @@ static bool StartYesNoVote(int initiator)
     vote.ExitButton = false;
     vote.ExitBackButton = false;
 
-    if (!vote.DisplayVoteToAll(VOTE_DURATION))
+    int voteDuration = RoundToNearest(g_CvarVoteDuration.FloatValue);
+    if (!vote.DisplayVoteToAll(voteDuration))
     {
         delete vote;
         LogVoteMenuVoteCancelled("display_failed", 0, 0, 0);
