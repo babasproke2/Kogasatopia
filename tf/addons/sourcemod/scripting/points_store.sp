@@ -42,6 +42,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define LOTTO_TICKET_UNIT 5
 #define LOTTO_EXTRA_WINNER_PARTICIPANTS 4
 #define LOTTO_EXTRA_WINNER_PERCENT 10
+#define REFLECT_BONUS_PER_MAP_LIMIT 3
 
 ArrayList g_ItemKeys = null;
 ArrayList g_ItemNames = null;
@@ -4231,8 +4232,20 @@ void BuildPerMapAwardSuffix(int perMapUsed, int perMap, char[] suffix, int maxle
     }
 }
 
+int GetEffectivePerMapAwardLimit(const char[] type, int perMap)
+{
+    if (StrEqual(type, "reflect", false) || StrEqual(type, "reflect_direct_hit", false))
+    {
+        return REFLECT_BONUS_PER_MAP_LIMIT;
+    }
+
+    return perMap;
+}
+
 bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, int perMap = 0)
 {
+    perMap = GetEffectivePerMapAwardLimit(type, perMap);
+
     if (!IsClientInGameHuman(client) || points == 0)
     {
         LogBonusPointsRejected(!IsClientInGameHuman(client) ? "invalid_client" : "zero_delta", client, points, type, target, 0, randomChance, 0.0);
@@ -4312,6 +4325,8 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
 
 bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0, int perMap = 0)
 {
+    perMap = GetEffectivePerMapAwardLimit(type, perMap);
+
     if (delay < 0.0)
     {
         delay = 0.0;
