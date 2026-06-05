@@ -8,9 +8,61 @@
  * Functions defined here rely on globals declared in weaponreverts.sp.
  */
 
+#define WR_PLAYER_AMMO_METAL_SLOT 3
+#define WR_AMMO_CELL_BYTES 4
+#define WR_ENGINEER_METAL_MAX 200
+
+stock bool WR_IsValidPlayerIndex(int client)
+{
+    return (client > 0 && client <= MaxClients);
+}
+
+stock bool WR_IsClientInGame(int client)
+{
+    return (WR_IsValidPlayerIndex(client) && IsClientInGame(client));
+}
+
+stock bool WR_IsLivingClient(int client)
+{
+    return (WR_IsClientInGame(client) && IsPlayerAlive(client));
+}
+
+stock bool WR_IsValidWeaponEntity(int weapon)
+{
+    return (weapon > MaxClients && IsValidEntity(weapon));
+}
+
+stock int WR_GetPlayerAmmoOffset()
+{
+    static bool resolved = false;
+    static int offset = -1;
+
+    if (!resolved)
+    {
+        offset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
+        resolved = true;
+    }
+
+    return offset;
+}
+
+stock int WR_GetWeaponClipOffset()
+{
+    static bool resolved = false;
+    static int offset = -1;
+
+    if (!resolved)
+    {
+        offset = FindSendPropInfo("CTFWeaponBase", "m_iClip1");
+        resolved = true;
+    }
+
+    return offset;
+}
+
 stock int TF_GetMetalAmount(int client)
 {
-    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    if (!WR_IsClientInGame(client))
     {
         return 0;
     }
@@ -25,14 +77,14 @@ stock int TF_GetMetalAmount(int client)
         return 0;
     }
 
-    int metal = GetEntData(client, g_iMetalOffset + (3 * 4), 4);
+    int metal = GetEntData(client, g_iMetalOffset + (WR_PLAYER_AMMO_METAL_SLOT * WR_AMMO_CELL_BYTES), WR_AMMO_CELL_BYTES);
     tf2_players[client].engiMetal = metal;
     return metal;
 }
 
 stock void TF_SetMetalAmount(int client, int metal)
 {
-    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    if (!WR_IsClientInGame(client))
     {
         return;
     }
@@ -41,9 +93,9 @@ stock void TF_SetMetalAmount(int client, int metal)
     {
         metal = 0;
     }
-    else if (metal > 200)
+    else if (metal > WR_ENGINEER_METAL_MAX)
     {
-        metal = 200;
+        metal = WR_ENGINEER_METAL_MAX;
     }
 
     if (g_iMetalOffset == -1)
@@ -57,13 +109,16 @@ stock void TF_SetMetalAmount(int client, int metal)
     }
 
     tf2_players[client].engiMetal = metal;
-    SetEntData(client, g_iMetalOffset + (3 * 4), metal, 4, true);
+    SetEntData(client, g_iMetalOffset + (WR_PLAYER_AMMO_METAL_SLOT * WR_AMMO_CELL_BYTES), metal, WR_AMMO_CELL_BYTES, true);
 }
 
 stock int CheckScythe(int client)
 {
+    if (!WR_IsClientInGame(client))
+        return 0;
+
     int scythe = GetPlayerWeaponSlot(client, 2);
-    if (scythe <= MaxClients || !IsValidEntity(scythe))
+    if (!WR_IsValidWeaponEntity(scythe))
         return 0;
 
     if (TF2CustAttr_GetInt(scythe, "harvester attributes") != 1)
@@ -78,9 +133,12 @@ stock int CheckScythe(int client)
 
 stock int CheckShock(int client)
 {
+    if (!WR_IsClientInGame(client))
+        return 0;
+
     int shock = GetPlayerWeaponSlot(client, 2);
     int tally = (tf2_players[client].shockCharge != 30) ? 1 : 0;
-    if (shock <= MaxClients || !IsValidEntity(shock))
+    if (!WR_IsValidWeaponEntity(shock))
         return tally;
 
     if (TF2CustAttr_GetInt(shock, "shock therapy attributes") != 0)
@@ -92,8 +150,11 @@ stock int CheckShock(int client)
 
 stock int CheckDesertEagle(int client)
 {
+    if (!WR_IsClientInGame(client))
+        return 0;
+
     int deagle = GetPlayerWeaponSlot(client, 1);
-    if (deagle <= MaxClients || !IsValidEntity(deagle))
+    if (!WR_IsValidWeaponEntity(deagle))
         return 0;
 
     int tally = 0;
@@ -106,6 +167,9 @@ stock int CheckDesertEagle(int client)
 
 stock bool CheckRocketJumping(int client)
 {
+    if (!WR_IsClientInGame(client))
+        return false;
+
     if (!(GetEntityFlags(client) & FL_ONGROUND))
     {
         float velocity[3];
@@ -118,41 +182,61 @@ stock bool CheckRocketJumping(int client)
     return false;
 }
 
-stock GetAmmo_Weapon(int weapon)
+stock int GetAmmo_Weapon(int weapon)
 {
-    if (weapon == -1)
+    if (!WR_IsValidWeaponEntity(weapon))
         return 0;
 
     int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
-    if (owner == -1) return 0;
-    int iOffset = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", 1) * 4;
-    int iAmmoTable = FindSendPropInfo("CTFPlayer", "m_iAmmo");
-    return GetEntData(owner, iAmmoTable + iOffset, 4);
+    if (!WR_IsClientInGame(owner))
+        return 0;
+
+    int ammoType = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", 1);
+    if (ammoType < 0)
+        return 0;
+
+    int ammoTable = WR_GetPlayerAmmoOffset();
+    if (ammoTable < 0)
+        return 0;
+
+    return GetEntData(owner, ammoTable + (ammoType * WR_AMMO_CELL_BYTES), WR_AMMO_CELL_BYTES);
 }
 
-stock SetAmmo_Weapon(int weapon, int newAmmo)
+stock void SetAmmo_Weapon(int weapon, int newAmmo)
 {
+    if (!WR_IsValidWeaponEntity(weapon))
+        return;
+
     int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
-    if (owner == -1) return;
-    int iOffset = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", 1) * 4;
-    int iAmmoTable = FindSendPropInfo("CTFPlayer", "m_iAmmo");
-    SetEntData(owner, iAmmoTable + iOffset, newAmmo, 4, true);
+    if (!WR_IsClientInGame(owner))
+        return;
+
+    int ammoType = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", 1);
+    if (ammoType < 0)
+        return;
+
+    int ammoTable = WR_GetPlayerAmmoOffset();
+    if (ammoTable < 0)
+        return;
+
+    SetEntData(owner, ammoTable + (ammoType * WR_AMMO_CELL_BYTES), newAmmo, WR_AMMO_CELL_BYTES, true);
 }
 
-stock GetClip(int weapon)
+stock int GetClip(int weapon)
 {
-    int clip = -1;
-    if (IsValidEntity(weapon))
-    {
-        int iAmmoTable = FindSendPropInfo("CTFWeaponBase", "m_iClip1");
-        clip = GetEntData(weapon, iAmmoTable, 4);
-    }
-    return clip;
+    if (!WR_IsValidWeaponEntity(weapon))
+        return -1;
+
+    int clipOffset = WR_GetWeaponClipOffset();
+    if (clipOffset < 0)
+        return -1;
+
+    return GetEntData(weapon, clipOffset, WR_AMMO_CELL_BYTES);
 }
 
 int GetWeaponMaxClip(int weapon)
 {
-    if (!IsValidEntity(weapon) || weapon <= MaxClients)
+    if (!WR_IsValidWeaponEntity(weapon))
         return -1;
 
     if (g_SDKGetMaxClip1 == null)
@@ -161,10 +245,16 @@ int GetWeaponMaxClip(int weapon)
     return SDKCall(g_SDKGetMaxClip1, weapon);
 }
 
-stock SetClip_Weapon(int weapon, int newClip)
+stock void SetClip_Weapon(int weapon, int newClip)
 {
-    int iAmmoTable = FindSendPropInfo("CTFWeaponBase", "m_iClip1");
-    SetEntData(weapon, iAmmoTable, newClip, 4, true);
+    if (!WR_IsValidWeaponEntity(weapon))
+        return;
+
+    int clipOffset = WR_GetWeaponClipOffset();
+    if (clipOffset < 0)
+        return;
+
+    SetEntData(weapon, clipOffset, newClip, WR_AMMO_CELL_BYTES, true);
 }
 
 stock int TF2_GetPlayerMaxHealth(int client)
@@ -198,7 +288,7 @@ public bool CheckIfBleedDmg(int damageType)
 
 stock float Sproke_GetAttributeDuration(int weapon)
 {
-    if (weapon <= MaxClients || !IsValidEntity(weapon))
+    if (!WR_IsValidWeaponEntity(weapon))
         return 0.0;
 
     return TF2CustAttr_GetFloat(weapon, SPROKE_ATTR_NAME, 0.0);
@@ -212,6 +302,9 @@ stock bool Sproke_ClientHasAttribute(int client)
 
 stock void Sproke_RemoveParticle(int client)
 {
+    if (!WR_IsValidPlayerIndex(client))
+        return;
+
     int particle = EntRefToEntIndex(tf2_players[client].sprokeParticleRef);
     if (particle > MaxClients && IsValidEntity(particle))
     {
@@ -224,6 +317,9 @@ stock void Sproke_RemoveParticle(int client)
 
 stock void Sproke_AttachParticle(int client)
 {
+    if (!WR_IsClientInGame(client))
+        return;
+
     int particle = CreateEntityByName("info_particle_system");
     if (particle == -1)
         return;
@@ -252,7 +348,7 @@ stock void Sproke_AttachParticle(int client)
 
 stock void Sproke_ClearEffect(int client, bool restoreClip, bool playSound)
 {
-    if (client <= 0 || client > MaxClients)
+    if (!WR_IsValidPlayerIndex(client))
         return;
 
     int weapon = EntRefToEntIndex(tf2_players[client].sprokePrimaryRef);
@@ -282,6 +378,11 @@ stock void Sproke_ClearEffect(int client, bool restoreClip, bool playSound)
 
 public void Sproke_TryActivate(int client, float duration)
 {
+    if (!WR_IsValidPlayerIndex(client))
+    {
+        return;
+    }
+
     // Always kill existing timer (if any) before proceeding
     if (tf2_players[client].sprokeTimer != null)
     {
@@ -303,13 +404,13 @@ public void Sproke_TryActivate(int client, float duration)
     }
 
     int primary = GetPlayerWeaponSlot(client, 0);
-    if (primary <= MaxClients || !IsValidEntity(primary))
+    if (!WR_IsValidWeaponEntity(primary))
     {
         Sproke_ClearEffect(client, true, false);
         return;
     }
 
-    CreateTimer(1.2, Sproke_ClearColaEffect, client);
+    CreateTimer(1.2, Sproke_ClearColaEffect, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
 
     int maxClip = GetWeaponMaxClip(primary);
     tf2_players[client].sprokeClipRecord = maxClip;
@@ -338,6 +439,10 @@ public void Sproke_TryActivate(int client, float duration)
 
 public Action Sproke_ClearColaEffect(Handle timer, int client)
 {
+    client = GetClientOfUserId(client);
+    if (!WR_IsClientInGame(client))
+        return Plugin_Stop;
+
     TF2_RemoveCondition(client, TFCond_CritCola);
     return Plugin_Stop;
 }
