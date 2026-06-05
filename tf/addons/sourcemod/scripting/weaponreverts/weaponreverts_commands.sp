@@ -3,6 +3,8 @@
 #include <morecolors>
 #include <weaponreverts_api>
 
+#define WEAPON_REVERTS_COMMANDS_CONFIG_PATH "configs/weaponreverts_commands.cfg"
+
 KeyValues g_hWeaponRevertsCommandsConfig = null;
 
 public Plugin myinfo =
@@ -22,6 +24,20 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_r", Command_InfoReverts, "Lists weapon revert data to the client");
 }
 
+public void OnPluginEnd()
+{
+	if (g_hWeaponRevertsCommandsConfig != null)
+	{
+		delete g_hWeaponRevertsCommandsConfig;
+		g_hWeaponRevertsCommandsConfig = null;
+	}
+}
+
+static bool WeaponRevertsCommands_IsUsableClient(int client)
+{
+	return client > 0 && client <= MaxClients && IsClientInGame(client);
+}
+
 static void LoadWeaponRevertsCommandsConfig()
 {
 	if (g_hWeaponRevertsCommandsConfig != null)
@@ -33,7 +49,7 @@ static void LoadWeaponRevertsCommandsConfig()
 	g_hWeaponRevertsCommandsConfig = new KeyValues("WeaponRevertsCommands");
 
 	char path[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, path, sizeof(path), "configs/weaponreverts_commands.cfg");
+	BuildPath(Path_SM, path, sizeof(path), WEAPON_REVERTS_COMMANDS_CONFIG_PATH);
 
 	if (!g_hWeaponRevertsCommandsConfig.ImportFromFile(path))
 	{
@@ -76,7 +92,7 @@ static void FormatRevertLine(char[] buffer, int maxlen, const char[] weaponName,
 
 public Action Command_InfoReverts(int client, int args)
 {
-	if (!client || !IsClientInGame(client))
+	if (!WeaponRevertsCommands_IsUsableClient(client))
 		return Plugin_Handled;
 
 	char classKey[16];
