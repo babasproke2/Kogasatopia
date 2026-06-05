@@ -4234,7 +4234,7 @@ void BuildPerMapAwardSuffix(int perMapUsed, int perMap, char[] suffix, int maxle
 
 int GetEffectivePerMapAwardLimit(const char[] type, int perMap)
 {
-    if (StrEqual(type, "reflect", false) || StrEqual(type, "reflect_direct_hit", false))
+    if (StrEqual(type, "reflect", false))
     {
         return REFLECT_BONUS_PER_MAP_LIMIT;
     }
