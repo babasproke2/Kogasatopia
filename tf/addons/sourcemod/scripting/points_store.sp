@@ -1489,9 +1489,11 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
 
     char escapedSteamId[65];
+    char escapedOldTicket[(LOTTO_TICKET_MAX * 2) + 1];
     char escapedTicket[(LOTTO_TICKET_MAX * 2) + 1];
     char escapedName[(LOTTO_NAME_MAX * 2) + 1];
     if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId))
+        || !EscapeSql(g_ClientLotteryTicket[client], escapedOldTicket, sizeof(escapedOldTicket))
         || !EscapeSql(ticket, escapedTicket, sizeof(escapedTicket))
         || !EscapeSql(displayName, escapedName, sizeof(escapedName)))
     {
@@ -1500,6 +1502,7 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     }
 
     int balanceDelta = oldAmount - amount;
+    int createdAt = GetTime();
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
@@ -1508,6 +1511,7 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     pack.WriteCell(oldAmount);
     pack.WriteCell(balanceDelta);
     pack.WriteString(steamId);
+    pack.WriteString(g_ClientLotteryTicket[client]);
     pack.WriteString(ticket);
     pack.WriteString(displayName);
     BeginLotteryTicketWrite(steamId);
@@ -1515,14 +1519,20 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     Transaction txn = new Transaction();
     char query[8192];
     Format(query, sizeof(query),
-        "UPDATE %s SET display_name = '%s', ticket = '%s', ticket_value = %d, created_at = %d WHERE lottery_id = %d AND steamid64 = '%s'",
+        "UPDATE %s SET display_name = '%s', ticket = '%s', ticket_value = %d, created_at = %d WHERE lottery_id = %d AND steamid64 = '%s' AND ticket = '%s' AND ticket_value = %d AND EXISTS (SELECT 1 FROM %s WHERE steamid64 = '%s' AND balance + %d >= %d)",
         LOTTO_TICKET_TABLE,
         escapedName,
         escapedTicket,
         amount,
-        GetTime(),
+        createdAt,
         g_CurrentLotteryId,
-        escapedSteamId);
+        escapedSteamId,
+        escapedOldTicket,
+        oldAmount,
+        BP_BALANCE_TABLE,
+        escapedSteamId,
+        oldAmount,
+        amount);
     txn.AddQuery(query);
 
     if (balanceDelta != 0)
@@ -1530,26 +1540,30 @@ void AttemptLotteryTicketReplacement(int client, int amount)
         if (g_IsMySql)
         {
             Format(query, sizeof(query),
-                "INSERT INTO %s (steamid64, balance) SELECT '%s', %d FROM DUAL WHERE EXISTS (SELECT 1 FROM %s WHERE lottery_id = %d AND steamid64 = '%s' AND ticket = '%s') ON DUPLICATE KEY UPDATE balance = GREATEST(0, balance + VALUES(balance))",
+                "INSERT INTO %s (steamid64, balance) SELECT '%s', %d FROM DUAL WHERE EXISTS (SELECT 1 FROM %s WHERE lottery_id = %d AND steamid64 = '%s' AND ticket = '%s' AND ticket_value = %d AND created_at = %d) ON DUPLICATE KEY UPDATE balance = GREATEST(0, balance + VALUES(balance))",
                 BP_BALANCE_TABLE,
                 escapedSteamId,
                 balanceDelta,
                 LOTTO_TICKET_TABLE,
                 g_CurrentLotteryId,
                 escapedSteamId,
-                escapedTicket);
+                escapedTicket,
+                amount,
+                createdAt);
         }
         else
         {
             Format(query, sizeof(query),
-                "INSERT INTO %s (steamid64, balance) SELECT '%s', %d WHERE EXISTS (SELECT 1 FROM %s WHERE lottery_id = %d AND steamid64 = '%s' AND ticket = '%s') ON CONFLICT(steamid64) DO UPDATE SET balance = MAX(0, balance + excluded.balance), updated_at = CURRENT_TIMESTAMP",
+                "INSERT INTO %s (steamid64, balance) SELECT '%s', %d WHERE EXISTS (SELECT 1 FROM %s WHERE lottery_id = %d AND steamid64 = '%s' AND ticket = '%s' AND ticket_value = %d AND created_at = %d) ON CONFLICT(steamid64) DO UPDATE SET balance = MAX(0, balance + excluded.balance), updated_at = CURRENT_TIMESTAMP",
                 BP_BALANCE_TABLE,
                 escapedSteamId,
                 balanceDelta,
                 LOTTO_TICKET_TABLE,
                 g_CurrentLotteryId,
                 escapedSteamId,
-                escapedTicket);
+                escapedTicket,
+                amount,
+                createdAt);
         }
         txn.AddQuery(query);
     }
@@ -1567,9 +1581,11 @@ public void SQLTxn_OnLotteryTicketReplaced(Database db, any data, int numQueries
     int oldAmount = pack.ReadCell();
     int balanceDelta = pack.ReadCell();
     char steamId[32];
+    char oldTicket[LOTTO_TICKET_MAX];
     char ticket[LOTTO_TICKET_MAX];
     char displayName[LOTTO_NAME_MAX];
     pack.ReadString(steamId, sizeof(steamId));
+    pack.ReadString(oldTicket, sizeof(oldTicket));
     pack.ReadString(ticket, sizeof(ticket));
     pack.ReadString(displayName, sizeof(displayName));
     delete pack;
@@ -1743,7 +1759,9 @@ void RefundLotteryTicket(int client)
     }
 
     char escapedSteamId[65];
-    if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)))
+    char escapedTicket[(LOTTO_TICKET_MAX * 2) + 1];
+    if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId))
+        || !EscapeSql(g_ClientLotteryTicket[client], escapedTicket, sizeof(escapedTicket)))
     {
         CPrintToChat(client, "%s[Lottery]{default} Could not prepare your refund.", colorTag);
         return;
@@ -1757,15 +1775,18 @@ void RefundLotteryTicket(int client)
     pack.WriteCell(g_CurrentLotteryId);
     pack.WriteCell(g_ClientLotteryTicketValue[client]);
     pack.WriteString(steamId);
+    pack.WriteString(g_ClientLotteryTicket[client]);
     pack.WriteString(displayName);
     BeginLotteryTicketWrite(steamId);
 
     char query[384];
     Format(query, sizeof(query),
-        "DELETE FROM %s WHERE lottery_id = %d AND steamid64 = '%s'",
+        "DELETE FROM %s WHERE lottery_id = %d AND steamid64 = '%s' AND ticket = '%s' AND ticket_value = %d",
         LOTTO_TICKET_TABLE,
         g_CurrentLotteryId,
-        escapedSteamId);
+        escapedSteamId,
+        escapedTicket,
+        g_ClientLotteryTicketValue[client]);
     g_Database.Query(SQL_OnLotteryTicketRefunded, query, pack);
 }
 
@@ -1777,8 +1798,10 @@ public void SQL_OnLotteryTicketRefunded(Database db, DBResultSet results, const 
     int lotteryId = pack.ReadCell();
     int amount = pack.ReadCell();
     char steamId[32];
+    char ticket[LOTTO_TICKET_MAX];
     char displayName[LOTTO_NAME_MAX];
     pack.ReadString(steamId, sizeof(steamId));
+    pack.ReadString(ticket, sizeof(ticket));
     pack.ReadString(displayName, sizeof(displayName));
     delete pack;
     FinishLotteryTicketWrite(steamId);
@@ -1793,6 +1816,17 @@ public void SQL_OnLotteryTicketRefunded(Database db, DBResultSet results, const 
         if (IsClientInGameHuman(client))
         {
             CPrintToChat(client, "%s[Lottery]{default} Could not refund your ticket.", colorTag);
+        }
+        return;
+    }
+
+    if (results == null || results.AffectedRows <= 0)
+    {
+        LogError("[points_store] Lottery refund skipped for %s because the cached ticket was stale.", steamId);
+        if (IsClientInGameHuman(client))
+        {
+            CPrintToChat(client, "%s[Lottery]{default} Your ticket changed. Try again in a moment.", colorTag);
+            LoadClientLotteryTicket(client);
         }
         return;
     }
