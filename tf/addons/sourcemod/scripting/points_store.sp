@@ -4238,6 +4238,10 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     {
         strcopy(label, maxlen, "Ambassador headshot kill");
     }
+    else if (StrEqual(type, "sandman_cleaver_combo", false))
+    {
+        strcopy(label, maxlen, "Sandman-Cleaver combo");
+    }
     else if (StrEqual(type, "uber_deployed", false))
     {
         strcopy(label, maxlen, "UberCharge");
@@ -4748,7 +4752,7 @@ public Action Command_ShowBonusPoints(int client, int args)
 
     char msg2[256];
     FormatEx(msg2, sizeof(msg2),
-        "{lightgreen}+1:{default} Airshot kills, market garden kills, ubers, killstreaks, dominations, revenge, meatshot kills");
+        "{lightgreen}+1:{default} Airshot kills, market garden kills, ubers, killstreaks, dominations, revenge, meatshot kills, Sandman-Cleaver combos");
 
     CPrintToChat(client, "%s", msg1);
     CPrintToChat(client, "%s", msg2);

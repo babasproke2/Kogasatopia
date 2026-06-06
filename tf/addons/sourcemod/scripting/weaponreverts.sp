@@ -21,6 +21,7 @@
 #define FLS_STREAK_WINDOW	   4.0
 #define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
 #define AMBASSADOR_HEADSHOT_KILL_BONUS_TYPE "ambassador_headshot_kill"
+#define SANDMAN_CLEAVER_COMBO_BONUS_TYPE "sandman_cleaver_combo"
 #define AMBASSADOR_ITEMDEF 61
 #define FESTIVE_AMBASSADOR_ITEMDEF 1006
 
@@ -435,6 +436,21 @@ static void TryAwardAmbassadorHeadshotKill(Event event, int attacker, int victim
 	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 	{
 		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, AMBASSADOR_HEADSHOT_KILL_BONUS_TYPE, 0, 3.0, 0);
+	}
+}
+
+static void TryAwardSandmanCleaverCombo(int attacker, int victim)
+{
+	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
+		return;
+	if (IsFakeClient(attacker) || IsFakeClient(victim))
+		return;
+	if (GetClientTeam(attacker) <= 1 || GetClientTeam(attacker) == GetClientTeam(victim))
+		return;
+
+	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+	{
+		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, SANDMAN_CLEAVER_COMBO_BONUS_TYPE, 0, 3.0, 0);
 	}
 }
 
@@ -1354,6 +1370,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 		if (TF2_IsPlayerInCondition(client, TFCond_Dazed) && !(damagetype & DMG_CRIT)) { // if stunned
 			damage = 33.3;
 			damagetype|=DMG_CRIT;
+			TryAwardSandmanCleaverCombo(attacker, client);
 			return Plugin_Changed;
 		}
 	} else {
