@@ -98,6 +98,9 @@ ConVar g_hRedlistEnabled = null;
 char g_FilterWords[MAX_FILTERS][MAX_WORD_LENGTH];
 char g_ReplacementWords[MAX_FILTERS][MAX_WORD_LENGTH];
 int g_FilterCount = 0;
+char g_CaseInsensitiveFilterWords[MAX_FILTERS][MAX_WORD_LENGTH];
+char g_CaseInsensitiveReplacementWords[MAX_FILTERS][MAX_WORD_LENGTH];
+int g_CaseInsensitiveFilterCount = 0;
 
 // Global array for blacklisted words
 char g_BlacklistWords[MAX_BLACKLIST][MAX_WORD_LENGTH];
@@ -2746,6 +2749,7 @@ static void Filters_EndConfigSection(KeyValues kv)
 static void Filters_ResetLoadedConfig()
 {
     g_FilterCount = 0;
+    g_CaseInsensitiveFilterCount = 0;
     g_BlacklistCount = 0;
     g_Blacklist50Count = 0;
     g_ForcedStatusCount = 0;
@@ -2784,6 +2788,35 @@ static void Filters_LoadFilterWords(KeyValues kv)
         strcopy(g_FilterWords[g_FilterCount], MAX_WORD_LENGTH, original);
         strcopy(g_ReplacementWords[g_FilterCount], MAX_WORD_LENGTH, filtered);
         g_FilterCount++;
+    }
+    while (kv.GotoNextKey(false));
+
+    Filters_EndConfigSection(kv);
+}
+
+static void Filters_LoadCaseInsensitiveFilterWords(KeyValues kv)
+{
+    if (!Filters_BeginConfigSection(kv, "filters_case_insensitive"))
+    {
+        return;
+    }
+
+    do
+    {
+        if (g_CaseInsensitiveFilterCount >= MAX_FILTERS)
+        {
+            LogError("Maximum case-insensitive filter limit reached (%d)", MAX_FILTERS);
+            break;
+        }
+
+        char original[MAX_WORD_LENGTH];
+        char filtered[MAX_WORD_LENGTH];
+        kv.GetSectionName(original, sizeof(original));
+        kv.GetString(NULL_STRING, filtered, sizeof(filtered));
+
+        strcopy(g_CaseInsensitiveFilterWords[g_CaseInsensitiveFilterCount], MAX_WORD_LENGTH, original);
+        strcopy(g_CaseInsensitiveReplacementWords[g_CaseInsensitiveFilterCount], MAX_WORD_LENGTH, filtered);
+        g_CaseInsensitiveFilterCount++;
     }
     while (kv.GotoNextKey(false));
 
@@ -2954,6 +2987,7 @@ void LoadFilterConfig()
 
     Filters_ResetLoadedConfig();
     Filters_LoadFilterWords(kv);
+    Filters_LoadCaseInsensitiveFilterWords(kv);
     Filters_LoadBlacklistWords(kv);
     Filters_LoadBlacklist50Words(kv);
     Filters_LoadForcedStatuses(kv);
@@ -2962,8 +2996,8 @@ void LoadFilterConfig()
 
     delete kv;
 
-    PrintToServer("[Word Filter] Loaded %d filter words, %d blacklist words, %d blacklist_50 words, %d forced status entries, and %d commands",
-                  g_FilterCount, g_BlacklistCount, g_Blacklist50Count, g_ForcedStatusCount, g_AllowedCommandsCount);
+    PrintToServer("[Word Filter] Loaded %d filter words, %d case-insensitive filters, %d blacklist words, %d blacklist_50 words, %d forced status entries, and %d commands",
+                  g_FilterCount, g_CaseInsensitiveFilterCount, g_BlacklistCount, g_Blacklist50Count, g_ForcedStatusCount, g_AllowedCommandsCount);
 }
 
 public void FilterString(char[] input, int maxlen)
@@ -2974,6 +3008,11 @@ public void FilterString(char[] input, int maxlen)
     for (int i = 0; i < g_FilterCount; i++)
     {
         ReplaceString(input, maxlen, g_FilterWords[i], g_ReplacementWords[i], caseSensitive);
+    }
+
+    for (int i = 0; i < g_CaseInsensitiveFilterCount; i++)
+    {
+        ReplaceString(input, maxlen, g_CaseInsensitiveFilterWords[i], g_CaseInsensitiveReplacementWords[i], false);
     }
 }
 
@@ -3025,6 +3064,10 @@ void CreateDefaultConfig(const char[] path)
     file.WriteLine("    {");
     file.WriteLine("        \"badword1\"    \"filtered\"");
     file.WriteLine("        \"badword2\"    \"filtered\"");
+    file.WriteLine("    }");
+    file.WriteLine("    \"filters_case_insensitive\"");
+    file.WriteLine("    {");
+    file.WriteLine("        \"bruh\"    \"trans rights\"");
     file.WriteLine("    }");
     file.WriteLine("    \"blacklist_words\"");
     file.WriteLine("    {");
