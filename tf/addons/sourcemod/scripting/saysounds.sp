@@ -2984,6 +2984,17 @@ static bool CanPlaySaySoundToClient(int client, const char[] groupName, float &e
     return true;
 }
 
+static bool EmitSaySoundToClient(int client, const char[] soundPath, float emitVolume)
+{
+    if (emitVolume <= 0.0)
+    {
+        return false;
+    }
+
+    EmitSoundToClient(client, soundPath, client, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, emitVolume, SNDPITCH_NORMAL);
+    return true;
+}
+
 static bool PlaySaySoundToTarget(int client, const char[] soundPath, const char[] groupName, bool forcePlayback = false)
 {
     bool played = false;
@@ -2998,8 +3009,10 @@ static bool PlaySaySoundToTarget(int client, const char[] soundPath, const char[
                 continue;
             }
 
-            EmitSoundToClient(i, soundPath, i, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, emitVolume, SNDPITCH_NORMAL);
-            played = true;
+            if (EmitSaySoundToClient(i, soundPath, emitVolume))
+            {
+                played = true;
+            }
         }
 
         return played;
@@ -3011,8 +3024,7 @@ static bool PlaySaySoundToTarget(int client, const char[] soundPath, const char[
         return false;
     }
 
-    EmitSoundToClient(client, soundPath, client, SNDCHAN_AUTO, SNDLEVEL_NORMAL, SND_NOFLAGS, emitVolume, SNDPITCH_NORMAL);
-    return true;
+    return EmitSaySoundToClient(client, soundPath, emitVolume);
 }
 
 static void PlaySaySound(const char[] soundPath, const char[] groupName)
