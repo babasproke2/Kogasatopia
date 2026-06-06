@@ -6,9 +6,11 @@
 #include <string>
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
+#include <saysounds>
 #define REQUIRE_PLUGIN
 
 #define TPA_CURRENCY_SHORT_MAX 32
+#define TPA_TELEPORT_SOUND "tp-enderman"
 
 enum TpaRequestType
 {
@@ -39,6 +41,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
     MarkNativeAsOptional("PointsStore_AreBonusPointsLoaded");
     MarkNativeAsOptional("PointsStore_GetBonusPoints");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
+    MarkNativeAsOptional("SaySounds_PlayCommand");
     return APLRes_Success;
 }
 
@@ -159,12 +162,14 @@ public Action Command_AcceptRequest(int client, int args)
     if (requestType == TpaRequest_Goto)
     {
         TeleportClientToClient(sender, client);
+        PlayTeleportSound();
         PrintToChat(client, "[TPA] Accepted %N's teleport request.", sender);
         PrintToChat(sender, "[TPA] Teleported to %N.", client);
     }
     else if (requestType == TpaRequest_Here)
     {
         TeleportClientToClient(client, sender);
+        PlayTeleportSound();
         PrintToChat(client, "[TPA] Accepted %N's teleport request.", sender);
         PrintToChat(sender, "[TPA] Teleported %N to you.", client);
     }
@@ -473,6 +478,16 @@ int GetTeleportCost()
 bool IsPointsStoreAvailable()
 {
     return GetFeatureStatus(FeatureType_Native, "PointsStore_SpendBonusPoints") == FeatureStatus_Available;
+}
+
+void PlayTeleportSound()
+{
+    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
+    {
+        return;
+    }
+
+    SaySounds_PlayCommand(0, TPA_TELEPORT_SOUND, true);
 }
 
 void GetTeleportCurrencyShort(char[] buffer, int maxlen)
