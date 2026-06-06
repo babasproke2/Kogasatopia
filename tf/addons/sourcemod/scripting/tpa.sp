@@ -4,6 +4,7 @@
 #include <sourcemod>
 #include <sdktools>
 #include <string>
+#include <morecolors>
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
 #include <saysounds>
@@ -11,6 +12,8 @@
 
 #define TPA_CURRENCY_SHORT_MAX 32
 #define TPA_TELEPORT_SOUND "tp-enderman"
+
+native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
 enum TpaRequestType
 {
@@ -42,6 +45,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
     MarkNativeAsOptional("PointsStore_GetBonusPoints");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
     MarkNativeAsOptional("SaySounds_PlayCommand");
+    MarkNativeAsOptional("Filters_GetChatName");
     return APLRes_Success;
 }
 
@@ -458,9 +462,7 @@ bool SpendTeleportCost(int sender, int receiver)
         return false;
     }
 
-    char currency[TPA_CURRENCY_SHORT_MAX];
-    GetTeleportCurrencyShort(currency, sizeof(currency));
-    PrintToChat(sender, "[TPA] Spent %d %s for teleport.", cost, currency);
+    AnnounceTeleportSpend(sender, cost);
     return true;
 }
 
@@ -490,6 +492,59 @@ void PlayTeleportSound()
     SaySounds_PlayCommand(0, TPA_TELEPORT_SOUND, true);
 }
 
+void AnnounceTeleportSpend(int sender, int cost)
+{
+    char displayName[256];
+    BuildTeleportDisplayName(sender, displayName, sizeof(displayName));
+
+    char currency[TPA_CURRENCY_SHORT_MAX];
+    GetTeleportCurrencyShort(currency, sizeof(currency));
+
+    char colorTag[32];
+    GetTeleportCurrencyColorTag(colorTag, sizeof(colorTag));
+
+    CPrintToChatAllEx(sender, "%s[%s]{default} %s{default} spent %s%d %s{default} to teleport!", colorTag, currency, displayName, colorTag, cost, currency);
+}
+
+void BuildTeleportDisplayName(int client, char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+
+    if (GetFeatureStatus(FeatureType_Native, "Filters_GetChatName") == FeatureStatus_Available
+        && Filters_GetChatName(client, buffer, maxlen)
+        && buffer[0] != '\0')
+    {
+        ResolveTeamColorTag(client, buffer, maxlen);
+        return;
+    }
+
+    char colorTag[16];
+    BuildTeamColorTag(client, colorTag, sizeof(colorTag));
+    Format(buffer, maxlen, "%s%N", colorTag, client);
+}
+
+void ResolveTeamColorTag(int client, char[] buffer, int maxlen)
+{
+    if (StrContains(buffer, "{teamcolor}", false) == -1)
+    {
+        return;
+    }
+
+    char colorTag[16];
+    BuildTeamColorTag(client, colorTag, sizeof(colorTag));
+    ReplaceString(buffer, maxlen, "{teamcolor}", colorTag, false);
+}
+
+void BuildTeamColorTag(int client, char[] colorTag, int length)
+{
+    switch (GetClientTeam(client))
+    {
+        case 2: strcopy(colorTag, length, "{red}");
+        case 3: strcopy(colorTag, length, "{blue}");
+        default: strcopy(colorTag, length, "{default}");
+    }
+}
+
 void GetTeleportCurrencyShort(char[] buffer, int maxlen)
 {
     ConVar currency = FindConVar("sm_points_store_currency_short");
@@ -505,6 +560,34 @@ void GetTeleportCurrencyShort(char[] buffer, int maxlen)
     {
         strcopy(buffer, maxlen, "Gems");
     }
+}
+
+void GetTeleportCurrencyColorTag(char[] buffer, int maxlen)
+{
+    ConVar currencyColor = FindConVar("sm_points_store_currency_color");
+    if (currencyColor == null)
+    {
+        strcopy(buffer, maxlen, "{magenta}");
+        return;
+    }
+
+    char color[32];
+    currencyColor.GetString(color, sizeof(color));
+    TrimString(color);
+
+    if (!color[0])
+    {
+        strcopy(buffer, maxlen, "{magenta}");
+        return;
+    }
+
+    if (color[0] == '{')
+    {
+        strcopy(buffer, maxlen, color);
+        return;
+    }
+
+    Format(buffer, maxlen, "{%s}", color);
 }
 
 int FindClientByNameSubstring(const char[] query, int &matchCount)
