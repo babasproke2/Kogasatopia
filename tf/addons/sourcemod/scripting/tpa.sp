@@ -12,6 +12,7 @@
 
 #define TPA_CURRENCY_SHORT_MAX 32
 #define TPA_TELEPORT_SOUND "tp-enderman"
+#define TPA_DIFFERENT_TEAM_VERTICAL_OFFSET 150.0
 
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
@@ -400,6 +401,12 @@ void TeleportClientToClient(int client, int target)
 {
     float targetPos[3];
     GetClientAbsOrigin(target, targetPos);
+
+    if (GetClientTeam(client) != GetClientTeam(target))
+    {
+        targetPos[2] += TPA_DIFFERENT_TEAM_VERTICAL_OFFSET;
+    }
+
     TeleportEntity(client, targetPos, NULL_VECTOR, NULL_VECTOR);
 }
 
