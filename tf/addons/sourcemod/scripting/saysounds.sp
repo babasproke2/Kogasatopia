@@ -56,8 +56,8 @@ Handle g_hKillCookie = INVALID_HANDLE;
 Handle g_hDisabledGroupsCookie = INVALID_HANDLE;
 ConVar g_hForce;
 ConVar g_hDefaultDeathSound;
+ConVar g_hDefaultVolume;
 
-const float DEFAULT_VOLUME = 0.5;
 const float MIN_VOLUME = 0.0;
 const float MAX_VOLUME = 1.0;
 const float DEFAULT_COOLDOWN = 5.0;
@@ -94,6 +94,7 @@ public void OnPluginStart()
 
     g_hForce = CreateConVar("saysounds_force", "0", "Force everyone to hear saysounds");
     g_hDefaultDeathSound = CreateConVar("saysounds_default_death_sound", "doh", "Saysound command/group used when a victim has no death sound set and the attacker has no kill sound.");
+    g_hDefaultVolume = CreateConVar("saysounds_default_volume", "0.5", "Default saysound volume for clients with no saved volume preference.", _, true, MIN_VOLUME, true, MAX_VOLUME);
     g_hVolumeCookie = RegClientCookie("saysounds_volume", "Preferred say sound volume", CookieAccess_Public);
     g_hDeathCookie = RegClientCookie("saysounds_death", "Preferred saysound on death", CookieAccess_Public);
     g_hKillCookie = RegClientCookie("saysounds_kill", "Preferred saysound on kill", CookieAccess_Public);
@@ -123,7 +124,7 @@ public void OnPluginStart()
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        g_fClientVolume[i] = DEFAULT_VOLUME;
+        g_fClientVolume[i] = GetDefaultVolume();
         g_fNextAllowedSound[i] = 0.0;
         g_szDeathSound[i][0] = '\0';
         g_szKillSound[i][0] = '\0';
@@ -195,7 +196,7 @@ public void OnPluginEnd()
 
 public void OnClientPutInServer(int client)
 {
-    g_fClientVolume[client] = DEFAULT_VOLUME;
+    g_fClientVolume[client] = GetDefaultVolume();
     g_fNextAllowedSound[client] = 0.0;
     g_szDeathSound[client][0] = '\0';
     g_szKillSound[client][0] = '\0';
@@ -225,7 +226,7 @@ public void OnClientDisconnect(int client)
     SaveKillSoundPreference(client);
     SaveDisabledGroupPreferences(client);
     g_fNextAllowedSound[client] = 0.0;
-    g_fClientVolume[client] = DEFAULT_VOLUME;
+    g_fClientVolume[client] = GetDefaultVolume();
     g_szDeathSound[client][0] = '\0';
     g_szKillSound[client][0] = '\0';
     ResetClientDisabledGroups(client);
@@ -1324,7 +1325,7 @@ public Action Command_ToggleSoundOpt(int client, int args)
         {
             ResetClientDisabledGroups(client);
             SaveDisabledGroupPreferences(client);
-            g_fClientVolume[client] = DEFAULT_VOLUME;
+            g_fClientVolume[client] = GetOptInVolume();
             SaveVolumePreference(client);
             PrintToChat(client, "[SaySounds] Say sounds enabled.");
             return Plugin_Handled;
@@ -1334,7 +1335,7 @@ public Action Command_ToggleSoundOpt(int client, int args)
         {
             ResetClientDisabledGroups(client);
             SaveDisabledGroupPreferences(client);
-            g_fClientVolume[client] = DEFAULT_VOLUME;
+            g_fClientVolume[client] = GetOptInVolume();
             SaveVolumePreference(client);
             PrintToChat(client, "[SaySounds] Say sounds enabled.");
             return Plugin_Handled;
@@ -1361,7 +1362,7 @@ public Action Command_ToggleSoundOpt(int client, int args)
         }
         else
         {
-            g_fClientVolume[client] = DEFAULT_VOLUME;
+            g_fClientVolume[client] = GetOptInVolume();
             SaveVolumePreference(client);
             PrintToChat(client, "[SaySounds] Say sounds enabled.");
         }
@@ -2545,6 +2546,38 @@ void HandleVolumeCommand(int client, const char[] arg)
     PrintToChat(client, "[SaySounds] Volume set to %.2f.", value);
 }
 
+float GetDefaultVolume()
+{
+    if (g_hDefaultVolume == null)
+    {
+        return 0.5;
+    }
+
+    float volume = g_hDefaultVolume.FloatValue;
+    if (volume < MIN_VOLUME)
+    {
+        return MIN_VOLUME;
+    }
+
+    if (volume > MAX_VOLUME)
+    {
+        return MAX_VOLUME;
+    }
+
+    return volume;
+}
+
+float GetOptInVolume()
+{
+    float volume = GetDefaultVolume();
+    if (volume <= 0.0)
+    {
+        return 0.5;
+    }
+
+    return volume;
+}
+
 float GetClientVolume(int client)
 {
     float volume = g_fClientVolume[client];
@@ -2565,7 +2598,7 @@ float GetClientVolume(int client)
 
 void LoadVolumePreference(int client)
 {
-    g_fClientVolume[client] = DEFAULT_VOLUME;
+    g_fClientVolume[client] = GetDefaultVolume();
 
     if (g_hVolumeCookie == INVALID_HANDLE)
     {
