@@ -2348,6 +2348,20 @@ public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[]
         return;
     }
 
+    if (results == null || results.AffectedRows <= 0)
+    {
+        LogError("[points_store] Lottery %d was already finalized; skipping duplicate payout.", lotteryId);
+        g_LotteryDrawInProgress = false;
+        g_LotteryReady = false;
+        g_CurrentLotteryId = 0;
+        g_CurrentLotteryHash[0] = '\0';
+        g_CurrentLotteryHashColor[0] = '\0';
+        ClearAllClientLotteryCaches();
+        ResetLotteryDrawState();
+        EnsureActiveLottery();
+        return;
+    }
+
     CreditSteamId64BonusPoints(winnerSteamId, winnerPrize, "lottery_main_payout", lotteryId);
     for (int i = 0; i < g_LotteryDrawExtraWinnerCount; i++)
     {
