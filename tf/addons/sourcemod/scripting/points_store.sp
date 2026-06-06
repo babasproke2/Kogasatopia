@@ -4282,6 +4282,10 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     {
         strcopy(label, maxlen, "Killstreak shut down");
     }
+    else if (StrEqual(type, "medic_assists_life", false))
+    {
+        strcopy(label, maxlen, "Medic assists life");
+    }
 }
 
 void GetMultikillBonusPointsLabel(int kills, char[] label, int maxlen)
@@ -4666,6 +4670,12 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
         return;
     }
 
+    if (StrEqual(type, "medic_assists_life", false) && target > 0)
+    {
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%d assists life{default}%s", prefix, sign, points, target, perMapSuffix);
+        return;
+    }
+
     char label[64];
     GetBonusPointsTypeLabel(type, label, sizeof(label));
     if (label[0] != '\0')
@@ -4752,7 +4762,7 @@ public Action Command_ShowBonusPoints(int client, int args)
 
     char msg2[256];
     FormatEx(msg2, sizeof(msg2),
-        "{lightgreen}+1:{default} Airshot kills, market garden kills, ubers, killstreaks, dominations, revenge, meatshot kills, Sandman-Cleaver combos");
+        "{lightgreen}+1:{default} Airshot kills, market garden kills, ubers, killstreaks, dominations, revenge, meatshot kills, Sandman-Cleaver combos, medic assist lives");
 
     CPrintToChat(client, "%s", msg1);
     CPrintToChat(client, "%s", msg2);
