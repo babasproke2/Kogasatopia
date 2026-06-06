@@ -67,6 +67,7 @@ ConVar g_CvarCurrencyLong = null;
 ConVar g_CvarCurrencyColor = null;
 ConVar g_CvarSendCooldown = null;
 ConVar g_CvarEnableWelfare = null;
+ConVar g_CvarLotteryDisabled = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 Handle g_hDatabaseReconnectTimer = null;
@@ -208,9 +209,11 @@ public void OnPluginStart()
     g_CvarCurrencyColor = CreateConVar("sm_points_store_currency_color", "magenta", "Multicolors tag name used for the currency prefix, without braces.");
     g_CvarSendCooldown = CreateConVar("sm_points_store_send_cooldown", "15.0", "Seconds a client must wait between successful !send currency transfers.", _, true, 0.0);
     g_CvarEnableWelfare = CreateConVar("sm_points_store_welfare", "1", "Enable welfare?", _, true, 0.0, true, 1.0);
+    g_CvarLotteryDisabled = CreateConVar("sm_points_store_lottery_disabled", "0", "Disable lottery ticket commands and lottery draws on this server.", _, true, 0.0, true, 1.0);
     g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
+    g_CvarLotteryDisabled.AddChangeHook(OnLotteryDisabledConVarChanged);
     RefreshCurrencyLabels();
 
     RegConsoleCmd("sm_shop", Command_Shop, "Open the points store.");
@@ -657,8 +660,40 @@ public void SQL_OnLotteryTicketsSchemaReady(Database db, DBResultSet results, co
     EnsureActiveLottery();
 }
 
+bool IsLotteryEnabled()
+{
+    return g_CvarLotteryDisabled == null || !g_CvarLotteryDisabled.BoolValue;
+}
+
+void ClearLocalLotteryState()
+{
+    CancelPendingLotteryCall();
+
+    if (g_LotteryDrawTimer != null)
+    {
+        KillTimer(g_LotteryDrawTimer);
+        g_LotteryDrawTimer = null;
+    }
+
+    g_LotteryReady = false;
+    g_LotteryCreating = false;
+    g_LotteryDrawInProgress = false;
+    g_CurrentLotteryId = 0;
+    g_CurrentLotteryCreatedAt = 0;
+    g_CurrentLotteryHash[0] = '\0';
+    g_CurrentLotteryHashColor[0] = '\0';
+    ClearAllClientLotteryCaches();
+    ResetLotteryDrawState();
+}
+
 void EnsureActiveLottery()
 {
+    if (!IsLotteryEnabled())
+    {
+        ClearLocalLotteryState();
+        return;
+    }
+
     if (!g_DatabaseReady || g_Database == null || g_LotteryCreating)
     {
         return;
@@ -678,6 +713,11 @@ void EnsureActiveLottery()
 
 public void SQL_OnActiveLotterySelected(Database db, DBResultSet results, const char[] error, any data)
 {
+    if (!IsLotteryEnabled())
+    {
+        return;
+    }
+
     if (error[0] != '\0')
     {
         LogError("[points_store] Failed to load active lottery: %s", error);
@@ -701,7 +741,7 @@ public void SQL_OnActiveLotterySelected(Database db, DBResultSet results, const 
 
 void CreateActiveLottery()
 {
-    if (!g_DatabaseReady || g_Database == null || g_LotteryCreating)
+    if (!IsLotteryEnabled() || !g_DatabaseReady || g_Database == null || g_LotteryCreating)
     {
         return;
     }
@@ -753,6 +793,11 @@ public void SQL_OnActiveLotteryInserted(Database db, DBResultSet results, const 
 
     g_LotteryCreating = false;
 
+    if (!IsLotteryEnabled())
+    {
+        return;
+    }
+
     if (error[0] != '\0')
     {
         LogError("[points_store] Failed to create active lottery: %s", error);
@@ -789,6 +834,11 @@ public void SQL_OnActiveLotteryInsertedSelected(Database db, DBResultSet results
     pack.ReadString(hashColor, sizeof(hashColor));
     int createdAt = pack.ReadCell();
     delete pack;
+
+    if (!IsLotteryEnabled())
+    {
+        return;
+    }
 
     if (error[0] != '\0' || results == null || !results.FetchRow())
     {
@@ -873,7 +923,7 @@ void LoadClientLotteryTicket(int client)
     }
 
     ClearClientLotteryTicketCache(client);
-    if (!g_DatabaseReady || g_Database == null || !g_LotteryReady || g_CurrentLotteryId <= 0 || !IsClientAuthorizedHuman(client))
+    if (!IsLotteryEnabled() || !g_DatabaseReady || g_Database == null || !g_LotteryReady || g_CurrentLotteryId <= 0 || !IsClientAuthorizedHuman(client))
     {
         return;
     }
@@ -916,7 +966,7 @@ public void SQL_OnClientLotteryTicketLoaded(Database db, DBResultSet results, co
     delete pack;
 
     int client = GetClientOfUserId(userId);
-    if (!IsClientAuthorizedHuman(client) || expectedLotteryId != g_CurrentLotteryId)
+    if (!IsLotteryEnabled() || !IsClientAuthorizedHuman(client) || expectedLotteryId != g_CurrentLotteryId)
     {
         return;
     }
@@ -952,6 +1002,12 @@ bool IsLotteryReadyForClient(int client, bool needTicketLoaded = true)
 {
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
+    if (!IsLotteryEnabled())
+    {
+        CPrintToChat(client, "%s[Lotto]{default} The lottery is disabled on this server.", colorTag);
+        return false;
+    }
 
     if (!g_DatabaseReady || g_Database == null || !g_LotteryReady || g_CurrentLotteryId <= 0)
     {
@@ -1014,6 +1070,11 @@ public Action Command_LotteryRefund(int client, int args)
         return Plugin_Handled;
     }
 
+    if (!IsLotteryReadyForClient(client))
+    {
+        return Plugin_Handled;
+    }
+
     RefundLotteryTicket(client);
     return Plugin_Handled;
 }
@@ -1025,6 +1086,11 @@ public Action Command_LotteryPrizePool(int client, int args)
         return Plugin_Handled;
     }
 
+    if (!IsLotteryReadyForClient(client, false))
+    {
+        return Plugin_Handled;
+    }
+
     PrintLotteryPrizePool(client);
     return Plugin_Handled;
 }
@@ -1032,6 +1098,11 @@ public Action Command_LotteryPrizePool(int client, int args)
 public Action Command_ViewLotteryTicket(int client, int args)
 {
     if (!IsClientInGameHuman(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (!IsLotteryReadyForClient(client))
     {
         return Plugin_Handled;
     }
@@ -1057,6 +1128,11 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
     int amount = 0;
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    if (!IsLotteryReadyForClient(client))
+    {
+        return Plugin_Handled;
+    }
+
     if (StrEqual(text, "all", false))
     {
         AttemptLotteryAllTicketPurchase(client);
@@ -1904,6 +1980,12 @@ public void SQL_OnLotteryPrizePoolLoaded(Database db, DBResultSet results, const
 
 public Action Command_DoLottery(int client, int args)
 {
+    if (!IsLotteryEnabled())
+    {
+        ReplyToCommand(client, "[Lotto] The lottery is disabled on this server.");
+        return Plugin_Handled;
+    }
+
     if (!g_DatabaseReady || g_Database == null || !g_LotteryReady || g_CurrentLotteryId <= 0)
     {
         ReplyToCommand(client, "[Lotto] The lottery database is not ready.");
@@ -1955,6 +2037,12 @@ public Action Timer_LotteryCall(Handle timer, any data)
     g_LotteryCallRequesterUserId = 0;
     g_LotteryCallLotteryId = 0;
 
+    if (!IsLotteryEnabled())
+    {
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] The lottery is disabled on this server.");
+        return Plugin_Stop;
+    }
+
     StartLotteryDraw(requesterUserId, lotteryId);
     return Plugin_Stop;
 }
@@ -1966,12 +2054,25 @@ public Action Timer_RetryStartLotteryDraw(Handle timer, any data)
     int requesterUserId = pack.ReadCell();
     int lotteryId = pack.ReadCell();
 
+    if (!IsLotteryEnabled())
+    {
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] The lottery is disabled on this server.");
+        return Plugin_Stop;
+    }
+
     StartLotteryDraw(requesterUserId, lotteryId, true);
     return Plugin_Stop;
 }
 
 void StartLotteryDraw(int requesterUserId, int lotteryId, bool retry = false)
 {
+    if (!IsLotteryEnabled())
+    {
+        g_LotteryDrawInProgress = false;
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] The lottery is disabled on this server.");
+        return;
+    }
+
     if (!g_DatabaseReady || g_Database == null || !g_LotteryReady || g_CurrentLotteryId <= 0)
     {
         ReplyToLotteryRequester(requesterUserId, "[Lotto] The lottery database is not ready.");
@@ -2025,6 +2126,13 @@ public void SQL_OnLotteryDrawStatsLoaded(Database db, DBResultSet results, const
     int lotteryId = pack.ReadCell();
     delete pack;
 
+    if (!IsLotteryEnabled())
+    {
+        g_LotteryDrawInProgress = false;
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] The lottery is disabled on this server.");
+        return;
+    }
+
     if (lotteryId != g_CurrentLotteryId)
     {
         g_LotteryDrawInProgress = false;
@@ -2075,6 +2183,13 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
     int lotteryId = pack.ReadCell();
     int prizePool = pack.ReadCell();
     delete pack;
+
+    if (!IsLotteryEnabled())
+    {
+        g_LotteryDrawInProgress = false;
+        ReplyToLotteryRequester(requesterUserId, "[Lotto] The lottery is disabled on this server.");
+        return;
+    }
 
     if (lotteryId != g_CurrentLotteryId)
     {
@@ -2273,6 +2388,14 @@ public Action Timer_LotteryReveal(Handle timer, any data)
         return Plugin_Stop;
     }
 
+    if (!IsLotteryEnabled())
+    {
+        g_LotteryDrawTimer = null;
+        g_LotteryDrawInProgress = false;
+        ResetLotteryDrawState();
+        return Plugin_Stop;
+    }
+
     if (g_LotteryDrawIndex < g_LotteryDrawTokens.Length)
     {
         char token[LOTTO_TOKEN_MAX];
@@ -2289,6 +2412,13 @@ public Action Timer_LotteryReveal(Handle timer, any data)
 
 void FinalizeLotteryDraw()
 {
+    if (!IsLotteryEnabled())
+    {
+        g_LotteryDrawInProgress = false;
+        ResetLotteryDrawState();
+        return;
+    }
+
     char winnerName[LOTTO_NAME_MAX];
     ResolveLotteryWinnerName(g_LotteryDrawWinnerSteamId, g_LotteryDrawWinnerName, winnerName, sizeof(winnerName));
 
@@ -3669,6 +3799,17 @@ void GetCurrencyPrefix(char[] buffer, int maxlen)
 public void OnCurrencyConVarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
     RefreshCurrencyLabels();
+}
+
+public void OnLotteryDisabledConVarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    if (IsLotteryEnabled())
+    {
+        EnsureActiveLottery();
+        return;
+    }
+
+    ClearLocalLotteryState();
 }
 
 void RefreshCurrencyLabels()
