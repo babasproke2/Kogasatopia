@@ -2678,6 +2678,7 @@ public Action Command_WebSay(int client, int args)
             "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, NULL, NULL, '%s', '%s', 1)",
             GetTime(), escapedHash, escapedMsg);
         g_hFiltersDb.Query(Filters_InsertChatCallback, query);
+        Filters_QueueOutboxMessage(GetTime(), hash, "", msgPart, false, true);
     }
     else
     {
@@ -3534,9 +3535,9 @@ public void OnClientDisconnect(int client)
 
 public void OnPluginEnd()
 {
-    KogasaSql_CancelTimer(g_hPollOutboxTimer);
-    KogasaSql_CancelTimer(g_ConnectQueueTimer);
-    KogasaSql_CancelTimer(g_hFiltersDbReconnectTimer);
+    g_hPollOutboxTimer = null;
+    g_ConnectQueueTimer = null;
+    g_hFiltersDbReconnectTimer = null;
 
     if (g_ConnectQueue != null)
     {
