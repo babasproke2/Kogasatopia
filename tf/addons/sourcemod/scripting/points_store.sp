@@ -16,6 +16,10 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define BP_TRANS_DB_CONFIG_DEFAULT "default"
 #define BP_TRANS_TABLE "bonuspoints_transactions"
 #define BP_BALANCE_TABLE "points_store_balances"
+#define BP_ECONOMY_TABLE "points_store_economy"
+#define BP_ECONOMY_WELFARE_POOL_KEY "welfare_pool"
+#define BP_ECONOMY_CUMULATIVE_SPENT_KEY "cumulative_spent"
+#define BP_ECONOMY_KEY_MAX 64
 #define BP_TRANS_ITEM_KEY_MAX 64
 #define BP_TRANS_ITEM_NAME_MAX 128
 #define BP_SOUND_COMMAND "xp_gain"
@@ -71,6 +75,9 @@ ConVar g_CvarLotteryDisabled = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 Handle g_hDatabaseReconnectTimer = null;
+bool g_EconomyStateLoaded = false;
+int g_WelfarePoolBalance = 0;
+int g_CumulativeSpentBalance = 0;
 char g_CurrencyShortLabel[BP_CURRENCY_SHORT_MAX];
 char g_CurrencyLongLabel[BP_CURRENCY_LONG_MAX];
 char g_CurrencyColorTag[BP_CURRENCY_COLOR_MAX + 2];
@@ -645,6 +652,103 @@ public void SQL_OnLotteryTicketsSchemaReady(Database db, DBResultSet results, co
         g_Database.Query(SQL_OnIgnoredResult, "CREATE INDEX IF NOT EXISTS idx_points_store_lottery_ticket_steamid64 ON points_store_lottery_tickets (steamid64)");
     }
 
+    EnsureEconomySchema();
+}
+
+void EnsureEconomySchema()
+{
+    if (g_Database == null)
+    {
+        return;
+    }
+
+    char query[512];
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "stat_key VARCHAR(64) NOT NULL, "
+            ... "value BIGINT NOT NULL DEFAULT 0, "
+            ... "updated_at INT NOT NULL DEFAULT 0, "
+            ... "PRIMARY KEY (stat_key))",
+            BP_ECONOMY_TABLE);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "stat_key VARCHAR(64) NOT NULL PRIMARY KEY, "
+            ... "value INTEGER NOT NULL DEFAULT 0, "
+            ... "updated_at INTEGER NOT NULL DEFAULT 0)",
+            BP_ECONOMY_TABLE);
+    }
+
+    g_Database.Query(SQL_OnEconomySchemaReady, query);
+}
+
+public void SQL_OnEconomySchemaReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Economy schema creation failed: %s", error);
+        FinishSchemaReady();
+        return;
+    }
+
+    Transaction txn = new Transaction();
+    char query[512];
+    int now = GetTime();
+
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "INSERT INTO %s (stat_key, value, updated_at) VALUES ('%s', 0, %d) ON DUPLICATE KEY UPDATE stat_key = stat_key",
+            BP_ECONOMY_TABLE,
+            BP_ECONOMY_WELFARE_POOL_KEY,
+            now);
+        txn.AddQuery(query);
+
+        Format(query, sizeof(query),
+            "INSERT INTO %s (stat_key, value, updated_at) VALUES ('%s', 0, %d) ON DUPLICATE KEY UPDATE stat_key = stat_key",
+            BP_ECONOMY_TABLE,
+            BP_ECONOMY_CUMULATIVE_SPENT_KEY,
+            now);
+        txn.AddQuery(query);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "INSERT OR IGNORE INTO %s (stat_key, value, updated_at) VALUES ('%s', 0, %d)",
+            BP_ECONOMY_TABLE,
+            BP_ECONOMY_WELFARE_POOL_KEY,
+            now);
+        txn.AddQuery(query);
+
+        Format(query, sizeof(query),
+            "INSERT OR IGNORE INTO %s (stat_key, value, updated_at) VALUES ('%s', 0, %d)",
+            BP_ECONOMY_TABLE,
+            BP_ECONOMY_CUMULATIVE_SPENT_KEY,
+            now);
+        txn.AddQuery(query);
+    }
+
+    g_Database.Execute(txn, SQLTxn_OnEconomyRowsReady, SQLTxn_OnEconomyRowsFailure);
+}
+
+public void SQLTxn_OnEconomyRowsReady(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
+{
+    FinishSchemaReady();
+    LoadEconomyState();
+}
+
+public void SQLTxn_OnEconomyRowsFailure(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
+{
+    LogError("[points_store] Economy row initialization failed (query %d): %s", failIndex, error);
+    FinishSchemaReady();
+}
+
+void FinishSchemaReady()
+{
     g_DatabaseReady = true;
 
     for (int i = 1; i <= MaxClients; i++)
@@ -658,6 +762,51 @@ public void SQL_OnLotteryTicketsSchemaReady(Database db, DBResultSet results, co
     }
 
     EnsureActiveLottery();
+}
+
+void LoadEconomyState()
+{
+    if (!g_DatabaseReady || g_Database == null)
+    {
+        return;
+    }
+
+    char query[256];
+    Format(query, sizeof(query),
+        "SELECT stat_key, value FROM %s WHERE stat_key IN ('%s', '%s')",
+        BP_ECONOMY_TABLE,
+        BP_ECONOMY_WELFARE_POOL_KEY,
+        BP_ECONOMY_CUMULATIVE_SPENT_KEY);
+    g_Database.Query(SQL_OnEconomyStateLoaded, query);
+}
+
+public void SQL_OnEconomyStateLoaded(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Economy state load failed: %s", error);
+        return;
+    }
+
+    int welfarePool = 0;
+    int cumulativeSpent = 0;
+    char statKey[BP_ECONOMY_KEY_MAX];
+    while (results != null && results.FetchRow())
+    {
+        results.FetchString(0, statKey, sizeof(statKey));
+        if (StrEqual(statKey, BP_ECONOMY_WELFARE_POOL_KEY, false))
+        {
+            welfarePool = results.FetchInt(1);
+        }
+        else if (StrEqual(statKey, BP_ECONOMY_CUMULATIVE_SPENT_KEY, false))
+        {
+            cumulativeSpent = results.FetchInt(1);
+        }
+    }
+
+    g_WelfarePoolBalance = welfarePool;
+    g_CumulativeSpentBalance = cumulativeSpent;
+    g_EconomyStateLoaded = true;
 }
 
 bool IsLotteryEnabled()
@@ -4334,6 +4483,121 @@ bool QueueBonusPointsDeltaSave(int client, int delta)
     return true;
 }
 
+bool ShouldRecordCurrencySpend(const char[] type)
+{
+    if (StrEqual(type, "transfer_out", false)
+        || StrEqual(type, "transfer_in", false)
+        || StrEqual(type, "transfer_refund", false)
+        || StrEqual(type, "welfare", false))
+    {
+        return false;
+    }
+
+    if (StrContains(type, "lottery_", false) == 0)
+    {
+        return false;
+    }
+
+    return true;
+}
+
+bool QueueEconomyDelta(const char[] statKey, int delta)
+{
+    if (delta == 0 || !g_DatabaseReady || g_Database == null)
+    {
+        return false;
+    }
+
+    char escapedKey[(BP_ECONOMY_KEY_MAX * 2) + 1];
+    if (!EscapeSql(statKey, escapedKey, sizeof(escapedKey)))
+    {
+        LogError("[points_store] Failed to escape economy key '%s'.", statKey);
+        return false;
+    }
+
+    char query[512];
+    int now = GetTime();
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "INSERT INTO %s (stat_key, value, updated_at) VALUES ('%s', %d, %d) ON DUPLICATE KEY UPDATE value = GREATEST(0, value + VALUES(value)), updated_at = VALUES(updated_at)",
+            BP_ECONOMY_TABLE,
+            escapedKey,
+            delta,
+            now);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "INSERT INTO %s (stat_key, value, updated_at) VALUES ('%s', %d, %d) ON CONFLICT(stat_key) DO UPDATE SET value = MAX(0, value + excluded.value), updated_at = excluded.updated_at",
+            BP_ECONOMY_TABLE,
+            escapedKey,
+            delta,
+            now);
+    }
+
+    g_Database.Query(SQL_OnIgnoredResult, query);
+    return true;
+}
+
+void LogEconomyEvent(const char[] eventName, int client, int amount, const char[] type, int target, int welfarePool, int cumulativeSpent)
+{
+    char steamId[32];
+    char clientName[MAX_NAME_LENGTH];
+    char clientClass[16];
+    GetClientLogIdentity(client, steamId, sizeof(steamId), clientName, sizeof(clientName));
+    GetClientLogClass(client, clientClass, sizeof(clientClass));
+
+    char safeEvent[64];
+    char safeType[64];
+    strcopy(safeEvent, sizeof(safeEvent), eventName);
+    if (type[0] == '\0')
+    {
+        strcopy(safeType, sizeof(safeType), "unspecified");
+    }
+    else
+    {
+        strcopy(safeType, sizeof(safeType), type);
+    }
+    SanitizeLogField(safeEvent, sizeof(safeEvent));
+    SanitizeLogField(safeType, sizeof(safeType));
+
+    char message[BP_EVENT_LOG_LINE_MAX];
+    Format(message, sizeof(message),
+        "event=%s|time=%d|client=%d|steamid64=%s|name=\"%s\"|class=%s|amount=%d|type=%s|target_value=%d|welfare_pool=%d|cumulative_spent=%d",
+        safeEvent,
+        GetTime(),
+        client,
+        steamId,
+        clientName,
+        clientClass,
+        amount,
+        safeType,
+        target,
+        welfarePool,
+        cumulativeSpent);
+    QueuePointsStoreEvent(message);
+}
+
+void RecordCurrencySpend(int client, int amount, const char[] type, int target)
+{
+    if (amount <= 0 || !ShouldRecordCurrencySpend(type))
+    {
+        return;
+    }
+
+    if (QueueEconomyDelta(BP_ECONOMY_WELFARE_POOL_KEY, amount))
+    {
+        g_WelfarePoolBalance += amount;
+    }
+    if (QueueEconomyDelta(BP_ECONOMY_CUMULATIVE_SPENT_KEY, amount))
+    {
+        g_CumulativeSpentBalance += amount;
+    }
+
+    LogEconomyEvent("currency_spent", client, amount, type, target, g_WelfarePoolBalance, g_CumulativeSpentBalance);
+}
+
 void PlayBonusPointsSound(int client, bool force)
 {
     if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
@@ -4505,6 +4769,10 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
     {
         LogBonusPointsRejected("save_not_queued", client, points, type, target, g_ClientBonusPoints[client], randomChance, randomRoll, perMap, perMapUsed);
     }
+    else if (points < 0)
+    {
+        RecordCurrencySpend(client, -points, type, target);
+    }
 
     if (playSound)
     {
@@ -4563,16 +4831,6 @@ bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool ch
     return true;
 }
 
-bool SpendBonusPoints(int client, int points)
-{
-    if (points <= 0)
-    {
-        return false;
-    }
-
-    return ApplyBonusPoints(client, -points, false, false, 1.0, "spend", 0, 0.0);
-}
-
 bool SpendBonusPointsWithContext(int client, int points, const char[] type, int target = 0)
 {
     if (points <= 0)
@@ -4581,6 +4839,22 @@ bool SpendBonusPointsWithContext(int client, int points, const char[] type, int 
     }
 
     return ApplyBonusPoints(client, -points, false, false, 1.0, type, target, 0.0);
+}
+
+void BuildCallerSpendType(Handle plugin, char[] type, int maxlen)
+{
+    char filename[PLATFORM_MAX_PATH];
+    GetPluginFilename(plugin, filename, sizeof(filename));
+    if (filename[0] == '\0')
+    {
+        strcopy(type, maxlen, "spend_unknown");
+        return;
+    }
+
+    ReplaceString(filename, sizeof(filename), ".smx", "", false);
+    ReplaceString(filename, sizeof(filename), "/", "_", false);
+    ReplaceString(filename, sizeof(filename), "\\", "_", false);
+    Format(type, maxlen, "spend_%s", filename);
 }
 
 public Action Timer_DeferredApplyBonusPoints(Handle timer, any data)
@@ -4890,10 +5164,8 @@ public Action Command_Welfare(int client, int args)
 
     char prefix[96];
     char currencyLong[BP_CURRENCY_LONG_MAX];
-    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyPrefix(prefix, sizeof(prefix));
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
-    GetCurrencyColorTag(colorTag, sizeof(colorTag));
 
     if (!IsWelfareEnabled())
     {
@@ -4914,19 +5186,111 @@ public Action Command_Welfare(int client, int args)
         return Plugin_Handled;
     }
 
-    int amount = GetRandomInt(BP_WELFARE_MIN, BP_WELFARE_MAX);
-    if (!ApplyBonusPoints(client, amount, false, false, 1.0, "welfare", 0, 0.0, 1))
+    if (!g_EconomyStateLoaded)
     {
-        CPrintToChat(client, "%s Could not collect welfare right now.", prefix);
+        LoadEconomyState();
+        CPrintToChat(client, "%s Welfare pool is loading. Try again in a moment.", prefix);
         return Plugin_Handled;
     }
 
+    if (g_WelfarePoolBalance <= 0)
+    {
+        CPrintToChat(client, "%s Welfare pool is empty right now.", prefix);
+        return Plugin_Handled;
+    }
+
+    int amount = GetRandomInt(BP_WELFARE_MIN, BP_WELFARE_MAX);
+    if (amount > g_WelfarePoolBalance)
+    {
+        amount = g_WelfarePoolBalance;
+    }
+
+    DebitWelfarePoolForClient(client, amount);
+    return Plugin_Handled;
+}
+
+void DebitWelfarePoolForClient(int client, int amount)
+{
+    if (amount <= 0 || !g_DatabaseReady || g_Database == null)
+    {
+        return;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(amount);
+
+    char query[384];
+    Format(query, sizeof(query),
+        "UPDATE %s SET value = value - %d, updated_at = %d WHERE stat_key = '%s' AND value >= %d",
+        BP_ECONOMY_TABLE,
+        amount,
+        GetTime(),
+        BP_ECONOMY_WELFARE_POOL_KEY,
+        amount);
+    g_Database.Query(SQL_OnWelfarePoolDebited, query, pack);
+}
+
+public void SQL_OnWelfarePoolDebited(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    int amount = pack.ReadCell();
+    delete pack;
+
+    int client = GetClientOfUserId(userId);
+    char prefix[96];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyPrefix(prefix, sizeof(prefix));
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Welfare pool debit failed: %s", error);
+        if (IsClientInGameHuman(client))
+        {
+            CPrintToChat(client, "%s Could not collect welfare right now.", prefix);
+        }
+        return;
+    }
+
+    if (results == null || results.AffectedRows <= 0)
+    {
+        LoadEconomyState();
+        if (IsClientInGameHuman(client))
+        {
+            CPrintToChat(client, "%s Welfare pool is empty right now.", prefix);
+        }
+        return;
+    }
+
+    g_WelfarePoolBalance -= amount;
+    if (g_WelfarePoolBalance < 0)
+    {
+        g_WelfarePoolBalance = 0;
+    }
+
+    if (!IsClientInGameHuman(client) || !ApplyBonusPoints(client, amount, false, false, 1.0, "welfare", 0, 0.0, 1))
+    {
+        QueueEconomyDelta(BP_ECONOMY_WELFARE_POOL_KEY, amount);
+        g_WelfarePoolBalance += amount;
+        LogEconomyEvent("welfare_pool_refund", client, amount, "welfare", 0, g_WelfarePoolBalance, g_CumulativeSpentBalance);
+        if (IsClientInGameHuman(client))
+        {
+            CPrintToChat(client, "%s Could not collect welfare right now.", prefix);
+        }
+        return;
+    }
+
     PlayWelfareSound();
+    LogEconomyEvent("welfare_pool_debit", client, amount, "welfare", 0, g_WelfarePoolBalance, g_CumulativeSpentBalance);
 
     char displayName[256];
     BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
     CPrintToChatAllEx(client, "{default}%s collected %s%d %s{default} from {gold}!welfare{default}", displayName, colorTag, amount, currencyLong);
-    return Plugin_Handled;
 }
 
 float GetSendBonusPointsCooldown()
@@ -5278,6 +5642,11 @@ public any Native_PointsStore_ApplyBonusPoints(Handle plugin, int numParams)
         TrimString(type);
     }
 
+    if (points < 0 && type[0] == '\0')
+    {
+        BuildCallerSpendType(plugin, type, sizeof(type));
+    }
+
     int target = (numParams >= 7) ? GetNativeCell(7) : 0;
     float delay = (numParams >= 8) ? view_as<float>(GetNativeCell(8)) : 3.0;
     int perMap = (numParams >= 9) ? GetNativeCell(9) : 0;
@@ -5288,7 +5657,9 @@ public any Native_PointsStore_SpendBonusPoints(Handle plugin, int numParams)
 {
     int client = GetNativeCell(1);
     int points = GetNativeCell(2);
-    return SpendBonusPoints(client, points);
+    char type[64];
+    BuildCallerSpendType(plugin, type, sizeof(type));
+    return SpendBonusPointsWithContext(client, points, type);
 }
 
 public any Native_PointsStore_HasPurchase(Handle plugin, int numParams)
