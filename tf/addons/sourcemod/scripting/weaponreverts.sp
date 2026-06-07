@@ -35,6 +35,8 @@
 #define SOUND_DISPENSER_METAL "weapons/dispenser_generate_metal.wav"
 #define SOUND_POMSON_DRAIN "weapons/drg_pomson_drain_01.wav"
 #define SOUND_FLAME_OUT "player/flame_out.wav"
+#define ATTR_PRIMARY_CLIP_SIZE_BONUS "clip size bonus primary"
+#define ATTR_CLIP_SIZE_BONUS "clip size bonus"
 #define ATTR_SECONDARY_AMMO_REFILL "secondary damage ammo refill"
 #define ATTR_SECONDARY_REFILL_SOUND "tools/ifm/beep.wav"
 #define ATTR_RELOAD_ON_HIT "reload on hit"
@@ -62,6 +64,8 @@
 #define DALOKOHS_OVERHEAL 450
 #define VITASAW_ITEMDEF 173
 #define VITASAW_MAX_PRESERVED_CHARGE 0.20
+#define WEAPON_SLOT_PRIMARY 0
+#define WEAPON_SLOT_LAST 5
 
 #define WEAPON_REVERTS_CONFIG_PATH "configs/weaponreverts.cfg"
 #define WEAPON_REVERTS_COMMANDS_CONFIG_PATH "configs/weaponreverts_commands.cfg"
@@ -1997,6 +2001,56 @@ static void WeaponReverts_ApplyConfiguredAttributes(int client, int index, int e
 	g_hWeaponRevertsConfig.Rewind();
 }
 
+static float WeaponReverts_GetPrimaryClipBonusFromLoadout(int client)
+{
+	float bestBonus = 0.0;
+
+	for (int slot = 0; slot <= WEAPON_SLOT_LAST; slot++)
+	{
+		int weapon = GetPlayerWeaponSlot(client, slot);
+		if (!WR_IsValidWeaponEntity(weapon))
+			continue;
+
+		float bonus = TF2CustAttr_GetFloat(weapon, ATTR_PRIMARY_CLIP_SIZE_BONUS, 0.0);
+		if (bonus > bestBonus)
+		{
+			bestBonus = bonus;
+		}
+	}
+
+	return bestBonus;
+}
+
+static void WeaponReverts_ApplyPrimaryClipBonusFromLoadout(int client)
+{
+	if (!WR_IsClientInGame(client))
+		return;
+
+	int primary = GetPlayerWeaponSlot(client, WEAPON_SLOT_PRIMARY);
+	if (!WR_IsValidWeaponEntity(primary))
+		return;
+
+	float bonus = WeaponReverts_GetPrimaryClipBonusFromLoadout(client);
+	if (bonus <= 0.0)
+		return;
+
+	TF2Attrib_SetByName(primary, ATTR_CLIP_SIZE_BONUS, bonus);
+}
+
+public void WeaponReverts_FrameApplyPrimaryClipBonus(any userId)
+{
+	int client = GetClientOfUserId(userId);
+	WeaponReverts_ApplyPrimaryClipBonusFromLoadout(client);
+}
+
+static void WeaponReverts_QueuePrimaryClipBonusRefresh(int client)
+{
+	if (!WR_IsClientInGame(client))
+		return;
+
+	RequestFrame(WeaponReverts_FrameApplyPrimaryClipBonus, GetClientUserId(client));
+}
+
 public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, quality, entity)
 {
 	if (WeaponReverts_IsEnabled()) {
@@ -2013,6 +2067,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 		}
 
 		WeaponReverts_ApplyConfiguredAttributes(client, index, entity);
+		WeaponReverts_QueuePrimaryClipBonusRefresh(client);
 	}
 }
 
