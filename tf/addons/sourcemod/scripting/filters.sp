@@ -610,6 +610,12 @@ public void OnLibraryRemoved(const char[] name)
 
 public void OnMapStart()
 {
+    // Timers created with TIMER_FLAG_NO_MAPCHANGE are killed by SourceMod on map
+    // changes, but the stored handle is not reset for us. Recreate the chat
+    // outbox poller each map so web chat continues relaying after map changes.
+    g_hPollOutboxTimer = null;
+    Filters_StartTimers();
+
     char mapName[128];
     GetCurrentMap(mapName, sizeof(mapName));
     Filters_InsertSystemMessage(false, false, "{gold}[Server]{default}: Map changed to {cornflowerblue}%s", mapName);
