@@ -45,7 +45,8 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define LOTTO_REVEAL_INTERVAL 0.5
 #define LOTTO_TICKET_UNIT 5
 #define LOTTO_EXTRA_WINNER_PARTICIPANTS 4
-#define LOTTO_EXTRA_WINNER_PERCENT 10
+#define LOTTO_EXTRA_WINNER_PERCENT 5
+#define LOTTO_WELFARE_POOL_PERCENT 5
 #define REFLECT_BONUS_PER_MAP_LIMIT 3
 
 ArrayList g_ItemKeys = null;
@@ -115,6 +116,7 @@ int g_LotteryDrawIndex = 0;
 int g_LotteryDrawLotteryId = 0;
 int g_LotteryDrawPrizePool = 0;
 int g_LotteryDrawWinnerPrize = 0;
+int g_LotteryDrawWelfarePoolPrize = 0;
 char g_LotteryDrawWinnerSteamId[32];
 char g_LotteryDrawWinnerName[LOTTO_NAME_MAX];
 int g_LotteryDrawExtraWinnerCount = 0;
@@ -2423,17 +2425,16 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
         g_LotteryDrawExtraWinnerCount = validTicketCount - 1;
     }
 
-    int extraPrize = prizePool / LOTTO_EXTRA_WINNER_PERCENT;
+    int extraPrize = (prizePool * LOTTO_EXTRA_WINNER_PERCENT) / 100;
+    int welfarePoolPrize = (prizePool * LOTTO_WELFARE_POOL_PERCENT) / 100;
     if (extraPrize <= 0)
     {
         g_LotteryDrawExtraWinnerCount = 0;
     }
 
-    g_LotteryDrawWinnerPrize = prizePool - (extraPrize * g_LotteryDrawExtraWinnerCount);
-    if (g_LotteryDrawWinnerPrize <= 0)
+    if (g_LotteryDrawExtraWinnerCount <= 0)
     {
-        g_LotteryDrawWinnerPrize = prizePool;
-        g_LotteryDrawExtraWinnerCount = 0;
+        welfarePoolPrize = 0;
     }
 
     char mainSteamId[32];
@@ -2464,6 +2465,15 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
 
         strcopy(g_LotteryDrawExtraWinnerSteamIds[i], sizeof(g_LotteryDrawExtraWinnerSteamIds[]), extraSteamId);
         ResolveLotteryWinnerName(extraSteamId, extraStoredName, g_LotteryDrawExtraWinnerNames[i], sizeof(g_LotteryDrawExtraWinnerNames[]));
+    }
+
+    g_LotteryDrawWelfarePoolPrize = welfarePoolPrize * g_LotteryDrawExtraWinnerCount;
+    g_LotteryDrawWinnerPrize = prizePool - ((extraPrize * g_LotteryDrawExtraWinnerCount) + g_LotteryDrawWelfarePoolPrize);
+    if (g_LotteryDrawWinnerPrize <= 0)
+    {
+        g_LotteryDrawWinnerPrize = prizePool;
+        g_LotteryDrawExtraWinnerCount = 0;
+        g_LotteryDrawWelfarePoolPrize = 0;
     }
 
     g_LotteryDrawLotteryId = lotteryId;
@@ -2646,6 +2656,7 @@ public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[]
     {
         CreditSteamId64BonusPoints(g_LotteryDrawExtraWinnerSteamIds[i], g_LotteryDrawExtraWinnerPrizes[i], "lottery_extra_payout", lotteryId);
     }
+    RecordLotteryWelfarePoolCredit(g_LotteryDrawWelfarePoolPrize, lotteryId);
 
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     char currencyLong[BP_CURRENCY_LONG_MAX];
@@ -2676,6 +2687,7 @@ void ResetLotteryDrawState()
     g_LotteryDrawLotteryId = 0;
     g_LotteryDrawPrizePool = 0;
     g_LotteryDrawWinnerPrize = 0;
+    g_LotteryDrawWelfarePoolPrize = 0;
     g_LotteryDrawWinnerSteamId[0] = '\0';
     g_LotteryDrawWinnerName[0] = '\0';
     g_LotteryDrawExtraWinnerCount = 0;
@@ -4596,6 +4608,21 @@ void RecordCurrencySpend(int client, int amount, const char[] type, int target)
     }
 
     LogEconomyEvent("currency_spent", client, amount, type, target, g_WelfarePoolBalance, g_CumulativeSpentBalance);
+}
+
+void RecordLotteryWelfarePoolCredit(int amount, int lotteryId)
+{
+    if (amount <= 0)
+    {
+        return;
+    }
+
+    if (QueueEconomyDelta(BP_ECONOMY_WELFARE_POOL_KEY, amount))
+    {
+        g_WelfarePoolBalance += amount;
+    }
+
+    LogEconomyEvent("lottery_welfare_pool", 0, amount, "lottery_tax", lotteryId, g_WelfarePoolBalance, g_CumulativeSpentBalance);
 }
 
 void PlayBonusPointsSound(int client, bool force)
