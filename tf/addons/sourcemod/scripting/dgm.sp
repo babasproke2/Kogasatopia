@@ -1635,7 +1635,7 @@ public void OnPluginStart()
 
     RegAdminCmd("sm_respawn", Command_RespawnToggle, ADMFLAG_KICK, "Toggles respawn times");
     RegAdminCmd("sm_noset", Command_ResetSetup, ADMFLAG_KICK, "Set round setup time to 10 seconds");
-    RegConsoleCmd("sm_extend", Command_ExtendTimer, "Increase round timer by 10 seconds");
+    RegAdminCmd("sm_extend", Command_ExtendTimer, ADMFLAG_KICK, "sm_extend <seconds> - Set round timer time");
 
     g_cHostname = FindConVar("hostname");
     RegConsoleCmd("sm_st", Command_Stats, "Show player count, map and hostname");
@@ -2078,6 +2078,21 @@ public Action Command_ResetSetup(int client , int args)
 
 public Action Command_ExtendTimer(int client , int args)
 {
+    if (args < 1)
+    {
+        ReplyToCommand(client, "Usage: sm_extend <seconds>");
+        return Plugin_Handled;
+    }
+
+    char temp[16];
+    GetCmdArg(1, temp, sizeof(temp));
+    int time = StringToInt(temp);
+    if (time <= 0 || !GetCmdArgIntEx(1, time))
+    {
+        ReplyToCommand(client, "Given time must be a positive number!");
+        return Plugin_Handled;
+    }
+
     int timerEnt = FindEntityByClassname(-1, "team_round_timer");
     if (timerEnt == -1)
     {
@@ -2086,21 +2101,9 @@ public Action Command_ExtendTimer(int client , int args)
         return Plugin_Handled;
     }
 
-    int time = 10;
-    if (args > 0)
-    {
-        if (!GetCmdArgIntEx( 1, args))
-        {
-            ReplyToCommand(client, "Given time must be a number!" );
-            return Plugin_Continue;
-        }
-    }
-	char temp[ 4 ];
-	GetCmdArg( 1, temp, 4 );
-	time = StringToInt(temp) + 1;
     DGM_SetRoundTimerTime(timerEnt, time);
 
-    if (client > 0) PrintToChatAll("Setup time reduced to %i seconds.", time);
-    PrintToServer("[Kogasa] Setup time set to %i seconds.", time);
+    if (client > 0) PrintToChatAll("Round timer set to %i seconds.", time);
+    PrintToServer("[Kogasa] Round timer set to %i seconds.", time);
     return Plugin_Handled;
 }
