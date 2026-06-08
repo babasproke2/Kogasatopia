@@ -32,6 +32,7 @@ ConVar g_cvAutoAddTime;
 ConVar g_cvSetupUberMultiplier;
 ConVar g_cvTimeOverride;
 ConVar g_cvRespawnTime;
+ConVar g_cvPopulationConfigs;
 bool g_bSymmetrical;
 bool g_bRoundStartedOnce;
 
@@ -1442,6 +1443,11 @@ void SetSetupTime(int executor)
 
 public void AdjustByPlayerCount(any data)
 {
+    if (g_cvPopulationConfigs != null && !g_cvPopulationConfigs.BoolValue)
+    {
+        return;
+    }
+
     if (!g_bRoundStartedOnce)
     {
         return;
@@ -1602,6 +1608,7 @@ public void OnPluginStart()
     g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 30.0);
     // See description
     g_cvThreshold = CreateConVar("sm_highpop_threshhold", "18.0", "Threshhold for executing the highpop config", _, true, 0.0, true, 100.0);
+    g_cvPopulationConfigs = CreateConVar("sm_dgm_population_configs", "1", "Enable DGM lowpop/highpop config execution.", _, true, 0.0, true, 1.0);
     // For micromanagement, if this convar isn't 0, it'll use the given time
     g_cvTimeOverride = CreateConVar("respawn_otime", "0", "Override respawn time with this", _, true, 0.0, true, 30.0);
     // Respawn times for individual teams (beta)
@@ -1878,6 +1885,7 @@ public Action Command_CvarHelp(int client, int args)
     char lines[][] = {
         "respawn_time: float - Default respawn delay (seconds). Set to 30 to disable plugin handling.",
         "sm_highpop_threshhold: int - Player count threshold to execute high-pop configs",
+        "sm_dgm_population_configs: 0/1 - Enables low-pop/high-pop config execution",
         "respawn_otime: float - If >0, forces this respawn delay for all players",
         "respawn_redtime: float - Respawn time (seconds) specifically for Red team (beta)",
         "respawn_blutime: float - Respawn time (seconds) specifically for Blu team (beta)",
