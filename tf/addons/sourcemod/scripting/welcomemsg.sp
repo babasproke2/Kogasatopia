@@ -74,7 +74,7 @@ static const char g_PyroCustom[][] = {
     "\x01[Primary] Stock Shotgun\n",
     "\x01[Primary] Hitscan Flamethrower: A shotgun that fires two bullets with a tighter spread, deals 80 base damage, consumes 5 ammo per shot, +30 health on kill\n",
     "\x01[Secondary] Hoshino's Shotgun - Stock Reskin\n",
-    "\x01[Secondary] Flame Shotgun: {green}Hitting a target accurately twice creates a fiery explosion, explosions restore clip,{red} -15% clip size, -30% damage penalty\n",
+    "\x01[Secondary] Flame Shotgun: {green}Hitting a target accurately twice creates a fiery explosion, explosions restore clip,{red} -15% clip size, -35% damage penalty\n",
     "\x01[Secondary] Hitscan Flaregun: Fires one bullet that deals 65 base damage, mini crits burning targets\n",
     "\x01[Secondary] TF2C Twin Barrel: {chartreuse}Holster reload, +20% bullets per shot, first shot is a recoil jump,{red} 10% wider spread, 15% slower draw speed\n",
     "\x01[Secondary] Old Panic Attack: {green}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
@@ -159,7 +159,7 @@ static const char g_SniperReverts[][] = {
 };
 
 static const char g_SniperCustom[][] = {
-    "\x01[Primary] Wine Red:{green}Enables wall climb,{red} -40% headshot damage, -15% damage penalty\n",
+    "\x01[Primary] Wine Red:{green}Enables wall climb, +50% headshot damage,{red} crits become minicrits, fires tracer\n",
     "\x01[Secondary] Reisen's Bunny Pistol:{green}+35% jump height, +30% damage,{red} consecutive shots become less accurate, 50% fire rate penalty\n",
     "\x01[Melee] Reimu's Gohei - Stock Reskin\n"
 };
@@ -223,8 +223,7 @@ public OnPluginStart()
 // Welcome message components
 static const char g_WelcomeMsg[][] = {
     "{peachpuff}Welcome to {unique}Kogasatopia{peachpuff} %N!",
-    "{peachpuff}This server has new weapons and stuff like that; use {lightskyblue}!info",
-    "{peachpuff}Read more with {unique}!info{peachpuff} or see our group at {unique}!steam"
+    "{peachpuff}This server has new weapons and other cool stuff; use {lightskyblue}!info",
 };
 
 // Welcome message components with git plugin
@@ -736,7 +735,6 @@ static bool ShowClassPanel(int client, TFClassType class, bool revert)
     
     return false;
 }
-
 
 public Action Command_InfoReverts(int client, int args)
 {
