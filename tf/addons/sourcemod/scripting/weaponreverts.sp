@@ -24,6 +24,15 @@
 #define SANDMAN_CLEAVER_COMBO_BONUS_TYPE "sandman_cleaver_combo"
 #define AMBASSADOR_ITEMDEF 61
 #define FESTIVE_AMBASSADOR_ITEMDEF 1006
+#define ATTR_SANDMAN_PRE_JI "sandman pre_ji"
+#define SANDMAN_ITEMDEF 44
+#define SANDMAN_DAMAGE_CUSTOM TF_CUSTOM_BASEBALL
+#define SANDMAN_PRE_JI_DAMAGE 15.0
+#define SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME 1.0
+#define SANDMAN_PRE_JI_MIN_STUN_RATIO 0.1
+#define SANDMAN_PRE_JI_SLOWDOWN 0.5
+#define SANDMAN_PRE_JI_FALLBACK_BASE_DURATION 5.0
+#define MAX_TRACKED_ENTITIES 2049
 
 #define FLS_EXPLODE_DAMAGE	 50.0
 #define FLS_EXPLODE_RADIUS	 180.0
@@ -72,6 +81,7 @@
 #define FLAME_SHOTGUN_FULL_PELLET_THRESHOLD 6
 
 tf2_player tf2_players[MAXPLAYERS + 1];
+float g_flProjectileSpawnTime[MAX_TRACKED_ENTITIES];
 
 enum struct tf2_player
 {
@@ -106,6 +116,7 @@ ConVar g_sEnabled;
 ConVar g_hPomsonDamageMult;
 ConVar g_hBisonDamageMult;
 ConVar g_hScattergunPelletsDebug;
+ConVar g_hSandmanBaseDuration;
 KeyValues g_hWeaponRevertsConfig = null;
 KeyValues g_hWeaponRevertsCommandsConfig = null;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
@@ -198,6 +209,7 @@ public void OnPluginStart() {
 	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hScattergunPelletsDebug = CreateConVar("reverts_scattergun_pellets_debug", "0", "Log tracked shotgun/scattergun pellet forward diagnostics.");
+	g_hSandmanBaseDuration = FindConVar("tf_scout_stunball_base_duration");
 	LoadWeaponRevertsConfig();
 	RegAdminCmd("sm_scatterpellets_status", Command_ScatterPelletsStatus, ADMFLAG_GENERIC, "Print scattergun pellet integration status.");
 	RegAdminCmd("sm_weaponreverts_reload", Command_ReloadWeaponRevertsConfig, ADMFLAG_CONFIG, "Reload weapon revert definitions from configs/weaponreverts.cfg.");
@@ -361,6 +373,11 @@ public void OnClientDisconnect(int client)
 public void OnEntityCreated(int entity, const char[] class) {
 	if (!WeaponReverts_IsEntityIndex(entity) || !WeaponReverts_IsEnabled()) return;
 
+	if (entity > 0 && entity < MAX_TRACKED_ENTITIES && StrContains(class, "tf_projectile_") == 0)
+	{
+		g_flProjectileSpawnTime[entity] = GetGameTime();
+	}
+
 	if (StrEqual(class, "tf_projectile_energy_ring"))
 	{
 		SDKHook(entity, SDKHook_SpawnPost, OnEnergyRingSpawnPost);
@@ -375,6 +392,14 @@ public void OnEntityCreated(int entity, const char[] class) {
 	if (StrEqual(class, "tf_weapon_pistol") && dhook_CTFWeaponBase_CanFireCriticalShot != null)
 	{
 		dhook_CTFWeaponBase_CanFireCriticalShot.HookEntity(Hook_Post, entity, CanFireCriticalShot_Post);
+	}
+}
+
+public void OnEntityDestroyed(int entity)
+{
+	if (entity > 0 && entity < MAX_TRACKED_ENTITIES)
+	{
+		g_flProjectileSpawnTime[entity] = 0.0;
 	}
 }
 
@@ -1301,6 +1326,72 @@ static int GetDamageSourceWeapon(int attacker, int weapon, int inflictor)
 	return -1;
 }
 
+static bool SandmanPreJI_IsEnabledWeapon(int weapon)
+{
+	if (weapon <= MaxClients || !IsValidEntity(weapon))
+		return false;
+
+	if (GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") != SANDMAN_ITEMDEF)
+		return false;
+
+	return TF2CustAttr_GetInt(weapon, ATTR_SANDMAN_PRE_JI) != 0;
+}
+
+static float SandmanPreJI_GetBaseStunDuration()
+{
+	if (g_hSandmanBaseDuration != null)
+	{
+		return g_hSandmanBaseDuration.FloatValue;
+	}
+
+	return SANDMAN_PRE_JI_FALLBACK_BASE_DURATION;
+}
+
+static bool SandmanPreJI_IsStunBall(int entity)
+{
+	if (entity <= MaxClients || !IsValidEntity(entity))
+		return false;
+
+	char class[64];
+	GetEntityClassname(entity, class, sizeof(class));
+	return StrEqual(class, "tf_projectile_stun_ball");
+}
+
+static Action SandmanPreJI_OnBaseballDamage(int victim, int attacker, int inflictor, float &damage)
+{
+	if (!WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker) || victim == attacker)
+		return Plugin_Continue;
+
+	int sandman = GetDamageSourceWeapon(attacker, -1, inflictor);
+	if (!SandmanPreJI_IsEnabledWeapon(sandman))
+		return Plugin_Continue;
+
+	damage = SANDMAN_PRE_JI_DAMAGE;
+
+	if (!SandmanPreJI_IsStunBall(inflictor))
+		return Plugin_Changed;
+
+	float spawnTime = (inflictor > 0 && inflictor < MAX_TRACKED_ENTITIES) ? g_flProjectileSpawnTime[inflictor] : 0.0;
+	float flightTime = spawnTime > 0.0 ? GetGameTime() - spawnTime : SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME;
+	float cappedFlightTime = flightTime < SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME ? flightTime : SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME;
+	float lifetimeRatio = cappedFlightTime / SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME;
+	if (lifetimeRatio <= SANDMAN_PRE_JI_MIN_STUN_RATIO)
+		return Plugin_Changed;
+
+	float stunDuration = lifetimeRatio * SandmanPreJI_GetBaseStunDuration();
+	if (HasEntProp(inflictor, Prop_Send, "m_bCritical") && GetEntProp(inflictor, Prop_Send, "m_bCritical") != 0)
+	{
+		stunDuration += 2.0;
+	}
+	if (lifetimeRatio >= 1.0)
+	{
+		stunDuration += 1.0;
+	}
+
+	TF2_StunPlayer(victim, stunDuration, SANDMAN_PRE_JI_SLOWDOWN, TF_STUNFLAGS_SMALLBONK, attacker);
+	return Plugin_Changed;
+}
+
 
 public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damagetype, &weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom)
 {
@@ -1333,6 +1424,11 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 
 	bool validWeapon = (weapon > MaxClients && IsValidEntity(weapon));
 	new wepindex = (validWeapon ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
+	if (damagecustom == SANDMAN_DAMAGE_CUSTOM)
+	{
+		return SandmanPreJI_OnBaseballDamage(client, attacker, inflictor, damage);
+	}
+
 	if (wepindex == 442 || wepindex == 588)	 // Pomson, bison
 	{
 		float mult = 1.0;
