@@ -22,6 +22,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define BP_ECONOMY_KEY_MAX 64
 #define BP_TRANS_ITEM_KEY_MAX 64
 #define BP_TRANS_ITEM_NAME_MAX 128
+#define BP_TRANS_ITEM_DESCRIPTION_MAX 256
 #define BP_SOUND_COMMAND "xp_gain"
 #define BP_EVENT_LOG_LINE_MAX 1024
 #define BP_CURRENCY_SHORT_MAX 32
@@ -51,6 +52,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
 ArrayList g_ItemKeys = null;
 ArrayList g_ItemNames = null;
+ArrayList g_ItemDescriptions = null;
 ArrayList g_ItemPrices = null;
 ArrayList g_ItemDurations = null;
 ArrayList g_ItemUses = null;
@@ -62,6 +64,7 @@ bool g_ClientPurchasesLoaded[MAXPLAYERS + 1];
 int g_ClientBonusPoints[MAXPLAYERS + 1];
 bool g_ClientBonusPointsLoaded[MAXPLAYERS + 1];
 bool g_ClientBonusPointsPending[MAXPLAYERS + 1];
+char g_ClientShopDetailItem[MAXPLAYERS + 1][BP_TRANS_ITEM_KEY_MAX];
 
 Database g_Database = null;
 ConVar g_CvarDatabase = null;
@@ -185,6 +188,7 @@ public void OnPluginStart()
 
     g_ItemKeys = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_KEY_MAX));
     g_ItemNames = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_NAME_MAX));
+    g_ItemDescriptions = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_DESCRIPTION_MAX));
     g_ItemPrices = new ArrayList();
     g_ItemDurations = new ArrayList();
     g_ItemUses = new ArrayList();
@@ -203,6 +207,7 @@ public void OnPluginStart()
         g_ClientBonusPoints[i] = 0;
         g_ClientBonusPointsLoaded[i] = false;
         g_ClientBonusPointsPending[i] = false;
+        g_ClientShopDetailItem[i][0] = '\0';
         ClearClientLotteryTicketCache(i);
     }
 
@@ -3224,6 +3229,7 @@ void LoadStoreItems()
 {
     g_ItemKeys.Clear();
     g_ItemNames.Clear();
+    g_ItemDescriptions.Clear();
     g_ItemPrices.Clear();
     g_ItemDurations.Clear();
     g_ItemUses.Clear();
@@ -3250,16 +3256,19 @@ void LoadStoreItems()
     {
         char itemKey[BP_TRANS_ITEM_KEY_MAX];
         char itemName[BP_TRANS_ITEM_NAME_MAX];
+        char description[BP_TRANS_ITEM_DESCRIPTION_MAX];
         char priceText[32];
         char durationText[32];
         char usesText[32];
         kv.GetSectionName(itemKey, sizeof(itemKey));
         kv.GetString("price", priceText, sizeof(priceText));
         kv.GetString("long_name", itemName, sizeof(itemName));
+        kv.GetString("description", description, sizeof(description), "No description configured.");
         kv.GetString("duration", durationText, sizeof(durationText));
         kv.GetString("uses", usesText, sizeof(usesText));
         TrimString(itemKey);
         TrimString(itemName);
+        TrimString(description);
         TrimString(priceText);
         TrimString(durationText);
         TrimString(usesText);
@@ -3281,7 +3290,7 @@ void LoadStoreItems()
             }
         }
 
-        AddStoreItemSorted(itemKey, itemName, price, durationSeconds, useCount);
+        AddStoreItemSorted(itemKey, itemName, description, price, durationSeconds, useCount);
     }
     while (kv.GotoNextKey());
 
@@ -3333,7 +3342,7 @@ int ParseDurationSeconds(const char[] input)
     return amount * multiplier;
 }
 
-void AddStoreItemSorted(const char[] itemKey, const char[] itemName, int price, int durationSeconds, int useCount)
+void AddStoreItemSorted(const char[] itemKey, const char[] itemName, const char[] description, int price, int durationSeconds, int useCount)
 {
     if (FindStoreItem(itemKey) != -1)
     {
@@ -3355,6 +3364,7 @@ void AddStoreItemSorted(const char[] itemKey, const char[] itemName, int price, 
     {
         g_ItemKeys.PushString(itemKey);
         g_ItemNames.PushString(itemName);
+        g_ItemDescriptions.PushString(description);
         g_ItemPrices.Push(price);
         g_ItemDurations.Push(durationSeconds);
         g_ItemUses.Push(useCount);
@@ -3363,11 +3373,13 @@ void AddStoreItemSorted(const char[] itemKey, const char[] itemName, int price, 
 
     g_ItemKeys.ShiftUp(insertAt);
     g_ItemNames.ShiftUp(insertAt);
+    g_ItemDescriptions.ShiftUp(insertAt);
     g_ItemPrices.ShiftUp(insertAt);
     g_ItemDurations.ShiftUp(insertAt);
     g_ItemUses.ShiftUp(insertAt);
     g_ItemKeys.SetString(insertAt, itemKey);
     g_ItemNames.SetString(insertAt, itemName);
+    g_ItemDescriptions.SetString(insertAt, description);
     g_ItemPrices.Set(insertAt, price);
     g_ItemDurations.Set(insertAt, durationSeconds);
     g_ItemUses.Set(insertAt, useCount);
@@ -3452,6 +3464,11 @@ void ClearClientBonusPointsCache(int client)
 
 void ClearClientStoreCache(int client)
 {
+    if (client > 0 && client <= MaxClients)
+    {
+        g_ClientShopDetailItem[client][0] = '\0';
+    }
+
     ClearClientPurchaseCache(client);
     ClearClientBonusPointsCache(client);
 }
@@ -5342,8 +5359,115 @@ public int MenuHandler_Shop(Menu menu, MenuAction action, int client, int item)
 
     char itemKey[BP_TRANS_ITEM_KEY_MAX];
     menu.GetItem(item, itemKey, sizeof(itemKey));
-    AttemptPurchase(client, itemKey);
+    ShowShopItemMenu(client, itemKey);
     return 0;
+}
+
+void ShowShopItemMenu(int client, const char[] itemKey)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return;
+    }
+
+    int itemIndex = FindStoreItem(itemKey);
+    if (itemIndex == -1)
+    {
+        PrintToChat(client, "[Shop] That item is no longer available.");
+        ShowShopMenu(client);
+        return;
+    }
+
+    strcopy(g_ClientShopDetailItem[client], sizeof(g_ClientShopDetailItem[]), itemKey);
+
+    char itemName[BP_TRANS_ITEM_NAME_MAX];
+    g_ItemNames.GetString(itemIndex, itemName, sizeof(itemName));
+
+    Menu menu = new Menu(MenuHandler_ShopItem);
+    menu.SetTitle(itemName);
+    menu.AddItem("description", "Description");
+
+    char currencyShort[BP_CURRENCY_SHORT_MAX];
+    char purchaseDisplay[96];
+    int price = g_ItemPrices.Get(itemIndex);
+    GetCurrencyShortLabelForAmount(price, currencyShort, sizeof(currencyShort));
+    Format(purchaseDisplay, sizeof(purchaseDisplay), "Purchase (%d %s)", price, currencyShort);
+    menu.AddItem("purchase", purchaseDisplay);
+    menu.AddItem("back", "Back");
+    menu.ExitBackButton = true;
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int MenuHandler_ShopItem(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+        return 0;
+    }
+
+    if (action == MenuAction_Cancel && item == MenuCancel_ExitBack)
+    {
+        if (IsClientInGameHuman(client))
+        {
+            ShowShopMenu(client);
+        }
+        return 0;
+    }
+
+    if (action != MenuAction_Select || !IsClientInGameHuman(client))
+    {
+        return 0;
+    }
+
+    char actionName[32];
+    menu.GetItem(item, actionName, sizeof(actionName));
+
+    char itemKey[BP_TRANS_ITEM_KEY_MAX];
+    strcopy(itemKey, sizeof(itemKey), g_ClientShopDetailItem[client]);
+    if (!itemKey[0] || FindStoreItem(itemKey) == -1)
+    {
+        PrintToChat(client, "[Shop] That item is no longer available.");
+        ShowShopMenu(client);
+        return 0;
+    }
+
+    if (StrEqual(actionName, "description", false))
+    {
+        PrintStoreItemDescription(client, itemKey);
+        ShowShopItemMenu(client, itemKey);
+    }
+    else if (StrEqual(actionName, "purchase", false))
+    {
+        AttemptPurchase(client, itemKey);
+    }
+    else if (StrEqual(actionName, "back", false))
+    {
+        ShowShopMenu(client);
+    }
+
+    return 0;
+}
+
+void PrintStoreItemDescription(int client, const char[] itemKey)
+{
+    int itemIndex = FindStoreItem(itemKey);
+    if (itemIndex == -1)
+    {
+        return;
+    }
+
+    char itemName[BP_TRANS_ITEM_NAME_MAX];
+    char description[BP_TRANS_ITEM_DESCRIPTION_MAX];
+    g_ItemNames.GetString(itemIndex, itemName, sizeof(itemName));
+    g_ItemDescriptions.GetString(itemIndex, description, sizeof(description));
+    TrimString(description);
+    if (!description[0])
+    {
+        strcopy(description, sizeof(description), "No description configured.");
+    }
+
+    CPrintToChat(client, "{gold}[Shop]{default} %s: %s", itemName, description);
 }
 
 void AttemptPurchase(int client, const char[] itemKey)
