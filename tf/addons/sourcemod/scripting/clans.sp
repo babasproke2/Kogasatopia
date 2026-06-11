@@ -4921,34 +4921,17 @@ public void SQL_OnClanChatContext(Database db, DBResultSet results, const char[]
     results.FetchString(ClanByPlayerCol_Tag, clanTag, sizeof(clanTag));
     BuildClanDisplayTag(clanTag, clanDisplayTag, sizeof(clanDisplayTag));
 
-    char steamid64[STEAMID64_MAXLEN];
-    char selectedTag[256];
-    char selectedDisplayTag[256];
-    selectedDisplayTag[0] = '\0';
-    if (GetClientSteam64(client, steamid64, sizeof(steamid64)) && TryGetSelectedTag(client, steamid64, selectedTag, sizeof(selectedTag)))
-    {
-        BuildClanDisplayTag(selectedTag, selectedDisplayTag, sizeof(selectedDisplayTag));
-    }
-
     char senderName[384];
     BuildClanChatSenderName(client, senderName, sizeof(senderName));
 
     char output[768];
-    if (clanDisplayTag[0] && selectedDisplayTag[0])
-    {
-        FormatEx(output, sizeof(output), "%s %s %s: %s", clanDisplayTag, selectedDisplayTag, senderName, message);
-    }
-    else if (clanDisplayTag[0])
+    if (clanDisplayTag[0])
     {
         FormatEx(output, sizeof(output), "%s %s: %s", clanDisplayTag, senderName, message);
     }
-    else if (selectedDisplayTag[0])
-    {
-        FormatEx(output, sizeof(output), "%s %s: %s", selectedDisplayTag, senderName, message);
-    }
     else
     {
-        FormatEx(output, sizeof(output), "%s %s", senderName, message);
+        FormatEx(output, sizeof(output), "%s: %s", senderName, message);
     }
 
     for (int i = 1; i <= MaxClients; i++)
