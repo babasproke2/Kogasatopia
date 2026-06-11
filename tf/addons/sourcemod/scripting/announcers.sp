@@ -743,7 +743,7 @@ void AwardMultikillBonusPoints(int client, int kills)
         return;
     }
 
-    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "multikill", kills, 3.0, 0); // Temporarily disabled per-map cap; old cap: 5
+    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "multikill", kills, 3.0, 5);
 }
 
 void AwardKillstreakBonusPoints(int client, int killstreak)
@@ -759,7 +759,7 @@ void AwardKillstreakBonusPoints(int client, int killstreak)
     }
 
     int points = killstreak > 10 ? 2 : 1;
-    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "killstreak", killstreak, 3.0, 0); // Temporarily disabled per-map cap; old cap: 5
+    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "killstreak", killstreak, 3.0, 5);
 }
 
 void AwardKillstreakEndBonusPoints(int client, int killstreak)
@@ -793,7 +793,7 @@ void AwardKillstreakEndBonusPoints(int client, int killstreak)
         return;
     }
 
-    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "killstreak_end", killstreak, 3.0, 0); // Temporarily disabled per-map cap; old cap: 5
+    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "killstreak_end", killstreak, 3.0, 5);
 }
 
 float GetMultikillRollupWindow()
