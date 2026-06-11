@@ -244,6 +244,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_welfarecheck", Command_Welfare, "Collect once-per-map welfare currency.");
     RegConsoleCmd("sm_lottery", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_gamble", Command_Lottery, "Open the currency lottery.");
+    RegConsoleCmd("sm_bet", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_lotto", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_pool", Command_LotteryPrizePool, "Show the lottery prize pool.");
     RegConsoleCmd("sm_prizepool", Command_LotteryPrizePool, "Show the lottery prize pool.");
@@ -315,6 +316,7 @@ public void OnMapEnd()
 {
     PluginStats_Flush();
     CancelPendingLotteryCall();
+    CancelActiveLotteryDrawForMapChange();
 }
 
 public void OnClientAuthorized(int client, const char[] auth)
@@ -2706,6 +2708,23 @@ void CancelPendingLotteryCall()
     }
     g_LotteryCallRequesterUserId = 0;
     g_LotteryCallLotteryId = 0;
+}
+
+void CancelActiveLotteryDrawForMapChange()
+{
+    if (g_LotteryDrawTimer != null)
+    {
+        KillTimer(g_LotteryDrawTimer);
+        g_LotteryDrawTimer = null;
+    }
+
+    if (g_LotteryDrawInProgress)
+    {
+        LogMessage("[points_store] Lottery draw state cleared on map end for lottery %d.", g_LotteryDrawLotteryId);
+    }
+
+    g_LotteryDrawInProgress = false;
+    ResetLotteryDrawState();
 }
 
 void ReplyToLotteryRequester(int userId, const char[] format, any ...)
