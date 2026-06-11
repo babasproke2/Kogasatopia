@@ -702,7 +702,65 @@ bool IsAmplifierModel(int ent)
 
 bool IsActiveAmplifier(int ent)
 {
-	return IsTrackedEntityIndex(ent) && IsValidEntity(ent) && AmplifierOn[ent] && !AmplifierSapped[ent] && IsAmplifierModel(ent);
+	// AmplifierOn is the authoritative plugin state.  Do not gate this on
+	// IsAmplifierModel(): TF2 can overwrite the model during late construction
+	// or native upgrade handling, and requiring the model here prevents the
+	// plugin from ever repairing that overwritten state.
+	return IsTrackedEntityIndex(ent) && IsValidEntity(ent) && AmplifierOn[ent] && !AmplifierSapped[ent];
+}
+
+void SetAmplifierBuildModel(int ent)
+{
+	char modelname[128];
+	Format(modelname, sizeof(modelname), "%s.mdl", AmplifierModel);
+	SetEntityModel(ent, modelname);
+}
+
+bool IsAmplifierConstructionComplete(int ent)
+{
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent))
+		return false;
+
+	if (GetEntPropFloat(ent, Prop_Send, "m_flPercentageConstructed") < 1.0)
+		return false;
+
+	// m_flPercentageConstructed can reach 1.0 before TF2 is done with native
+	// construction finalization.  Waiting for m_bBuilding to clear keeps our
+	// final model/health/ammo writes from racing those native writes.
+	return GetEntProp(ent, Prop_Send, "m_bBuilding") == 0;
+}
+
+void ClampAmplifierHealthToMax(int ent)
+{
+	int maxHealth = AmplifierMini[ent] ? AMPLIFIER_MINI_HEALTH : AMPLIFIER_HEALTH;
+	SetEntProp(ent, Prop_Send, "m_iMaxHealth", maxHealth);
+
+	int currentHealth = GetEntProp(ent, Prop_Send, "m_iHealth");
+	if (currentHealth > maxHealth)
+	{
+		char sHealth[16];
+		IntToString(maxHealth, sHealth, sizeof(sHealth));
+		SetVariantString(sHealth);
+		AcceptEntityInput(ent, "SetHealth");
+	}
+}
+
+void ReassertAmplifierRuntimeState(int ent)
+{
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent) || !AmplifierOn[ent])
+		return;
+
+	char buildingClass[64];
+	GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
+	if (!IsDispenserClass(buildingClass) && !IsSentryClass(buildingClass))
+		return;
+
+	SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
+	SetEntProp(ent, Prop_Send, "m_iUpgradeLevel", 1);
+	SetEntProp(ent, Prop_Send, "m_iHighestUpgradeLevel", 1);
+	if (!IsAmplifierModel(ent))
+		SetAmplifierBuildModel(ent);
+	ClampAmplifierHealthToMax(ent);
 }
 
 bool GetAmplifierMetal(int ent, int &metal, char[] buildingClass, int classSize)
@@ -741,6 +799,37 @@ void SetAmplifierMetal(int ent, const char[] buildingClass, int metal)
 		SetEntProp(ent, Prop_Send, "m_iAmmoMetal", metal);
 	else if (IsSentryClass(buildingClass))
 		SetEntProp(ent, Prop_Send, "m_iAmmoShells", metal);
+}
+
+bool AbsorbAmplifierUpgradeMetal(int ent, int metalMax)
+{
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent))
+		return false;
+
+	int upgradeMetal = GetEntProp(ent, Prop_Send, "m_iUpgradeMetal");
+	if (upgradeMetal <= 0)
+		return false;
+
+	SetEntProp(ent, Prop_Send, "m_iUpgradeMetal", 0);
+	if (metalMax <= 0)
+		return false;
+
+	char buildingClass[64];
+	int oldMetal;
+	if (!GetAmplifierMetal(ent, oldMetal, buildingClass, sizeof(buildingClass)))
+		return false;
+
+	if (oldMetal < 0)
+		oldMetal = 0;
+
+	int refillMetal = (upgradeMetal * metalMax) / 200;
+	int newMetal = oldMetal + refillMetal;
+	if (newMetal > metalMax)
+		newMetal = metalMax;
+
+	SetAmplifierMetal(ent, buildingClass, newMetal);
+	UpdateAmplifierFill(ent, newMetal, metalMax);
+	return refillMetal > 0;
 }
 
 void UpdateAmplifierFill(int ent, int metal, int metalMax)
@@ -851,6 +940,7 @@ int CollectActiveAmplifiers(int maxEntities, int activeAmps[ME])
 
 		if (IsActiveAmplifier(ent))
 		{
+			ReassertAmplifierRuntimeState(ent);
 			activeAmps[activeCount++] = ent;
 		}
 	}
@@ -964,18 +1054,14 @@ void PulseAmplifierBuilding(int ent, int metalPerPlayer, int metalMax)
 	if (!IsActiveAmplifier(ent))
 		return;
 
-	if (GetEntProp(ent, Prop_Send, "m_bDisabled") == 0)
-		SetEntProp(ent, Prop_Send, "m_bDisabled", 1);
+	ReassertAmplifierRuntimeState(ent);
+	bool absorbedUpgradeMetal = AbsorbAmplifierUpgradeMetal(ent, metalMax);
 
 	char buildingClass[64];
 	int oldMetal;
 	if (!GetAmplifierMetal(ent, oldMetal, buildingClass, sizeof(buildingClass)))
 		return;
-
-	int upgradeMetal = GetEntProp(ent, Prop_Send, "m_iUpgradeMetal");
-	int refillMetal = 0;
-	if (metalMax > 0)
-		refillMetal = (upgradeMetal * metalMax) / 200;
+	UpdateAmplifierFill(ent, oldMetal, metalMax);
 
 	float pos[3];
 	GetEntPropVector(ent, Prop_Send, "m_vecOrigin", pos);
@@ -1014,14 +1100,8 @@ void PulseAmplifierBuilding(int ent, int metalPerPlayer, int metalMax)
 		TE_SendToAll();
 	}
 
-	if (refillMetal > 0)
+	if (absorbedUpgradeMetal)
 	{
-		int newMetal = oldMetal + refillMetal;
-		if (newMetal > metalMax)
-			newMetal = metalMax;
-
-		SetAmplifierMetal(ent, buildingClass, newMetal);
-		SetEntProp(ent, Prop_Send, "m_iUpgradeMetal", 0);
 		EmitAmbientSound(AMPLIFIER_FILL_SOUND, pos);
 	}
 }
@@ -1199,7 +1279,10 @@ void CheckBuilding(int ent)
 		Format(s, sizeof(s), "%s.mdl", AmplifierModel);
 		SetEntityModel(ent, s);
 		SetEntProp(ent, Prop_Send, "m_nSkin", GetEntProp(ent, Prop_Send, "m_nSkin") + 2);
-        CreateTimer(1.0, BuildingCheckStage1, EntIndexToEntRef(ent), TIMER_NO_MAPCHANGE);
+        // Build-rate modifiers can complete a sentry before a one-second
+        // delayed check runs, so start the construction watchdog almost
+        // immediately and let it continue after activation.
+        CreateTimer(0.1, BuildingCheckStage2, EntIndexToEntRef(ent), TIMER_REPEAT | TIMER_NO_MAPCHANGE);
 
         if (forcedConversion && effectiveForceAmplifier == 2 && !playerRequestedAmplifier)
         {
@@ -1238,37 +1321,51 @@ public Action BuildingCheckStage2(Handle hTimer, any ref)
 {
 	int ent = EntRefToEntIndex(ref);
 	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent)) return Plugin_Stop;
+	if (BuildingRef[ent] != ref) return Plugin_Stop;
 
-	if (GetEntPropFloat(ent, Prop_Send, "m_flPercentageConstructed") < 1.0)
+	if (!AmplifierOn[ent])
+	{
+		if (!IsAmplifierConstructionComplete(ent))
+			return Plugin_Continue;
+
+		AmplifierOn[ent] = true;
+		SetEntProp(ent, Prop_Send, "m_iUpgradeLevel", 1);
+		SetEntProp(ent, Prop_Send, "m_iHighestUpgradeLevel", 1);
+		SetAmplifierBuildModel(ent);
+
+		if (AmplifierMini[ent])
+		{
+			SetAmplifierHealth(ent, AMPLIFIER_MINI_HEALTH);
+		}
+		else
+		{
+			SetAmplifierHealth(ent, AMPLIFIER_HEALTH);
+		}
+
+		char buildingClass[64];
+		GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
+		int metalMax = GetConVarInt(cvarMetalMax);
+		int startingFuel = (metalMax * 75) / 200;
+		if (startingFuel < 0)
+			startingFuel = 0;
+
+		if (IsDispenserClass(buildingClass))
+			SetEntProp(ent, Prop_Send, "m_iAmmoMetal", startingFuel);
+		else if (IsSentryClass(buildingClass))
+			SetEntProp(ent, Prop_Send, "m_iAmmoShells", startingFuel);
+
+		UpdateAmplifierFill(ent, startingFuel, metalMax);
+		SetEntProp(ent, Prop_Send, "m_iUpgradeMetal", 0);
+		SetEntProp(ent, Prop_Send, "m_nSkin", GetEntProp(ent, Prop_Send, "m_nSkin") - 2);
+		ReassertAmplifierRuntimeState(ent);
+
 		return Plugin_Continue;
-
-	AmplifierOn[ent] = true;
-	char modelname[128];
-	Format(modelname, sizeof(modelname), "%s.mdl", AmplifierModel);
-	SetEntProp(ent, Prop_Send, "m_iUpgradeLevel", 1);
-	SetEntityModel(ent, modelname);
-
-	if (AmplifierMini[ent])
-	{
-		SetAmplifierHealth(ent, AMPLIFIER_MINI_HEALTH);
-	}
-	else
-	{
-		SetAmplifierHealth(ent, AMPLIFIER_HEALTH);
 	}
 
-	char buildingClass[64];
-	GetEdictClassname(ent, buildingClass, sizeof(buildingClass));
-	if (IsDispenserClass(buildingClass))
-		SetEntProp(ent, Prop_Send, "m_iAmmoMetal", 0);
-	else if (IsSentryClass(buildingClass))
-		SetEntProp(ent, Prop_Send, "m_iAmmoShells", 0);
-	AmplifierFill[ent] = 0.0;
+	ReassertAmplifierRuntimeState(ent);
+	AbsorbAmplifierUpgradeMetal(ent, GetConVarInt(cvarMetalMax));
 
-	SetEntProp(ent, Prop_Send, "m_iUpgradeMetal", 75);
-	SetEntProp(ent, Prop_Send, "m_nSkin", GetEntProp(ent, Prop_Send, "m_nSkin") - 2);
-
-	return Plugin_Stop;
+	return Plugin_Continue;
 }
 
 void CheckSapper(int ent)
