@@ -7,6 +7,7 @@ ConVar g_hUncleCycleState;
 ConVar g_hNewsMode;
 ConVar g_hNewsText;
 ConVar g_hNewsGitFormat;
+ConVar g_hRules[5];
 ConVar g_hGitRepoName;
 ConVar g_hGitRepoBranch;
 ConVar g_hGitRepoCommitShort;
@@ -199,6 +200,11 @@ public OnPluginStart()
     g_hNewsMode = CreateConVar("sm_wsmg_newsmode", "0", "Use g_WelcomeMsgGit instead of g_WelcomeMsg for welcome/news output.", _, true, 0.0, true, 1.0);
     g_hNewsText = CreateConVar("sm_wsmg_news", "", "News line used by the welcome message and !news.");
     g_hNewsGitFormat = CreateConVar("sm_wsmg_news_git", "{green}Git info: {default}%s, %s, %s, %s, %s{default}", "Git news format used by !news and git welcome mode.");
+    g_hRules[0] = CreateConVar("sm_welcomemsg_rules1", "", "First optional rule line printed by !rules.");
+    g_hRules[1] = CreateConVar("sm_welcomemsg_rules2", "", "Second optional rule line printed by !rules.");
+    g_hRules[2] = CreateConVar("sm_welcomemsg_rules3", "", "Third optional rule line printed by !rules.");
+    g_hRules[3] = CreateConVar("sm_welcomemsg_rules4", "", "Fourth optional rule line printed by !rules.");
+    g_hRules[4] = CreateConVar("sm_welcomemsg_rules5", "", "Fifth optional rule line printed by !rules.");
     
     RegConsoleCmd("sm_info", Command_ListInfo, "Displays an brief message to the client about the server.");
     RegConsoleCmd("sm_c2", Command_InfoC2, "Lists custom class weapon page 2 data to the client");
@@ -439,8 +445,25 @@ public Action:Command_news(int client, int args)
 
 public Action:Command_Rules(int client, int args)
 {
-    char deez[256] = "{chartreuse}Server Rules:\n{unique}No Hacking/Friendlies/Gross Sprays\n{paleturquoise}Don't talk about retarded shit like women and drugs\n{violet}For the love of God you're not allowed to make chat servers or funnel people into different games";
-    CPrintToChat(client, "%s", deez);
+    char rule[256];
+
+    for (int i = 0; i < sizeof(g_hRules); i++)
+    {
+        if (g_hRules[i] == null)
+        {
+            continue;
+        }
+
+        g_hRules[i].GetString(rule, sizeof(rule));
+        TrimString(rule);
+        if (!rule[0])
+        {
+            continue;
+        }
+
+        CPrintToChat(client, "%s", rule);
+    }
+
     return Plugin_Handled;
 }
 
