@@ -1,1 +1,3 @@
 plugin_statistics_database_explanation.txt
+tools/sync_live_configs_to_repo.sh
+tools/live_config_sync*.log
