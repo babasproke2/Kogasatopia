@@ -30,6 +30,7 @@ int g_RequestSender[MAXPLAYERS + 1];
 TpaRequestType g_RequestType[MAXPLAYERS + 1];
 float g_RequestExpiresAt[MAXPLAYERS + 1];
 TpaRequestType g_MenuRequestType[MAXPLAYERS + 1];
+Handle g_RequestExpireTimer[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
@@ -54,7 +55,7 @@ public void OnPluginStart()
 {
     g_cvRequestTimeout = CreateConVar(
         "sm_tpa_request_timeout",
-        "30.0",
+        "60.0",
         "Seconds before a pending teleport request expires.",
         _,
         true,
@@ -83,6 +84,11 @@ public void OnPluginStart()
 }
 
 public void OnMapStart()
+{
+    ClearAllRequests();
+}
+
+public void OnMapEnd()
 {
     ClearAllRequests();
 }
@@ -139,8 +145,7 @@ public Action Command_AcceptRequest(int client, int args)
 
     if (GetGameTime() > g_RequestExpiresAt[client])
     {
-        ClearRequestForReceiver(client);
-        PrintToChat(client, "[TPA] Your pending teleport request expired.");
+        ExpireRequestForReceiver(client);
         return Plugin_Handled;
     }
 
@@ -252,9 +257,12 @@ bool SendTeleportRequest(int client, int target, TpaRequestType requestType)
         return false;
     }
 
+    CancelRequestTimer(target);
+
     g_RequestSender[target] = client;
     g_RequestType[target] = requestType;
     g_RequestExpiresAt[target] = GetGameTime() + g_cvRequestTimeout.FloatValue;
+    g_RequestExpireTimer[target] = CreateTimer(g_cvRequestTimeout.FloatValue, Timer_ExpireRequest, GetClientUserId(target), TIMER_FLAG_NO_MAPCHANGE);
 
     if (requestType == TpaRequest_Goto)
     {
@@ -268,6 +276,36 @@ bool SendTeleportRequest(int client, int target, TpaRequestType requestType)
     }
 
     return true;
+}
+
+public Action Timer_ExpireRequest(Handle timer, any userId)
+{
+    int target = GetClientOfUserId(userId);
+    if (target <= 0 || target > MaxClients)
+    {
+        return Plugin_Stop;
+    }
+
+    g_RequestExpireTimer[target] = INVALID_HANDLE;
+    ExpireRequestForReceiver(target);
+    return Plugin_Stop;
+}
+
+void ExpireRequestForReceiver(int target)
+{
+    if (target <= 0 || target > MaxClients)
+    {
+        return;
+    }
+
+    int sender = g_RequestSender[target];
+    if (sender > 0 && IsClientInGame(sender) && IsClientInGame(target))
+    {
+        PrintToChat(sender, "[Tpa] Your tpa request to %N expired!", target);
+        PrintToChat(target, "[Tpa] Your tpa request from %N expired!", sender);
+    }
+
+    ClearRequestForReceiver(target);
 }
 
 void ShowTeleportModeMenu(int client)
@@ -659,8 +697,20 @@ void ClearRequestForReceiver(int client)
         return;
     }
 
+    CancelRequestTimer(client);
     g_RequestSender[client] = 0;
     g_RequestType[client] = TpaRequest_None;
     g_RequestExpiresAt[client] = 0.0;
     g_MenuRequestType[client] = TpaRequest_None;
+}
+
+void CancelRequestTimer(int client)
+{
+    if (client <= 0 || client > MaxClients || g_RequestExpireTimer[client] == INVALID_HANDLE)
+    {
+        return;
+    }
+
+    KillTimer(g_RequestExpireTimer[client]);
+    g_RequestExpireTimer[client] = INVALID_HANDLE;
 }
