@@ -4,6 +4,7 @@
 #include <sourcemod>
 #include <morecolors>
 #include <tf2_stocks>
+#include <sdktools_gamerules>
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
 #define REQUIRE_PLUGIN
@@ -300,6 +301,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
     MarkNativeAsOptional("WhaleTracker_GetLastRecordedName");
     MarkNativeAsOptional("WhaleTracker_ComputeWhalePoints");
+    MarkNativeAsOptional("DGM_IsRoundRunning");
     MarkNativeAsOptional("Tags_GetTag");
     MarkNativeAsOptional("Tags_SetSelectedTag");
     return APLRes_Success;
@@ -308,6 +310,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 native bool Tags_GetTag(int client, const char[] steamid64, char[] buffer, int maxlen);
 native bool Tags_SetSelectedTag(int client, const char[] tag);
+native bool DGM_IsRoundRunning();
 
 bool IsClanPointsStoreAvailable()
 {
@@ -771,6 +774,17 @@ bool EnsureDatabaseReady(int client = 0)
     }
 
     return false;
+}
+
+
+bool Clans_IsRoundRunning()
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_IsRoundRunning") == FeatureStatus_Available)
+    {
+        return DGM_IsRoundRunning();
+    }
+
+    return GameRules_GetRoundState() == RoundState_RoundRunning;
 }
 
 bool IsPlayableClient(int client)
@@ -5470,7 +5484,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
     int attacker = GetClientOfUserId(event.GetInt("attacker"));
     int deathFlags = event.GetInt("death_flags");
 
-    if (!ClanWarsRuntimeReady())
+    if (!ClanWarsRuntimeReady() || !Clans_IsRoundRunning())
     {
         return;
     }
