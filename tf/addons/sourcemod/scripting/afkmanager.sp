@@ -228,5 +228,5 @@ bool CanKickAfkSpectators(int fallbackMinPlayerCount) {
         return DGM_ServerCapacitycheck(1.0, false);
     }
 
-    return GetClientCount(true) >= fallbackMinPlayerCount;
+    return GetClientCount(false) >= fallbackMinPlayerCount;
 }
