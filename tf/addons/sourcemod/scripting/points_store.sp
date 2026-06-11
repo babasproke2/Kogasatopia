@@ -3239,129 +3239,54 @@ void LoadStoreItems()
         return;
     }
 
-    StringMap durations = new StringMap();
-    StringMap uses = new StringMap();
-    LoadStoreItemDurations(kv, durations);
-    LoadStoreItemUses(kv, uses);
-
     if (!kv.GotoFirstSubKey())
     {
         LogError("[bonuspoints_transactions] No items found in %s", configPath);
-        delete uses;
-        delete durations;
         delete kv;
         return;
     }
 
     do
     {
-        char priceKey[32];
-        kv.GetSectionName(priceKey, sizeof(priceKey));
-        int price = StringToInt(priceKey);
-        if (price <= 0)
+        char itemKey[BP_TRANS_ITEM_KEY_MAX];
+        char itemName[BP_TRANS_ITEM_NAME_MAX];
+        char priceText[32];
+        char durationText[32];
+        char usesText[32];
+        kv.GetSectionName(itemKey, sizeof(itemKey));
+        kv.GetString("price", priceText, sizeof(priceText));
+        kv.GetString("long_name", itemName, sizeof(itemName));
+        kv.GetString("duration", durationText, sizeof(durationText));
+        kv.GetString("uses", usesText, sizeof(usesText));
+        TrimString(itemKey);
+        TrimString(itemName);
+        TrimString(priceText);
+        TrimString(durationText);
+        TrimString(usesText);
+
+        int price = StringToInt(priceText);
+        if (itemKey[0] == '\0' || itemName[0] == '\0' || price <= 0)
         {
             continue;
         }
 
-        if (!kv.GotoFirstSubKey(false))
+        int durationSeconds = ParseDurationSeconds(durationText);
+        int useCount = BP_PURCHASE_UNLIMITED_USES;
+        if (usesText[0] != '\0')
         {
-            continue;
-        }
-
-        do
-        {
-            char itemKey[BP_TRANS_ITEM_KEY_MAX];
-            char itemName[BP_TRANS_ITEM_NAME_MAX];
-            int durationSeconds = BP_PURCHASE_PERMANENT;
-            int useCount = BP_PURCHASE_UNLIMITED_USES;
-            kv.GetSectionName(itemKey, sizeof(itemKey));
-            kv.GetString(NULL_STRING, itemName, sizeof(itemName));
-            TrimString(itemKey);
-            TrimString(itemName);
-            durations.GetValue(itemKey, durationSeconds);
-            uses.GetValue(itemKey, useCount);
-
-            if (itemKey[0] == '\0' || itemName[0] == '\0')
+            useCount = StringToInt(usesText);
+            if (useCount <= 0)
             {
-                continue;
+                useCount = BP_PURCHASE_UNLIMITED_USES;
             }
-
-            AddStoreItemSorted(itemKey, itemName, price, durationSeconds, useCount);
         }
-        while (kv.GotoNextKey(false));
 
-        kv.GoBack();
+        AddStoreItemSorted(itemKey, itemName, price, durationSeconds, useCount);
     }
     while (kv.GotoNextKey());
 
-    delete uses;
-    delete durations;
     delete kv;
     LogMessage("[bonuspoints_transactions] Loaded %d shop item(s).", g_ItemPrices.Length);
-}
-
-void LoadStoreItemDurations(KeyValues kv, StringMap durations)
-{
-    if (!kv.JumpToKey("durations", false))
-    {
-        return;
-    }
-
-    if (kv.GotoFirstSubKey(false))
-    {
-        do
-        {
-            char itemKey[BP_TRANS_ITEM_KEY_MAX];
-            char durationText[32];
-            kv.GetSectionName(itemKey, sizeof(itemKey));
-            kv.GetString(NULL_STRING, durationText, sizeof(durationText));
-            TrimString(itemKey);
-            TrimString(durationText);
-
-            int durationSeconds = ParseDurationSeconds(durationText);
-            if (itemKey[0] != '\0' && durationSeconds > 0)
-            {
-                durations.SetValue(itemKey, durationSeconds, true);
-            }
-        }
-        while (kv.GotoNextKey(false));
-
-        kv.GoBack();
-    }
-
-    kv.GoBack();
-}
-
-void LoadStoreItemUses(KeyValues kv, StringMap uses)
-{
-    if (!kv.JumpToKey("uses", false))
-    {
-        return;
-    }
-
-    if (kv.GotoFirstSubKey(false))
-    {
-        do
-        {
-            char itemKey[BP_TRANS_ITEM_KEY_MAX];
-            char usesText[32];
-            kv.GetSectionName(itemKey, sizeof(itemKey));
-            kv.GetString(NULL_STRING, usesText, sizeof(usesText));
-            TrimString(itemKey);
-            TrimString(usesText);
-
-            int useCount = StringToInt(usesText);
-            if (itemKey[0] != '\0' && useCount > 0)
-            {
-                uses.SetValue(itemKey, useCount, true);
-            }
-        }
-        while (kv.GotoNextKey(false));
-
-        kv.GoBack();
-    }
-
-    kv.GoBack();
 }
 
 int ParseDurationSeconds(const char[] input)
