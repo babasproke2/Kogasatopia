@@ -104,13 +104,13 @@
                 "name" "Wine Red • Admire"
                 "description"
                 {
-                        "positive"             "Enables wall climb, +50% headshot damage"
+                        "positive"             "Enables wall climb, minicrits instead of crits, +50% headshot damage"
                         "negative"             "crits become minicrits, fires tracer"
                 }
                 "attributes_game"
                 {
-                        "headshot damage increase"      "0.40"
-                        "damage penalty"        "0.85"
+                        "headshot damage increase"      "1.50"
+                        "crits_become_minicrits"        "1"
                         "sniper fires tracer"   "1"
                 }
                 "attributes_custom"
@@ -199,6 +199,11 @@
                         "turn to gold"  "1"
                         "crit mod disabled"     "0"
                 }
+                "description"
+                {
+                        "positive"             "The Equalizer, but it swings 60% faster and turns enemies to gold."
+                        "negative"             ""
+                }
                 "attributes_custom"
                 {
                         "clientmodel override" "models/minecraft/diamond_pickaxe.mdl"
@@ -214,10 +219,35 @@
                 {
                         "turn to gold"  "1"
                 }
+                "description"
+                {
+                        "positive"             "An all class melee, but it can random crit, and turns enemies to gold."
+                        "negative"             ""
+                }
                 "attributes_custom"
                 {
                         "clientmodel override" "models/minecraft/diamond_pickaxe.mdl"
                         "saysound on kill"  "hurt2"
+                }
+        }
+        "holy_bible"
+        {
+                "inherits"              "Prinny Machete"
+                "name"                  "Holy Bible"
+                "points_store_purchase" "holy_bible"
+                "attributes_game"
+                {
+                        "turn to gold"  "1"
+                }
+                "description"
+                {
+                        "positive"             "An all class melee, plays 'Holy Shit' sfx on kill, can random crit, turns enemies to gold."
+                        "negative"             ""
+                }
+                "attributes_custom"
+                {
+                        "clientmodel override" "models/weapons/w_models/w_bible.mdl"
+                        "saysound on kill"  "holyshit"
                 }
         }
         "pain_train_pyro"
@@ -380,6 +410,28 @@
                 {
                         "clip size penalty"                             "0.833333"
                         "damage penalty"        "0.65"
+                        "weapon spread bonus"  "0.60"
+                }
+                "attributes_custom"
+                {
+                        "flame shotgun attributes"      "1"
+                        "replace sound"     "flame_shotgun"
+                        "clientmodel override"  "models/weapons/c_models/c_dex_shotgun/c_dex_shotgun.mdl"
+                }
+        }
+        "pyroshotgun2_alt"
+        {
+		"inherits" "TF_WEAPON_SHOTGUN_PYRO"
+                "name"                  "Flame Shotgun (Stock Spread)"
+                "description"
+                {
+                        "positive"             "Hitting a target accurately twice creates a fiery explosion, explosions restore clip"
+                        "negative"             "-15% clip size, -35% damage penalty"
+                }
+                "attributes_game"
+                {
+                        "clip size penalty"                             "0.833333"
+                        "damage penalty"        "0.65"
                 }
                 "attributes_custom"
                 {
@@ -443,6 +495,63 @@
                 "attributes_custom"
                 {
                         "replace sound"     "pomson"
+                        "clientmodel override"  "models/workshop/weapons/c_models/c_invasion_sniperrifle/c_invasion_sniperrifle.mdl"
+                }
+        }
+        "soldier_buff_banner_miyu"
+        {
+		"inherits" "The Buff Banner"
+                "name"                  "Miyu in Bin - Buff Banner"
+                "points_store_purchase" "miyu_garbage"
+                "used_by_classes"
+                {
+                    "soldier" "secondary"
+                }
+                "description"
+                {
+                        "positive"             "Model replacement, Miyu in Garbage Can"
+                        "negative"             ""
+                }
+                "attributes_custom"
+                {
+                        "clientmodel override"  "models/workshop/weapons/c_models/c_invasion_sniperrifle/c_invasion_sniperrifle.mdl"
+                }
+        }
+        "soldier_batts_miyu"
+        {
+		"inherits" "The Battalion's Backup"
+                "name"                  "Miyu in Bin - Battalion's"
+                "points_store_purchase" "miyu_garbage"
+                "used_by_classes"
+                {
+                    "soldier" "secondary"
+                }
+                "description"
+                {
+                        "positive"             "Model replacement, Miyu in Garbage Can"
+                        "negative"             ""
+                }
+                "attributes_custom"
+                {
+                        "clientmodel override"  "models/workshop/weapons/c_models/c_invasion_sniperrifle/c_invasion_sniperrifle.mdl"
+                }
+        }
+        "soldier_conch_miyu"
+        {
+		"inherits" "The Concheror"
+                "name"                  "Miyu in Bin - Concheror"
+                "points_store_purchase" "miyu_garbage"
+                "used_by_classes"
+                {
+                    "soldier" "secondary"
+                }
+                "description"
+                {
+                        "positive"             "Model replacement, Miyu in Garbage Can"
+                        "negative"             ""
+                }
+                "attributes_custom"
+                {
                         "clientmodel override"  "models/workshop/weapons/c_models/c_invasion_sniperrifle/c_invasion_sniperrifle.mdl"
                 }
         }
@@ -857,7 +966,7 @@
                 "name"                  "Conagher's Bull"
                 "description"
                 {
-                        "positive"             "Drain 25 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 60% tighter spread"
+                        "positive"             "Drain 100 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 60% tighter spread"
                         "negative"             ""
                 }
 		"inherits"		"Upgradeable TF_WEAPON_PISTOL"
