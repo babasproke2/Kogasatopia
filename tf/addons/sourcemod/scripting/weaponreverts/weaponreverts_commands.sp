@@ -22,6 +22,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_reverts", Command_InfoReverts, "Lists weapon revert data to the client");
 	RegConsoleCmd("sm_revert", Command_InfoReverts, "Lists weapon revert data to the client");
 	RegConsoleCmd("sm_r", Command_InfoReverts, "Lists weapon revert data to the client");
+	RegConsoleCmd("sm_changes", Command_InfoReverts, "Lists weapon revert data to the client");
 }
 
 public void OnPluginEnd()

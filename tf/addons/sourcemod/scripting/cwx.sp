@@ -136,11 +136,15 @@ public void OnPluginStart() {
 	// player commands
 	RegAdminCmd("sm_cwx", DisplayItems, 0);
 	RegAdminCmd("sm_cw", DisplayItems, 0);
+	RegAdminCmd("sm_items", DisplayItems, 0);
+	RegAdminCmd("sm_weapons", DisplayItems, 0);
+	RegAdminCmd("sm_weapon", DisplayItems, 0);
+	RegAdminCmd("sm_custom", DisplayItems, 0);
+	RegAdminCmd("sm_customweapons", DisplayItems, 0);
 	RegAdminCmd("sm_cwc", DisplayItems, 0);
 	RegAdminCmd("sm_weps", DisplayItems, 0);
 	RegAdminCmd("sm_c", DisplayItemDescriptions, 0);
 	AddCommandListener(DisplayItemsCompat, "sm_cus");
-	AddCommandListener(DisplayItemsCompat, "sm_custom");
 	
 	mp_stalemate_meleeonly = FindConVar("mp_stalemate_meleeonly");
 	
