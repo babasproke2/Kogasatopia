@@ -87,6 +87,7 @@ int g_iWinStreak = 0;
 bool g_bScrambledThisRound = false;
 bool g_bLastRoundHadScramble = false;
 int g_iRoundStartTimestamp = 0;
+int g_iScrambleRespawnAttempts[MAXPLAYERS + 1];
 
 #define TEAM_RED  2
 #define TEAM_BLU  3
@@ -98,6 +99,8 @@ int g_iRoundStartTimestamp = 0;
 #define FRAG_BALANCE_ENTRY_CLIENT0  1
 #define FRAG_BALANCE_ENTRY_CELLS  (FRAG_BALANCE_ENTRY_CLIENT0 + MAX_SWAP_BUFFER)
 #define SCRAMBLE_PLAYER_PERCENT_DIVISOR  5
+#define SCRAMBLE_RESPAWN_RETRY_DELAY  0.2
+#define SCRAMBLE_RESPAWN_RETRY_COUNT  3
 #define POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM "scramImmunity24h"
 public Plugin myinfo =
 {
@@ -162,7 +165,7 @@ public void OnPluginStart()
     AddCommandListener(SayListener, "say_team");
     HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_PostNoCopy);
     HookEvent("teamplay_round_start", Event_RoundStart, EventHookMode_PostNoCopy);
-    HookEvent("teamplay_point_captured", Event_PointCaptured, EventHookMode_PostNoCopy);
+    HookEvent("teamplay_point_captured", Event_PointCaptured, EventHookMode_Post);
     HookEvent("teamplay_game_over", Event_GameOver, EventHookMode_PostNoCopy);
     HookEvent("player_team", Event_PlayerTeam, EventHookMode_Post);
 }
@@ -197,6 +200,7 @@ public void OnMapStart()
 {
     PluginStats_OnMapStart();
     ResetVotes();
+    ClearScrambleRespawnAttempts();
     ClearScrambleCooldown();
     ClearAutoScramblePending();
     ApplyEngineScramblePolicy();
@@ -211,6 +215,7 @@ public void OnMapStart()
 public void OnMapEnd()
 {
     ResetVotes();
+    ClearScrambleRespawnAttempts();
     ClearScrambleCooldown();
     ClearAutoScramblePending();
     g_iRoundsSinceAuto = 0;
@@ -244,6 +249,7 @@ public void OnClientDisconnect(int client)
         ClearClientSurrenderVote(client);
         LogSurrenderState("disconnect_clear");
     }
+    g_iScrambleRespawnAttempts[client] = 0;
 }
 
 public void OnClientPutInServer(int client)
@@ -2153,7 +2159,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
             ChangeClientTeam(r, TEAM_BLU);
             if (!suppressRespawn)
             {
-                TF2_RespawnPlayer(r);
+                QueueScrambleRespawn(r);
             }
             MarkScrambleImmune(r);
         }
@@ -2162,7 +2168,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
             ChangeClientTeam(b, TEAM_RED);
             if (!suppressRespawn)
             {
-                TF2_RespawnPlayer(b);
+                QueueScrambleRespawn(b);
             }
             MarkScrambleImmune(b);
         }
@@ -2246,6 +2252,61 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         }
         LogWhale("Scramble executed: no eligible pairs.");
     }
+    return Plugin_Stop;
+}
+
+static void ClearScrambleRespawnAttempts()
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        g_iScrambleRespawnAttempts[client] = 0;
+    }
+}
+
+static void QueueScrambleRespawn(int client)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    {
+        return;
+    }
+
+    g_iScrambleRespawnAttempts[client] = SCRAMBLE_RESPAWN_RETRY_COUNT;
+    CreateTimer(SCRAMBLE_RESPAWN_RETRY_DELAY, Timer_VerifyScrambleRespawn, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+}
+
+public Action Timer_VerifyScrambleRespawn(Handle timer, any userid)
+{
+    int client = GetClientOfUserId(userid);
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    {
+        return Plugin_Stop;
+    }
+
+    int team = GetClientTeam(client);
+    if (team != TEAM_RED && team != TEAM_BLU)
+    {
+        g_iScrambleRespawnAttempts[client] = 0;
+        return Plugin_Stop;
+    }
+
+    if (TF2_GetPlayerClass(client) == TFClass_Unknown)
+    {
+        TF2_SetPlayerClass(client, TFClass_Scout);
+    }
+
+    if (!IsPlayerAlive(client))
+    {
+        TF2_RespawnPlayer(client);
+    }
+
+    g_iScrambleRespawnAttempts[client]--;
+    if (IsPlayerAlive(client) || g_iScrambleRespawnAttempts[client] <= 0)
+    {
+        g_iScrambleRespawnAttempts[client] = 0;
+        return Plugin_Stop;
+    }
+
+    CreateTimer(SCRAMBLE_RESPAWN_RETRY_DELAY, Timer_VerifyScrambleRespawn, userid, TIMER_FLAG_NO_MAPCHANGE);
     return Plugin_Stop;
 }
 
