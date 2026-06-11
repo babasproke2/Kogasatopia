@@ -84,6 +84,8 @@ bool g_bKothRedCapped = false;
 bool g_bKothBluCapped = false;
 int g_iLastFullRoundWinner = 0;
 int g_iWinStreak = 0;
+bool g_bPendingFullRoundWin = false;
+int g_iPendingFullRoundWinningTeam = 0;
 bool g_bScrambledThisRound = false;
 bool g_bLastRoundHadScramble = false;
 int g_iRoundStartTimestamp = 0;
@@ -163,7 +165,8 @@ public void OnPluginStart()
 
     AddCommandListener(SayListener, "say");
     AddCommandListener(SayListener, "say_team");
-    HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_PostNoCopy);
+    // This handler reads "full_round" and "team", so it needs a copied event.
+    HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_Post);
     HookEvent("teamplay_round_start", Event_RoundStart, EventHookMode_PostNoCopy);
     HookEvent("teamplay_point_captured", Event_PointCaptured, EventHookMode_Post);
     HookEvent("teamplay_game_over", Event_GameOver, EventHookMode_PostNoCopy);
@@ -205,6 +208,7 @@ public void OnMapStart()
     ClearAutoScramblePending();
     ApplyEngineScramblePolicy();
     g_iRoundsSinceAuto = 0;
+    ResetWinStreakTracking();
     if (g_hScrambleImmunity != null)
     {
         g_hScrambleImmunity.Clear();
@@ -219,6 +223,7 @@ public void OnMapEnd()
     ClearScrambleCooldown();
     ClearAutoScramblePending();
     g_iRoundsSinceAuto = 0;
+    ResetWinStreakTracking();
     LogWhale("Map end: votes reset.");
 }
 
@@ -341,7 +346,7 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
     {
         CreateTimer(0.1, Timer_CheckShortRoundAutoScramble, _, TIMER_FLAG_NO_MAPCHANGE);
         CheckKothNoCapAutoScramble();
-        CheckWinStreakAutoScramble(event.GetInt("team"));
+        QueueFullRoundWinForWinStreak(event.GetInt("team"));
         g_bLastRoundHadScramble = g_bScrambledThisRound;
     }
 
@@ -410,6 +415,8 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
     g_bKothBluCapped = false;
     g_bScrambledThisRound = false;
     g_iRoundStartTimestamp = GetTime();
+
+    CheckPendingFullRoundWinAutoScramble();
 
     if (!ConsumeAutoScramblePending())
     {
@@ -481,6 +488,46 @@ static bool IsCurrentKothGamemode()
     return StrEqual(gamemodeKey, "koth", false);
 }
 
+static void ClearPendingFullRoundWin()
+{
+    g_bPendingFullRoundWin = false;
+    g_iPendingFullRoundWinningTeam = 0;
+}
+
+static void ResetWinStreakTracking()
+{
+    g_iLastFullRoundWinner = 0;
+    g_iWinStreak = 0;
+    ClearPendingFullRoundWin();
+}
+
+static void QueueFullRoundWinForWinStreak(int winningTeam)
+{
+    if (g_bPendingFullRoundWin)
+    {
+        LogWhale(
+            "Full-round win already queued for win-streak; replacing queuedTeam=%d with team=%d.",
+            g_iPendingFullRoundWinningTeam,
+            winningTeam);
+    }
+
+    g_bPendingFullRoundWin = true;
+    g_iPendingFullRoundWinningTeam = winningTeam;
+}
+
+static void CheckPendingFullRoundWinAutoScramble()
+{
+    if (!g_bPendingFullRoundWin)
+    {
+        return;
+    }
+
+    int winningTeam = g_iPendingFullRoundWinningTeam;
+    ClearPendingFullRoundWin();
+    LogWhale("Processing queued full-round win for win-streak: team=%d.", winningTeam);
+    CheckWinStreakAutoScramble(winningTeam);
+}
+
 static void CheckWinStreakAutoScramble(int winningTeam)
 {
     if (g_hWinStreakAuto == null)
@@ -526,6 +573,7 @@ static void CheckWinStreakAutoScramble(int winningTeam)
 public void Event_GameOver(Event event, const char[] name, bool dontBroadcast)
 {
     ClearAutoScramblePending();
+    ClearPendingFullRoundWin();
     LogWhale("Game over: auto scramble pending state cleared.");
 }
 
