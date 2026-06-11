@@ -97,7 +97,6 @@ bool g_LotteryReady = false;
 bool g_LotteryCreating = false;
 bool g_LotteryDrawInProgress = false;
 int g_CurrentLotteryId = 0;
-int g_CurrentLotteryCreatedAt = 0;
 char g_CurrentLotteryHash[LOTTO_HASH_MAX];
 char g_CurrentLotteryHashColor[BP_CURRENCY_COLOR_MAX + 2];
 
@@ -830,7 +829,6 @@ void ClearLocalLotteryState()
     g_LotteryCreating = false;
     g_LotteryDrawInProgress = false;
     g_CurrentLotteryId = 0;
-    g_CurrentLotteryCreatedAt = 0;
     g_CurrentLotteryHash[0] = '\0';
     g_CurrentLotteryHashColor[0] = '\0';
     ClearAllClientLotteryCaches();
@@ -882,8 +880,7 @@ public void SQL_OnActiveLotterySelected(Database db, DBResultSet results, const 
         char hashColor[BP_CURRENCY_COLOR_MAX + 2];
         results.FetchString(1, hash, sizeof(hash));
         results.FetchString(2, hashColor, sizeof(hashColor));
-        int createdAt = results.FetchInt(3);
-        SetActiveLottery(lotteryId, hash, hashColor, createdAt);
+        SetActiveLottery(lotteryId, hash, hashColor);
         return;
     }
 
@@ -919,7 +916,6 @@ void CreateActiveLottery()
     DataPack pack = new DataPack();
     pack.WriteString(hash);
     pack.WriteString(hashColor);
-    pack.WriteCell(createdAt);
 
     char query[512];
     Format(query, sizeof(query),
@@ -939,7 +935,6 @@ public void SQL_OnActiveLotteryInserted(Database db, DBResultSet results, const 
     char hashColor[BP_CURRENCY_COLOR_MAX + 2];
     pack.ReadString(hash, sizeof(hash));
     pack.ReadString(hashColor, sizeof(hashColor));
-    int createdAt = pack.ReadCell();
     delete pack;
 
     g_LotteryCreating = false;
@@ -965,7 +960,6 @@ public void SQL_OnActiveLotteryInserted(Database db, DBResultSet results, const 
     DataPack selectPack = new DataPack();
     selectPack.WriteString(hash);
     selectPack.WriteString(hashColor);
-    selectPack.WriteCell(createdAt);
 
     char query[256];
     Format(query, sizeof(query),
@@ -983,7 +977,6 @@ public void SQL_OnActiveLotteryInsertedSelected(Database db, DBResultSet results
     char hashColor[BP_CURRENCY_COLOR_MAX + 2];
     pack.ReadString(hash, sizeof(hash));
     pack.ReadString(hashColor, sizeof(hashColor));
-    int createdAt = pack.ReadCell();
     delete pack;
 
     if (!IsLotteryEnabled())
@@ -997,13 +990,12 @@ public void SQL_OnActiveLotteryInsertedSelected(Database db, DBResultSet results
         return;
     }
 
-    SetActiveLottery(results.FetchInt(0), hash, hashColor, createdAt);
+    SetActiveLottery(results.FetchInt(0), hash, hashColor);
 }
 
-void SetActiveLottery(int lotteryId, const char[] hash, const char[] hashColor, int createdAt)
+void SetActiveLottery(int lotteryId, const char[] hash, const char[] hashColor)
 {
     g_CurrentLotteryId = lotteryId;
-    g_CurrentLotteryCreatedAt = createdAt;
     strcopy(g_CurrentLotteryHash, sizeof(g_CurrentLotteryHash), hash);
     strcopy(g_CurrentLotteryHashColor, sizeof(g_CurrentLotteryHashColor), hashColor);
     g_LotteryReady = true;

@@ -22,12 +22,12 @@
 // #define DEBUG	//Uncomment for "debug" stuff. Just some 'PrintToChatAll's here and there.
 
 //Enums
-enum PadCond (<<= 1)	//Custom Conditions - Use Pad_IsPlayerInCond() to see if a Custom Condition is active on a player.
+enum PadCond	//Custom Conditions - Use Pad_IsPlayerInCond() to see if a Custom Condition is active on a player.
 {
-	PadCond_None = 0,		// 0 << 0 = 0
-	PadCond_Boost = 1,		// 1 << 0 = 1
-	PadCond_NoFallDmg,		// 1 << 1 = 2
-	PadCond_DelayResponse	// 1 << 2 = 4
+	PadCond_None = 0,
+	PadCond_Boost = (1 << 0),
+	PadCond_NoFallDmg = (1 << 1),
+	PadCond_DelayResponse = (1 << 2)
 }
 
 enum //Custom ObjectType

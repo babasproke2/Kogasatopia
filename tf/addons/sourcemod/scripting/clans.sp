@@ -1372,26 +1372,6 @@ static int GetAllowedSubClanTagLength(int client)
     return CheckCommandAccess(client, "clans_long_tag", ADMFLAG_GENERIC, true) ? CLAN_TAG_ADMIN_MAXLEN : CLAN_TAG_PLAYER_MAXLEN;
 }
 
-static bool IsValidSteam64String(const char[] steamid64)
-{
-    int len = strlen(steamid64);
-    if (len < 17 || len > 20)
-    {
-        return false;
-    }
-
-    for (int i = 0; i < len; i++)
-    {
-        int ch = view_as<int>(steamid64[i]) & 0xFF;
-        if (ch < '0' || ch > '9')
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
 static bool ValidateClanTagText(const char[] text, bool allowFormatting)
 {
     if (!text[0])
@@ -1799,89 +1779,6 @@ bool GetCachedClanIdForSteam64(const char[] steamid64, int &clanId)
 {
     clanId = 0;
     return (g_hClanIdCache != null && steamid64[0] != '\0' && g_hClanIdCache.GetValue(steamid64, clanId));
-}
-
-bool ResolveClanIdForSteam64Sync(const char[] steamid64, int &clanId)
-{
-    clanId = 0;
-
-    if (!steamid64[0] || !EnsureDatabaseReady())
-    {
-        return false;
-    }
-
-    if (!IsValidSteam64String(steamid64))
-    {
-        LogError("[Clans] Rejected invalid steamid64 while resolving clan id: %s", steamid64);
-        return false;
-    }
-
-    if (GetCachedClanIdForSteam64(steamid64, clanId))
-    {
-        return true;
-    }
-
-    char escapedSteam[SQL_STEAMID64_MAXLEN];
-    EscapeSql(steamid64, escapedSteam, sizeof(escapedSteam));
-
-    char query[256];
-    FormatEx(query, sizeof(query),
-        "SELECT clan_id FROM clan_members WHERE steamid64 = '%s' LIMIT 1",
-        escapedSteam);
-
-    DBResultSet results = SQL_Query(g_Database, query);
-    if (!HasUsableResultSet(results))
-    {
-        char error[256];
-        SQL_GetError(g_Database, error, sizeof(error));
-        LogError("[Clans] Failed to resolve clan id for %s: %s", steamid64, error);
-        HandleDatabaseConnectionLoss(error);
-        delete results;
-        return false;
-    }
-
-    if (results.FetchRow())
-    {
-        clanId = results.FetchInt(0);
-    }
-
-    delete results;
-    UpdateClanIdCacheEntry(steamid64, clanId);
-    return true;
-}
-
-bool GetClientClanIdFast(int client, int &clanId)
-{
-    clanId = 0;
-
-    if (!IsPlayableClient(client))
-    {
-        return false;
-    }
-
-    if (g_bClientClanLoaded[client])
-    {
-        clanId = g_iClientClanId[client];
-        return true;
-    }
-
-    char steamid64[STEAMID64_MAXLEN];
-    if (!GetClientSteam64(client, steamid64, sizeof(steamid64)))
-    {
-        return false;
-    }
-
-    if (GetCachedClanIdForSteam64(steamid64, clanId))
-    {
-        return true;
-    }
-
-    if (!g_bDatabaseReady)
-    {
-        return false;
-    }
-
-    return ResolveClanIdForSteam64Sync(steamid64, clanId);
 }
 
 bool GetLoadedClientClanId(int client, int &clanId)
@@ -3203,40 +3100,6 @@ void FlushPendingClanWarPersistenceSync()
     FlushPendingClanWarKillWritesSync();
 }
 
-int FindClanWarIdByPairSync(int clanIdA, int clanIdB)
-{
-    if (!EnsureDatabaseReady() || clanIdA <= 0 || clanIdB <= 0)
-    {
-        return 0;
-    }
-
-    char query[128];
-    FormatEx(query, sizeof(query),
-        "SELECT id FROM clan_wars WHERE clan_id_a = %d AND clan_id_b = %d LIMIT 1",
-        clanIdA,
-        clanIdB);
-
-    DBResultSet results = SQL_Query(g_Database, query);
-    if (!HasUsableResultSet(results))
-    {
-        char error[256];
-        SQL_GetError(g_Database, error, sizeof(error));
-        LogError("[Clans] Failed to fetch war id for pair %d/%d: %s", clanIdA, clanIdB, error);
-        HandleDatabaseConnectionLoss(error);
-        delete results;
-        return 0;
-    }
-
-    int warId = 0;
-    if (results.FetchRow())
-    {
-        warId = results.FetchInt(0);
-    }
-
-    delete results;
-    return warId;
-}
-
 bool LoadActiveClanWarsCacheSync()
 {
     ResetActiveWarCache();
@@ -3308,69 +3171,6 @@ bool LoadActiveClanWarsCacheSync()
     delete pendingWars;
     g_bActiveWarCacheReady = true;
     return true;
-}
-
-bool EnsureActiveWarCacheEntryForPairSync(int firstClanId, int secondClanId, int &index)
-{
-    index = FindActiveWarIndexByPair(firstClanId, secondClanId);
-    if (index != -1)
-    {
-        return true;
-    }
-
-    if (g_bActiveWarCacheReady)
-    {
-        return false;
-    }
-
-    if (!EnsureDatabaseReady() || firstClanId <= 0 || secondClanId <= 0 || firstClanId == secondClanId)
-    {
-        return false;
-    }
-
-    int clanIdA = 0;
-    int clanIdB = 0;
-    NormalizeClanWarPair(firstClanId, secondClanId, clanIdA, clanIdB);
-
-    char query[256];
-    FormatEx(query, sizeof(query),
-        "SELECT id, score_a, score_b, created_at, expires_at "
-        ... "FROM clan_wars "
-        ... "WHERE clan_id_a = %d AND clan_id_b = %d AND status = %d "
-        ... "LIMIT 1",
-        clanIdA,
-        clanIdB,
-        view_as<int>(ClanWarStatus_Active));
-
-    DBResultSet results = SQL_Query(g_Database, query);
-    if (!HasUsableResultSet(results))
-    {
-        char error[256];
-        SQL_GetError(g_Database, error, sizeof(error));
-        LogError("[Clans] Failed to hydrate active war cache for pair %d/%d: %s", clanIdA, clanIdB, error);
-        HandleDatabaseConnectionLoss(error);
-        delete results;
-        return false;
-    }
-
-    if (!results.FetchRow())
-    {
-        delete results;
-        return false;
-    }
-
-    int warId = results.FetchInt(0);
-    int scoreA = results.FetchInt(1);
-    int scoreB = results.FetchInt(2);
-    int createdAt = results.FetchInt(3);
-    int expiresAt = results.FetchInt(4);
-    delete results;
-
-    int instanceId = 0;
-    EnsureClanWarInstanceSync(warId, clanIdA, clanIdB, createdAt, instanceId);
-    UpsertActiveWarCacheEntry(warId, clanIdA, clanIdB, scoreA, scoreB, createdAt, expiresAt, instanceId);
-    index = FindActiveWarIndexByWarId(warId);
-    return (index != -1);
 }
 
 bool EnsureActiveWarCacheEntryForWarIdSync(int warId, int &index)
@@ -4040,68 +3840,6 @@ bool GetActiveClanWarForClanSync(int clanId, int &warId, int &clanIdA, int &clan
     return (warId > 0);
 }
 
-bool GetActiveClanWarByPairSync(int firstClanId, int secondClanId, int &warId, int &clanIdA, int &clanIdB, int &scoreA, int &scoreB)
-{
-    if (GetActiveClanWarByPairCached(firstClanId, secondClanId, warId, clanIdA, clanIdB, scoreA, scoreB))
-    {
-        return true;
-    }
-
-    if (g_bActiveWarCacheReady)
-    {
-        return false;
-    }
-
-    warId = 0;
-    clanIdA = 0;
-    clanIdB = 0;
-    scoreA = 0;
-    scoreB = 0;
-
-    if (!EnsureDatabaseReady() || firstClanId <= 0 || secondClanId <= 0 || firstClanId == secondClanId)
-    {
-        return false;
-    }
-
-    NormalizeClanWarPair(firstClanId, secondClanId, clanIdA, clanIdB);
-
-    char query[256];
-    FormatEx(query, sizeof(query),
-        "SELECT id, score_a, score_b "
-        ... "FROM clan_wars "
-        ... "WHERE clan_id_a = %d AND clan_id_b = %d AND status = %d AND expires_at > %d "
-        ... "LIMIT 1",
-        clanIdA,
-        clanIdB,
-        view_as<int>(ClanWarStatus_Active),
-        GetTime());
-
-    DBResultSet results = SQL_Query(g_Database, query);
-    if (!HasUsableResultSet(results))
-    {
-        char error[256];
-        SQL_GetError(g_Database, error, sizeof(error));
-        LogError("[Clans] Failed to fetch active war for pair %d/%d: %s", clanIdA, clanIdB, error);
-        HandleDatabaseConnectionLoss(error);
-        delete results;
-        return false;
-    }
-
-    if (!results.FetchRow())
-    {
-        delete results;
-        clanIdA = 0;
-        clanIdB = 0;
-        return false;
-    }
-
-    warId = results.FetchInt(0);
-    scoreA = results.FetchInt(1);
-    scoreB = results.FetchInt(2);
-    delete results;
-    return (warId > 0);
-}
-
 void AddClanHistoryEntry(int clanId, const char[] fmt, any ...)
 {
     if (clanId <= 0 || !EnsureDatabaseReady())
@@ -4529,118 +4267,6 @@ public void SQL_OnStartClanWarInstanceSelected(Database db, DBResultSet results,
         war.instanceId = results.FetchInt(0);
         g_hActiveWars.SetArray(index, war);
     }
-}
-
-bool StartClanWarSync(int declaringClanId, int targetClanId, const char[] declarerSteam)
-{
-    if (!EnsureDatabaseReady() || declaringClanId <= 0 || targetClanId <= 0 || declaringClanId == targetClanId)
-    {
-        return false;
-    }
-
-    int clanIdA = 0;
-    int clanIdB = 0;
-    NormalizeClanWarPair(declaringClanId, targetClanId, clanIdA, clanIdB);
-
-    int existingWarId = 0;
-    bool hasExisting = false;
-
-    char query[256];
-    FormatEx(query, sizeof(query),
-        "SELECT id, clan_id_a, clan_id_b, score_a, score_b "
-        ... "FROM clan_wars WHERE clan_id_a = %d AND clan_id_b = %d LIMIT 1",
-        clanIdA,
-        clanIdB);
-
-    DBResultSet results = SQL_Query(g_Database, query);
-    if (!HasUsableResultSet(results))
-    {
-        char error[256];
-        SQL_GetError(g_Database, error, sizeof(error));
-        LogError("[Clans] Failed to check existing war for pair %d/%d: %s", clanIdA, clanIdB, error);
-        HandleDatabaseConnectionLoss(error);
-        delete results;
-        return false;
-    }
-
-    if (results.FetchRow())
-    {
-        hasExisting = true;
-        existingWarId = results.FetchInt(0);
-    }
-    delete results;
-
-    char escapedDeclarer[SQL_STEAMID64_MAXLEN];
-    EscapeSql(declarerSteam, escapedDeclarer, sizeof(escapedDeclarer));
-
-    int now = GetTime();
-    if (hasExisting)
-    {
-        FormatEx(query, sizeof(query),
-            "UPDATE clan_wars SET declared_by = '%s', score_a = 0, score_b = 0, winner_clan_id = NULL, "
-            ... "status = %d, created_at = %d, expires_at = %d, finished_at = NULL "
-            ... "WHERE id = %d",
-            escapedDeclarer,
-            view_as<int>(ClanWarStatus_Active),
-            now,
-            now + CLAN_WAR_EXPIRE_SECONDS,
-            existingWarId);
-    }
-    else
-    {
-        FormatEx(query, sizeof(query),
-            "INSERT INTO clan_wars (clan_id_a, clan_id_b, declared_by, score_a, score_b, winner_clan_id, status, created_at, expires_at, finished_at) "
-            ... "VALUES (%d, %d, '%s', 0, 0, NULL, %d, %d, %d, NULL)",
-            clanIdA,
-            clanIdB,
-            escapedDeclarer,
-            view_as<int>(ClanWarStatus_Active),
-            now,
-            now + CLAN_WAR_EXPIRE_SECONDS);
-    }
-
-    if (!SQL_FastQuery(g_Database, query))
-    {
-        char error[256];
-        SQL_GetError(g_Database, error, sizeof(error));
-        LogError("[Clans] Failed to start war between %d and %d: %s", clanIdA, clanIdB, error);
-        HandleDatabaseConnectionLoss(error);
-        return false;
-    }
-
-    int warId = hasExisting ? existingWarId : FindClanWarIdByPairSync(clanIdA, clanIdB);
-    if (warId > 0)
-    {
-        int instanceId = 0;
-        EnsureClanWarInstanceSync(warId, clanIdA, clanIdB, now, instanceId);
-        UpsertActiveWarCacheEntry(warId, clanIdA, clanIdB, 0, 0, now, now + CLAN_WAR_EXPIRE_SECONDS, instanceId);
-    }
-
-    char declaringClanName[CLAN_NAME_MAXLEN + 1];
-    char declaringClanTag[CLAN_TAG_STORE_MAXLEN];
-    char declaringOwnerName[MAX_NAME_LENGTH * 2];
-    char targetClanName[CLAN_NAME_MAXLEN + 1];
-    char targetClanTag[CLAN_TAG_STORE_MAXLEN];
-    char targetOwnerName[MAX_NAME_LENGTH * 2];
-    int memberCount = 0;
-
-    GetClanInfoSummarySync(declaringClanId, declaringClanName, sizeof(declaringClanName), declaringClanTag, sizeof(declaringClanTag), declaringOwnerName, sizeof(declaringOwnerName), memberCount);
-    GetClanInfoSummarySync(targetClanId, targetClanName, sizeof(targetClanName), targetClanTag, sizeof(targetClanTag), targetOwnerName, sizeof(targetOwnerName), memberCount);
-
-    char declaringHistoryLabel[96];
-    char targetHistoryLabel[96];
-    char declaringAnnounceLabel[96];
-    char targetAnnounceLabel[96];
-    BuildClanHistoryTagLabel(declaringClanTag, declaringClanName, declaringHistoryLabel, sizeof(declaringHistoryLabel));
-    BuildClanHistoryTagLabel(targetClanTag, targetClanName, targetHistoryLabel, sizeof(targetHistoryLabel));
-    BuildClanWarTagLabel(declaringClanTag, declaringClanName, declaringAnnounceLabel, sizeof(declaringAnnounceLabel));
-    BuildClanWarTagLabel(targetClanTag, targetClanName, targetAnnounceLabel, sizeof(targetAnnounceLabel));
-
-    AddClanHistoryEntry(declaringClanId, "Declared war on %s", targetHistoryLabel);
-    AddClanHistoryEntry(targetClanId, "War declared by %s", declaringHistoryLabel);
-    CPrintToChatAll("{gold}[Clans]{default} %s has declared war on %s!", declaringAnnounceLabel, targetAnnounceLabel);
-
-    return true;
 }
 
 void ResolveActiveWarsForDeletedClan(int clanId)

@@ -439,6 +439,7 @@ Action OnPlayerLoadoutUpdated(UserMsg msg_id, BfRead msg, const int[] players,
 		int playersNum, bool reliable, bool init) {
 	int client = msg.ReadByte();
 	s_LastUpdatedClient = GetClientSerial(client);
+	return Plugin_Continue;
 }
 
 /**
@@ -755,6 +756,7 @@ int Native_RemovePlayerLoadoutItem(Handle plugin, int argc) {
 	int flags = GetNativeCell(4);
 	
 	UnsetClientCustomLoadoutItem(client, playerClass, itemSlot, flags);
+	return 0;
 }
 
 /**

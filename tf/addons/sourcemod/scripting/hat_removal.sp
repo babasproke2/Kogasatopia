@@ -79,9 +79,9 @@ public Action:timerHookDelay(Handle:Timer, any:entity)
 	}
 }
 
-public EventSpawn(Handle:Event, const String:Name[], bool:dontBroadcast) 
+public EventSpawn(Handle:event, const String:Name[], bool:dontBroadcast) 
 {
-	new Client = GetClientOfUserId(GetEventInt( Event, "userid" ));
+	new Client = GetClientOfUserId(GetEventInt( event, "userid" ));
 	
 	if( !bRecentPrint[Client] )
 	{
