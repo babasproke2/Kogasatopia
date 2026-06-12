@@ -50,7 +50,6 @@
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
 #define ATTR_SECONDARY_REFILL_SOUND "tools/ifm/beep.wav"
 #define ATTR_RELOAD_ON_HIT "reload on hit"
-#define RESTORE_PRIMARY_SHOT_KILL_WINDOW 0.5
 
 #define SPROKE_ATTR_NAME		"sproke attribute"
 #define SPROKE_PRIMARY_ATTR		"mod max primary clip override"
@@ -96,12 +95,7 @@ enum struct tf2_player
 	int engiMetal;
 	int accuracyStreak;
 	float accuracyStreakExpiresAt;
-	float restorePrimaryShotDamageProgress;
-	int restorePrimaryShotDamageWeaponRef;
-	int restorePrimaryShotPrimaryRef;
-	int restorePrimaryShotKillAttackerUserId;
-	int restorePrimaryShotKillWeaponRef;
-	float restorePrimaryShotKillTime;
+	float secondaryDamageProgress;
 	Handle sprokeTimer;
 	int sprokePrimaryRef;
 	int sprokeParticleRef;
@@ -194,7 +188,7 @@ stock void ResetClientArrays(int client)
 	tf2_players[client].engiMetal = 0;
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
-	RestorePrimaryShot_Reset(client);
+	tf2_players[client].secondaryDamageProgress = 0.0;
 	tf2_players[client].jump_status = TF2_JUMP_NONE;
 	tf2_players[client].holdingJump = false;
 	tf2_players[client].oldHealth = 0;
@@ -947,8 +941,6 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	tf2_players[client].shockCharge = 30;
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
-	RestorePrimaryShot_OnPlayerDeath(event, client);
-	RestorePrimaryShot_Reset(client);
 
 	VitaSaw_CacheCharge(client, false);
 
@@ -960,6 +952,29 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	}
 
 	TryAwardAmbassadorHeadshotKill(event, attacker, client);
+
+	if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
+	{
+		int activeWeapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
+		if (!(activeWeapon > MaxClients && IsValidEntity(activeWeapon)))
+			return Plugin_Continue;
+		int restoreAmount = TF2CustAttr_GetInt(activeWeapon, ATTR_RESTORE_PRIMARY_SHOT_KILL, 0);
+		if (restoreAmount > 0)
+		{
+			int primary = GetPlayerWeaponSlot(attacker, 0);
+			if (primary > MaxClients && IsValidEntity(primary))
+			{
+				int maxClip = GetWeaponMaxClip(primary);
+				int clip = GetClip(primary);
+				if (maxClip > 0 && clip >= 0 && clip < maxClip)
+				{
+					int missing = maxClip - clip;
+					int restored = (restoreAmount < missing) ? restoreAmount : missing;
+					SetClip_Weapon(primary, clip + restored);
+				}
+			}
+		}
+	}
 
 	if (tf2_players[attacker].scytheWeapon != 0 && TF2_IsPlayerInCondition(client, TFCond_OnFire))
 		tf2_players[attacker].healCount += 4;
@@ -997,7 +1012,6 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
 
-	RestorePrimaryShot_Reset(client);
 	VitaSaw_ApplyStoredCharge(client);
 
 	if (tf2_players[client].shockCharge != 30)
@@ -1028,7 +1042,6 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
 
-	RestorePrimaryShot_Reset(client);
 	VitaSaw_ApplyStoredCharge(client);
 
 	return Plugin_Continue;
@@ -1201,189 +1214,55 @@ public Action OnWeaponSwitch(client, weapon)
 	return Plugin_Continue;
 }
 
-static void RestorePrimaryShot_ResetDamageProgress(int client)
+static void SecondaryDamageRefill_OnDamage(int attacker, int weapon, float damage)
 {
-	if (!WR_IsValidPlayerIndex(client))
+	if (attacker < 1 || attacker > MaxClients || !IsClientInGame(attacker))
 		return;
 
-	tf2_players[client].restorePrimaryShotDamageProgress = 0.0;
-	tf2_players[client].restorePrimaryShotDamageWeaponRef = INVALID_ENT_REFERENCE;
-	tf2_players[client].restorePrimaryShotPrimaryRef = INVALID_ENT_REFERENCE;
-}
-
-static void RestorePrimaryShot_ResetKillCandidate(int client)
-{
-	if (!WR_IsValidPlayerIndex(client))
+	if (weapon <= MaxClients || !IsValidEntity(weapon) || damage <= 0.0)
 		return;
 
-	tf2_players[client].restorePrimaryShotKillAttackerUserId = 0;
-	tf2_players[client].restorePrimaryShotKillWeaponRef = INVALID_ENT_REFERENCE;
-	tf2_players[client].restorePrimaryShotKillTime = 0.0;
-}
-
-static void RestorePrimaryShot_Reset(int client)
-{
-	RestorePrimaryShot_ResetDamageProgress(client);
-	RestorePrimaryShot_ResetKillCandidate(client);
-}
-
-static bool RestorePrimaryShot_GetDamageRequirement(int weapon, int &requirement)
-{
-	requirement = 0;
-	if (weapon <= MaxClients || !IsValidEntity(weapon))
-		return false;
-
-	requirement = TF2CustAttr_GetInt(weapon, ATTR_RESTORE_PRIMARY_SHOT_BY_DAMAGE, 0);
-	return requirement > 0;
-}
-
-static int RestorePrimaryShot_GetKillAmount(int weapon)
-{
-	if (weapon <= MaxClients || !IsValidEntity(weapon))
-		return 0;
-
-	return TF2CustAttr_GetInt(weapon, ATTR_RESTORE_PRIMARY_SHOT_KILL, 0);
-}
-
-static void RestorePrimaryShot_BindWeapons(int client, int weapon, int primary)
-{
-	int weaponRef = EntIndexToEntRef(weapon);
-	int primaryRef = EntIndexToEntRef(primary);
-
-	if (tf2_players[client].restorePrimaryShotDamageWeaponRef == weaponRef
-		&& tf2_players[client].restorePrimaryShotPrimaryRef == primaryRef)
-	{
-		return;
-	}
-
-	tf2_players[client].restorePrimaryShotDamageProgress = 0.0;
-	tf2_players[client].restorePrimaryShotDamageWeaponRef = weaponRef;
-	tf2_players[client].restorePrimaryShotPrimaryRef = primaryRef;
-}
-
-static int RestorePrimaryShot_Add(int client, int amount)
-{
-	if (client < 1 || client > MaxClients || !IsClientInGame(client) || amount <= 0)
-		return 0;
-
-	int primary = GetPlayerWeaponSlot(client, 0);
-	if (primary <= MaxClients || !IsValidEntity(primary))
-	{
-		RestorePrimaryShot_ResetDamageProgress(client);
-		return 0;
-	}
-
-	int maxClip = GetWeaponMaxClip(primary);
-	int clip = GetClip(primary);
-	if (maxClip <= 0 || clip < 0 || clip >= maxClip)
-	{
-		return 0;
-	}
-
-	int missing = maxClip - clip;
-	int restored = (amount < missing) ? amount : missing;
-	SetClip_Weapon(primary, clip + restored);
-	return restored;
-}
-
-static void RestorePrimaryShot_RecordKillCandidate(int victim, int attacker, int weapon, float damage)
-{
-	if (!WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker) || victim == attacker || damage <= 0.0)
-	{
-		RestorePrimaryShot_ResetKillCandidate(victim);
-		return;
-	}
-
-	if (RestorePrimaryShot_GetKillAmount(weapon) <= 0 || damage < float(GetClientHealth(victim)))
-	{
-		RestorePrimaryShot_ResetKillCandidate(victim);
-		return;
-	}
-
-	tf2_players[victim].restorePrimaryShotKillAttackerUserId = GetClientUserId(attacker);
-	tf2_players[victim].restorePrimaryShotKillWeaponRef = EntIndexToEntRef(weapon);
-	tf2_players[victim].restorePrimaryShotKillTime = GetGameTime();
-}
-
-static void RestorePrimaryShot_OnPlayerDeath(Event event, int victim)
-{
-	int attacker = GetClientOfUserId(event.GetInt("attacker"));
-	if (!WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker) || victim == attacker)
-	{
-		RestorePrimaryShot_ResetKillCandidate(victim);
-		return;
-	}
-
-	if (tf2_players[victim].restorePrimaryShotKillAttackerUserId != GetClientUserId(attacker)
-		|| (GetGameTime() - tf2_players[victim].restorePrimaryShotKillTime) > RESTORE_PRIMARY_SHOT_KILL_WINDOW)
-	{
-		RestorePrimaryShot_ResetKillCandidate(victim);
-		return;
-	}
-
-	int weapon = EntRefToEntIndex(tf2_players[victim].restorePrimaryShotKillWeaponRef);
-	int restoreAmount = RestorePrimaryShot_GetKillAmount(weapon);
-	int restored = RestorePrimaryShot_Add(attacker, restoreAmount);
-	if (restored > 0)
-	{
-		EmitSoundToClient(attacker, ATTR_SECONDARY_REFILL_SOUND);
-	}
-
-	RestorePrimaryShot_ResetKillCandidate(victim);
-}
-
-static void RestorePrimaryShot_OnDamageDealt(int attacker, int weapon, float damage)
-{
-	if (attacker < 1 || attacker > MaxClients || !IsClientInGame(attacker) || damage <= 0.0)
+	int requirement = TF2CustAttr_GetInt(weapon, ATTR_RESTORE_PRIMARY_SHOT_BY_DAMAGE, 0);
+	if (requirement <= 0)
 		return;
 
-	int requirement;
-	if (!RestorePrimaryShot_GetDamageRequirement(weapon, requirement))
-		return;
+	tf2_players[attacker].secondaryDamageProgress += damage;
 
 	int primary = GetPlayerWeaponSlot(attacker, 0);
 	if (primary <= MaxClients || !IsValidEntity(primary))
-	{
-		RestorePrimaryShot_ResetDamageProgress(attacker);
 		return;
-	}
 
 	int maxClip = GetWeaponMaxClip(primary);
+	if (maxClip <= 0)
+		return;
+
 	int clip = GetClip(primary);
-	if (maxClip <= 0 || clip < 0)
-	{
-		RestorePrimaryShot_ResetDamageProgress(attacker);
+	if (clip < 0)
 		return;
-	}
 
-	RestorePrimaryShot_BindWeapons(attacker, weapon, primary);
-
-	// Damage progress is attacker/weapon scoped, not victim scoped, so spraying a crowd pools damage.
-	if (clip >= maxClip)
+	bool updated = false;
+	float requirementFloat = float(requirement);
+	while (tf2_players[attacker].secondaryDamageProgress >= requirementFloat)
 	{
-		tf2_players[attacker].restorePrimaryShotDamageProgress = 0.0;
-		return;
-	}
+		if (clip >= maxClip)
+		{
+			float cap = requirementFloat * 2.0;
+			if (tf2_players[attacker].secondaryDamageProgress > cap)
+			{
+				tf2_players[attacker].secondaryDamageProgress = cap;
+			}
+			break;
+		}
 
-	tf2_players[attacker].restorePrimaryShotDamageProgress += damage;
-
-	int refills = 0;
-	while (tf2_players[attacker].restorePrimaryShotDamageProgress >= float(requirement) && clip < maxClip)
-	{
 		clip++;
-		refills++;
-		tf2_players[attacker].restorePrimaryShotDamageProgress -= float(requirement);
+		tf2_players[attacker].secondaryDamageProgress -= requirementFloat;
+		updated = true;
 	}
 
-	if (clip >= maxClip)
-	{
-		tf2_players[attacker].restorePrimaryShotDamageProgress = 0.0;
-	}
-
-	if (refills > 0)
+	if (updated)
 	{
 		SetClip_Weapon(primary, clip);
-		EmitSoundToClient(attacker, ATTR_SECONDARY_REFILL_SOUND);
+		PrintToChat(attacker, "cobson");
 	}
 }
 
@@ -1530,8 +1409,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 
 	if (attackerIsPlayer && damageWeapon > MaxClients && IsValidEntity(damageWeapon))
 	{
-		RestorePrimaryShot_RecordKillCandidate(client, attacker, damageWeapon, damage);
-		RestorePrimaryShot_OnDamageDealt(attacker, damageWeapon, damage);
+		SecondaryDamageRefill_OnDamage(attacker, damageWeapon, damage);
 		ReloadOnHit_OnDamage(damageWeapon);
 
 		int duelAttr = TF2CustAttr_GetInt(damageWeapon, "duel declared");
@@ -1548,10 +1426,6 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 				}
 			}
 		}
-	}
-	else if (attackerIsPlayer)
-	{
-		RestorePrimaryShot_ResetKillCandidate(client);
 	}
 
 	bool validWeapon = (weapon > MaxClients && IsValidEntity(weapon));
