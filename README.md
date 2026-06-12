@@ -22,3 +22,4 @@ This server implements the Amplifier concept from community Saxton Hale servers,
 This server has a heavily tweaked version of Nativevotes along with a system called mapeval that assigns vote weights to certain clients and maps, see https://github.com/eltanschauung/Nativevotes-Colorful<br>
 We have an ambitious stats tracker plugin and frontend, see https://github.com/eltanschauung/Whaletracker<br>
 
+The counterpart frontend repository can be found here, containing the site's blog and WhaleTracker's frontend: https://github.com/eltanschauung/Kogasatopia-Frontend-Elixir<br>
