@@ -50,6 +50,7 @@
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
 #define ATTR_SECONDARY_REFILL_SOUND "tools/ifm/beep.wav"
 #define ATTR_RELOAD_ON_HIT "reload on hit"
+#define RESTORE_PRIMARY_SHOT_DAMAGE_WINDOW 5.0
 
 #define SPROKE_ATTR_NAME		"sproke attribute"
 #define SPROKE_PRIMARY_ATTR		"mod max primary clip override"
@@ -96,6 +97,7 @@ enum struct tf2_player
 	int accuracyStreak;
 	float accuracyStreakExpiresAt;
 	float secondaryDamageProgress;
+	float secondaryDamageProgressExpiresAt;
 	Handle sprokeTimer;
 	int sprokePrimaryRef;
 	int sprokeParticleRef;
@@ -188,7 +190,7 @@ stock void ResetClientArrays(int client)
 	tf2_players[client].engiMetal = 0;
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
-	tf2_players[client].secondaryDamageProgress = 0.0;
+	SecondaryDamageRefill_Reset(client);
 	tf2_players[client].jump_status = TF2_JUMP_NONE;
 	tf2_players[client].holdingJump = false;
 	tf2_players[client].oldHealth = 0;
@@ -941,6 +943,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	tf2_players[client].shockCharge = 30;
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
+	SecondaryDamageRefill_Reset(client);
 
 	VitaSaw_CacheCharge(client, false);
 
@@ -1214,6 +1217,15 @@ public Action OnWeaponSwitch(client, weapon)
 	return Plugin_Continue;
 }
 
+static void SecondaryDamageRefill_Reset(int client)
+{
+	if (!WR_IsValidPlayerIndex(client))
+		return;
+
+	tf2_players[client].secondaryDamageProgress = 0.0;
+	tf2_players[client].secondaryDamageProgressExpiresAt = 0.0;
+}
+
 static void SecondaryDamageRefill_OnDamage(int attacker, int weapon, float damage)
 {
 	if (attacker < 1 || attacker > MaxClients || !IsClientInGame(attacker))
@@ -1226,7 +1238,14 @@ static void SecondaryDamageRefill_OnDamage(int attacker, int weapon, float damag
 	if (requirement <= 0)
 		return;
 
+	float now = GetGameTime();
+	if (tf2_players[attacker].secondaryDamageProgressExpiresAt <= now)
+	{
+		tf2_players[attacker].secondaryDamageProgress = 0.0;
+	}
+
 	tf2_players[attacker].secondaryDamageProgress += damage;
+	tf2_players[attacker].secondaryDamageProgressExpiresAt = now + RESTORE_PRIMARY_SHOT_DAMAGE_WINDOW;
 
 	int primary = GetPlayerWeaponSlot(attacker, 0);
 	if (primary <= MaxClients || !IsValidEntity(primary))
