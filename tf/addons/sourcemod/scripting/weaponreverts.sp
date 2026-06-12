@@ -50,6 +50,7 @@
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
 #define ATTR_SECONDARY_REFILL_SOUND "tools/ifm/beep.wav"
 #define ATTR_RELOAD_ON_HIT "reload on hit"
+#define ATTR_RELOAD_ON_KILL "reload on kill"
 #define ATTR_AMBASSADOR_102 "ambassador 102"
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
@@ -1026,6 +1027,9 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 		int activeWeapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
 		if (!(activeWeapon > MaxClients && IsValidEntity(activeWeapon)))
 			return Plugin_Continue;
+
+		ReloadOnKill_OnKill(activeWeapon);
+
 		int restoreAmount = TF2CustAttr_GetInt(activeWeapon, ATTR_RESTORE_PRIMARY_SHOT_KILL, 0);
 		if (restoreAmount > 0)
 		{
@@ -1350,22 +1354,21 @@ static void SecondaryDamageRefill_OnDamage(int attacker, int weapon, float damag
 	}
 }
 
-static void ReloadOnHit_OnDamage(int weapon)
+static bool ReloadWeaponClip(int weapon, int reloadAmount)
 {
 	if (weapon <= MaxClients || !IsValidEntity(weapon))
-		return;
+		return false;
 
-	int reloadAmount = TF2CustAttr_GetInt(weapon, ATTR_RELOAD_ON_HIT);
 	if (reloadAmount <= 0)
-		return;
+		return false;
 
 	int maxClip = GetWeaponMaxClip(weapon);
 	if (maxClip <= 0)
-		return;
+		return false;
 
 	int clip = GetClip(weapon);
 	if (clip < 0 || clip >= maxClip)
-		return;
+		return false;
 
 	clip += reloadAmount;
 	if (clip > maxClip)
@@ -1374,6 +1377,17 @@ static void ReloadOnHit_OnDamage(int weapon)
 	}
 
 	SetClip_Weapon(weapon, clip);
+	return true;
+}
+
+static void ReloadOnHit_OnDamage(int weapon)
+{
+	ReloadWeaponClip(weapon, TF2CustAttr_GetInt(weapon, ATTR_RELOAD_ON_HIT));
+}
+
+static void ReloadOnKill_OnKill(int weapon)
+{
+	ReloadWeaponClip(weapon, TF2CustAttr_GetInt(weapon, ATTR_RELOAD_ON_KILL));
 }
 
 static int GetDamageSourceWeapon(int attacker, int weapon, int inflictor)
