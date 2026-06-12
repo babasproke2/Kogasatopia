@@ -104,13 +104,14 @@
                 "name" "Wine Red • Admire"
                 "description"
                 {
-                        "positive"             "Enables wall climb, minicrits instead of crits, +50% headshot damage"
+                        "positive"             "Enables wall climb, minicrits instead of crits, +50% headshot damage, 35% faster swap to speed"
                         "negative"             "crits become minicrits, fires tracer"
                 }
                 "attributes_game"
                 {
                         "headshot damage increase"      "1.50"
                         "crits_become_minicrits"        "1"
+                        "single wep deploy time decreased"      "0.65"
                         "sniper fires tracer"   "1"
                 }
                 "attributes_custom"
