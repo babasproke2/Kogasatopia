@@ -50,6 +50,9 @@
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
 #define ATTR_SECONDARY_REFILL_SOUND "tools/ifm/beep.wav"
 #define ATTR_RELOAD_ON_HIT "reload on hit"
+#define ATTR_AMBASSADOR_102 "ambassador 102"
+#define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
+#define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
 #define RESTORE_PRIMARY_SHOT_DAMAGE_WINDOW 5.0
 
 #define SPROKE_ATTR_NAME		"sproke attribute"
@@ -112,6 +115,7 @@ Handle g_SDKGetMaxClip1 = null;
 int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
 bool g_bAccuracyExploding[MAXPLAYERS + 1];
+int g_iAmbassadorCritParticle = INVALID_STRING_INDEX;
 
 #include <weaponreverts>
  
@@ -319,6 +323,8 @@ public void PreCacheWeaponSounds() {
 	PrecacheSound(SOUND_ARROW_HEAL, true);
 	PrecacheSound(SOUND_NEON_SIGN, true);
 	PrecacheSound(SOUND_FLAME_OUT, true);
+	PrecacheSound(SOUND_AMBASSADOR_CRIT_RECEIVED, true);
+	PrecacheSound(SOUND_AMBASSADOR_CRIT_HIT, true);
 	PrecacheSound(FLS_EXPLODE_SOUND, true);
 	PrecacheSound(FLS_NOTIFY_SOUND, true);
 	PrecacheSound(FLS_NOTIFY_2, true);
@@ -326,8 +332,30 @@ public void PreCacheWeaponSounds() {
 	PrecacheSound(ATTR_SECONDARY_REFILL_SOUND, true);
 }
 
+static void Ambassador102_CacheCritParticle()
+{
+	g_iAmbassadorCritParticle = INVALID_STRING_INDEX;
+
+	int table = FindStringTable("ParticleEffectNames");
+	if (table == INVALID_STRING_TABLE)
+		return;
+
+	char particle[128];
+	int count = GetStringTableNumStrings(table);
+	for (int i = 0; i < count; i++)
+	{
+		ReadStringTable(table, i, particle, sizeof(particle));
+		if (StrEqual(particle, "crit_text", false))
+		{
+			g_iAmbassadorCritParticle = i;
+			return;
+		}
+	}
+}
+
 public void OnMapStart() {
 	PreCacheWeaponSounds();
+	Ambassador102_CacheCritParticle();
 	StartHealTimer();
 }
 
@@ -446,6 +474,43 @@ static bool IsAmbassadorHeadshotWeapon(int weapon)
 
 	int defIndex = GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
 	return (defIndex == AMBASSADOR_ITEMDEF || defIndex == FESTIVE_AMBASSADOR_ITEMDEF);
+}
+
+static bool Ambassador102_IsEnabledWeapon(int weapon)
+{
+	return IsAmbassadorHeadshotWeapon(weapon) && TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_102, 0) != 0;
+}
+
+// Credit goes to Drixevel for preambassador.sp.
+static Action Ambassador102_OnHeadshotDamage(int victim, int attacker, int weapon, float &damage, int damagetype, int damagecustom)
+{
+	if (damagecustom != TF_CUSTOM_HEADSHOT || !Ambassador102_IsEnabledWeapon(weapon))
+		return Plugin_Continue;
+
+	if (!WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker))
+		return Plugin_Continue;
+
+	if ((damagetype & DMG_ACID) != DMG_ACID)
+	{
+		EmitSoundToClient(victim, SOUND_AMBASSADOR_CRIT_RECEIVED, SOUND_FROM_PLAYER, SNDCHAN_AUTO, 95);
+		EmitSoundToClient(attacker, SOUND_AMBASSADOR_CRIT_HIT, SOUND_FROM_PLAYER, SNDCHAN_AUTO, 85);
+
+		if (g_iAmbassadorCritParticle != INVALID_STRING_INDEX)
+		{
+			float origin[3];
+			GetEntPropVector(victim, Prop_Send, "m_vecOrigin", origin);
+
+			TE_Start("TFParticleEffect");
+			TE_WriteFloat("m_vecOrigin[0]", origin[0]);
+			TE_WriteFloat("m_vecOrigin[1]", origin[1]);
+			TE_WriteFloat("m_vecOrigin[2]", origin[2] + 56.0);
+			TE_WriteNum("m_iParticleSystemIndex", g_iAmbassadorCritParticle);
+			TE_SendToClient(attacker);
+		}
+	}
+
+	damage = 102.0;
+	return Plugin_Changed;
 }
 
 static void TryAwardAmbassadorHeadshotKill(Event event, int attacker, int victim)
@@ -1449,6 +1514,10 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 
 	bool validWeapon = (weapon > MaxClients && IsValidEntity(weapon));
 	new wepindex = (validWeapon ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
+	Action ambassador102Action = Ambassador102_OnHeadshotDamage(client, attacker, damageWeapon, damage, damagetype, damagecustom);
+	if (ambassador102Action != Plugin_Continue)
+		return ambassador102Action;
+
 	if (damagecustom == SANDMAN_DAMAGE_CUSTOM)
 	{
 		return SandmanPreJI_OnBaseballDamage(client, attacker, inflictor, damage);
