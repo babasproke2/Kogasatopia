@@ -1,3 +1,4 @@
+// Marked unused in the server as of 12/06/2026
 public Plugin myinfo = {
         name = "Map Popularity Stats",
         author = "hombre",

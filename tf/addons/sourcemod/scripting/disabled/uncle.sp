@@ -1,3 +1,4 @@
+// Marked unused in the server as of 12/06/2026
 #include <sourcemod>
 
 #pragma semicolon 1
