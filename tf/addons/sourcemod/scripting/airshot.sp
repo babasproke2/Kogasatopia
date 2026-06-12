@@ -20,6 +20,8 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define SOUND_AIRSHOT "misc/taps_02.wav"
 #define SOUND_AIRSHOT_DOWNLOAD "sound/misc/taps_02.wav"
 #define SAYSOUND_AIRSHOT_COMMAND "airshot"
+#define DROPSHOT_KILL_BONUS_TYPE "dropshot_kill"
+#define DROPSHOT_KILL_BONUS_PER_MAP 5
 
 bool g_bSaySoundsAvailable = false;
 int g_iPendingAirshotAttacker[MAXPLAYERS + 1];
@@ -157,6 +159,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 	BuildDisplayName(attacker, attackerName, sizeof(attackerName));
 	BuildDisplayName(victim, victimName, sizeof(victimName));
 	CPrintToChatAll("%s dropshot %s!", attackerName, victimName);
+	AwardDropshotKillGem(attacker, victim);
 	if (g_bSaySoundsAvailable)
 	{
 		SaySounds_PlayCommand(0, SAYSOUND_AIRSHOT_COMMAND);
@@ -167,6 +170,16 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 		EmitSoundToClient(victim, SOUND_AIRSHOT);
 	}
 	ResetAirshotState(victim);
+}
+
+static void AwardDropshotKillGem(int attacker, int victim)
+{
+	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") != FeatureStatus_Available)
+	{
+		return;
+	}
+
+	PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, DROPSHOT_KILL_BONUS_TYPE, victim, 3.0, DROPSHOT_KILL_BONUS_PER_MAP);
 }
 
 public void WhaleTracker_OnAirshot(int attacker, int victim)
