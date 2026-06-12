@@ -1488,9 +1488,75 @@ static bool IsExportableClanTagText(const char[] text)
     return ValidateClanTagText(text, true);
 }
 
+static bool IsClanTagColorTokenAt(const char[] text, int start, int &end)
+{
+    end = start;
+
+    if (text[start] != '{')
+    {
+        return false;
+    }
+
+    for (int i = start + 1; text[i] != '\0'; i++)
+    {
+        if (text[i] == '}')
+        {
+            end = i + 1;
+            return i > start + 1;
+        }
+
+        if (text[i] == '{' || text[i] == '[' || text[i] == ']' || text[i] == '|')
+        {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+static void RemoveClanTagTextRange(char[] text, int start, int stop)
+{
+    int write = start;
+    for (int read = stop; ; read++)
+    {
+        text[write++] = text[read];
+        if (text[read] == '\0')
+        {
+            break;
+        }
+    }
+}
+
+static void NormalizeClanTagText(char[] text)
+{
+    TrimString(text);
+
+    int tokenStart = 0;
+    int tokenEnd = 0;
+    while (IsClanTagColorTokenAt(text, tokenStart, tokenEnd))
+    {
+        int visibleStart = tokenEnd;
+        while (text[visibleStart] == ' ')
+        {
+            visibleStart++;
+        }
+
+        if (visibleStart > tokenEnd)
+        {
+            RemoveClanTagTextRange(text, tokenEnd, visibleStart);
+        }
+
+        tokenStart = tokenEnd;
+    }
+}
+
 static void FormatStoredClanTag(const char[] rawTag, char[] buffer, int maxlen)
 {
-    FormatEx(buffer, maxlen, "[{gold}%s{default}]", rawTag);
+    char normalized[CLAN_TAG_STORE_MAXLEN];
+    strcopy(normalized, sizeof(normalized), rawTag);
+    NormalizeClanTagText(normalized);
+
+    FormatEx(buffer, maxlen, "[{gold}%s{default}]", normalized);
 }
 
 static void ExtractRawClanTag(const char[] storedTag, char[] buffer, int maxlen)
@@ -1542,11 +1608,13 @@ static void ExtractRawClanTag(const char[] storedTag, char[] buffer, int maxlen)
             }
 
             buffer[copyLen] = '\0';
+            NormalizeClanTagText(buffer);
             return;
         }
     }
 
     strcopy(buffer, maxlen, storedTag);
+    NormalizeClanTagText(buffer);
 }
 
 static bool AppendJoinedClanTag(char[] buffer, int maxlen, const char[] tag)
@@ -4542,6 +4610,7 @@ void StartSetMainClanTagFromInput(int client, const char[] input)
     strcopy(rawTag, sizeof(rawTag), input);
     StripQuotes(rawTag);
     TrimString(rawTag);
+    NormalizeClanTagText(rawTag);
 
     if (!rawTag[0])
     {
@@ -6815,6 +6884,7 @@ void StartSetClanSubTagFromInput(int client, const char[] input)
     strcopy(rawTag, sizeof(rawTag), input);
     StripQuotes(rawTag);
     TrimString(rawTag);
+    NormalizeClanTagText(rawTag);
 
     if (!rawTag[0])
     {
