@@ -561,7 +561,7 @@
                 "name"                  "Soldier's M16"
                 "description"
                 {
-                        "positive"             "SMG, dealing 20 damage refills your rocket launcher clip by 1"
+                        "positive"             "SMG, dealing 25 damage restores 1 rocket, kills restore 1 rocket"
                         "negative"             "50% less accurate"
                 }
                 "used_by_classes"
@@ -577,7 +577,8 @@
                 }
                 "attributes_custom"
                 {
-                        "secondary damage ammo refill"      "20"
+                        "restore primary shot by damage"      "25"
+                        "restore primary shot kill"      "1"
                         "replace sound"     "m16"
                 }
         }

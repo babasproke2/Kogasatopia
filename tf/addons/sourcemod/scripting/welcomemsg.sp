@@ -59,7 +59,7 @@ static const char g_SoldierCustom[][] = {
     "\x01[Secondary] Old Panic Attack: {chartreuse}Hold fire to load up to 4 shells, fires faster as HP decreases\n",
     "\x01[Secondary] Hoshino's Shotgun - Stock Reskin\n",
     "\x01[Secondary] Soldier's Pistol\n",
-    "\x01[Secondary] Soldier's M16: SMG, {red}50% less accurate, {green}dealing 20 damage refills your rocket launcher clip by 1\n",
+    "\x01[Secondary] Soldier's M16: SMG, {red}50% less accurate, {green}dealing 25 damage restores 1 rocket, kills restore 1 rocket\n",
     "\x01[Melee] Reimu's Gohei - Stock, Whip and Market Gardener options\n"
 };
 
