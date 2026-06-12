@@ -4,13 +4,13 @@
 #include <weaponreverts_api>
 
 #define WEAPON_REVERTS_CONFIG_PATH "configs/weaponreverts.cfg"
-#define WEAPON_REVERTS_COMMANDS_SECTION "WeaponRevertsCommands"
+#define WEAPON_REVERTS_ITEM_CLASSES_SECTION "WeaponRevertsItemClasses"
 
-KeyValues g_hWeaponRevertsCommandsConfig = null;
+KeyValues g_hWeaponRevertsItemClassesConfig = null;
 
 public Plugin myinfo =
 {
-	name = "WeaponReverts Commands",
+	name = "WeaponReverts Item Classes",
 	author = "Hombre",
 	description = "Player-facing weapon revert commands backed by weaponreverts_api",
 	version = "1.0",
@@ -19,7 +19,7 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
-	LoadWeaponRevertsCommandsConfig();
+	LoadWeaponRevertsItemClassesConfig();
 	RegConsoleCmd("sm_reverts", Command_InfoReverts, "Lists weapon revert data to the client");
 	RegConsoleCmd("sm_revert", Command_InfoReverts, "Lists weapon revert data to the client");
 	RegConsoleCmd("sm_r", Command_InfoReverts, "Lists weapon revert data to the client");
@@ -28,38 +28,38 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
-	if (g_hWeaponRevertsCommandsConfig != null)
+	if (g_hWeaponRevertsItemClassesConfig != null)
 	{
-		delete g_hWeaponRevertsCommandsConfig;
-		g_hWeaponRevertsCommandsConfig = null;
+		delete g_hWeaponRevertsItemClassesConfig;
+		g_hWeaponRevertsItemClassesConfig = null;
 	}
 }
 
-static bool WeaponRevertsCommands_IsUsableClient(int client)
+static bool WeaponRevertsItemClasses_IsUsableClient(int client)
 {
 	return client > 0 && client <= MaxClients && IsClientInGame(client);
 }
 
-static void LoadWeaponRevertsCommandsConfig()
+static void LoadWeaponRevertsItemClassesConfig()
 {
-	if (g_hWeaponRevertsCommandsConfig != null)
+	if (g_hWeaponRevertsItemClassesConfig != null)
 	{
-		delete g_hWeaponRevertsCommandsConfig;
-		g_hWeaponRevertsCommandsConfig = null;
+		delete g_hWeaponRevertsItemClassesConfig;
+		g_hWeaponRevertsItemClassesConfig = null;
 	}
 
-	g_hWeaponRevertsCommandsConfig = new KeyValues("WeaponReverts");
+	g_hWeaponRevertsItemClassesConfig = new KeyValues("WeaponReverts");
 
 	char path[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, path, sizeof(path), WEAPON_REVERTS_CONFIG_PATH);
 
-	if (!g_hWeaponRevertsCommandsConfig.ImportFromFile(path))
+	if (!g_hWeaponRevertsItemClassesConfig.ImportFromFile(path))
 	{
-		LogError("[weaponreverts_commands] Failed to load %s", path);
+		LogError("[weaponreverts_item_classes] Failed to load %s", path);
 	}
 }
 
-static void WeaponRevertsCommands_GetClassKey(TFClassType class, char[] buffer, int maxlen)
+static void WeaponRevertsItemClasses_GetClassKey(TFClassType class, char[] buffer, int maxlen)
 {
 	switch (class)
 	{
@@ -76,7 +76,7 @@ static void WeaponRevertsCommands_GetClassKey(TFClassType class, char[] buffer, 
 	}
 }
 
-static int WeaponRevertsCommands_GetFirstItemIndex(const char[] itemKey)
+static int WeaponRevertsItemClasses_GetFirstItemIndex(const char[] itemKey)
 {
 	char token[16];
 	int tokenLen = 0;
@@ -118,33 +118,33 @@ static void FormatRevertLine(char[] buffer, int maxlen, const char[] weaponName,
 
 public Action Command_InfoReverts(int client, int args)
 {
-	if (!WeaponRevertsCommands_IsUsableClient(client))
+	if (!WeaponRevertsItemClasses_IsUsableClient(client))
 		return Plugin_Handled;
 
 	char classKey[16];
-	WeaponRevertsCommands_GetClassKey(TF2_GetPlayerClass(client), classKey, sizeof(classKey));
+	WeaponRevertsItemClasses_GetClassKey(TF2_GetPlayerClass(client), classKey, sizeof(classKey));
 	if (classKey[0] == '\0')
 		return Plugin_Handled;
 
-	if (g_hWeaponRevertsCommandsConfig == null)
-		LoadWeaponRevertsCommandsConfig();
+	if (g_hWeaponRevertsItemClassesConfig == null)
+		LoadWeaponRevertsItemClassesConfig();
 
-	g_hWeaponRevertsCommandsConfig.Rewind();
-	if (!g_hWeaponRevertsCommandsConfig.JumpToKey(WEAPON_REVERTS_COMMANDS_SECTION, false) || !g_hWeaponRevertsCommandsConfig.JumpToKey(classKey, false))
+	g_hWeaponRevertsItemClassesConfig.Rewind();
+	if (!g_hWeaponRevertsItemClassesConfig.JumpToKey(WEAPON_REVERTS_ITEM_CLASSES_SECTION, false) || !g_hWeaponRevertsItemClassesConfig.JumpToKey(classKey, false))
 	{
 		CPrintToChat(client, "{green}[Info] {default}No weapon revert data available for your class.");
-		g_hWeaponRevertsCommandsConfig.Rewind();
+		g_hWeaponRevertsItemClassesConfig.Rewind();
 		return Plugin_Handled;
 	}
 
 	StringMap printed = new StringMap();
-	if (g_hWeaponRevertsCommandsConfig.GotoFirstSubKey(false))
+	if (g_hWeaponRevertsItemClassesConfig.GotoFirstSubKey(false))
 	{
 		do
 		{
 			char indexKey[64];
-			g_hWeaponRevertsCommandsConfig.GetSectionName(indexKey, sizeof(indexKey));
-			int weaponIndex = WeaponRevertsCommands_GetFirstItemIndex(indexKey);
+			g_hWeaponRevertsItemClassesConfig.GetSectionName(indexKey, sizeof(indexKey));
+			int weaponIndex = WeaponRevertsItemClasses_GetFirstItemIndex(indexKey);
 			if (weaponIndex <= 0)
 				continue;
 
@@ -166,12 +166,12 @@ public Action Command_InfoReverts(int client, int args)
 			FormatRevertLine(line, sizeof(line), weaponName, positive, negative);
 			CPrintToChat(client, "%s", line);
 		}
-		while (g_hWeaponRevertsCommandsConfig.GotoNextKey(false));
+		while (g_hWeaponRevertsItemClassesConfig.GotoNextKey(false));
 
-		g_hWeaponRevertsCommandsConfig.GoBack();
+		g_hWeaponRevertsItemClassesConfig.GoBack();
 	}
 
 	delete printed;
-	g_hWeaponRevertsCommandsConfig.Rewind();
+	g_hWeaponRevertsItemClassesConfig.Rewind();
 	return Plugin_Handled;
 }

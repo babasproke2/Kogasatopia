@@ -83,7 +83,7 @@
 #define WEAPON_SLOT_LAST 5
 
 #define WEAPON_REVERTS_CONFIG_PATH "configs/weaponreverts.cfg"
-#define WEAPON_REVERTS_COMMANDS_SECTION "WeaponRevertsCommands"
+#define WEAPON_REVERTS_ITEM_CLASSES_SECTION "WeaponRevertsItemClasses"
 #define FLAME_SHOTGUN_FULL_PELLET_THRESHOLD 6
 
 tf2_player tf2_players[MAXPLAYERS + 1];
@@ -2109,7 +2109,7 @@ static void WeaponReverts_GetWeaponClasses(int index, char[] buffer, int maxlen)
 		return;
 
 	g_hWeaponRevertsConfig.Rewind();
-	if (!g_hWeaponRevertsConfig.JumpToKey(WEAPON_REVERTS_COMMANDS_SECTION, false))
+	if (!g_hWeaponRevertsConfig.JumpToKey(WEAPON_REVERTS_ITEM_CLASSES_SECTION, false))
 		return;
 
 	if (!g_hWeaponRevertsConfig.GotoFirstSubKey(true))
@@ -2141,7 +2141,7 @@ static bool WeaponReverts_ClassCanUseWeapon(const char[] className, int index)
 		return false;
 
 	g_hWeaponRevertsConfig.Rewind();
-	if (!g_hWeaponRevertsConfig.JumpToKey(WEAPON_REVERTS_COMMANDS_SECTION, false))
+	if (!g_hWeaponRevertsConfig.JumpToKey(WEAPON_REVERTS_ITEM_CLASSES_SECTION, false))
 		return false;
 
 	if (!g_hWeaponRevertsConfig.JumpToKey(className, false))
