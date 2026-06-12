@@ -75,6 +75,30 @@ static void WeaponRevertsCommands_GetClassKey(TFClassType class, char[] buffer, 
 	}
 }
 
+static int WeaponRevertsCommands_GetFirstItemIndex(const char[] itemKey)
+{
+	char token[16];
+	int tokenLen = 0;
+	int keyLen = strlen(itemKey);
+
+	for (int i = 0; i <= keyLen; i++)
+	{
+		if (itemKey[i] == ',' || itemKey[i] == '\0')
+		{
+			token[tokenLen] = '\0';
+			TrimString(token);
+			return StringToInt(token);
+		}
+
+		if (tokenLen < sizeof(token) - 1)
+		{
+			token[tokenLen++] = itemKey[i];
+		}
+	}
+
+	return 0;
+}
+
 static void FormatRevertLine(char[] buffer, int maxlen, const char[] weaponName, const char[] positive, const char[] negative)
 {
 	if (positive[0] != '\0' && negative[0] != '\0')
@@ -116,9 +140,9 @@ public Action Command_InfoReverts(int client, int args)
 	{
 		do
 		{
-			char indexKey[16];
+			char indexKey[64];
 			g_hWeaponRevertsCommandsConfig.GetSectionName(indexKey, sizeof(indexKey));
-			int weaponIndex = StringToInt(indexKey);
+			int weaponIndex = WeaponRevertsCommands_GetFirstItemIndex(indexKey);
 			if (weaponIndex <= 0)
 				continue;
 

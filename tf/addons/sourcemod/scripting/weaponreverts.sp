@@ -2012,6 +2012,84 @@ static void WeaponReverts_GetClassKey(TFClassType class, char[] buffer, int maxl
 	}
 }
 
+static bool WeaponReverts_ItemKeyContainsIndex(const char[] itemKey, int index)
+{
+	char token[16];
+	int tokenLen = 0;
+	int keyLen = strlen(itemKey);
+
+	for (int i = 0; i <= keyLen; i++)
+	{
+		if (itemKey[i] == ',' || itemKey[i] == '\0')
+		{
+			token[tokenLen] = '\0';
+			TrimString(token);
+			if (token[0] != '\0' && StringToInt(token) == index)
+				return true;
+
+			tokenLen = 0;
+			continue;
+		}
+
+		if (tokenLen < sizeof(token) - 1)
+		{
+			token[tokenLen++] = itemKey[i];
+		}
+	}
+
+	return false;
+}
+
+static bool WeaponReverts_JumpToConfiguredWeapon(int index)
+{
+	if (g_hWeaponRevertsConfig == null)
+		return false;
+
+	g_hWeaponRevertsConfig.Rewind();
+	if (!g_hWeaponRevertsConfig.GotoFirstSubKey(true))
+		return false;
+
+	do
+	{
+		char itemKey[64];
+		g_hWeaponRevertsConfig.GetSectionName(itemKey, sizeof(itemKey));
+		if (WeaponReverts_ItemKeyContainsIndex(itemKey, index))
+		{
+			return true;
+		}
+	}
+	while (g_hWeaponRevertsConfig.GotoNextKey(true));
+
+	g_hWeaponRevertsConfig.Rewind();
+	return false;
+}
+
+static bool WeaponReverts_CurrentSectionContainsItemIndex(KeyValues kv, int index)
+{
+	if (kv == null)
+		return false;
+
+	bool found = false;
+	if (kv.GotoFirstSubKey(false))
+	{
+		do
+		{
+			char itemKey[64];
+			kv.GetSectionName(itemKey, sizeof(itemKey));
+			if (WeaponReverts_ItemKeyContainsIndex(itemKey, index))
+			{
+				found = true;
+				break;
+			}
+		}
+		while (kv.GotoNextKey(false));
+
+		kv.GoBack();
+	}
+
+	return found;
+}
+
 static bool WeaponReverts_IsAllowedForClient(int client)
 {
 	if (g_hWeaponRevertsConfig == null || !WR_IsClientInGame(client))
@@ -2042,9 +2120,6 @@ static void WeaponReverts_GetWeaponClasses(int index, char[] buffer, int maxlen)
 	if (g_hWeaponRevertsCommandsConfig == null)
 		return;
 
-	char indexKey[16];
-	IntToString(index, indexKey, sizeof(indexKey));
-
 	g_hWeaponRevertsCommandsConfig.Rewind();
 	if (!g_hWeaponRevertsCommandsConfig.GotoFirstSubKey(true))
 		return;
@@ -2054,12 +2129,11 @@ static void WeaponReverts_GetWeaponClasses(int index, char[] buffer, int maxlen)
 		char className[32];
 		g_hWeaponRevertsCommandsConfig.GetSectionName(className, sizeof(className));
 
-		if (g_hWeaponRevertsCommandsConfig.JumpToKey(indexKey, false))
+		if (WeaponReverts_CurrentSectionContainsItemIndex(g_hWeaponRevertsCommandsConfig, index))
 		{
 			if (buffer[0] != '\0')
 				StrCat(buffer, maxlen, ",");
 			StrCat(buffer, maxlen, className);
-			g_hWeaponRevertsCommandsConfig.GoBack();
 		}
 	}
 	while (g_hWeaponRevertsCommandsConfig.GotoNextKey(true));
@@ -2072,14 +2146,11 @@ static bool WeaponReverts_ClassCanUseWeapon(const char[] className, int index)
 	if (g_hWeaponRevertsCommandsConfig == null)
 		return false;
 
-	char indexKey[16];
-	IntToString(index, indexKey, sizeof(indexKey));
-
 	g_hWeaponRevertsCommandsConfig.Rewind();
 	if (!g_hWeaponRevertsCommandsConfig.JumpToKey(className, false))
 		return false;
 
-	bool found = g_hWeaponRevertsCommandsConfig.JumpToKey(indexKey, false);
+	bool found = WeaponReverts_CurrentSectionContainsItemIndex(g_hWeaponRevertsCommandsConfig, index);
 	g_hWeaponRevertsCommandsConfig.Rewind();
 	return found;
 }
@@ -2089,11 +2160,7 @@ static bool WeaponReverts_GetConfiguredInfo(int index, char[] weaponName, int we
 	if (g_hWeaponRevertsConfig == null)
 		return false;
 
-	char indexKey[16];
-	IntToString(index, indexKey, sizeof(indexKey));
-
-	g_hWeaponRevertsConfig.Rewind();
-	if (!g_hWeaponRevertsConfig.JumpToKey(indexKey, false))
+	if (!WeaponReverts_JumpToConfiguredWeapon(index))
 		return false;
 
 	g_hWeaponRevertsConfig.GetString("weapon_name", weaponName, weaponNameLen, "Unknown Weapon");
@@ -2189,11 +2256,7 @@ static void WeaponReverts_ApplyConfiguredAttributes(int client, int index, int e
 	if (g_hWeaponRevertsConfig == null || !WR_IsClientInGame(client) || !WR_IsValidWeaponEntity(entity))
 		return;
 
-	char indexKey[16];
-	IntToString(index, indexKey, sizeof(indexKey));
-
-	g_hWeaponRevertsConfig.Rewind();
-	if (!g_hWeaponRevertsConfig.JumpToKey(indexKey, false))
+	if (!WeaponReverts_JumpToConfiguredWeapon(index))
 		return;
 
 	if (WeaponReverts_IsAllowedForClient(client))
