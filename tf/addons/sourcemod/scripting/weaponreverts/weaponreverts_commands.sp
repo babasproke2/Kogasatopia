@@ -3,7 +3,8 @@
 #include <morecolors>
 #include <weaponreverts_api>
 
-#define WEAPON_REVERTS_COMMANDS_CONFIG_PATH "configs/weaponreverts_commands.cfg"
+#define WEAPON_REVERTS_CONFIG_PATH "configs/weaponreverts.cfg"
+#define WEAPON_REVERTS_COMMANDS_SECTION "WeaponRevertsCommands"
 
 KeyValues g_hWeaponRevertsCommandsConfig = null;
 
@@ -47,10 +48,10 @@ static void LoadWeaponRevertsCommandsConfig()
 		g_hWeaponRevertsCommandsConfig = null;
 	}
 
-	g_hWeaponRevertsCommandsConfig = new KeyValues("WeaponRevertsCommands");
+	g_hWeaponRevertsCommandsConfig = new KeyValues("WeaponReverts");
 
 	char path[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, path, sizeof(path), WEAPON_REVERTS_COMMANDS_CONFIG_PATH);
+	BuildPath(Path_SM, path, sizeof(path), WEAPON_REVERTS_CONFIG_PATH);
 
 	if (!g_hWeaponRevertsCommandsConfig.ImportFromFile(path))
 	{
@@ -129,9 +130,10 @@ public Action Command_InfoReverts(int client, int args)
 		LoadWeaponRevertsCommandsConfig();
 
 	g_hWeaponRevertsCommandsConfig.Rewind();
-	if (!g_hWeaponRevertsCommandsConfig.JumpToKey(classKey, false))
+	if (!g_hWeaponRevertsCommandsConfig.JumpToKey(WEAPON_REVERTS_COMMANDS_SECTION, false) || !g_hWeaponRevertsCommandsConfig.JumpToKey(classKey, false))
 	{
 		CPrintToChat(client, "{green}[Info] {default}No weapon revert data available for your class.");
+		g_hWeaponRevertsCommandsConfig.Rewind();
 		return Plugin_Handled;
 	}
 

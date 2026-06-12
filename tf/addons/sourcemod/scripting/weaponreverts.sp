@@ -83,7 +83,7 @@
 #define WEAPON_SLOT_LAST 5
 
 #define WEAPON_REVERTS_CONFIG_PATH "configs/weaponreverts.cfg"
-#define WEAPON_REVERTS_COMMANDS_CONFIG_PATH "configs/weaponreverts_commands.cfg"
+#define WEAPON_REVERTS_COMMANDS_SECTION "WeaponRevertsCommands"
 #define FLAME_SHOTGUN_FULL_PELLET_THRESHOLD 6
 
 tf2_player tf2_players[MAXPLAYERS + 1];
@@ -126,7 +126,6 @@ ConVar g_hBisonDamageMult;
 ConVar g_hScattergunPelletsDebug;
 ConVar g_hSandmanBaseDuration;
 KeyValues g_hWeaponRevertsConfig = null;
-KeyValues g_hWeaponRevertsCommandsConfig = null;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 Handle g_hHealTimer = INVALID_HANDLE;
 
@@ -160,11 +159,6 @@ static void WeaponReverts_DeleteConfigs()
 		g_hWeaponRevertsConfig = null;
 	}
 
-	if (g_hWeaponRevertsCommandsConfig != null)
-	{
-		delete g_hWeaponRevertsCommandsConfig;
-		g_hWeaponRevertsCommandsConfig = null;
-	}
 }
 
 public Plugin myinfo =
@@ -1980,12 +1974,6 @@ static void LoadWeaponRevertsConfig()
 		"WeaponReverts",
 		WEAPON_REVERTS_CONFIG_PATH
 	);
-
-	g_hWeaponRevertsCommandsConfig = WeaponReverts_LoadConfigFile(
-		g_hWeaponRevertsCommandsConfig,
-		"WeaponRevertsCommands",
-		WEAPON_REVERTS_COMMANDS_CONFIG_PATH
-	);
 }
 
 public Action Command_ReloadWeaponRevertsConfig(int client, int args)
@@ -2117,41 +2105,53 @@ static void WeaponReverts_GetWeaponClasses(int index, char[] buffer, int maxlen)
 {
 	buffer[0] = '\0';
 
-	if (g_hWeaponRevertsCommandsConfig == null)
+	if (g_hWeaponRevertsConfig == null)
 		return;
 
-	g_hWeaponRevertsCommandsConfig.Rewind();
-	if (!g_hWeaponRevertsCommandsConfig.GotoFirstSubKey(true))
+	g_hWeaponRevertsConfig.Rewind();
+	if (!g_hWeaponRevertsConfig.JumpToKey(WEAPON_REVERTS_COMMANDS_SECTION, false))
 		return;
+
+	if (!g_hWeaponRevertsConfig.GotoFirstSubKey(true))
+	{
+		g_hWeaponRevertsConfig.Rewind();
+		return;
+	}
 
 	do
 	{
 		char className[32];
-		g_hWeaponRevertsCommandsConfig.GetSectionName(className, sizeof(className));
+		g_hWeaponRevertsConfig.GetSectionName(className, sizeof(className));
 
-		if (WeaponReverts_CurrentSectionContainsItemIndex(g_hWeaponRevertsCommandsConfig, index))
+		if (WeaponReverts_CurrentSectionContainsItemIndex(g_hWeaponRevertsConfig, index))
 		{
 			if (buffer[0] != '\0')
 				StrCat(buffer, maxlen, ",");
 			StrCat(buffer, maxlen, className);
 		}
 	}
-	while (g_hWeaponRevertsCommandsConfig.GotoNextKey(true));
+	while (g_hWeaponRevertsConfig.GotoNextKey(true));
 
-	g_hWeaponRevertsCommandsConfig.Rewind();
+	g_hWeaponRevertsConfig.Rewind();
 }
 
 static bool WeaponReverts_ClassCanUseWeapon(const char[] className, int index)
 {
-	if (g_hWeaponRevertsCommandsConfig == null)
+	if (g_hWeaponRevertsConfig == null)
 		return false;
 
-	g_hWeaponRevertsCommandsConfig.Rewind();
-	if (!g_hWeaponRevertsCommandsConfig.JumpToKey(className, false))
+	g_hWeaponRevertsConfig.Rewind();
+	if (!g_hWeaponRevertsConfig.JumpToKey(WEAPON_REVERTS_COMMANDS_SECTION, false))
 		return false;
 
-	bool found = WeaponReverts_CurrentSectionContainsItemIndex(g_hWeaponRevertsCommandsConfig, index);
-	g_hWeaponRevertsCommandsConfig.Rewind();
+	if (!g_hWeaponRevertsConfig.JumpToKey(className, false))
+	{
+		g_hWeaponRevertsConfig.Rewind();
+		return false;
+	}
+
+	bool found = WeaponReverts_CurrentSectionContainsItemIndex(g_hWeaponRevertsConfig, index);
+	g_hWeaponRevertsConfig.Rewind();
 	return found;
 }
 
