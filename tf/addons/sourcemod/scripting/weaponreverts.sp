@@ -1332,12 +1332,10 @@ static void RestorePrimaryShot_OnPlayerDeath(Event event, int victim)
 	RestorePrimaryShot_ResetKillCandidate(victim);
 }
 
-static void RestorePrimaryShot_OnDamage(int attacker, int victim, int weapon, float damage)
+static void RestorePrimaryShot_OnDamageDealt(int attacker, int weapon, float damage)
 {
 	if (attacker < 1 || attacker > MaxClients || !IsClientInGame(attacker) || damage <= 0.0)
 		return;
-
-	RestorePrimaryShot_RecordKillCandidate(victim, attacker, weapon, damage);
 
 	int requirement;
 	if (!RestorePrimaryShot_GetDamageRequirement(weapon, requirement))
@@ -1360,6 +1358,7 @@ static void RestorePrimaryShot_OnDamage(int attacker, int victim, int weapon, fl
 
 	RestorePrimaryShot_BindWeapons(attacker, weapon, primary);
 
+	// Damage progress is attacker/weapon scoped, not victim scoped, so spraying a crowd pools damage.
 	if (clip >= maxClip)
 	{
 		tf2_players[attacker].restorePrimaryShotDamageProgress = 0.0;
@@ -1531,7 +1530,8 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 
 	if (attackerIsPlayer && damageWeapon > MaxClients && IsValidEntity(damageWeapon))
 	{
-		RestorePrimaryShot_OnDamage(attacker, client, damageWeapon, damage);
+		RestorePrimaryShot_RecordKillCandidate(client, attacker, damageWeapon, damage);
+		RestorePrimaryShot_OnDamageDealt(attacker, damageWeapon, damage);
 		ReloadOnHit_OnDamage(damageWeapon);
 
 		int duelAttr = TF2CustAttr_GetInt(damageWeapon, "duel declared");
