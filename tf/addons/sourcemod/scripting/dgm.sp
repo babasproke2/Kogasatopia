@@ -30,6 +30,7 @@ ConVar g_cvRedTime;
 ConVar g_cvBluTime;
 ConVar g_cvAutoAddTime;
 ConVar g_cvSetupUberMultiplier;
+ConVar g_cvNoEngineerSetupReduction;
 ConVar g_cvTimeOverride;
 ConVar g_cvRespawnTime;
 ConVar g_cvPopulationConfigs;
@@ -1280,15 +1281,21 @@ void DGM_CheckNoEngineerSetupReduction()
     }
 
     int timerEnt = DGM_FindSetupRoundTimer();
-    if (timerEnt == -1 || DGM_GetRoundTimerRemaining(timerEnt) <= 25)
+    int reducedSetupTime = RoundToNearest(g_cvNoEngineerSetupReduction.FloatValue);
+    if (reducedSetupTime <= 0)
     {
         return;
     }
 
-    DGM_SetSetupTimerTime(timerEnt, 25);
+    if (timerEnt == -1 || DGM_GetRoundTimerRemaining(timerEnt) <= reducedSetupTime)
+    {
+        return;
+    }
+
+    DGM_SetSetupTimerTime(timerEnt, reducedSetupTime);
     g_bNoEngineerSetupReduced = true;
     PrintToChatAll("No Engineers detected; setup time reduced");
-    PrintToServer("[Kogasa] Setup time reduced to 25 seconds: no RED Engineers detected.");
+    PrintToServer("[Kogasa] Setup time reduced to %d seconds: no RED Engineers detected.", reducedSetupTime);
 }
 
 public Action Timer_CheckNoEngineerSetupReduction(Handle timer)
@@ -1621,6 +1628,7 @@ public void OnPluginStart()
     g_cvAsymCapRespawn = CreateConVar("respawn_red_on_cap", "0", "Override respawn times", _, true, 0.0, true, 1.0);
     // Change the setup time to this in asymmetrical gamemodes
     g_cvSetSetupTime = CreateConVar("sm_setuptime", "40", "Set setup time to X - 0 to disable management - only enable this per-map or in gamemode configs", _, true, 0.0, true,60.0);
+    g_cvNoEngineerSetupReduction = CreateConVar("sm_noengi_setup_reduction", "30.0", "Setup time to apply when no RED Engineers are detected. 0 disables this reduction.", _, true, 0.0, true, 60.0);
     // Stores the executed gamemode
     g_cvGameMode = CreateConVar("sm_gamemode", "unknown", "Stores the executed gamemode", FCVAR_NONE);
     // Hook the value of mp_disable_respawn_times
