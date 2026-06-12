@@ -18,7 +18,7 @@ These plugins are very specific and are shared for the sake of letting anyone lo
 
 Not everything in this repo was created by Kogasatopia, credits are given when possible. This repository also contains config files, tooling and Sourcemod extensions.
 
-This server implements the Amplifier concept from community Saxton Hale servers, see the repository at https://github.com/eltanschauung/Amplifier-Fork
-This server has a heavily tweaked version of Nativevotes along with a system called mapeval that assigns vote weights to certain clients and maps, see https://github.com/eltanschauung/Nativevotes-Colorful 
-We have an ambitious stats tracker plugin and frontend, see https://github.com/eltanschauung/Whaletracker
+This server implements the Amplifier concept from community Saxton Hale servers, see the repository at https://github.com/eltanschauung/Amplifier-Fork<br>
+This server has a heavily tweaked version of Nativevotes along with a system called mapeval that assigns vote weights to certain clients and maps, see https://github.com/eltanschauung/Nativevotes-Colorful<br>
+We have an ambitious stats tracker plugin and frontend, see https://github.com/eltanschauung/Whaletracker<br>
 
