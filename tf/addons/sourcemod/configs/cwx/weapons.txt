@@ -572,6 +572,7 @@
                 {
                         "clip size penalty"                             "0.80"
                         "Reload time increased"                            "2.0"
+			"spread penalty"                            "1.50"
 			"hidden secondary max ammo penalty"	"5.0"
                 }
                 "attributes_custom"

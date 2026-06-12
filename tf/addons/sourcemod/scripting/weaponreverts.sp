@@ -95,6 +95,8 @@ enum struct tf2_player
 	int accuracyStreak;
 	float accuracyStreakExpiresAt;
 	float secondaryDamageProgress;
+	int secondaryDamageWeaponRef;
+	int secondaryDamagePrimaryRef;
 	Handle sprokeTimer;
 	int sprokePrimaryRef;
 	int sprokeParticleRef;
@@ -187,7 +189,7 @@ stock void ResetClientArrays(int client)
 	tf2_players[client].engiMetal = 0;
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
-	tf2_players[client].secondaryDamageProgress = 0.0;
+	SecondaryDamageRefill_Reset(client);
 	tf2_players[client].jump_status = TF2_JUMP_NONE;
 	tf2_players[client].holdingJump = false;
 	tf2_players[client].oldHealth = 0;
@@ -940,6 +942,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	tf2_players[client].shockCharge = 30;
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
+	SecondaryDamageRefill_Reset(client);
 
 	VitaSaw_CacheCharge(client, false);
 
@@ -951,25 +954,6 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	}
 
 	TryAwardAmbassadorHeadshotKill(event, attacker, client);
-
-	if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
-	{
-		int activeWeapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
-		if (!(activeWeapon > MaxClients && IsValidEntity(activeWeapon)))
-			return Plugin_Continue;
-		if (TF2CustAttr_GetFloat(activeWeapon, ATTR_SECONDARY_AMMO_REFILL, 0.0) > 0.0)
-		{
-			int primary = GetPlayerWeaponSlot(attacker, 0);
-			if (primary > MaxClients && IsValidEntity(primary))
-			{
-				int maxClip = GetWeaponMaxClip(primary);
-				if (maxClip > 0)
-				{
-					SetClip_Weapon(primary, maxClip);
-				}
-			}
-		}
-	}
 
 	if (tf2_players[attacker].scytheWeapon != 0 && TF2_IsPlayerInCondition(client, TFCond_OnFire))
 		tf2_players[attacker].healCount += 4;
@@ -1007,6 +991,7 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
 
+	SecondaryDamageRefill_Reset(client);
 	VitaSaw_ApplyStoredCharge(client);
 
 	if (tf2_players[client].shockCharge != 30)
@@ -1037,6 +1022,7 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
 
+	SecondaryDamageRefill_Reset(client);
 	VitaSaw_ApplyStoredCharge(client);
 
 	return Plugin_Continue;
@@ -1209,54 +1195,93 @@ public Action OnWeaponSwitch(client, weapon)
 	return Plugin_Continue;
 }
 
+static void SecondaryDamageRefill_Reset(int client)
+{
+	if (!WR_IsValidPlayerIndex(client))
+		return;
+
+	tf2_players[client].secondaryDamageProgress = 0.0;
+	tf2_players[client].secondaryDamageWeaponRef = INVALID_ENT_REFERENCE;
+	tf2_players[client].secondaryDamagePrimaryRef = INVALID_ENT_REFERENCE;
+}
+
+static bool SecondaryDamageRefill_GetRequirement(int weapon, float &requirement)
+{
+	requirement = 0.0;
+	if (weapon <= MaxClients || !IsValidEntity(weapon))
+		return false;
+
+	requirement = TF2CustAttr_GetFloat(weapon, ATTR_SECONDARY_AMMO_REFILL, 0.0);
+	return requirement > 0.0;
+}
+
+static void SecondaryDamageRefill_BindWeapons(int client, int weapon, int primary)
+{
+	int weaponRef = EntIndexToEntRef(weapon);
+	int primaryRef = EntIndexToEntRef(primary);
+
+	if (tf2_players[client].secondaryDamageWeaponRef == weaponRef
+		&& tf2_players[client].secondaryDamagePrimaryRef == primaryRef)
+	{
+		return;
+	}
+
+	tf2_players[client].secondaryDamageProgress = 0.0;
+	tf2_players[client].secondaryDamageWeaponRef = weaponRef;
+	tf2_players[client].secondaryDamagePrimaryRef = primaryRef;
+}
+
 static void SecondaryDamageRefill_OnDamage(int attacker, int weapon, float damage)
 {
-	if (attacker < 1 || attacker > MaxClients || !IsClientInGame(attacker))
+	if (attacker < 1 || attacker > MaxClients || !IsClientInGame(attacker) || damage <= 0.0)
 		return;
 
-	if (weapon <= MaxClients || !IsValidEntity(weapon) || damage <= 0.0)
+	float requirement;
+	if (!SecondaryDamageRefill_GetRequirement(weapon, requirement))
 		return;
-
-	float requirement = TF2CustAttr_GetFloat(weapon, ATTR_SECONDARY_AMMO_REFILL, 0.0);
-	if (requirement <= 0.0)
-		return;
-
-	tf2_players[attacker].secondaryDamageProgress += damage;
 
 	int primary = GetPlayerWeaponSlot(attacker, 0);
 	if (primary <= MaxClients || !IsValidEntity(primary))
-		return;
-
-	int maxClip = GetWeaponMaxClip(primary);
-	if (maxClip <= 0)
-		return;
-
-	int clip = GetClip(primary);
-	if (clip < 0)
-		return;
-
-	bool updated = false;
-	while (tf2_players[attacker].secondaryDamageProgress >= requirement)
 	{
-		if (clip >= maxClip)
-		{
-			float cap = requirement * 2.0;
-			if (tf2_players[attacker].secondaryDamageProgress > cap)
-			{
-				tf2_players[attacker].secondaryDamageProgress = cap;
-			}
-			break;
-		}
-
-		clip++;
-		tf2_players[attacker].secondaryDamageProgress -= requirement;
-		updated = true;
+		SecondaryDamageRefill_Reset(attacker);
+		return;
 	}
 
-	if (updated)
+	int maxClip = GetWeaponMaxClip(primary);
+	int clip = GetClip(primary);
+	if (maxClip <= 0 || clip < 0)
+	{
+		SecondaryDamageRefill_Reset(attacker);
+		return;
+	}
+
+	SecondaryDamageRefill_BindWeapons(attacker, weapon, primary);
+
+	if (clip >= maxClip)
+	{
+		tf2_players[attacker].secondaryDamageProgress = 0.0;
+		return;
+	}
+
+	tf2_players[attacker].secondaryDamageProgress += damage;
+
+	int refills = 0;
+	while (tf2_players[attacker].secondaryDamageProgress >= requirement && clip < maxClip)
+	{
+		clip++;
+		refills++;
+		tf2_players[attacker].secondaryDamageProgress -= requirement;
+	}
+
+	if (clip >= maxClip)
+	{
+		tf2_players[attacker].secondaryDamageProgress = 0.0;
+	}
+
+	if (refills > 0)
 	{
 		SetClip_Weapon(primary, clip);
-		PrintToChat(attacker, "cobson");
+		EmitSoundToClient(attacker, ATTR_SECONDARY_REFILL_SOUND);
 	}
 }
 
