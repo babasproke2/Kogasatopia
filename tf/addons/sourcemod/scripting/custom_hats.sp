@@ -55,6 +55,8 @@ enum struct HatConfig
 	char bluPrefix[128];
 	char pointsStorePurchase[64];
 	char model[PLATFORM_MAX_PATH];
+	bool hasModelScale;
+	float modelScale;
 	int quality;
 	int level;
 	int defaultPaint;
@@ -968,7 +970,7 @@ void EquipHat(int client, int hatIndex)
 		return;
 	}
 	int paint = g_iHatPaintChoice[client][hatIndex];
-	int wearable = CreateHat(client, g_Hats[hatIndex].model, hatDefIndex, g_Hats[hatIndex].level, g_Hats[hatIndex].quality, paint, g_Hats[hatIndex].style);
+	int wearable = CreateHat(client, g_Hats[hatIndex].model, hatDefIndex, g_Hats[hatIndex].level, g_Hats[hatIndex].quality, paint, g_Hats[hatIndex].style, g_Hats[hatIndex].hasModelScale, g_Hats[hatIndex].modelScale);
 	if (wearable != -1)
 	{
 		if (g_Hats[hatIndex].bluSkin >= 0 && GetClientTeam(client) == view_as<int>(TFTeam_Blue))
@@ -1065,7 +1067,7 @@ int CreateWearableBase(int client, int itemIndex, int level, int quality)
 	return entity;
 }
 
-int CreateHat(int client, const char[] modelPath, int itemIndex, int level, int quality, int paint, int style)
+int CreateHat(int client, const char[] modelPath, int itemIndex, int level, int quality, int paint, int style, bool hasModelScale, float modelScale)
 {
 	int entity = CreateWearableBase(client, itemIndex, level, quality);
 	if (entity == -1)
@@ -1074,6 +1076,7 @@ int CreateHat(int client, const char[] modelPath, int itemIndex, int level, int 
 	}
 
 	ApplyCustomModel(entity, modelPath);
+	ApplyModelScale(entity, hasModelScale, modelScale);
 
 	if (paint > 0)
 	{
@@ -1107,6 +1110,8 @@ void ResetHatConfig(HatConfig hat)
 	hat.bluPrefix[0] = '\0';
 	hat.pointsStorePurchase[0] = '\0';
 	hat.model[0] = '\0';
+	hat.hasModelScale = false;
+	hat.modelScale = 1.0;
 	hat.quality = 6;
 	hat.level = 10;
 	hat.defaultPaint = 0;
@@ -1785,6 +1790,18 @@ void LoadConfig()
 				kv.GetString("points_store_purchase", hat.pointsStorePurchase, sizeof(hat.pointsStorePurchase), "");
 				TrimString(hat.pointsStorePurchase);
 				kv.GetString("model", hat.model, sizeof(hat.model), DEFAULT_SCOUT_MODEL);
+				char modelScale[32];
+				kv.GetString("model_scale", modelScale, sizeof(modelScale), "");
+				TrimString(modelScale);
+				if (modelScale[0])
+				{
+					hat.modelScale = StringToFloat(modelScale);
+					hat.hasModelScale = hat.modelScale > 0.0;
+					if (!hat.hasModelScale)
+					{
+						LogError("[CustomHats] Ignoring invalid model_scale for %s: %s", hat.id, modelScale);
+					}
+				}
 				hat.enabled = (kv.GetNum("enabled", 1) != 0) && hat.model[0];
 				hat.baseDefIndex = kv.GetNum("defindex", 0);
 				hat.baseHideDefIndex = kv.GetNum("hide_defindex", 0);
@@ -1844,6 +1861,7 @@ void CreateDefaultConfig(const char[] path)
 	file.WriteLine("            \"name\" \"mercenary_derby\"");
 	file.WriteLine("            \"enabled\" \"1\"");
 	file.WriteLine("            \"model\" \"%s\"", DEFAULT_SCOUT_MODEL);
+	file.WriteLine("            \"model_scale\" \"\"");
 	file.WriteLine("            \"defindex\" \"451\"");
 	file.WriteLine("            \"hide_defindex\" \"111\"");
 	file.WriteLine("            \"quality\" \"6\"");
@@ -2125,6 +2143,16 @@ void ApplyCustomModel(int entity, const char[] modelPath)
 			SetEntProp(entity, Prop_Send, "m_nModelIndexOverrides", modelIndex, .element = i);
 		}
 	}
+}
+
+void ApplyModelScale(int entity, bool hasModelScale, float modelScale)
+{
+	if (!hasModelScale || !IsValidEntity(entity) || !HasEntProp(entity, Prop_Send, "m_flModelScale"))
+	{
+		return;
+	}
+
+	SetEntPropFloat(entity, Prop_Send, "m_flModelScale", modelScale);
 }
 
 void ApplyStyle(int entity, int style)
