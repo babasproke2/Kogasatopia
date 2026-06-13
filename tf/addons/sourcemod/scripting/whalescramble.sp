@@ -90,6 +90,7 @@ bool g_bScrambledThisRound = false;
 bool g_bLastRoundHadScramble = false;
 int g_iRoundStartTimestamp = 0;
 int g_iScrambleRespawnAttempts[MAXPLAYERS + 1];
+int g_iScrambleRespawnExpectedTeam[MAXPLAYERS + 1];
 
 #define TEAM_RED  2
 #define TEAM_BLU  3
@@ -101,8 +102,10 @@ int g_iScrambleRespawnAttempts[MAXPLAYERS + 1];
 #define FRAG_BALANCE_ENTRY_CLIENT0  1
 #define FRAG_BALANCE_ENTRY_CELLS  (FRAG_BALANCE_ENTRY_CLIENT0 + MAX_SWAP_BUFFER)
 #define SCRAMBLE_PLAYER_PERCENT_DIVISOR  5
-#define SCRAMBLE_RESPAWN_RETRY_DELAY  0.2
-#define SCRAMBLE_RESPAWN_RETRY_COUNT  3
+#define SCRAMBLE_RESPAWN_RETRY_DELAY  0.35
+#define SCRAMBLE_RESPAWN_RETRY_COUNT  5
+#define SCRAMBLE_SETUP_POLISH_DELAY  0.45
+#define SCRAMBLE_SETUP_UBER_DELAY  0.25
 #define POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM "scramImmunity24h"
 public Plugin myinfo =
 {
@@ -254,7 +257,7 @@ public void OnClientDisconnect(int client)
         ClearClientSurrenderVote(client);
         LogSurrenderState("disconnect_clear");
     }
-    g_iScrambleRespawnAttempts[client] = 0;
+    ClearScrambleRespawnState(client);
 }
 
 public void OnClientPutInServer(int client)
@@ -2207,7 +2210,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
             ChangeClientTeam(r, TEAM_BLU);
             if (!suppressRespawn)
             {
-                QueueScrambleRespawn(r);
+                QueueScrambleRespawn(r, TEAM_BLU);
             }
             MarkScrambleImmune(r);
         }
@@ -2216,7 +2219,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
             ChangeClientTeam(b, TEAM_RED);
             if (!suppressRespawn)
             {
-                QueueScrambleRespawn(b);
+                QueueScrambleRespawn(b, TEAM_RED);
             }
             MarkScrambleImmune(b);
         }
@@ -2307,18 +2310,35 @@ static void ClearScrambleRespawnAttempts()
 {
     for (int client = 1; client <= MaxClients; client++)
     {
-        g_iScrambleRespawnAttempts[client] = 0;
+        ClearScrambleRespawnState(client);
     }
 }
 
-static void QueueScrambleRespawn(int client)
+static void ClearScrambleRespawnState(int client)
+{
+    if (client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+
+    g_iScrambleRespawnAttempts[client] = 0;
+    g_iScrambleRespawnExpectedTeam[client] = 0;
+}
+
+static void QueueScrambleRespawn(int client, int expectedTeam)
 {
     if (client <= 0 || client > MaxClients || !IsClientInGame(client))
     {
         return;
     }
 
+    if (expectedTeam != TEAM_RED && expectedTeam != TEAM_BLU)
+    {
+        expectedTeam = GetClientTeam(client);
+    }
+
     g_iScrambleRespawnAttempts[client] = SCRAMBLE_RESPAWN_RETRY_COUNT;
+    g_iScrambleRespawnExpectedTeam[client] = expectedTeam;
     CreateTimer(SCRAMBLE_RESPAWN_RETRY_DELAY, Timer_VerifyScrambleRespawn, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
 }
 
@@ -2333,7 +2353,32 @@ public Action Timer_VerifyScrambleRespawn(Handle timer, any userid)
     int team = GetClientTeam(client);
     if (team != TEAM_RED && team != TEAM_BLU)
     {
-        g_iScrambleRespawnAttempts[client] = 0;
+        ClearScrambleRespawnState(client);
+        return Plugin_Stop;
+    }
+
+    if (g_iScrambleRespawnAttempts[client] <= 0)
+    {
+        return Plugin_Stop;
+    }
+
+    int expectedTeam = g_iScrambleRespawnExpectedTeam[client];
+    if (expectedTeam != TEAM_RED && expectedTeam != TEAM_BLU)
+    {
+        expectedTeam = team;
+    }
+
+    g_iScrambleRespawnAttempts[client]--;
+    if (team != expectedTeam)
+    {
+        if (g_iScrambleRespawnAttempts[client] <= 0)
+        {
+            LogWhale("Scramble respawn failed: %N settled on team=%d while expectedTeam=%d.", client, team, expectedTeam);
+            ClearScrambleRespawnState(client);
+            return Plugin_Stop;
+        }
+
+        CreateTimer(SCRAMBLE_RESPAWN_RETRY_DELAY, Timer_VerifyScrambleRespawn, userid, TIMER_FLAG_NO_MAPCHANGE);
         return Plugin_Stop;
     }
 
@@ -2347,10 +2392,14 @@ public Action Timer_VerifyScrambleRespawn(Handle timer, any userid)
         TF2_RespawnPlayer(client);
     }
 
-    g_iScrambleRespawnAttempts[client]--;
     if (IsPlayerAlive(client) || g_iScrambleRespawnAttempts[client] <= 0)
     {
-        g_iScrambleRespawnAttempts[client] = 0;
+        if (!IsPlayerAlive(client))
+        {
+            LogWhale("Scramble respawn failed: %N team=%d expectedTeam=%d attempts exhausted.", client, team, expectedTeam);
+        }
+
+        ClearScrambleRespawnState(client);
         return Plugin_Stop;
     }
 
@@ -2372,8 +2421,15 @@ static bool IsSetupActive()
 static void ApplySetupScramblePolish()
 {
     RestoreSetupTimerAfterScramble();
+    CreateTimer(SCRAMBLE_SETUP_POLISH_DELAY, Timer_ApplySetupScramblePolish, 0, TIMER_FLAG_NO_MAPCHANGE);
+    LogWhale("Setup scramble polish: queued delayed respawn verification.");
+}
+
+public Action Timer_ApplySetupScramblePolish(Handle timer, any data)
+{
     RespawnSetupScramblePlayers();
-    FillSetupMedicUbers();
+    CreateTimer(SCRAMBLE_SETUP_UBER_DELAY, Timer_FillSetupMedicUbers, 0, TIMER_FLAG_NO_MAPCHANGE);
+    return Plugin_Stop;
 }
 
 static void RestoreSetupTimerAfterScramble()
@@ -2411,16 +2467,14 @@ static void RespawnSetupScramblePlayers()
             continue;
         }
 
-        if (TF2_GetPlayerClass(i) == TFClass_Unknown)
-        {
-            TF2_SetPlayerClass(i, TFClass_Scout);
-        }
-
-        if (!IsPlayerAlive(i))
-        {
-            TF2_RespawnPlayer(i);
-        }
+        QueueScrambleRespawn(i, team);
     }
+}
+
+public Action Timer_FillSetupMedicUbers(Handle timer, any data)
+{
+    FillSetupMedicUbers();
+    return Plugin_Stop;
 }
 
 static void FillSetupMedicUbers()
