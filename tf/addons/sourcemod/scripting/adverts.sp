@@ -50,6 +50,9 @@ public void OnPluginStart()
 
 	g_Ads = new ArrayList(sizeof(Advertisement));
 	RegServerCmd("sm_adverts_reload", Command_ReloadAds, "Reload the advertisements");
+
+	LoadAdvertisements();
+	RestartTimer();
 }
 
 public void OnConfigsExecuted()
@@ -67,21 +70,27 @@ public void OnPluginEnd()
 public void CvarChanged_Reload(ConVar convar, const char[] oldValue, const char[] newValue)
 {
 	LoadAdvertisements();
+	RestartTimer();
 }
 
 public void CvarChanged_File(ConVar convar, const char[] oldValue, const char[] newValue)
 {
 	LoadAdvertisements();
+	RestartTimer();
 }
 
 public void CvarChanged_Timer(ConVar convar, const char[] oldValue, const char[] newValue)
 {
+	if (!g_Ads.Length) {
+		LoadAdvertisements();
+	}
 	RestartTimer();
 }
 
 public Action Command_ReloadAds(int args)
 {
 	LoadAdvertisements();
+	RestartTimer();
 	return Plugin_Handled;
 }
 
@@ -209,6 +218,7 @@ void LoadAdvertisements()
 	}
 
 	delete adverts;
+	PrintToServer("[Advertisements] Loaded %d advertisement%s from %s.", g_Ads.Length, g_Ads.Length == 1 ? "" : "s", path);
 }
 
 void AddAdvertisement(const char[] message, bool usePrefix)
