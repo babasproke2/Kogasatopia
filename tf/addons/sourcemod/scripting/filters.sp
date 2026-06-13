@@ -547,6 +547,15 @@ static void Filters_StartTimers()
     }
 }
 
+static void Filters_StopOutboxTimer()
+{
+    if (g_hPollOutboxTimer != null)
+    {
+        delete g_hPollOutboxTimer;
+        g_hPollOutboxTimer = null;
+    }
+}
+
 static void Filters_RestoreConnectedClients()
 {
     for (int i = 1; i <= MaxClients; i++)
@@ -610,10 +619,9 @@ public void OnLibraryRemoved(const char[] name)
 
 public void OnMapStart()
 {
-    // Timers created with TIMER_FLAG_NO_MAPCHANGE are killed by SourceMod on map
-    // changes, but the stored handle is not reset for us. Recreate the chat
-    // outbox poller each map so web chat continues relaying after map changes.
-    g_hPollOutboxTimer = null;
+    // On a first-load map start, an OnPluginStart-created timer may still be alive.
+    // Stop it before recreating the poller so one server cannot relay each row twice.
+    Filters_StopOutboxTimer();
     Filters_StartTimers();
 
     char mapName[128];
@@ -785,6 +793,11 @@ public void Filters_SchemaQueryCallback(Database db, DBResultSet results, const 
 // Poll DB outbox and relay to all chat, then delete processed rows
 public Action Timer_PollOutbox(Handle timer, any data)
 {
+    if (timer != g_hPollOutboxTimer)
+    {
+        return Plugin_Stop;
+    }
+
     if (GetConVarInt(g_hChatFrontend) < 1)
 	return Plugin_Continue;
 
@@ -3541,7 +3554,7 @@ public void OnClientDisconnect(int client)
 
 public void OnPluginEnd()
 {
-    g_hPollOutboxTimer = null;
+    Filters_StopOutboxTimer();
     g_ConnectQueueTimer = null;
     g_hFiltersDbReconnectTimer = null;
 
