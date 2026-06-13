@@ -7,9 +7,13 @@
 #include <tf2_stocks>
 #include <tf2attributes>
 #include <tf2items>
+#undef REQUIRE_PLUGIN
+#include <points_store_api>
+#define REQUIRE_PLUGIN
 
 #define CONFIG_FILE "configs/custom_hats.cfg"
 #define DEFAULT_SCOUT_MODEL "models/uma_musume/player/items/scout/mercenary_derby.mdl"
+#define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
 #if !defined EF_BONEMERGE
 #define EF_BONEMERGE 0x0010
 #endif
@@ -49,6 +53,7 @@ enum struct HatConfig
 	char name[64];
 	char prefix[128];
 	char bluPrefix[128];
+	char pointsStorePurchase[64];
 	char model[PLATFORM_MAX_PATH];
 	int quality;
 	int level;
@@ -213,6 +218,33 @@ public void OnConfigsExecuted()
 public void OnMapStart()
 {
 	PrecacheConfiguredHats();
+}
+
+public void OnLibraryAdded(const char[] name)
+{
+	if (StrEqual(name, "points_store"))
+	{
+		RefreshAllClientHats();
+	}
+}
+
+public void OnLibraryRemoved(const char[] name)
+{
+	if (StrEqual(name, "points_store"))
+	{
+		RefreshAllClientHats();
+	}
+}
+
+static void RefreshAllClientHats()
+{
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		if (IsClientInGame(client))
+		{
+			RequestFrame(ApplyHatFrame, GetClientUserId(client));
+		}
+	}
 }
 
 public void OnPluginEnd()
@@ -603,7 +635,7 @@ void UpdateHatForClient(int client)
 	int classIndex = view_as<int>(playerClass);
 	for (int i = 0; i < g_iHatCount; i++)
 	{
-		bool enabled = g_bHatEnabled[client][i] && IsHatEnabled(i) && IsClassAllowedForHat(i, playerClass);
+		bool enabled = g_bHatEnabled[client][i] && CanClientUseHatForClass(client, i, playerClass);
 		if (!enabled)
 		{
 			RemoveHatIndex(client, i);
@@ -644,7 +676,7 @@ static bool ShouldRefreshHats(int client)
 			continue;
 		}
 
-		bool allowed = IsClassAllowedForHat(i, playerClass);
+		bool allowed = CanClientUseHatForClass(client, i, playerClass);
 		bool hatValid = HasValidEntRef(g_iHatRef[client][i]);
 		bool hideValid = HasValidEntRef(g_iHideHatRef[client][i]);
 		bool shouldHaveHide = allowed && (GetHideDefIndexForClass(i, classIndex) > 0);
@@ -689,7 +721,7 @@ static bool CookieMatchesEquippedHats(int client)
 	int classIndex = view_as<int>(playerClass);
 	for (int i = 0; i < g_iHatCount; i++)
 	{
-		bool enabled = g_bHatEnabled[client][i] && IsHatEnabled(i) && IsClassAllowedForHat(i, playerClass);
+		bool enabled = g_bHatEnabled[client][i] && CanClientUseHatForClass(client, i, playerClass);
 		bool hatValid = HasValidEntRef(g_iHatRef[client][i]);
 		bool hideValid = HasValidEntRef(g_iHideHatRef[client][i]);
 		bool shouldHaveHide = enabled && (GetHideDefIndexForClass(i, classIndex) > 0);
@@ -720,19 +752,23 @@ void ShowHatMenu(int client)
 	Menu menu = new Menu(MenuHandler_Hats);
 	menu.SetTitle("Custom Hats");
 	TFClassType playerClass = TF2_GetPlayerClass(client);
+	int added = 0;
 	for (int i = 0; i < g_iHatCount; i++)
 	{
-		if (!IsHatEnabled(i))
-		{
-			continue;
-		}
-		if (!IsClassAllowedForHat(i, playerClass))
+		if (!CanClientUseHatForClass(client, i, playerClass))
 		{
 			continue;
 		}
 		char label[128];
 		Format(label, sizeof(label), "%s%s", g_Hats[i].name, g_bHatEnabled[client][i] ? " [ON]" : "");
 		menu.AddItem(g_Hats[i].id, label);
+		added++;
+	}
+	if (added == 0)
+	{
+		delete menu;
+		PrintToChat(client, "[Hats] No hats are available right now.");
+		return;
 	}
 	menu.ExitBackButton = false;
 	menu.Display(client, 20);
@@ -746,6 +782,12 @@ public int MenuHandler_Hats(Menu menu, MenuAction action, int client, int item)
 		menu.GetItem(item, itemId, sizeof(itemId));
 		strcopy(g_szHatIdChoice[client], sizeof(g_szHatIdChoice[]), itemId);
 		int hatIndex = FindHatIndexById(itemId);
+		if (hatIndex < 0 || !CanClientUseHatForClass(client, hatIndex, TF2_GetPlayerClass(client)))
+		{
+			PrintHatLockedMessage(client, hatIndex);
+			ShowHatMenu(client);
+			return 0;
+		}
 		if (hatIndex >= 0)
 		{
 			g_iHatPaintChoice[client][hatIndex] = ClampPaintIndex(g_Hats[hatIndex].defaultPaint);
@@ -762,8 +804,15 @@ public int MenuHandler_Hats(Menu menu, MenuAction action, int client, int item)
 
 void ShowHatToggleMenu(int client)
 {
-	Menu menu = new Menu(MenuHandler_HatToggle);
 	int hatIndex = GetSelectedHatIndex(client);
+	if (hatIndex >= 0 && !CanClientUseHatForClass(client, hatIndex, TF2_GetPlayerClass(client)))
+	{
+		PrintHatLockedMessage(client, hatIndex);
+		ShowHatMenu(client);
+		return;
+	}
+
+	Menu menu = new Menu(MenuHandler_HatToggle);
 	if (hatIndex >= 0)
 	{
 		menu.SetTitle(g_Hats[hatIndex].name);
@@ -791,6 +840,13 @@ public int MenuHandler_HatToggle(Menu menu, MenuAction action, int client, int i
 		int hatIndex = GetSelectedHatIndex(client);
 		if (hatIndex < 0)
 		{
+			return 0;
+		}
+		if (!CanClientUseHatForClass(client, hatIndex, TF2_GetPlayerClass(client)))
+		{
+			PrintHatLockedMessage(client, hatIndex);
+			RemoveHat(client, hatIndex, false);
+			ShowHatMenu(client);
 			return 0;
 		}
 
@@ -859,6 +915,13 @@ public int MenuHandler_HatPaint(Menu menu, MenuAction action, int client, int it
 		{
 			return 0;
 		}
+		if (!CanClientUseHatForClass(client, hatIndex, TF2_GetPlayerClass(client)))
+		{
+			PrintHatLockedMessage(client, hatIndex);
+			RemoveHat(client, hatIndex, false);
+			ShowHatMenu(client);
+			return 0;
+		}
 		g_iHatPaintChoice[client][hatIndex] = paint;
 		SetClientHatEnabled(client, hatIndex, true);
 		QueueHatStateSave(client);
@@ -880,6 +943,10 @@ void EquipHat(int client, int hatIndex)
 
 	TFClassType playerClass = TF2_GetPlayerClass(client);
 	if (!IsClassAllowedForHat(hatIndex, playerClass))
+	{
+		return;
+	}
+	if (!CanClientAccessHat(client, hatIndex))
 	{
 		return;
 	}
@@ -1038,6 +1105,7 @@ void ResetHatConfig(HatConfig hat)
 	hat.name[0] = '\0';
 	hat.prefix[0] = '\0';
 	hat.bluPrefix[0] = '\0';
+	hat.pointsStorePurchase[0] = '\0';
 	hat.model[0] = '\0';
 	hat.quality = 6;
 	hat.level = 10;
@@ -1063,6 +1131,46 @@ bool IsHatIndexValid(int hatIndex)
 bool IsHatEnabled(int hatIndex)
 {
 	return IsHatIndexValid(hatIndex) && g_Hats[hatIndex].enabled && g_Hats[hatIndex].model[0];
+}
+
+static bool CanClientAccessHat(int client, int hatIndex)
+{
+	if (!IsHatIndexValid(hatIndex))
+	{
+		return false;
+	}
+	if (!g_Hats[hatIndex].pointsStorePurchase[0])
+	{
+		return true;
+	}
+	if (!IsValidClient(client))
+	{
+		return false;
+	}
+	if (GetFeatureStatus(FeatureType_Native, POINTS_STORE_HAS_PURCHASE_NATIVE) != FeatureStatus_Available)
+	{
+		return false;
+	}
+	return PointsStore_HasPurchase(client, g_Hats[hatIndex].pointsStorePurchase);
+}
+
+static bool CanClientUseHatForClass(int client, int hatIndex, TFClassType playerClass)
+{
+	return IsHatEnabled(hatIndex)
+		&& IsClassAllowedForHat(hatIndex, playerClass)
+		&& CanClientAccessHat(client, hatIndex);
+}
+
+static void PrintHatLockedMessage(int client, int hatIndex)
+{
+	if (!IsValidClient(client) || !IsHatIndexValid(hatIndex))
+	{
+		return;
+	}
+	if (g_Hats[hatIndex].pointsStorePurchase[0])
+	{
+		PrintToChat(client, "[Hats] %s is locked. Purchase it from !shop first.", g_Hats[hatIndex].name);
+	}
 }
 
 bool HasEnabledHats()
@@ -1674,6 +1782,8 @@ void LoadConfig()
 				TrimString(hat.prefix);
 				kv.GetString("blu_prefix", hat.bluPrefix, sizeof(hat.bluPrefix), "");
 				TrimString(hat.bluPrefix);
+				kv.GetString("points_store_purchase", hat.pointsStorePurchase, sizeof(hat.pointsStorePurchase), "");
+				TrimString(hat.pointsStorePurchase);
 				kv.GetString("model", hat.model, sizeof(hat.model), DEFAULT_SCOUT_MODEL);
 				hat.enabled = (kv.GetNum("enabled", 1) != 0) && hat.model[0];
 				hat.baseDefIndex = kv.GetNum("defindex", 0);
@@ -1742,6 +1852,7 @@ void CreateDefaultConfig(const char[] path)
 	file.WriteLine("            \"paint_index\" \"0\"");
 	file.WriteLine("            \"style\" \"0\"");
 	file.WriteLine("            \"classes\" \"all\"");
+	file.WriteLine("            \"points_store_purchase\" \"\"");
 	file.WriteLine("            \"prefix\" \"\"");
 	file.WriteLine("            \"blu_prefix\" \"\"");
 	file.WriteLine("        }");
@@ -1823,7 +1934,7 @@ static bool GetClientHatPrefixes(int client, char[] buffer, int maxlen)
 	bool found = false;
 	for (int i = 0; i < g_iHatCount; i++)
 	{
-		if (!g_bHatEnabled[client][i] || !IsHatEnabled(i) || !IsClassAllowedForHat(i, playerClass))
+		if (!g_bHatEnabled[client][i] || !CanClientUseHatForClass(client, i, playerClass))
 		{
 			continue;
 		}
@@ -1859,7 +1970,7 @@ static bool GetClientHatTagChoices(int client, char[] buffer, int maxlen)
 	bool found = false;
 	for (int i = 0; i < g_iHatCount; i++)
 	{
-		if (!g_bHatEnabled[client][i] || !IsHatEnabled(i) || !IsClassAllowedForHat(i, playerClass))
+		if (!g_bHatEnabled[client][i] || !CanClientUseHatForClass(client, i, playerClass))
 		{
 			continue;
 		}
@@ -1893,7 +2004,7 @@ static bool ResolveClientHatTag(int client, const char[] hatId, char[] buffer, i
 	}
 
 	TFClassType playerClass = TF2_GetPlayerClass(client);
-	if (playerClass == TFClass_Unknown || !IsClassAllowedForHat(hatIndex, playerClass))
+	if (playerClass == TFClass_Unknown || !CanClientUseHatForClass(client, hatIndex, playerClass))
 	{
 		return false;
 	}
@@ -1918,7 +2029,7 @@ static bool FindClientHatTagSource(int client, const char[] prefix, char[] hatId
 
 	for (int i = 0; i < g_iHatCount; i++)
 	{
-		if (!g_bHatEnabled[client][i] || !IsHatEnabled(i) || !IsClassAllowedForHat(i, playerClass))
+		if (!g_bHatEnabled[client][i] || !CanClientUseHatForClass(client, i, playerClass))
 		{
 			continue;
 		}
