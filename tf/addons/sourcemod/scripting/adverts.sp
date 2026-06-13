@@ -19,14 +19,16 @@ public Plugin myinfo =
 
 enum struct Advertisement
 {
-	char center[1024];
 	char chat[2048];
-	char hint[1024];
-	char menu[1024];
-	bool adminsOnly;
-	bool hasFlags;
-	int flags;
+	bool usePrefix;
 }
+
+enum AdvertsSection
+{
+	AdvertsSection_None = 0,
+	AdvertsSection_Plain,
+	AdvertsSection_Prefix
+};
 
 ArrayList g_Ads;
 ConVar g_CvarEnabled, g_CvarFile, g_CvarInterval, g_CvarRandom, g_CvarPrefix;
@@ -95,30 +97,26 @@ public Action Timer_DisplayAd(Handle timer)
 	}
 
 	Advertisement ad;
-	g_Ads.GetArray(g_AdIndex, ad);
-
-	char msg[1024], prefix[128];
-	g_CvarPrefix.GetString(prefix, sizeof(prefix));
-
-	if (ad.center[0]) {
-		ProcessVariables(ad.center, msg, sizeof(msg));
-		for (int i = 1; i <= MaxClients; i++) {
-			if (CanSeeAd(i, ad)) {
-				PrintCenterText(i, "%s", msg);
-			}
-		}
-	}
+	int adIndex = g_CvarRandom.BoolValue ? GetRandomInt(0, g_Ads.Length - 1) : g_AdIndex;
+	g_Ads.GetArray(adIndex, ad);
 
 	if (ad.chat[0]) {
+		char prefix[128];
+		if (ad.usePrefix) {
+			g_CvarPrefix.GetString(prefix, sizeof(prefix));
+		} else {
+			prefix[0] = '\0';
+		}
+
 		char lines[10][1024], tmp[1024];
 		int count = ExplodeString(ad.chat, "\n", lines, sizeof(lines), sizeof(lines[]));
 		for (int n = 0; n < count; n++) {
 			ProcessVariables(lines[n], tmp, sizeof(tmp));
 			FormatChatMessage(prefix, tmp, lines[n], sizeof(lines[]));
-			PrintToServer("[Advertisements] %s", lines[n]);
+		PrintToServer("[Advertisements] %s", lines[n]);
 		}
 		for (int i = 1; i <= MaxClients; i++) {
-			if (!CanSeeAd(i, ad)) {
+			if (!CanSeeAd(i)) {
 				continue;
 			}
 			for (int n = 0; n < count; n++) {
@@ -131,48 +129,17 @@ public Action Timer_DisplayAd(Handle timer)
 		}
 	}
 
-	if (ad.hint[0]) {
-		ProcessVariables(ad.hint, msg, sizeof(msg));
-		for (int i = 1; i <= MaxClients; i++) {
-			if (CanSeeAd(i, ad)) {
-				PrintHintText(i, "%s", msg);
-			}
+	if (!g_CvarRandom.BoolValue) {
+		if (++g_AdIndex >= g_Ads.Length) {
+			g_AdIndex = 0;
 		}
-	}
-
-	if (ad.menu[0]) {
-		ProcessVariables(ad.menu, msg, sizeof(msg));
-		Panel panel = new Panel();
-		panel.DrawText(msg);
-		panel.CurrentKey = 10;
-		for (int i = 1; i <= MaxClients; i++) {
-			if (CanSeeAd(i, ad)) {
-				panel.Send(i, MenuHandler_Noop, 10);
-			}
-		}
-		delete panel;
-	}
-
-	if (++g_AdIndex >= g_Ads.Length) {
-		g_AdIndex = 0;
 	}
 	return Plugin_Continue;
 }
 
-bool CanSeeAd(int client, Advertisement ad)
+bool CanSeeAd(int client)
 {
-	if (!IsClientInGame(client) || IsFakeClient(client)) {
-		return false;
-	}
-
-	int bits = GetUserFlagBits(client);
-	if (ad.adminsOnly) {
-		return (bits & (ADMFLAG_GENERIC | ADMFLAG_ROOT)) != 0;
-	}
-	if (ad.hasFlags) {
-		return (bits & (ad.flags | ADMFLAG_ROOT)) == 0;
-	}
-	return true;
+	return IsClientInGame(client) && !IsFakeClient(client);
 }
 
 void LoadAdvertisements()
@@ -188,46 +155,96 @@ void LoadAdvertisements()
 		return;
 	}
 
-	KeyValues kv = new KeyValues("Advertisements");
-	kv.SetEscapeSequences(true);
-	if (!kv.ImportFromFile(path) || !kv.GotoFirstSubKey()) {
-		delete kv;
+	File adverts = OpenFile(path, "r");
+	if (adverts == null) {
+		LogError("[Adverts] Could not open %s", path);
 		return;
 	}
 
-	char flags[22];
-	do {
-		Advertisement ad;
-		kv.GetString("center", ad.center, sizeof(ad.center));
-		kv.GetString("chat", ad.chat, sizeof(ad.chat));
-		kv.GetString("hint", ad.hint, sizeof(ad.hint));
-		kv.GetString("menu", ad.menu, sizeof(ad.menu));
-		kv.GetString("flags", flags, sizeof(flags), "none");
-		ad.adminsOnly = StrEqual(flags, "");
-		ad.hasFlags = !StrEqual(flags, "none");
-		ad.flags = ReadFlagString(flags);
-		g_Ads.PushArray(ad);
-	} while (kv.GotoNextKey());
-	delete kv;
+	char line[2048], token[2048];
+	AdvertsSection currentSection = AdvertsSection_None;
+	AdvertsSection pendingSection = AdvertsSection_None;
 
-	if (g_CvarRandom.BoolValue) {
-		ShuffleAdvertisements();
-	}
-}
-
-void ShuffleAdvertisements()
-{
-	Advertisement a, b;
-	for (int i = g_Ads.Length - 1; i > 0; i--) {
-		int j = GetRandomInt(0, i);
-		if (i == j) {
+	while (!adverts.EndOfFile() && adverts.ReadLine(line, sizeof(line))) {
+		TrimString(line);
+		if (!line[0] || StrContains(line, "//") == 0) {
 			continue;
 		}
-		g_Ads.GetArray(i, a);
-		g_Ads.GetArray(j, b);
-		g_Ads.SetArray(i, b);
-		g_Ads.SetArray(j, a);
+		if (StrEqual(line, "{")) {
+			if (pendingSection != AdvertsSection_None) {
+				currentSection = pendingSection;
+				pendingSection = AdvertsSection_None;
+			}
+			continue;
+		}
+		if (StrEqual(line, "}")) {
+			currentSection = AdvertsSection_None;
+			continue;
+		}
+
+		if (!ExtractQuotedString(line, token, sizeof(token))) {
+			continue;
+		}
+
+		if (StrEqual(token, "advertsPlain", false)) {
+			pendingSection = AdvertsSection_Plain;
+			if (StrContains(line, "{") != -1) {
+				currentSection = pendingSection;
+				pendingSection = AdvertsSection_None;
+			}
+			continue;
+		}
+		if (StrEqual(token, "advertsPrefix", false)) {
+			pendingSection = AdvertsSection_Prefix;
+			if (StrContains(line, "{") != -1) {
+				currentSection = pendingSection;
+				pendingSection = AdvertsSection_None;
+			}
+			continue;
+		}
+
+		if (currentSection == AdvertsSection_Plain || currentSection == AdvertsSection_Prefix) {
+			AddAdvertisement(token, currentSection == AdvertsSection_Prefix);
+		}
 	}
+
+	delete adverts;
+}
+
+void AddAdvertisement(const char[] message, bool usePrefix)
+{
+	if (!message[0]) {
+		return;
+	}
+
+	Advertisement ad;
+	strcopy(ad.chat, sizeof(ad.chat), message);
+	ad.usePrefix = usePrefix;
+	g_Ads.PushArray(ad);
+}
+
+bool ExtractQuotedString(const char[] line, char[] buffer, int maxlen)
+{
+	int start = FindCharInString(line, '"');
+	if (start == -1) {
+		return false;
+	}
+
+	int out = 0;
+	for (int i = start + 1; line[i] && out < maxlen - 1; i++) {
+		if (line[i] == '\\' && line[i + 1]) {
+			buffer[out++] = line[++i];
+			continue;
+		}
+		if (line[i] == '"') {
+			buffer[out] = '\0';
+			return true;
+		}
+		buffer[out++] = line[i];
+	}
+
+	buffer[out] = '\0';
+	return out > 0;
 }
 
 void RestartTimer()
