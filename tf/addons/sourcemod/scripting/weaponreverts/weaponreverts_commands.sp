@@ -88,7 +88,12 @@ static int WeaponRevertsItemClasses_GetFirstItemIndex(const char[] itemKey)
 		{
 			token[tokenLen] = '\0';
 			TrimString(token);
-			return StringToInt(token);
+			int tokenIndex;
+			if (WeaponRevertsItemClasses_TryParseItemIndex(token, tokenIndex))
+				return tokenIndex;
+
+			tokenLen = 0;
+			continue;
 		}
 
 		if (tokenLen < sizeof(token) - 1)
@@ -100,20 +105,51 @@ static int WeaponRevertsItemClasses_GetFirstItemIndex(const char[] itemKey)
 	return 0;
 }
 
-static void FormatRevertLine(char[] buffer, int maxlen, const char[] weaponName, const char[] positive, const char[] negative)
+static bool WeaponRevertsItemClasses_TryParseItemIndex(const char[] token, int &index)
 {
-	if (positive[0] != '\0' && negative[0] != '\0')
+	index = 0;
+	if (token[0] == '\0')
+		return false;
+
+	for (int i = 0; token[i] != '\0'; i++)
 	{
-		Format(buffer, maxlen, "{default}%s: {green}%s, {red}%s", weaponName, positive, negative);
+		if (!IsCharNumeric(token[i]))
+			return false;
 	}
-	else if (positive[0] != '\0')
+
+	index = StringToInt(token);
+	return index > 0;
+}
+
+static void FormatRevertLine(char[] buffer, int maxlen, const char[] weaponName, const char[] positive, const char[] neutral, const char[] negative)
+{
+	Format(buffer, maxlen, "{default}%s:", weaponName);
+	bool needsComma = false;
+
+	if (positive[0] != '\0')
 	{
-		Format(buffer, maxlen, "{default}%s: {green}%s", weaponName, positive);
+		AppendRevertLinePart(buffer, maxlen, "{green}", positive, needsComma);
 	}
-	else
+	if (neutral[0] != '\0')
 	{
-		Format(buffer, maxlen, "{default}%s: {red}%s", weaponName, negative);
+		AppendRevertLinePart(buffer, maxlen, "{default}", neutral, needsComma);
 	}
+	if (negative[0] != '\0')
+	{
+		AppendRevertLinePart(buffer, maxlen, "{red}", negative, needsComma);
+	}
+}
+
+static void AppendRevertLinePart(char[] buffer, int maxlen, const char[] color, const char[] text, bool &needsComma)
+{
+	if (needsComma)
+	{
+		StrCat(buffer, maxlen, ",");
+	}
+	StrCat(buffer, maxlen, " ");
+	StrCat(buffer, maxlen, color);
+	StrCat(buffer, maxlen, text);
+	needsComma = true;
 }
 
 public Action Command_InfoReverts(int client, int args)
@@ -150,20 +186,21 @@ public Action Command_InfoReverts(int client, int args)
 
 			char weaponName[128];
 			char positive[256];
+			char neutral[256];
 			char negative[256];
 			char type[32];
 			char classes[128];
-			if (!WeaponReverts_GetWeaponInfo(weaponIndex, weaponName, sizeof(weaponName), positive, sizeof(positive), negative, sizeof(negative), type, sizeof(type), classes, sizeof(classes)))
+			if (!WeaponReverts_GetWeaponInfo(weaponIndex, weaponName, sizeof(weaponName), positive, sizeof(positive), neutral, sizeof(neutral), negative, sizeof(negative), type, sizeof(type), classes, sizeof(classes)))
 				continue;
 
 			char dedupeKey[512];
-			Format(dedupeKey, sizeof(dedupeKey), "%s|%s", positive, negative);
+			Format(dedupeKey, sizeof(dedupeKey), "%s|%s|%s", positive, neutral, negative);
 			if (printed.ContainsKey(dedupeKey))
 				continue;
 			printed.SetValue(dedupeKey, 1);
 
 			char line[512];
-			FormatRevertLine(line, sizeof(line), weaponName, positive, negative);
+			FormatRevertLine(line, sizeof(line), weaponName, positive, neutral, negative);
 			CPrintToChat(client, "%s", line);
 		}
 		while (g_hWeaponRevertsItemClassesConfig.GotoNextKey(false));

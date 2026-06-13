@@ -12,23 +12,26 @@
  * @param weaponNameLen weaponName buffer length.
  * @param positive      Positive change description.
  * @param positiveLen   positive buffer length.
+ * @param neutral       Neutral change description.
+ * @param neutralLen    neutral buffer length.
  * @param negative      Negative change description.
  * @param negativeLen   negative buffer length.
  * @param type          Description type. Defaults to "buff" when absent.
  * @param typeLen       type buffer length.
- * @param classes       Comma-separated class keys from weaponreverts_commands.cfg.
+ * @param classes       Comma-separated class keys from weaponreverts.cfg.
  * @param classesLen    classes buffer length.
  * @return              True if weaponIndex exists in weaponreverts.cfg.
  */
 native bool WeaponReverts_GetWeaponInfo(int weaponIndex,
 	char[] weaponName, int weaponNameLen,
 	char[] positive, int positiveLen,
+	char[] neutral, int neutralLen,
 	char[] negative, int negativeLen,
 	char[] type, int typeLen,
 	char[] classes, int classesLen);
 
 /**
- * Checks weaponreverts_commands.cfg for class access to a weapon index.
+ * Checks weaponreverts.cfg for class access to a weapon index.
  */
 native bool WeaponReverts_CanClassUseWeapon(const char[] className, int weaponIndex);
 

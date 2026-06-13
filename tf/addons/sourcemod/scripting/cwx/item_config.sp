@@ -11,6 +11,7 @@ enum struct CustomItemDefinition {
 	int defindex;
 	char displayName[128];
 	char descriptionPositive[MAX_ITEM_DESCRIPTION_LENGTH];
+	char descriptionNeutral[MAX_ITEM_DESCRIPTION_LENGTH];
 	char descriptionNegative[MAX_ITEM_DESCRIPTION_LENGTH];
 	KeyValues localizedNames;
 	char className[128];
@@ -156,11 +157,13 @@ void LoadCustomItemConfig() {
 
 void ReadItemDescription(KeyValues config, CustomItemDefinition item) {
 	item.descriptionPositive[0] = '\0';
+	item.descriptionNeutral[0] = '\0';
 	item.descriptionNegative[0] = '\0';
 
 	if (config.GetDataType("description") == KvData_None
 			&& config.JumpToKey("description", false)) {
 		config.GetString("positive", item.descriptionPositive, sizeof(item.descriptionPositive), "");
+		config.GetString("neutral", item.descriptionNeutral, sizeof(item.descriptionNeutral), "");
 		config.GetString("negative", item.descriptionNegative, sizeof(item.descriptionNegative), "");
 		config.GoBack();
 		return;

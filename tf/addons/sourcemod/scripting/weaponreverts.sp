@@ -2012,7 +2012,8 @@ static bool WeaponReverts_ItemKeyContainsIndex(const char[] itemKey, int index)
 		{
 			token[tokenLen] = '\0';
 			TrimString(token);
-			if (token[0] != '\0' && StringToInt(token) == index)
+			int tokenIndex;
+			if (WeaponReverts_TryParseItemIndex(token, tokenIndex) && tokenIndex == index)
 				return true;
 
 			tokenLen = 0;
@@ -2026,6 +2027,22 @@ static bool WeaponReverts_ItemKeyContainsIndex(const char[] itemKey, int index)
 	}
 
 	return false;
+}
+
+static bool WeaponReverts_TryParseItemIndex(const char[] token, int &index)
+{
+	index = 0;
+	if (token[0] == '\0')
+		return false;
+
+	for (int i = 0; token[i] != '\0'; i++)
+	{
+		if (!IsCharNumeric(token[i]))
+			return false;
+	}
+
+	index = StringToInt(token);
+	return index > 0;
 }
 
 static bool WeaponReverts_JumpToConfiguredWeapon(int index)
@@ -2155,7 +2172,7 @@ static bool WeaponReverts_ClassCanUseWeapon(const char[] className, int index)
 	return found;
 }
 
-static bool WeaponReverts_GetConfiguredInfo(int index, char[] weaponName, int weaponNameLen, char[] positive, int positiveLen, char[] negative, int negativeLen, char[] type, int typeLen, char[] classes, int classesLen)
+static bool WeaponReverts_GetConfiguredInfo(int index, char[] weaponName, int weaponNameLen, char[] positive, int positiveLen, char[] neutral, int neutralLen, char[] negative, int negativeLen, char[] type, int typeLen, char[] classes, int classesLen)
 {
 	if (g_hWeaponRevertsConfig == null)
 		return false;
@@ -2165,12 +2182,14 @@ static bool WeaponReverts_GetConfiguredInfo(int index, char[] weaponName, int we
 
 	g_hWeaponRevertsConfig.GetString("weapon_name", weaponName, weaponNameLen, "Unknown Weapon");
 	positive[0] = '\0';
+	neutral[0] = '\0';
 	negative[0] = '\0';
 	strcopy(type, typeLen, "buff");
 
 	if (g_hWeaponRevertsConfig.JumpToKey("change_description", false))
 	{
 		g_hWeaponRevertsConfig.GetString("positive", positive, positiveLen, "");
+		g_hWeaponRevertsConfig.GetString("neutral", neutral, neutralLen, "");
 		g_hWeaponRevertsConfig.GetString("negative", negative, negativeLen, "");
 		g_hWeaponRevertsConfig.GetString("type", type, typeLen, "buff");
 		g_hWeaponRevertsConfig.GoBack();
@@ -2187,16 +2206,27 @@ public int Native_GetWeaponInfo(Handle plugin, int numParams)
 
 	char weaponName[128];
 	char positive[256];
+	char neutral[256];
 	char negative[256];
 	char type[32];
 	char classes[128];
-	bool found = WeaponReverts_GetConfiguredInfo(index, weaponName, sizeof(weaponName), positive, sizeof(positive), negative, sizeof(negative), type, sizeof(type), classes, sizeof(classes));
+	bool found = WeaponReverts_GetConfiguredInfo(index, weaponName, sizeof(weaponName), positive, sizeof(positive), neutral, sizeof(neutral), negative, sizeof(negative), type, sizeof(type), classes, sizeof(classes));
 
 	SetNativeString(2, found ? weaponName : "", GetNativeCell(3), true);
 	SetNativeString(4, found ? positive : "", GetNativeCell(5), true);
-	SetNativeString(6, found ? negative : "", GetNativeCell(7), true);
-	SetNativeString(8, found ? type : "buff", GetNativeCell(9), true);
-	SetNativeString(10, found ? classes : "", GetNativeCell(11), true);
+	if (numParams >= 13)
+	{
+		SetNativeString(6, found ? neutral : "", GetNativeCell(7), true);
+		SetNativeString(8, found ? negative : "", GetNativeCell(9), true);
+		SetNativeString(10, found ? type : "buff", GetNativeCell(11), true);
+		SetNativeString(12, found ? classes : "", GetNativeCell(13), true);
+	}
+	else
+	{
+		SetNativeString(6, found ? negative : "", GetNativeCell(7), true);
+		SetNativeString(8, found ? type : "buff", GetNativeCell(9), true);
+		SetNativeString(10, found ? classes : "", GetNativeCell(11), true);
+	}
 	return found;
 }
 

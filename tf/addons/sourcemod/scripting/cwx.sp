@@ -206,10 +206,10 @@ Action DisplayItemDescriptions(int client, int argc) {
 			continue;
 		}
 
-		char description[MAX_ITEM_DESCRIPTION_LENGTH * 2];
+		char description[MAX_ITEM_DESCRIPTION_LENGTH * 3];
 		bool hasDescription = FormatItemDescription(item, description, sizeof(description));
 
-		char dedupeKey[MAX_ITEM_DESCRIPTION_LENGTH * 2];
+		char dedupeKey[MAX_ITEM_DESCRIPTION_LENGTH * 3];
 		strcopy(dedupeKey, sizeof(dedupeKey), description);
 		if (!hasDescription) {
 			strcopy(dedupeKey, sizeof(dedupeKey), uid);
@@ -236,22 +236,35 @@ bool FormatItemDescription(const CustomItemDefinition item, char[] buffer, int m
 	buffer[0] = '\0';
 
 	bool hasPositive = item.descriptionPositive[0] != '\0';
+	bool hasNeutral = item.descriptionNeutral[0] != '\0';
 	bool hasNegative = item.descriptionNegative[0] != '\0';
-	if (!hasPositive && !hasNegative) {
+	if (!hasPositive && !hasNeutral && !hasNegative) {
 		return false;
 	}
 
-	if (hasPositive && hasNegative) {
-		Format(buffer, maxlen, "{default}%s: {green}%s, {red}%s",
-				item.displayName, item.descriptionPositive, item.descriptionNegative);
-	} else if (hasPositive) {
-		Format(buffer, maxlen, "{default}%s: {green}%s",
-				item.displayName, item.descriptionPositive);
-	} else {
-		Format(buffer, maxlen, "{default}%s: {red}%s",
-				item.displayName, item.descriptionNegative);
+	Format(buffer, maxlen, "{default}%s:", item.displayName);
+	bool needsComma = false;
+
+	if (hasPositive) {
+		AppendItemDescriptionPart(buffer, maxlen, "{green}", item.descriptionPositive, needsComma);
+	}
+	if (hasNeutral) {
+		AppendItemDescriptionPart(buffer, maxlen, "{default}", item.descriptionNeutral, needsComma);
+	}
+	if (hasNegative) {
+		AppendItemDescriptionPart(buffer, maxlen, "{red}", item.descriptionNegative, needsComma);
 	}
 	return true;
+}
+
+void AppendItemDescriptionPart(char[] buffer, int maxlen, const char[] color, const char[] text, bool &needsComma) {
+	if (needsComma) {
+		StrCat(buffer, maxlen, ",");
+	}
+	StrCat(buffer, maxlen, " ");
+	StrCat(buffer, maxlen, color);
+	StrCat(buffer, maxlen, text);
+	needsComma = true;
 }
 
 public void OnMapStart() {
