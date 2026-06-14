@@ -101,6 +101,8 @@ public void OnClientDisconnect(int client) {
 public void OnEntityCreated(int entity, const char[] className) {
 	if (StrEqual(className, "tf_dropped_weapon")) {
 		SDKHook(entity, SDKHook_SpawnPost, OnDroppedWeaponSpawnPost);
+	} else if (StrContains(className, "tf_weapon", false) == 0) {
+		SDKHook(entity, SDKHook_SpawnPost, OnWeaponSpawnPost);
 	} else if (StrContains(className, "tf_wearable", false) == 0
 			&& !StrEqual(className, "tf_wearable_vm")) {
 		SDKHook(entity, SDKHook_SpawnPost, OnWearableSpawnPost);
@@ -144,7 +146,7 @@ void OnInventoryAppliedPost(Event event, const char[] name, bool dontBroadcast) 
 		return;
 	}
 	UpdateClientWeaponModel(client);
-	ScheduleClientModelUpdateRetries(client);
+	ScheduleClientModelRefresh(client);
 	
 	/**
 	 * start processing weapon switches, since other plugins may be equipping new weapons in
@@ -180,6 +182,31 @@ void ScheduleClientModelUpdateRetries(int client) {
 	ScheduleClientModelUpdate(client, 1.0);
 }
 
+void ScheduleClientModelValidation(int client, float delay) {
+	if (IsValidViewmodelClient(client)) {
+		CreateTimer(delay, Timer_ValidateClientWeaponModel, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+	}
+}
+
+void ScheduleClientModelValidationRetries(int client) {
+	ScheduleClientModelValidation(client, 1.5);
+	ScheduleClientModelValidation(client, 3.0);
+	ScheduleClientModelValidation(client, 5.0);
+}
+
+void ScheduleClientModelRefresh(int client) {
+	ScheduleClientModelUpdateRetries(client);
+	ScheduleClientModelValidationRetries(client);
+}
+
+Action Timer_ValidateClientWeaponModel(Handle timer, any userid) {
+	int client = GetClientOfUserId(userid);
+	if (IsValidViewmodelClient(client) && ClientWeaponModelNeedsRefresh(client)) {
+		UpdateClientWeaponModel(client);
+	}
+	return Plugin_Stop;
+}
+
 Action OnPlayerSpawnPre(int client) {
 	g_bIgnoreWeaponSwitch[client] = true;
 	return Plugin_Continue;
@@ -188,13 +215,14 @@ Action OnPlayerSpawnPre(int client) {
 void OnPlayerSpawnPost(int client) {
 	g_bIgnoreWeaponSwitch[client] = false;
 	RequestFrame(Frame_UpdateClientWeaponModel, GetClientUserId(client));
-	ScheduleClientModelUpdateRetries(client);
+	ScheduleClientModelRefresh(client);
 }
 
 void OnWeaponSwitchPost(int client, int weapon) {
 	if (!g_bIgnoreWeaponSwitch[client]) {
 		UpdateClientWeaponModel(client);
 		ScheduleClientModelUpdate(client, 0.1);
+		ScheduleClientModelValidationRetries(client);
 	}
  }
 
@@ -420,6 +448,32 @@ void UpdateClientWeaponModel(int client) {
 	}
 }
 
+void OnWeaponSpawnPost(int weapon) {
+	ScheduleWeaponSpawnModelRefresh(weapon, 0.1);
+	ScheduleWeaponSpawnModelRefresh(weapon, 0.35);
+	ScheduleWeaponSpawnModelRefresh(weapon, 1.0);
+}
+
+void ScheduleWeaponSpawnModelRefresh(int weapon, float delay) {
+	if (IsValidEntity(weapon)) {
+		CreateTimer(delay, Timer_DelayedWeaponSpawnModelRefresh, EntIndexToEntRef(weapon), TIMER_FLAG_NO_MAPCHANGE);
+	}
+}
+
+Action Timer_DelayedWeaponSpawnModelRefresh(Handle timer, any weaponRef) {
+	int weapon = EntRefToEntIndex(weaponRef);
+	if (!IsValidEntity(weapon)) {
+		return Plugin_Stop;
+	}
+
+	int owner = GetEntityOwner(weapon);
+	if (IsValidViewmodelClient(owner)) {
+		UpdateClientWeaponModel(owner);
+		ScheduleClientModelValidationRetries(owner);
+	}
+	return Plugin_Stop;
+}
+
 void OnWearableSpawnPost(int wearable) {
 	CreateTimer(0.1, Timer_DelayedWearableSpawnUpdate, EntIndexToEntRef(wearable), TIMER_FLAG_NO_MAPCHANGE);
 }
@@ -543,6 +597,95 @@ bool ApplyWearableModelOverride(int wearable, const char[] model) {
 	SetEntityModel(wearable, model);
 	MarkValidatedAttachedEntity(wearable);
 	return true;
+}
+
+bool ClientWeaponModelNeedsRefresh(int client) {
+	int weapon = TF2_GetClientActiveWeapon(client);
+	if (!IsValidEntity(weapon)) {
+		return false;
+	}
+
+	char vm[PLATFORM_MAX_PATH];
+	char wm[PLATFORM_MAX_PATH];
+	bool hasViewOverride;
+	bool hasWorldOverride;
+	if (!GetWeaponOverrideModels(weapon, vm, sizeof(vm), wm, sizeof(wm), hasViewOverride, hasWorldOverride)) {
+		return HasValidEntRef(g_iLastViewmodelRef[client])
+				|| HasValidEntRef(g_iLastArmModelRef[client])
+				|| HasValidEntRef(g_iLastWorldModelRef[client])
+				|| HasValidEntRef(g_iLastOffHandViewmodelRef[client]);
+	}
+
+	if ((hasViewOverride || hasWorldOverride) && !OriginalViewmodelHidden(client)) {
+		return true;
+	}
+
+	if ((hasViewOverride || hasWorldOverride) && !HasValidEntRef(g_iLastArmModelRef[client])) {
+		return true;
+	}
+
+	if (hasViewOverride && !EntityRefHasModel(g_iLastViewmodelRef[client], vm)) {
+		return true;
+	}
+
+	if (hasWorldOverride && !EntityRefHasModel(g_iLastWorldModelRef[client], wm)) {
+		return true;
+	}
+
+	return false;
+}
+
+bool GetWeaponOverrideModels(int weapon, char[] vm, int vmLen, char[] wm, int wmLen, bool &hasViewOverride, bool &hasWorldOverride) {
+	hasViewOverride = false;
+	hasWorldOverride = false;
+	if (!IsValidEntity(weapon)) {
+		return false;
+	}
+
+	char cm[PLATFORM_MAX_PATH];
+	TF2CustAttr_GetString(weapon, "clientmodel override", cm, sizeof(cm));
+
+	hasViewOverride = TF2CustAttr_GetString(weapon, "viewmodel override", vm, vmLen, cm) > 0
+			&& FileExistsAndLog(vm, true);
+	hasWorldOverride = TF2CustAttr_GetString(weapon, "worldmodel override", wm, wmLen, cm) > 0
+			&& FileExistsAndLog(wm, true);
+	return hasViewOverride || hasWorldOverride;
+}
+
+bool HasValidEntRef(int entityRef) {
+	int entity = EntRefToEntIndex(entityRef);
+	return entity != INVALID_ENT_REFERENCE && IsValidEntity(entity);
+}
+
+bool EntityRefHasModel(int entityRef, const char[] expectedModel) {
+	int entity = EntRefToEntIndex(entityRef);
+	if (entity == INVALID_ENT_REFERENCE || !IsValidEntity(entity) || !expectedModel[0]) {
+		return false;
+	}
+
+	if (HasEntProp(entity, Prop_Data, "m_ModelName")) {
+		char currentModel[PLATFORM_MAX_PATH];
+		GetEntPropString(entity, Prop_Data, "m_ModelName", currentModel, sizeof(currentModel));
+		if (StrEqual(currentModel, expectedModel, false)) {
+			return true;
+		}
+	}
+
+	if (!HasEntProp(entity, Prop_Send, "m_nModelIndex")) {
+		return false;
+	}
+
+	int expectedModelIndex = PrecacheModelAndLog(expectedModel);
+	return expectedModelIndex > 0
+			&& GetEntProp(entity, Prop_Send, "m_nModelIndex") == expectedModelIndex;
+}
+
+bool OriginalViewmodelHidden(int client) {
+	int clientView = GetEntPropEnt(client, Prop_Send, "m_hViewModel");
+	if (!IsValidEntity(clientView)) {
+		return true;
+	}
+	return (GetEntProp(clientView, Prop_Send, "m_fEffects") & EF_NODRAW) != 0;
 }
 
 int GetEntityOwner(int entity) {
