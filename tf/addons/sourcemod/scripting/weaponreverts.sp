@@ -1522,9 +1522,6 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 
 	bool validWeapon = (weapon > MaxClients && IsValidEntity(weapon));
 	new wepindex = (validWeapon ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
-	Action ambassador102Action = Ambassador102_OnHeadshotDamage(client, attacker, damageWeapon, damage, damagetype, damagecustom);
-	if (ambassador102Action != Plugin_Continue)
-		return ambassador102Action;
 
 	if (damagecustom == SANDMAN_DAMAGE_CUSTOM)
 	{
@@ -1724,6 +1721,10 @@ public Action OnTakeDamageAlive(
 
 	if (!Accuracy_IsValidClient(attacker) || weapon < 1) return Plugin_Continue;
 	bool validWeapon = (weapon > MaxClients && IsValidEntity(weapon));
+
+	Action ambassador102Action = Ambassador102_OnHeadshotDamage(victim, attacker, weapon, damage, damage_type, damage_custom);
+	if (ambassador102Action != Plugin_Continue)
+		return ambassador102Action;
 
 	if (
 		validWeapon &&
