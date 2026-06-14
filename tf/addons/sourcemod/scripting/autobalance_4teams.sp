@@ -9,6 +9,7 @@
 #include <clans_api>
 #include <whaletracker_api>
 #include <points_store_api>
+#include <saysounds>
 #define REQUIRE_PLUGIN
 #include "include/dgm_api.inc"
 #include "include/plugin_statistics.inc"
@@ -24,6 +25,7 @@ native int FilterAlerts_MarkAutobalance(int client);
 #define GAME_TEAM_COUNT     4
 #define MEDIC_AUTOBALANCE_UBER_FLOOR 0.05
 #define POINTS_STORE_AB_IMMUNITY_ITEM "abImmunity24h"
+#define TEAM_MOVE_SAYSOUND "tp-enderman"
 
 StringMap g_hMapImmunity = null;            // SteamID64 set for map-long immunity.
 StringMap g_hPersistentImmunity = null;     // SteamID64 set for persistent admin immunity.
@@ -68,6 +70,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
+    MarkNativeAsOptional("SaySounds_PlayCommand");
     return APLRes_Success;
 }
 
@@ -472,6 +475,7 @@ public Action Timer_Autobalance(Handle timer)
     TF2_RespawnPlayer(pick);
     SetClientMapImmunity(pick, true);
     g_fImbalanceDetectedAt = 0.0;
+    PlayTeamMoveSaySound();
 
     CPrintToChatAllEx(
         pick,
@@ -484,6 +488,16 @@ public Action Timer_Autobalance(Handle timer)
     CPrintToChatEx(pick, pick, "{lightgreen}[Server]{default} You've been autobalanced to %s{default}!", teamColorName);
 
     return Plugin_Continue;
+}
+
+static void PlayTeamMoveSaySound()
+{
+    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
+    {
+        return;
+    }
+
+    SaySounds_PlayCommand(0, TEAM_MOVE_SAYSOUND, true);
 }
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@
 #include <clans_api>
 #include <whaletracker_api>
 #include <points_store_api>
+#include <saysounds>
 #define REQUIRE_PLUGIN
 #include "include/dgm_api.inc"
 #include "include/plugin_statistics.inc"
@@ -41,6 +42,8 @@ static const char SURRENDER_KEYWORDS[][] =
     "surrender",
     "itsover"
 };
+
+#define TEAM_MOVE_SAYSOUND "tp-enderman"
 
 enum WhaleVoteKind
 {
@@ -130,6 +133,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     MarkNativeAsOptional("DGM_GetLastRoundDurationSeconds");
     MarkNativeAsOptional("DGM_IsSetupActive");
+    MarkNativeAsOptional("SaySounds_PlayCommand");
     return APLRes_Success;
 }
 
@@ -1247,6 +1251,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
                         totalVotes);
                     StartScrambleCooldown();
                     ServerCommand("mp_scrambleteams");
+                    PlayTeamMoveSaySound();
                     success = true;
                 }
                 else
@@ -2232,6 +2237,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         ResetSurrenderVotes("whalescramble_execute");
         StartScrambleCooldown();
         CPrintToChatAll("{tomato}[{purple}Gap{tomato}]{default} {gold}Whalescrambling{default} %d players!", moved);
+        PlayTeamMoveSaySound();
         LogWhale("Scramble executed: moved=%d pairs=%d suppressRespawn=%d.", moved, pairCount, suppressRespawn ? 1 : 0);
         if (setupScramble)
         {
@@ -2304,6 +2310,16 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         LogWhale("Scramble executed: no eligible pairs.");
     }
     return Plugin_Stop;
+}
+
+static void PlayTeamMoveSaySound()
+{
+    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
+    {
+        return;
+    }
+
+    SaySounds_PlayCommand(0, TEAM_MOVE_SAYSOUND, true);
 }
 
 static void ClearScrambleRespawnAttempts()
