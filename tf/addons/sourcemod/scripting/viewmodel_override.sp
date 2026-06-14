@@ -37,12 +37,15 @@
 
 #define TF_ITEM_DEFINDEX_GUNSLINGER 142
 
+#define ATTR_EXTRA_WEARABLE_MODEL_OVERRIDE "extra wearable model override"
+
 bool g_bIgnoreWeaponSwitch[MAXPLAYERS + 1];
 ConVar g_cvEdictReserve;
 
 int g_iLastViewmodelRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
 int g_iLastArmModelRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
 int g_iLastWorldModelRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
+int g_iLastHiddenWorldWeaponRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
 
 int g_iLastOffHandViewmodelRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
 
@@ -98,6 +101,9 @@ public void OnClientDisconnect(int client) {
 public void OnEntityCreated(int entity, const char[] className) {
 	if (StrEqual(className, "tf_dropped_weapon")) {
 		SDKHook(entity, SDKHook_SpawnPost, OnDroppedWeaponSpawnPost);
+	} else if (StrContains(className, "tf_wearable", false) == 0
+			&& !StrEqual(className, "tf_wearable_vm")) {
+		SDKHook(entity, SDKHook_SpawnPost, OnWearableSpawnPost);
 	}
 }
 
@@ -138,7 +144,7 @@ void OnInventoryAppliedPost(Event event, const char[] name, bool dontBroadcast) 
 		return;
 	}
 	UpdateClientWeaponModel(client);
-	CreateTimer(0.1, Timer_DelayedUpdateClientWeaponModel, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+	ScheduleClientModelUpdateRetries(client);
 	
 	/**
 	 * start processing weapon switches, since other plugins may be equipping new weapons in
@@ -155,6 +161,25 @@ Action Timer_DelayedUpdateClientWeaponModel(Handle timer, any userid) {
 	return Plugin_Stop;
 }
 
+void Frame_UpdateClientWeaponModel(any userid) {
+	int client = GetClientOfUserId(userid);
+	if (IsValidViewmodelClient(client)) {
+		UpdateClientWeaponModel(client);
+	}
+}
+
+void ScheduleClientModelUpdate(int client, float delay) {
+	if (IsValidViewmodelClient(client)) {
+		CreateTimer(delay, Timer_DelayedUpdateClientWeaponModel, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+	}
+}
+
+void ScheduleClientModelUpdateRetries(int client) {
+	ScheduleClientModelUpdate(client, 0.1);
+	ScheduleClientModelUpdate(client, 0.35);
+	ScheduleClientModelUpdate(client, 1.0);
+}
+
 Action OnPlayerSpawnPre(int client) {
 	g_bIgnoreWeaponSwitch[client] = true;
 	return Plugin_Continue;
@@ -162,11 +187,14 @@ Action OnPlayerSpawnPre(int client) {
 
 void OnPlayerSpawnPost(int client) {
 	g_bIgnoreWeaponSwitch[client] = false;
+	RequestFrame(Frame_UpdateClientWeaponModel, GetClientUserId(client));
+	ScheduleClientModelUpdateRetries(client);
 }
 
 void OnWeaponSwitchPost(int client, int weapon) {
 	if (!g_bIgnoreWeaponSwitch[client]) {
 		UpdateClientWeaponModel(client);
+		ScheduleClientModelUpdate(client, 0.1);
 	}
  }
 
@@ -178,6 +206,8 @@ void UpdateClientWeaponModel(int client) {
 		ResetClientModelRefs(client);
 		return;
 	}
+
+	UpdateClientWearableModels(client);
 	
 	int weapon = TF2_GetClientActiveWeapon(client);
 	if (!IsValidEntity(weapon)) {
@@ -226,6 +256,7 @@ void UpdateClientWeaponModel(int client) {
 			
 			SetEntityRenderMode(weapon, RENDER_TRANSCOLOR);
 			SetEntityRenderColor(weapon, 0, 0, 0, 0);
+			g_iLastHiddenWorldWeaponRef[client] = EntIndexToEntRef(weapon);
 			
 			bitsActiveModels |= MODEL_WORLD_ACTIVE;
 		}
@@ -389,6 +420,138 @@ void UpdateClientWeaponModel(int client) {
 	}
 }
 
+void OnWearableSpawnPost(int wearable) {
+	CreateTimer(0.1, Timer_DelayedWearableSpawnUpdate, EntIndexToEntRef(wearable), TIMER_FLAG_NO_MAPCHANGE);
+}
+
+Action Timer_DelayedWearableSpawnUpdate(Handle timer, any wearableRef) {
+	int wearable = EntRefToEntIndex(wearableRef);
+	if (!IsValidEntity(wearable) || !TF2Util_IsEntityWearable(wearable)) {
+		return Plugin_Stop;
+	}
+
+	char model[PLATFORM_MAX_PATH];
+	if (!GetEntityClientModelOverride(wearable, model, sizeof(model))) {
+		return Plugin_Stop;
+	}
+
+	ApplyWearableModelOverride(wearable, model);
+
+	int owner = GetEntityOwner(wearable);
+	if (IsValidViewmodelClient(owner)) {
+		ScheduleClientModelUpdate(owner, 0.1);
+	}
+	return Plugin_Stop;
+}
+
+void UpdateClientWearableModels(int client) {
+	int count = TF2Util_GetPlayerWearableCount(client);
+	for (int i = 0; i < count; i++) {
+		int wearable = TF2Util_GetPlayerWearable(client, i);
+		if (!IsValidEntity(wearable)) {
+			continue;
+		}
+
+		char model[PLATFORM_MAX_PATH];
+		if (GetEntityClientModelOverride(wearable, model, sizeof(model))) {
+			ApplyWearableModelOverride(wearable, model);
+		} else if (GetExtraWearableModelOverride(client, wearable, model, sizeof(model))) {
+			ApplyWearableModelOverride(wearable, model);
+		}
+	}
+}
+
+bool GetEntityClientModelOverride(int entity, char[] model, int maxlen) {
+	return TF2CustAttr_GetString(entity, "clientmodel override", model, maxlen)
+			|| TF2CustAttr_GetString(entity, "worldmodel override", model, maxlen);
+}
+
+bool GetExtraWearableModelOverride(int client, int wearable, char[] model, int maxlen) {
+	int wearableDefIndex = GetEntityItemDefinitionIndex(wearable);
+	if (wearableDefIndex <= 0) {
+		return false;
+	}
+
+	int activeWeapon = TF2_GetClientActiveWeapon(client);
+	if (TryGetExtraWearableModelOverrideFromEntity(activeWeapon, wearableDefIndex, model, maxlen)) {
+		return true;
+	}
+
+	for (int slot = 0; slot < 7; slot++) {
+		int loadoutEntity = TF2Util_GetPlayerLoadoutEntity(client, slot);
+		if (TryGetExtraWearableModelOverrideFromEntity(loadoutEntity, wearableDefIndex, model, maxlen)) {
+			return true;
+		}
+	}
+
+	for (int slot = 0; slot <= 5; slot++) {
+		int weapon = GetPlayerWeaponSlot(client, slot);
+		if (TryGetExtraWearableModelOverrideFromEntity(weapon, wearableDefIndex, model, maxlen)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool TryGetExtraWearableModelOverrideFromEntity(int entity, int wearableDefIndex, char[] model, int maxlen) {
+	if (!IsValidEntity(entity)) {
+		return false;
+	}
+
+	char overrideModel[PLATFORM_MAX_PATH];
+	if (!TF2CustAttr_GetString(entity, ATTR_EXTRA_WEARABLE_MODEL_OVERRIDE, overrideModel, sizeof(overrideModel))) {
+		return false;
+	}
+
+	int entityDefIndex = GetEntityItemDefinitionIndex(entity);
+	if (entityDefIndex != wearableDefIndex && !ItemDefsShareDefaultLoadoutSlot(entityDefIndex, wearableDefIndex)) {
+		return false;
+	}
+
+	strcopy(model, maxlen, overrideModel);
+	return true;
+}
+
+bool ItemDefsShareDefaultLoadoutSlot(int firstDefIndex, int secondDefIndex) {
+	if (firstDefIndex <= 0 || secondDefIndex <= 0) {
+		return false;
+	}
+
+	int firstSlot = TF2Econ_GetItemDefaultLoadoutSlot(firstDefIndex);
+	int secondSlot = TF2Econ_GetItemDefaultLoadoutSlot(secondDefIndex);
+	return firstSlot != -1 && firstSlot == secondSlot;
+}
+
+int GetEntityItemDefinitionIndex(int entity) {
+	if (!IsValidEntity(entity) || !HasEntProp(entity, Prop_Send, "m_iItemDefinitionIndex")) {
+		return -1;
+	}
+	return GetEntProp(entity, Prop_Send, "m_iItemDefinitionIndex");
+}
+
+bool ApplyWearableModelOverride(int wearable, const char[] model) {
+	if (!IsValidEntity(wearable) || !TF2Util_IsEntityWearable(wearable)) {
+		return false;
+	}
+
+	if (!FileExistsAndLog(model, true)) {
+		return false;
+	}
+
+	PrecacheModelAndLog(model);
+	SetEntityModel(wearable, model);
+	MarkValidatedAttachedEntity(wearable);
+	return true;
+}
+
+int GetEntityOwner(int entity) {
+	if (!IsValidEntity(entity) || !HasEntProp(entity, Prop_Send, "m_hOwnerEntity")) {
+		return 0;
+	}
+	return GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+}
+
 /**
  * Destroys wearable worldmodels on death so ragdolls aren't holding them.
  */
@@ -397,6 +560,7 @@ void OnPlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	if (client) {
 		MaybeRemoveWearable(client, g_iLastWorldModelRef[client]);
 		g_iLastWorldModelRef[client] = INVALID_ENT_REFERENCE;
+		RestoreHiddenWorldWeapon(client);
 	}
 }
 
@@ -469,12 +633,8 @@ void DetachVMs(int client) {
 	MaybeRemoveWearable(client, g_iLastArmModelRef[client]);
 	g_iLastArmModelRef[client] = INVALID_ENT_REFERENCE;
 	
-	if (MaybeRemoveWearable(client, g_iLastWorldModelRef[client])) {
-		int activeWeapon = TF2_GetClientActiveWeapon(client);
-		if (IsValidEntity(activeWeapon)) {
-			SetEntityRenderMode(activeWeapon, RENDER_NORMAL);
-		}
-	}
+	MaybeRemoveWearable(client, g_iLastWorldModelRef[client]);
+	RestoreHiddenWorldWeapon(client);
 	g_iLastWorldModelRef[client] = INVALID_ENT_REFERENCE;
 	
 	MaybeRemoveWearable(client, g_iLastOffHandViewmodelRef[client]);
@@ -484,6 +644,15 @@ void DetachVMs(int client) {
 	if (IsValidEntity(clientView)) {
 		SetEntProp(clientView, Prop_Send, "m_fEffects", 0);
 	}
+}
+
+void RestoreHiddenWorldWeapon(int client) {
+	int hiddenWeapon = EntRefToEntIndex(g_iLastHiddenWorldWeaponRef[client]);
+	if (IsValidEntity(hiddenWeapon)) {
+		SetEntityRenderMode(hiddenWeapon, RENDER_NORMAL);
+		SetEntityRenderColor(hiddenWeapon, 255, 255, 255, 255);
+	}
+	g_iLastHiddenWorldWeaponRef[client] = INVALID_ENT_REFERENCE;
 }
 
 /**
@@ -525,6 +694,7 @@ void ResetClientModelRefs(int client) {
 	g_iLastViewmodelRef[client] = INVALID_ENT_REFERENCE;
 	g_iLastArmModelRef[client] = INVALID_ENT_REFERENCE;
 	g_iLastWorldModelRef[client] = INVALID_ENT_REFERENCE;
+	g_iLastHiddenWorldWeaponRef[client] = INVALID_ENT_REFERENCE;
 	g_iLastOffHandViewmodelRef[client] = INVALID_ENT_REFERENCE;
 	g_bIgnoreWeaponSwitch[client] = false;
 }

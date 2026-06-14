@@ -35,4 +35,4 @@ if [[ -z "${host}" || -z "${database}" || -z "${user}" ]]; then
 fi
 
 mysql -h "${host}" -u "${user}" -p"${pass}" -D "${database}" \
-    -e "SELECT id, player_name, message, created_at FROM ${TABLE} ORDER BY id DESC LIMIT 15;"
+    -e "SELECT id, player_name, message, created_at FROM ${TABLE} ORDER BY id DESC LIMIT 50;"
