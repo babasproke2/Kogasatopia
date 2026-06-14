@@ -124,6 +124,7 @@ StringMap g_WebNameColors = null;
 ArrayList g_ConnectQueue = null;
 Handle g_ConnectQueueTimer = null;
 Handle g_hPollOutboxTimer = null;
+int g_iOutboxTimerGeneration = 0;
 char g_sServerName[128];
 ConVar g_hHostnameCvar = null;
 StringMap g_PrenameIdRules = null;
@@ -543,17 +544,16 @@ static void Filters_StartTimers()
 {
     if (g_hPollOutboxTimer == null)
     {
-        g_hPollOutboxTimer = CreateTimer(FILTERS_OUTBOX_POLL_INTERVAL, Timer_PollOutbox, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+        g_iOutboxTimerGeneration++;
+        g_hPollOutboxTimer = CreateTimer(FILTERS_OUTBOX_POLL_INTERVAL, Timer_PollOutbox, g_iOutboxTimerGeneration, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
     }
 }
 
 static void Filters_StopOutboxTimer()
 {
-    if (g_hPollOutboxTimer != null)
-    {
-        delete g_hPollOutboxTimer;
-        g_hPollOutboxTimer = null;
-    }
+    // The timer handle can already be closed by SourceMod lifecycle events. Retire it by generation instead.
+    g_iOutboxTimerGeneration++;
+    g_hPollOutboxTimer = null;
 }
 
 static void Filters_RestoreConnectedClients()
@@ -720,6 +720,13 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS server_ip VARCHAR(64) NULL AFTER webchatonly",
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS server_port INT NULL AFTER server_ip",
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS delivered_to TEXT NULL AFTER server_port",
+        "CREATE TABLE IF NOT EXISTS whaletracker_chat_outbox_deliveries ("
+        ... "outbox_id INT NOT NULL,"
+        ... "server_stamp VARCHAR(96) NOT NULL,"
+        ... "delivered_at INT NOT NULL,"
+        ... "PRIMARY KEY(outbox_id, server_stamp),"
+        ... "INDEX(delivered_at),"
+        ... "INDEX(server_stamp)) DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE IF NOT EXISTS prename_rules (pattern VARCHAR(64) PRIMARY KEY, newname VARCHAR(64) NOT NULL)",
         "CREATE TABLE IF NOT EXISTS filters_namecolors (steamid VARCHAR(32) PRIMARY KEY, color VARCHAR(32) NOT NULL DEFAULT '', pattern VARCHAR(32) NOT NULL DEFAULT '', updated_at INT NOT NULL DEFAULT 0)",
         "ALTER TABLE filters_namecolors ADD COLUMN IF NOT EXISTS pattern VARCHAR(32) NOT NULL DEFAULT '' AFTER color"
@@ -790,10 +797,10 @@ public void Filters_SchemaQueryCallback(Database db, DBResultSet results, const 
     }
 }
 
-// Poll DB outbox and relay to all chat, then delete processed rows
+// Poll DB outbox and atomically claim one delivery row per server.
 public Action Timer_PollOutbox(Handle timer, any data)
 {
-    if (timer != g_hPollOutboxTimer)
+    if (data != g_iOutboxTimerGeneration || timer != g_hPollOutboxTimer)
     {
         return Plugin_Stop;
     }
@@ -813,12 +820,10 @@ public Action Timer_PollOutbox(Handle timer, any data)
         Filters_LogDebug("Host stamp unavailable; skipping outbox poll");
         return Plugin_Continue;
     }
-    char needle[128];
-    Format(needle, sizeof(needle), "|%s|", hostStamp);
-    char escapedNeedle[192];
-    KogasaSql_Escape(g_hFiltersDb, needle, escapedNeedle, sizeof(escapedNeedle), "filters");
-    char query[512];
-    Format(query, sizeof(query), "SELECT id, iphash, display_name, message, host_ip, host_port, webchatonly, alert, server_ip, server_port, delivered_to FROM whaletracker_chat_outbox WHERE delivered_to IS NULL OR LOCATE('%s', delivered_to) = 0 ORDER BY id ASC LIMIT 20", escapedNeedle);
+    char escapedStamp[192];
+    KogasaSql_Escape(g_hFiltersDb, hostStamp, escapedStamp, sizeof(escapedStamp), "filters");
+    char query[1024];
+    Format(query, sizeof(query), "SELECT id, iphash, display_name, message, host_ip, host_port, webchatonly, alert, server_ip, server_port, delivered_to FROM whaletracker_chat_outbox o WHERE NOT EXISTS (SELECT 1 FROM whaletracker_chat_outbox_deliveries d WHERE d.outbox_id = o.id AND d.server_stamp = '%s') ORDER BY id ASC LIMIT 20", escapedStamp);
     g_hFiltersDb.Query(Filters_OutboxQueryCallback, query);
     Filters_LogDebug("Polling chat outbox for pending messages");
     return Plugin_Continue;
@@ -848,26 +853,6 @@ public void Filters_OutboxQueryCallback(Database db, DBResultSet results, const 
         results.FetchString(2, display, sizeof(display));
         char msg[512];
         results.FetchString(3, msg, sizeof(msg));
-        bool isPlayerRelay = (strncmp(hash, "player:", 7) == 0);
-        char label[256];
-        char colorTag[32] = "{gold}";
-        if (!isPlayerRelay)
-        {
-            if (display[0])
-            {
-                Filters_GetWebNameColor(display, colorTag, sizeof(colorTag));
-                Format(label, sizeof(label), "%s[%s]{default}", colorTag, display);
-            }
-            else if (StrEqual(hash, "system"))
-            {
-                Format(label, sizeof(label), "{gold}[Server]{default}");
-            }
-            else
-            {
-                Filters_GetWebNameColor(hash, colorTag, sizeof(colorTag));
-                Format(label, sizeof(label), "%s[Web Player # %s]{default}", colorTag, hash);
-            }
-        }
         char sourceIp[64];
         results.FetchString(4, sourceIp, sizeof(sourceIp));
         int sourcePort = 0;
@@ -888,70 +873,153 @@ public void Filters_OutboxQueryCallback(Database db, DBResultSet results, const 
             results.FetchString(10, deliveredTo, sizeof(deliveredTo));
             if (StrContains(deliveredTo, hostNeedle, false) != -1)
             {
-                Filters_LogDebug("Skipping chat id %d; already delivered per schema", id);
-                Filters_MarkOutboxDelivered(id);
+                Filters_RecordOutboxDelivery(id, localStamp);
+                Filters_LogDebug("Migrated legacy delivery stamp for chat id %d", id);
                 continue;
             }
         }
-        bool fromLocalServer = Filters_IsLocalHostStamp(sourceIp, sourcePort);
-
-        bool suppressChatBroadcast = webchatOnly || StrEqual(hash, "system") || fromLocalServer;
-        if (isPlayerRelay)
-        {
-            if (!suppressChatBroadcast)
-            {
-                Filters_PrintToChatAll(msg);
-            }
-            if (!fromLocalServer && !webchatOnly)
-            {
-                PrintToServer("%s", msg);
-            }
-        }
-        else
-        {
-            char out[640];
-            Format(out, sizeof(out), "%s %s", label, msg);
-            if (!suppressChatBroadcast)
-            {
-                Filters_PrintToChatAll(out);
-            }
-            if (!fromLocalServer && !webchatOnly)
-            {
-                PrintToServer("%s", out);
-            }
-        }
-        if (fromLocalServer)
-        {
-            Filters_LogDebug("Suppressed relay of local chat id %d (%s:%d)", id, sourceIp, sourcePort);
-        }
-        else if (webchatOnly)
-        {
-            Filters_LogDebug("Suppressed relay of webchat-only chat id %d", id);
-        }
-        Filters_LogDebug("Relayed chat id %d hash %s name %s msg %s (from %s:%d)", id, hash, display, msg, sourceIp, sourcePort);
-        Filters_MarkOutboxDelivered(id);
+        Filters_ClaimOutboxForDelivery(id, hash, display, msg, sourceIp, sourcePort, webchatOnly, localStamp);
     }
     Filters_MaybeCleanupOutbox();
     Filters_MaybeCleanupChatHistory();
 }
 
-static void Filters_MarkOutboxDelivered(int rowId)
+static void Filters_RecordOutboxDelivery(int rowId, const char[] localStamp)
 {
-    if (rowId <= 0 || !g_bDbReady || g_hFiltersDb == null)
+    if (rowId <= 0 || !localStamp[0] || !Filters_DbAvailable())
     {
         return;
     }
-    char stamp[96];
-    Filters_GetHostStamp(stamp, sizeof(stamp));
-    if (!stamp[0])
-    {
-        return;
-    }
+
     char escapedStamp[192];
-    KogasaSql_Escape(g_hFiltersDb, stamp, escapedStamp, sizeof(escapedStamp), "filters");
+    KogasaSql_Escape(g_hFiltersDb, localStamp, escapedStamp, sizeof(escapedStamp), "filters");
     char query[512];
-    Format(query, sizeof(query), "UPDATE whaletracker_chat_outbox SET delivered_to = CASE WHEN delivered_to IS NULL OR delivered_to = '' THEN '|%s|' WHEN LOCATE('|%s|', delivered_to) = 0 THEN CONCAT(delivered_to, '|%s|') ELSE delivered_to END WHERE id = %d", escapedStamp, escapedStamp, escapedStamp, rowId);
+    Format(query, sizeof(query),
+        "INSERT IGNORE INTO whaletracker_chat_outbox_deliveries (outbox_id, server_stamp, delivered_at) VALUES (%d, '%s', %d)",
+        rowId,
+        escapedStamp,
+        GetTime());
     g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
+}
+
+static void Filters_ClaimOutboxForDelivery(int rowId, const char[] hash, const char[] display, const char[] msg, const char[] sourceIp, int sourcePort, bool webchatOnly, const char[] localStamp)
+{
+    if (rowId <= 0 || !localStamp[0] || !Filters_DbAvailable())
+    {
+        return;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(rowId);
+    pack.WriteString(hash);
+    pack.WriteString(display);
+    pack.WriteString(msg);
+    pack.WriteString(sourceIp);
+    pack.WriteCell(sourcePort);
+    pack.WriteCell(webchatOnly ? 1 : 0);
+
+    char query[512];
+    char escapedStamp[192];
+    KogasaSql_Escape(g_hFiltersDb, localStamp, escapedStamp, sizeof(escapedStamp), "filters");
+    Format(query, sizeof(query),
+        "INSERT IGNORE INTO whaletracker_chat_outbox_deliveries (outbox_id, server_stamp, delivered_at) VALUES (%d, '%s', %d)",
+        rowId,
+        escapedStamp,
+        GetTime());
+    g_hFiltersDb.Query(Filters_OutboxClaimCallback, query, pack);
+}
+
+public void Filters_OutboxClaimCallback(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    if (error[0] != '\0' || results == null)
+    {
+        if (error[0] != '\0') LogError("[Filters] Outbox delivery claim failed: %s", error);
+        delete pack;
+        return;
+    }
+
+    pack.Reset();
+    int id = pack.ReadCell();
+    char hash[64];
+    pack.ReadString(hash, sizeof(hash));
+    char display[128];
+    pack.ReadString(display, sizeof(display));
+    char msg[512];
+    pack.ReadString(msg, sizeof(msg));
+    char sourceIp[64];
+    pack.ReadString(sourceIp, sizeof(sourceIp));
+    int sourcePort = pack.ReadCell();
+    bool webchatOnly = pack.ReadCell() != 0;
+    delete pack;
+
+    if (results.AffectedRows <= 0)
+    {
+        Filters_LogDebug("Skipping chat id %d; this server already claimed delivery", id);
+        return;
+    }
+
+    Filters_DeliverOutboxRow(id, hash, display, msg, sourceIp, sourcePort, webchatOnly);
+}
+
+static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] display, const char[] msg, const char[] sourceIp, int sourcePort, bool webchatOnly)
+{
+    bool isPlayerRelay = (strncmp(hash, "player:", 7) == 0);
+    char label[256];
+    char colorTag[32] = "{gold}";
+    if (!isPlayerRelay)
+    {
+        if (display[0])
+        {
+            Filters_GetWebNameColor(display, colorTag, sizeof(colorTag));
+            Format(label, sizeof(label), "%s[%s]{default}", colorTag, display);
+        }
+        else if (StrEqual(hash, "system"))
+        {
+            Format(label, sizeof(label), "{gold}[Server]{default}");
+        }
+        else
+        {
+            Filters_GetWebNameColor(hash, colorTag, sizeof(colorTag));
+            Format(label, sizeof(label), "%s[Web Player # %s]{default}", colorTag, hash);
+        }
+    }
+    bool fromLocalServer = Filters_IsLocalHostStamp(sourceIp, sourcePort);
+
+    bool suppressChatBroadcast = webchatOnly || StrEqual(hash, "system") || fromLocalServer;
+    if (isPlayerRelay)
+    {
+        if (!suppressChatBroadcast)
+        {
+            Filters_PrintToChatAll(msg);
+        }
+        if (!fromLocalServer && !webchatOnly)
+        {
+            PrintToServer("%s", msg);
+        }
+    }
+    else
+    {
+        char out[640];
+        Format(out, sizeof(out), "%s %s", label, msg);
+        if (!suppressChatBroadcast)
+        {
+            Filters_PrintToChatAll(out);
+        }
+        if (!fromLocalServer && !webchatOnly)
+        {
+            PrintToServer("%s", out);
+        }
+    }
+    if (fromLocalServer)
+    {
+        Filters_LogDebug("Suppressed relay of local chat id %d (%s:%d)", id, sourceIp, sourcePort);
+    }
+    else if (webchatOnly)
+    {
+        Filters_LogDebug("Suppressed relay of webchat-only chat id %d", id);
+    }
+    Filters_LogDebug("Relayed chat id %d hash %s name %s msg %s (from %s:%d)", id, hash, display, msg, sourceIp, sourcePort);
 }
 
 static void Filters_MaybeCleanupOutbox()
@@ -972,6 +1040,11 @@ static void Filters_MaybeCleanupOutbox()
         return;
     }
     char query[128];
+    Format(query, sizeof(query),
+        "DELETE FROM whaletracker_chat_outbox_deliveries WHERE delivered_at < %d",
+        cutoff);
+    g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
+
     Format(query, sizeof(query),
         "DELETE FROM whaletracker_chat_outbox WHERE created_at < %d",
         cutoff);
