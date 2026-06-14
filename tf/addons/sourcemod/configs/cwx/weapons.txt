@@ -8,6 +8,13 @@
 	{
 		"inherits"	"The Sandvich"
 		"name"	"Primary Sandvich"
+		"image"                 "100px-item_icon_wrangler.png"
+		"description"
+		{
+		        "positive"             ""
+		        "neutral"              ""
+		        "negative"             ""
+		}
 		"used_by_classes"
 		{
 			"heavy"	"primary"
@@ -17,9 +24,11 @@
         {
                 "inherits"    "TF_WEAPON_MINIGUN"
                 "name"                  "Little Machine Gun V"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Nonomi's Minigun - Stock Reskin"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "attributes_custom"
@@ -32,6 +41,13 @@
         {
                 "inherits"    "Upgradeable TF_WEAPON_SCATTERGUN"
                 "name"                  "Eye of Horus"
+                "image"                 "100px-item_icon_wrangler.png"
+                "description"
+                {
+                        "positive"             ""
+                        "neutral"              ""
+                        "negative"             ""
+                }
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_shotgun/hoshino_shotgun.mdl"
@@ -42,9 +58,11 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_PRIMARY"
                 "name"                  "Eye of Horus"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Hoshino's Shotgun - Stock Reskin"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "attributes_custom"
@@ -57,9 +75,11 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_SOLDIER"
                 "name"                  "Eye of Horus"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Hoshino's Shotgun - Stock Reskin"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "attributes_custom"
@@ -72,9 +92,11 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_HWG"
                 "name"                  "Eye of Horus"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Hoshino's Shotgun - Stock Reskin"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "attributes_custom"
@@ -87,9 +109,11 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_PYRO"
                 "name"                  "Eye of Horus"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Hoshino's Shotgun - Stock Reskin"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "attributes_custom"
@@ -102,9 +126,11 @@
         {
                 "inherits" "Upgradeable TF_WEAPON_SNIPERRIFLE"
                 "name" "Wine Red • Admire"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Enables wall climb, minicrits instead of crits, +50% headshot damage, 35% faster swap to speed"
+                        "neutral"              ""
                         "negative"             "crits become minicrits, fires tracer"
                 }
                 "attributes_game"
@@ -125,6 +151,13 @@
         {
                 "inherits" "Upgradeable TF_WEAPON_SNIPERRIFLE"
                 "name" "Wine Red (Stock Reskin)"
+                "image"                 "100px-item_icon_wrangler.png"
+                "description"
+                {
+                        "positive"             ""
+                        "neutral"              ""
+                        "negative"             ""
+                }
                 "attributes_custom"
                 {
                         "clientmodel override" "models/weapons/c_models/c_sniperrifle/c_aru_sniperrifle.mdl"
@@ -135,9 +168,11 @@
         {
                 "inherits"    "The Disciplinary Action"
                 "name"                  "Reimu's Gohei - Disc. Action"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Reimu's Gohei - Stock, Whip and Market Gardener options"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "used_by_classes"
@@ -158,9 +193,11 @@
         {
                 "inherits"    "The Market Gardener"
                 "name"                  "Reimu's Gohei - Market Gardener"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Reimu's Gohei - Stock, Whip and Market Gardener options"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "used_by_classes"
@@ -178,9 +215,11 @@
         {
                 "inherits"    "Prinny Machete"
                 "name"                  "Reimu's Gohei"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Reimu's Gohei - Stock Reskin"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "attributes_custom"
@@ -193,6 +232,7 @@
         {
                 "inherits"              "The Equalizer"
                 "name"                  "Efficiency IV Diamond Pickaxe"
+                "image"                 "100px-item_icon_wrangler.png"
                 "points_store_purchase" "diamond_pickaxe"
                 "attributes_game"
                 {
@@ -203,6 +243,7 @@
                 "description"
                 {
                         "positive"             "The Equalizer, but it swings 60% faster and turns enemies to gold."
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "attributes_custom"
@@ -215,6 +256,7 @@
         {
                 "inherits"              "Prinny Machete"
                 "name"                  "Diamond Pickaxe"
+                "image"                 "100px-item_icon_wrangler.png"
                 "points_store_purchase" "diamond_pickaxe"
                 "attributes_game"
                 {
@@ -223,6 +265,7 @@
                 "description"
                 {
                         "positive"             "An all class melee, but it can random crit, and turns enemies to gold."
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "attributes_custom"
@@ -235,6 +278,7 @@
         {
                 "inherits"              "Prinny Machete"
                 "name"                  "Holy Bible"
+                "image"                 "100px-item_icon_wrangler.png"
                 "points_store_purchase" "holy_bible"
                 "attributes_game"
                 {
@@ -243,6 +287,7 @@
                 "description"
                 {
                         "positive"             "An all class melee, plays 'Holy Shit' sfx on kill, can random crit, turns enemies to gold."
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "attributes_custom"
@@ -255,14 +300,27 @@
         {
                 "inherits"              "The Pain Train"
                 "name"                  "The Pain Train"
+                "image"                 "100px-item_icon_wrangler.png"
+                "description"
+                {
+                        "positive"             ""
+                        "neutral"              ""
+                        "negative"             ""
+                }
+                "used_by_classes"
+                {
+                        "pyro" "melee"
+                }
         }
         "reimugohei_spy"
         {
                 "inherits"    "TF_WEAPON_KNIFE"
                 "name"                  "Reimu's Purification Rod"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Reimu's Gohei - Stock Reskin"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "used_by_classes"
@@ -279,6 +337,13 @@
         {
                 "inherits"    "The Wrap Assassin"
                 "name"                  "Branch of Hourai"
+                "image"                 "100px-item_icon_wrangler.png"
+                "description"
+                {
+                        "positive"             ""
+                        "neutral"              ""
+                        "negative"             ""
+                }
                 "used_by_classes"
                 {
                         "scout" "melee"
@@ -297,9 +362,11 @@
         {
                 "inherits"    "The C.A.P.P.E.R"
                 "name"                  "Reisen's Bunny Pistol"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "+35% jump height, +30% damage"
+                        "neutral"              ""
                         "negative"             "consecutive shots become less accurate, 50% fire rate penalty"
                 }
                 "used_by_classes"
@@ -327,9 +394,11 @@
         {
                 "inherits"    "Crit-a-Cola"
                 "name"                  "Sproke / Redbull"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Ammo becomes magazine for 12 seconds, FaN/Popper receive +25% reload speed instead"
+                        "neutral"              ""
                         "negative"             "ammo is set to 0 when effect ends"
                 }
                 "attributes_custom"
@@ -342,9 +411,11 @@
         {
                 "inherits"                      "Baby Face's Blaster"
                 "name"                          "Vanilla Baby Face"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Vanilla Baby Face"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "used_by_classes"
@@ -361,9 +432,11 @@
 		"defindex"	"9"
 		"item_class"	"tf_weapon_shotgun_primary"
                 "name"                  "The Shotgun"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Stock Shotgun"
+                        "neutral"              ""
                         "negative"             ""
                 }
         }
@@ -376,9 +449,11 @@
 		"defindex"	"9"
 		"item_class"	"tf_weapon_shotgun_primary"
                 "name"                  "Hitscan Flamethrower"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "A shotgun that fires two bullets with a tighter spread, deals 80 base damage, consumes 5 ammo per shot, +30 health on kill"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "attributes_game"
@@ -402,9 +477,11 @@
         {
 		"inherits" "TF_WEAPON_SHOTGUN_PYRO"
                 "name"                  "Flame Shotgun"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Hitting a target accurately twice creates a fiery explosion, explosions restore clip"
+                        "neutral"              ""
                         "negative"             "-15% clip size, -35% damage penalty"
                 }
                 "attributes_game"
@@ -424,9 +501,11 @@
         {
 		"inherits" "TF_WEAPON_SHOTGUN_PYRO"
                 "name"                  "Flame Shotgun (Stock Spread)"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Hitting a target accurately twice creates a fiery explosion, explosions restore clip"
+                        "neutral"              ""
                         "negative"             "-15% clip size, -35% damage penalty"
                 }
                 "attributes_game"
@@ -445,6 +524,13 @@
         {
 		"inherits" "TF_WEAPON_PIPEBOMBLAUNCHER"
                 "name"                  "The Wee Willy"
+                "image"                 "100px-item_icon_wrangler.png"
+                "description"
+                {
+                        "positive"             ""
+                        "neutral"              ""
+                        "negative"             ""
+                }
                 "attributes_game"
                 {
                         "clip size penalty"                             "0.5"
@@ -461,6 +547,13 @@
         {
 		"inherits" "TTG Sam Revolver"
                 "name"                  "Big Kill tf2c"
+                "image"                 "100px-item_icon_wrangler.png"
+                "description"
+                {
+                        "positive"             ""
+                        "neutral"              ""
+                        "negative"             ""
+                }
                 "attributes_game"
                 {
                         "damage bonus"                             "1.1"
@@ -479,9 +572,11 @@
         {
 		"inherits" "TF_WEAPON_SHOTGUN_PYRO"
                 "name"                  "Hitscan Flaregun"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Fires one bullet that deals 65 base damage, mini crits burning targets"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "attributes_game"
@@ -499,70 +594,16 @@
                         "clientmodel override"  "models/workshop/weapons/c_models/c_invasion_sniperrifle/c_invasion_sniperrifle.mdl"
                 }
         }
-        "soldier_buff_banner_miyu"
-        {
-		"inherits" "The Buff Banner"
-                "name"                  "Miyu in Bin - Buff Banner"
-                "points_store_purchase" "miyu_garbage"
-                "used_by_classes"
-                {
-                    "soldier" "secondary"
-                }
-                "description"
-                {
-                        "positive"             "Model replacement, Miyu in Garbage Can"
-                        "negative"             ""
-                }
-                "attributes_custom"
-                {
-                        "clientmodel override"  "models/workshop/weapons/c_models/c_invasion_sniperrifle/c_invasion_sniperrifle.mdl"
-                }
-        }
-        "soldier_batts_miyu"
-        {
-		"inherits" "The Battalion's Backup"
-                "name"                  "Miyu in Bin - Battalion's"
-                "points_store_purchase" "miyu_garbage"
-                "used_by_classes"
-                {
-                    "soldier" "secondary"
-                }
-                "description"
-                {
-                        "positive"             "Model replacement, Miyu in Garbage Can"
-                        "negative"             ""
-                }
-                "attributes_custom"
-                {
-                        "clientmodel override"  "models/workshop/weapons/c_models/c_invasion_sniperrifle/c_invasion_sniperrifle.mdl"
-                }
-        }
-        "soldier_conch_miyu"
-        {
-		"inherits" "The Concheror"
-                "name"                  "Miyu in Bin - Concheror"
-                "points_store_purchase" "miyu_garbage"
-                "used_by_classes"
-                {
-                    "soldier" "secondary"
-                }
-                "description"
-                {
-                        "positive"             "Model replacement, Miyu in Garbage Can"
-                        "negative"             ""
-                }
-                "attributes_custom"
-                {
-                        "clientmodel override"  "models/workshop/weapons/c_models/c_invasion_sniperrifle/c_invasion_sniperrifle.mdl"
-                }
-        }
+
         "soldierm16"
         {
 		"inherits" "Upgradeable TF_WEAPON_SMG"
                 "name"                  "Soldier's M16"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "SMG, dealing 25 damage restores 1 rocket, kills restore 1 rocket"
+                        "neutral"              ""
                         "negative"             "50% less accurate"
                 }
                 "used_by_classes"
@@ -585,9 +626,11 @@
         "lightningpistol"
         {
                 "name"                  "Lightning Pistol"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "+35% firing rate, +200% clip size, 40% more accurate, +100% ammo"
+                        "neutral"              ""
                         "negative"             "-40% damage, -15% reload speed"
                 }
 		"inherits"		"The C.A.P.P.E.R"
@@ -614,9 +657,11 @@
         "soldierpistol"
         {
                 "name"                  "Soldier's Pistol"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Soldier's Pistol"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "inherits"               "TTG Max Pistol"
@@ -632,9 +677,11 @@
         "soldiernewshotgun"
         {
                 "name"                  "F.U.T.A."
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "+30% blast jump damage resistance, +15% tighter spread"
+                        "neutral"              ""
                         "negative"             "-50% clip size"
                 }
                 "inherits"               "TF_WEAPON_SHOTGUN_SOLDIER"
@@ -652,9 +699,11 @@
         "oldpanic"
         {
                 "name"                  "Old Panic Attack"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Hold fire to load up to 4 shells, fires faster as HP decreases"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "inherits"              "Panic Attack Shotgun"
@@ -682,9 +731,11 @@
         "blackwatchdemo"
         {
                 "name"                  "The Black Watch"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Hitting an enemy directly restores 1 ammo, +25% clip size"
+                        "neutral"              ""
                         "negative"             "15% slower fire rate, 10% slower reload rate"
                 }
                 "inherits"              "TF_WEAPON_GRENADELAUNCHER"
@@ -708,9 +759,11 @@
         "blackwatchironbomber"
         {
                 "name"                  "Black Watch (Bomber)"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Hitting an enemy directly restores 1 ammo, +25% clip size"
+                        "neutral"              ""
                         "negative"             "15% slower fire rate, 10% slower reload rate"
                 }
                 "inherits"              "The Iron Bomber"
@@ -734,9 +787,11 @@
         "straightdemo"
         {
                 "name"                  "Grenade Launcher (fixed spin)"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Grenade Launcher (straight grenades)"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "inherits"              "TF_WEAPON_GRENADELAUNCHER"
@@ -752,9 +807,11 @@
         "demomangunboats"
         {
                 "name"                  "Demoman Gunboats"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Demoman Gunboats"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "inherits"              "The Gunboats"
@@ -771,6 +828,13 @@
         "oldscottishresistance"
         {
                 "name"                  "Old Scottish Resistance"
+                "image"                 "100px-item_icon_wrangler.png"
+                "description"
+                {
+                        "positive"             ""
+                        "neutral"              ""
+                        "negative"             ""
+                }
                 "inherits"              "The Scottish Resistance"
                 "used_by_classes"
                 {
@@ -785,9 +849,11 @@
         "familybsns"
         {
                 "name"                  "The Family Business"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "The Family Business"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "inherits"              "The Family Business"
@@ -800,9 +866,11 @@
         "pyro1"
         {
                 "name"                  "TF2C Twin Barrel"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Holster reload, +20% bullets per shot, first shot is a recoil jump"
+                        "neutral"              ""
                         "negative"             "10% wider spread, 15% slower draw speed"
                 }
 		"defindex"		"39"
@@ -835,9 +903,11 @@
         "pyro3"
         {
                 "name"                  "TF2C Harvester"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Afterburn is returned as health while held"
+                        "neutral"              ""
                         "negative"             "enemies are extinguished on your death"
                 }
 		"inherits"		"TF_WEAPON_FIREAXE"
@@ -858,11 +928,13 @@
 	"engi1" // we just need a unique identifier here - this is not necessarily a UUID
 	{
 		"name"			"Pretty Boy's Pocket Pistol"		
-                "description"
-                {
-                        "positive"             "The Winger, Pretty Boy's Pocket Pistol"
-                        "negative"             ""
-                }
+		"image"                 "100px-item_icon_wrangler.png"
+		"description"
+		{
+		        "positive"             "The Winger, Pretty Boy's Pocket Pistol"
+		        "neutral"              ""
+		        "negative"             ""
+		}
 		"inherits"		"Pretty Boy's Pocket Pistol"
 		
 		"used_by_classes"
@@ -873,11 +945,13 @@
 	"engi2"
 	{
 		"name"			"The Winger"
-                "description"
-                {
-                        "positive"             "The Winger, Pretty Boy's Pocket Pistol"
-                        "negative"             ""
-                }
+		"image"                 "100px-item_icon_wrangler.png"
+		"description"
+		{
+		        "positive"             "The Winger, Pretty Boy's Pocket Pistol"
+		        "neutral"              ""
+		        "negative"             ""
+		}
 		"inherits"		"The Winger"
                 "used_by_classes"
                 {
@@ -887,9 +961,11 @@
         "engi3"
         {
                 "name"                  "Boost/Jump Pads"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Boost/Jump pads (Or use !pads for convenience)"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "inherits"              "TF_WEAPON_PDA_ENGINEER_BUILD"
@@ -905,9 +981,11 @@
         "deaglescout"
         {
                 "name"                  "The Desert Eagle"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Can headshot, +70%, damage, +50% more accurate"
+                        "neutral"              ""
                         "negative"             "45% slower fire rate, 40% smaller clip size, crits have falloff"
                 }
                 "inherits"              "TF_WEAPON_PISTOL_SCOUT"
@@ -930,9 +1008,11 @@
         "engi4"
         {
                 "name"                  "Amplifier (Dispenser)"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Amplifier Dispenser Replacement (Or use !amp or !a)"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "inherits"              "TF_WEAPON_PDA_ENGINEER_DESTROY"
@@ -948,9 +1028,11 @@
         "engi5"
         {
                 "name"                  "Amplifier (Sentry)"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Amplifier Dispenser Replacement (Or use !amp or !a)"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "inherits"              "TF_WEAPON_PDA_ENGINEER_DESTROY"
@@ -966,9 +1048,11 @@
 	"cobsongun"
         {
                 "name"                  "Conagher's Bull"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Drain 100 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 60% tighter spread"
+                        "neutral"              ""
                         "negative"             ""
                 }
 		"inherits"		"Upgradeable TF_WEAPON_PISTOL"
@@ -1001,9 +1085,11 @@
         "medic1"
         {
                 "name"                  "TF2C Shock Therapy"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Hit allies to fully overheal them, enemies take charge as damage"
+                        "neutral"              ""
                         "negative"             "30s recharge time, -15% healing on medigun"
                 }
                 "inherits"              "Prinny Machete"
@@ -1026,9 +1112,11 @@
         "medic2"
         {
                 "name"                  "The Mantreads"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "The Mantreads"
+                        "neutral"              ""
                         "negative"             ""
                 }
                 "inherits"              "The Mantreads"
@@ -1040,9 +1128,11 @@
         "spy1"
         {
                 "name"                  "TF2C L'escampette"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "Move 30% faster while cloaked"
+                        "neutral"              ""
                         "negative"             "50% less cloak, 10% cloak lost on hit, no pickups while cloaked"
                 }
                 "inherits"              "The Dead Ringer"
@@ -1067,9 +1157,11 @@
         "spy2"
         {
                 "name"                  "The Surfboard"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "-60% damage taken from sentries"
+                        "neutral"              ""
                         "negative"             "60% less sapper damage"
                 }
                 "inherits"              "The Ap-Sap"
@@ -1087,9 +1179,11 @@
         "spy3"
         {
                 "name"                  "Wall Climbing Kit"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "enables wall climb"
+                        "neutral"              ""
                         "negative"             "-10 health on wearer"
                 }
                 "inherits"              "The Gunboats"
@@ -1111,9 +1205,11 @@
         "spy4"
         {
                 "name"                  "The Enforcer (Alt)"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "No fire rate penalty, +10% damage"
+                        "neutral"              ""
                         "negative"             "-25% damage while disguised, +0.5s time to cloak"
                 }
                 "inherits"              "The Enforcer"
@@ -1137,11 +1233,13 @@
 	"demomanbanana"
 	{
 		"name"		"Demoman Banana"
-                "description"
-                {
-                        "positive"             "Throw and eat to heal yourself!"
-                        "negative"             ""
-                }
+		"image"                 "100px-item_icon_wrangler.png"
+		"description"
+		{
+		        "positive"             "Throw and eat to heal yourself!"
+		        "neutral"              ""
+		        "negative"             ""
+		}
 		"inherits"	"The Second Banana"
 		"used_by_classes"
 		{
@@ -1151,9 +1249,11 @@
         "oldclaid"
         {
                 "name"          "Old Claidheamh Mòr"
+                "image"                 "100px-item_icon_wrangler.png"
                 "description"
                 {
                         "positive"             "no damage vuln."
+                        "neutral"              ""
                         "negative"             "-15 max health"
                 }
                 "inherits"      "The Claidheamohmor"
