@@ -1648,9 +1648,10 @@ public void OnPluginStart()
     HookEvent("player_team", Event_PlayerTeam, EventHookMode_Post);
     HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
 
-    RegAdminCmd("sm_respawn", Command_RespawnToggle, ADMFLAG_KICK, "Toggles respawn times");
-    RegAdminCmd("sm_noset", Command_ResetSetup, ADMFLAG_KICK, "Set round setup time to 10 seconds");
-    RegAdminCmd("sm_extend", Command_ExtendTimer, ADMFLAG_KICK, "sm_extend <seconds> - Set round timer time");
+	RegAdminCmd("sm_respawn", Command_RespawnToggle, ADMFLAG_KICK, "Toggles respawn times");
+	RegAdminCmd("sm_noset", Command_ResetSetup, ADMFLAG_KICK, "Set round setup time to 10 seconds");
+	RegAdminCmd("sm_extend", Command_ExtendTimer, ADMFLAG_KICK, "sm_extend <seconds> - Set round timer time");
+	RegAdminCmd("sm_settime", Command_ExtendTimer, ADMFLAG_KICK, "sm_settime [seconds] - Show or set round timer time");
 
     g_cHostname = FindConVar("hostname");
     RegConsoleCmd("sm_st", Command_Stats, "Show player count, map and hostname");
@@ -2094,11 +2095,11 @@ public Action Command_ResetSetup(int client , int args)
 
 public Action Command_ExtendTimer(int client , int args)
 {
-    if (args < 1)
-    {
-        ReplyToCommand(client, "Usage: sm_extend <seconds>");
-        return Plugin_Handled;
-    }
+	if (args < 1)
+	{
+		DGM_ReplyCurrentRoundTimers(client);
+		return Plugin_Handled;
+	}
 
     char temp[16];
     GetCmdArg(1, temp, sizeof(temp));
@@ -2120,6 +2121,43 @@ public Action Command_ExtendTimer(int client , int args)
     DGM_SetRoundTimerTime(timerEnt, time);
 
     if (client > 0) PrintToChatAll("Round timer set to %i seconds.", time);
-    PrintToServer("[Kogasa] Round timer set to %i seconds.", time);
-    return Plugin_Handled;
+	PrintToServer("[Kogasa] Round timer set to %i seconds.", time);
+	return Plugin_Handled;
+}
+
+void DGM_ReplyCurrentRoundTimers(int client)
+{
+	int timerEnt = -1;
+	int found = 0;
+	char targetName[64];
+
+	while ((timerEnt = FindEntityByClassname(timerEnt, "team_round_timer")) != -1)
+	{
+		if (!IsValidEntity(timerEnt))
+		{
+			continue;
+		}
+
+		found++;
+		DGM_GetEntityTargetName(timerEnt, targetName, sizeof(targetName));
+		int remaining = DGM_GetRoundTimerRemaining(timerEnt);
+		if (targetName[0] == '\0')
+		{
+			Format(targetName, sizeof(targetName), "unnamed");
+		}
+
+		if (remaining >= 0)
+		{
+			ReplyToCommand(client, "Timer #%d (%s): %d seconds remaining.", found, targetName, remaining);
+		}
+		else
+		{
+			ReplyToCommand(client, "Timer #%d (%s): remaining time unavailable.", found, targetName);
+		}
+	}
+
+	if (found == 0)
+	{
+		ReplyToCommand(client, "No team_round_timer entity found.");
+	}
 }

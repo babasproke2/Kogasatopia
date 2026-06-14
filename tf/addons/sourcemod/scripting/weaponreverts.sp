@@ -124,6 +124,7 @@ ConVar g_sEnabled;
 ConVar g_hPomsonDamageMult;
 ConVar g_hBisonDamageMult;
 ConVar g_hScattergunPelletsDebug;
+ConVar g_hFallingStompAllWeapons;
 ConVar g_hSandmanBaseDuration;
 KeyValues g_hWeaponRevertsConfig = null;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
@@ -211,6 +212,7 @@ public void OnPluginStart() {
 	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hScattergunPelletsDebug = CreateConVar("reverts_scattergun_pellets_debug", "0", "Log tracked shotgun/scattergun pellet forward diagnostics.");
+	g_hFallingStompAllWeapons = CreateConVar("reverts_falling_stomp_all_weapons", "1", "Enable boots falling stomp on all player weapons.", FCVAR_NONE, true, 0.0, true, 1.0);
 	g_hSandmanBaseDuration = FindConVar("tf_scout_stunball_base_duration");
 	LoadWeaponRevertsConfig();
 	RegAdminCmd("sm_scatterpellets_status", Command_ScatterPelletsStatus, ADMFLAG_GENERIC, "Print scattergun pellet integration status.");
@@ -2356,7 +2358,9 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 		TF2Attrib_SetByName(entity, "crit mod disabled hidden", 0.00);
 
 		char auth[32];
-		if (GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth)))
+		if (g_hFallingStompAllWeapons != null
+			&& GetConVarBool(g_hFallingStompAllWeapons)
+			&& GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth)))
 		{
 			if (!(StrEqual(auth, "STEAM_0:1:101494818")))
 			{

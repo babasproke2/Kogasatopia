@@ -216,6 +216,7 @@
                 "inherits"    "Prinny Machete"
                 "name"                  "Reimu's Gohei"
                 "image"                 "100px-item_icon_wrangler.png"
+                "all_class"             "true"
                 "description"
                 {
                         "positive"             "Reimu's Gohei - Stock Reskin"
@@ -257,6 +258,7 @@
                 "inherits"              "Prinny Machete"
                 "name"                  "Diamond Pickaxe"
                 "image"                 "100px-item_icon_wrangler.png"
+                "all_class"             "true"
                 "points_store_purchase" "diamond_pickaxe"
                 "attributes_game"
                 {
@@ -279,6 +281,7 @@
                 "inherits"              "Prinny Machete"
                 "name"                  "Holy Bible"
                 "image"                 "100px-item_icon_wrangler.png"
+                "all_class"             "true"
                 "points_store_purchase" "holy_bible"
                 "attributes_game"
                 {
