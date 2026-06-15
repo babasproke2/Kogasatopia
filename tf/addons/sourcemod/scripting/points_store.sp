@@ -49,6 +49,7 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 #define LOTTO_EXTRA_WINNER_PERCENT 5
 #define LOTTO_WELFARE_POOL_PERCENT 5
 #define REFLECT_BONUS_PER_MAP_LIMIT 3
+#define BP_LEADERBOARD_PAGE_SIZE 10
 
 ArrayList g_ItemKeys = null;
 ArrayList g_ItemNames = null;
@@ -236,11 +237,18 @@ public void OnPluginStart()
     RegConsoleCmd("sm_bonus", Command_ShowBonusPoints, "Show your currency balance.");
     RegConsoleCmd("sm_bonuspoints", Command_ShowBonusPoints, "Show your currency balance.");
     RegConsoleCmd("sm_bp", Command_ShowBonusPoints, "Show your currency balance.");
+    RegConsoleCmd("sm_currencyranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
+    RegConsoleCmd("sm_bonuspointsranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
+    RegConsoleCmd("sm_bpranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
+    RegConsoleCmd("sm_gl", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
     RegConsoleCmd("sm_send", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_sendbp", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_bpsend", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_gem", Command_ShowBonusPoints, "Show your currency balance.");
     RegConsoleCmd("sm_gems", Command_ShowBonusPoints, "Show your currency balance.");
+    RegConsoleCmd("sm_gemranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
+    RegConsoleCmd("sm_gemsranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
+    RegConsoleCmd("sm_gemsleaderboard", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
     RegConsoleCmd("sm_sendgem", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_gemsend", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_welfare", Command_Welfare, "Collect once-per-map welfare currency.");
@@ -5136,6 +5144,146 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
     }
 
     CPrintToChat(client, "%s {limegreen}%s%i%s", prefix, sign, points, perMapSuffix);
+}
+
+void NormalizeLeaderboardColorTag(char[] colorTag, int maxlen)
+{
+    TrimString(colorTag);
+
+    if (colorTag[0] == '\0'
+        || StrEqual(colorTag, "teamcolor", false)
+        || StrEqual(colorTag, "{teamcolor}", false))
+    {
+        strcopy(colorTag, maxlen, "gold");
+        return;
+    }
+
+    int len = strlen(colorTag);
+    if (len >= 2 && colorTag[0] == '{' && colorTag[len - 1] == '}')
+    {
+        int out = 0;
+        for (int i = 1; i < len - 1 && out < maxlen - 1; i++)
+        {
+            colorTag[out++] = colorTag[i];
+        }
+        colorTag[out] = '\0';
+    }
+
+    if (colorTag[0] == '\0')
+    {
+        strcopy(colorTag, maxlen, "gold");
+    }
+}
+
+public Action Command_ShowCurrencyLeaderboard(int client, int args)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return Plugin_Handled;
+    }
+
+    char prefix[96];
+    GetCurrencyPrefix(prefix, sizeof(prefix));
+
+    if (!g_DatabaseReady || g_Database == null)
+    {
+        CPrintToChat(client, "%s Database is not ready.", prefix);
+        return Plugin_Handled;
+    }
+
+    int page = 1;
+    if (args >= 1)
+    {
+        char arg[16];
+        GetCmdArg(1, arg, sizeof(arg));
+        int parsed = StringToInt(arg);
+        if (parsed > 0)
+        {
+            page = parsed;
+        }
+    }
+
+    int offset = (page - 1) * BP_LEADERBOARD_PAGE_SIZE;
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(page);
+
+    char query[1024];
+    Format(query, sizeof(query),
+        "SELECT b.steamid64, b.balance, COALESCE(NULLIF(pc.prename,''), NULLIF(pc.name,''), b.steamid64), COALESCE(NULLIF(pc.name_color,''), 'gold') "
+        ... "FROM %s b "
+        ... "LEFT JOIN whaletracker_points_cache pc ON pc.steamid = b.steamid64 "
+        ... "WHERE b.balance > 0 "
+        ... "ORDER BY b.balance DESC, b.steamid64 ASC "
+        ... "LIMIT %d OFFSET %d",
+        BP_BALANCE_TABLE,
+        BP_LEADERBOARD_PAGE_SIZE,
+        offset);
+    g_Database.Query(PointsStore_ShowCurrencyLeaderboardCallback, query, pack);
+    return Plugin_Handled;
+}
+
+public void PointsStore_ShowCurrencyLeaderboardCallback(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int client = GetClientOfUserId(pack.ReadCell());
+    int page = pack.ReadCell();
+    delete pack;
+
+    if (!IsClientInGameHuman(client))
+    {
+        return;
+    }
+
+    char prefix[96];
+    GetCurrencyPrefix(prefix, sizeof(prefix));
+
+    if (error[0] != '\0')
+    {
+        CPrintToChat(client, "%s Failed to load currency leaderboard.", prefix);
+        LogError("[points_store] Failed to load currency leaderboard: %s", error);
+        return;
+    }
+
+    char currencyColor[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(currencyColor, sizeof(currencyColor));
+
+    int rows = 0;
+    while (results != null && results.FetchRow())
+    {
+        int rank = ((page - 1) * BP_LEADERBOARD_PAGE_SIZE) + rows + 1;
+        int balance = results.FetchInt(1);
+
+        char displayName[128];
+        char colorTag[32];
+        results.FetchString(2, displayName, sizeof(displayName));
+        results.FetchString(3, colorTag, sizeof(colorTag));
+        TrimString(displayName);
+        NormalizeLeaderboardColorTag(colorTag, sizeof(colorTag));
+
+        if (displayName[0] == '\0')
+        {
+            results.FetchString(0, displayName, sizeof(displayName));
+            TrimString(displayName);
+        }
+        if (displayName[0] == '\0')
+        {
+            strcopy(displayName, sizeof(displayName), "Unknown");
+        }
+
+        rows++;
+        CPrintToChat(client, "#%d {%s}%s{default} %s%d", rank, colorTag, displayName, currencyColor, balance);
+    }
+
+    if (rows == 0)
+    {
+        CPrintToChat(client, "%s No currency leaderboard entries on page %d.", prefix, page);
+        return;
+    }
+
+    CPrintToChat(client, "Use !%scurrencyranks %d{default} to view the next 10 ranks!", currencyColor, page + 1);
 }
 
 public Action Command_Shop(int client, int args)
