@@ -88,6 +88,7 @@
 
 tf2_player tf2_players[MAXPLAYERS + 1];
 float g_flProjectileSpawnTime[MAX_TRACKED_ENTITIES];
+bool g_bProjectileSandmanPreJI[MAX_TRACKED_ENTITIES];
 
 enum struct tf2_player
 {
@@ -401,9 +402,20 @@ public void OnClientDisconnect(int client)
 public void OnEntityCreated(int entity, const char[] class) {
 	if (!WeaponReverts_IsEntityIndex(entity) || !WeaponReverts_IsEnabled()) return;
 
+	if (entity > 0 && entity < MAX_TRACKED_ENTITIES)
+	{
+		g_flProjectileSpawnTime[entity] = 0.0;
+		g_bProjectileSandmanPreJI[entity] = false;
+	}
+
 	if (entity > 0 && entity < MAX_TRACKED_ENTITIES && StrContains(class, "tf_projectile_") == 0)
 	{
 		g_flProjectileSpawnTime[entity] = GetGameTime();
+	}
+
+	if (StrEqual(class, "tf_projectile_stun_ball"))
+	{
+		SDKHook(entity, SDKHook_SpawnPost, SandmanPreJI_OnStunBallSpawnPost);
 	}
 
 	if (StrEqual(class, "tf_projectile_energy_ring"))
@@ -428,6 +440,7 @@ public void OnEntityDestroyed(int entity)
 	if (entity > 0 && entity < MAX_TRACKED_ENTITIES)
 	{
 		g_flProjectileSpawnTime[entity] = 0.0;
+		g_bProjectileSandmanPreJI[entity] = false;
 	}
 }
 
@@ -1426,6 +1439,32 @@ static int GetDamageSourceWeapon(int attacker, int weapon, int inflictor)
 	return -1;
 }
 
+static int GetProjectileOwner(int projectile)
+{
+	if (projectile <= MaxClients || !IsValidEntity(projectile))
+		return 0;
+
+	if (HasEntProp(projectile, Prop_Send, "m_hThrower"))
+	{
+		int owner = GetEntPropEnt(projectile, Prop_Send, "m_hThrower");
+		if (WR_IsClientInGame(owner))
+		{
+			return owner;
+		}
+	}
+
+	if (HasEntProp(projectile, Prop_Send, "m_hOwnerEntity"))
+	{
+		int owner = GetEntPropEnt(projectile, Prop_Send, "m_hOwnerEntity");
+		if (WR_IsClientInGame(owner))
+		{
+			return owner;
+		}
+	}
+
+	return 0;
+}
+
 static bool SandmanPreJI_IsEnabledWeapon(int weapon)
 {
 	if (weapon <= MaxClients || !IsValidEntity(weapon))
@@ -1457,13 +1496,33 @@ static bool SandmanPreJI_IsStunBall(int entity)
 	return StrEqual(class, "tf_projectile_stun_ball");
 }
 
-static Action SandmanPreJI_OnBaseballDamage(int victim, int attacker, int inflictor, float &damage)
+public void SandmanPreJI_OnStunBallSpawnPost(int entity)
+{
+	if (entity <= 0 || entity >= MAX_TRACKED_ENTITIES || !IsValidEntity(entity))
+		return;
+
+	int owner = GetProjectileOwner(entity);
+	int sandman = GetDamageSourceWeapon(owner, -1, entity);
+	g_bProjectileSandmanPreJI[entity] = SandmanPreJI_IsEnabledWeapon(sandman);
+}
+
+static bool SandmanPreJI_IsEnabledForDamage(int attacker, int weapon, int inflictor)
+{
+	if (inflictor > 0 && inflictor < MAX_TRACKED_ENTITIES && g_bProjectileSandmanPreJI[inflictor])
+	{
+		return true;
+	}
+
+	int sandman = GetDamageSourceWeapon(attacker, weapon, inflictor);
+	return SandmanPreJI_IsEnabledWeapon(sandman);
+}
+
+static Action SandmanPreJI_OnBaseballDamage(int victim, int attacker, int weapon, int inflictor, float &damage)
 {
 	if (!WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker) || victim == attacker)
 		return Plugin_Continue;
 
-	int sandman = GetDamageSourceWeapon(attacker, -1, inflictor);
-	if (!SandmanPreJI_IsEnabledWeapon(sandman))
+	if (!SandmanPreJI_IsEnabledForDamage(attacker, weapon, inflictor))
 		return Plugin_Continue;
 
 	damage = SANDMAN_PRE_JI_DAMAGE;
@@ -1525,9 +1584,9 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	bool validWeapon = (weapon > MaxClients && IsValidEntity(weapon));
 	new wepindex = (validWeapon ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
 
-	if (damagecustom == SANDMAN_DAMAGE_CUSTOM)
+	if (damagecustom == SANDMAN_DAMAGE_CUSTOM || SandmanPreJI_IsStunBall(inflictor))
 	{
-		return SandmanPreJI_OnBaseballDamage(client, attacker, inflictor, damage);
+		return SandmanPreJI_OnBaseballDamage(client, attacker, weapon, inflictor, damage);
 	}
 
 	if (wepindex == 442 || wepindex == 588)	 // Pomson, bison
