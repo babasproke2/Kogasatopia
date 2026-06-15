@@ -4461,6 +4461,92 @@ bool QueueBonusPointsDeltaSaveForSteamId(const char[] steamId, int delta)
     return true;
 }
 
+bool QueueBonusPointsDeltaSaveForSteamIdWithCacheRefresh(const char[] steamId, int delta, const char[] type, int perMap, int perMapUsed)
+{
+    if (delta == 0 || !g_DatabaseReady || g_Database == null)
+    {
+        return false;
+    }
+
+    if (steamId[0] == '\0')
+    {
+        return false;
+    }
+
+    char escapedSteamId[65];
+    if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)))
+    {
+        LogError("[points_store] Failed to escape SteamID64 for bonus-point save.");
+        return false;
+    }
+
+    char query[512];
+    Format(query, sizeof(query),
+        "INSERT INTO %s (steamid64, balance) "
+        ... "VALUES ('%s', %d) "
+        ... "ON DUPLICATE KEY UPDATE "
+        ... "balance = GREATEST(0, balance + VALUES(balance))",
+        BP_BALANCE_TABLE,
+        escapedSteamId,
+        delta);
+
+    DataPack pack = new DataPack();
+    pack.WriteString(steamId);
+    pack.WriteCell(delta);
+    pack.WriteString(type);
+    pack.WriteCell(perMap);
+    pack.WriteCell(perMapUsed);
+
+    g_Database.Query(SQL_OnBonusPointsSteamIdDeltaSaved, query, pack);
+    return true;
+}
+
+public void SQL_OnBonusPointsSteamIdDeltaSaved(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    char steamId[32];
+    pack.ReadString(steamId, sizeof(steamId));
+    int delta = pack.ReadCell();
+    char type[64];
+    pack.ReadString(type, sizeof(type));
+    int perMap = pack.ReadCell();
+    int perMapUsed = pack.ReadCell();
+    delete pack;
+
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Failed direct SteamID64 bonus-point save for %s: %s", steamId, error);
+        return;
+    }
+
+    int client = FindClientBySteamId64(steamId);
+    int balanceAfter = -1;
+    if (client > 0 && g_ClientBonusPointsLoaded[client])
+    {
+        g_ClientBonusPoints[client] += delta;
+        if (g_ClientBonusPoints[client] < 0)
+        {
+            g_ClientBonusPoints[client] = 0;
+        }
+        balanceAfter = g_ClientBonusPoints[client];
+    }
+
+    char safeType[64];
+    strcopy(safeType, sizeof(safeType), type);
+    SanitizeLogField(safeType, sizeof(safeType));
+    LogPointsStoreEvent(
+        "event=bp_delta_offline|time=%d|steamid64=%s|delta=%d|type=%s|per_map=%d|per_map_used=%d|client=%d|balance_after=%d",
+        GetTime(),
+        steamId,
+        delta,
+        safeType,
+        perMap,
+        perMapUsed,
+        client,
+        balanceAfter);
+}
+
 bool QueueBonusPointsDeltaSave(int client, int delta)
 {
     char steamId[32];
@@ -4892,27 +4978,15 @@ bool ApplyBonusPointsSteamId(const char[] steamId, int points, bool playSound = 
         return false;
     }
 
-    if (!QueueBonusPointsDeltaSaveForSteamId(steamId, points))
-    {
-        return false;
-    }
-
     if (points > 0 && perMap > 0)
     {
         perMapUsed = IncrementPerMapAwardCountForSteamId(steamId, type);
     }
 
-    char safeType[64];
-    strcopy(safeType, sizeof(safeType), type);
-    SanitizeLogField(safeType, sizeof(safeType));
-    LogPointsStoreEvent(
-        "event=bp_delta_offline|time=%d|steamid64=%s|delta=%d|type=%s|per_map=%d|per_map_used=%d",
-        GetTime(),
-        steamId,
-        points,
-        safeType,
-        perMap,
-        perMapUsed);
+    if (!QueueBonusPointsDeltaSaveForSteamIdWithCacheRefresh(steamId, points, type, perMap, perMapUsed))
+    {
+        return false;
+    }
 
     return true;
 }
