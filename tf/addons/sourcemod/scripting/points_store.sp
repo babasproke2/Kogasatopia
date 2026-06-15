@@ -4348,11 +4348,11 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     }
     else if (StrEqual(type, "medic_drop", false))
     {
-        strcopy(label, maxlen, "Medic Drop");
+        strcopy(label, maxlen, "Medic drop");
     }
     else if (StrEqual(type, "medic_uber_drop_kill", false))
     {
-        strcopy(label, maxlen, "Medic Uber Drop Kill");
+        strcopy(label, maxlen, "Medic Über drop Kill");
     }
     else if (StrEqual(type, "airshot_kill", false))
     {
@@ -4376,11 +4376,11 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     }
     else if (StrEqual(type, "uber_deployed", false))
     {
-        strcopy(label, maxlen, "UberCharge");
+        strcopy(label, maxlen, "ÜberCharge");
     }
     else if (StrEqual(type, "market_garden", false) || StrEqual(type, "market_garden_kill", false))
     {
-        strcopy(label, maxlen, "Market Garden Kill");
+        strcopy(label, maxlen, "Market Garden kill");
     }
     else if (StrEqual(type, "demo_sync_kill", false))
     {
