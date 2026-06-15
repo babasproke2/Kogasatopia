@@ -5209,15 +5209,26 @@ public Action Command_ShowCurrencyLeaderboard(int client, int args)
     pack.WriteCell(GetClientUserId(client));
     pack.WriteCell(page);
 
-    char query[1024];
+    char joinCondition[128];
+    if (g_IsMySql)
+    {
+        strcopy(joinCondition, sizeof(joinCondition), "BINARY pc.steamid = BINARY b.steamid64");
+    }
+    else
+    {
+        strcopy(joinCondition, sizeof(joinCondition), "pc.steamid = b.steamid64");
+    }
+
+    char query[1152];
     Format(query, sizeof(query),
         "SELECT b.steamid64, b.balance, COALESCE(NULLIF(pc.prename,''), NULLIF(pc.name,''), b.steamid64), COALESCE(NULLIF(pc.name_color,''), 'gold') "
         ... "FROM %s b "
-        ... "LEFT JOIN whaletracker_points_cache pc ON pc.steamid = b.steamid64 "
+        ... "LEFT JOIN whaletracker_points_cache pc ON %s "
         ... "WHERE b.balance > 0 "
         ... "ORDER BY b.balance DESC, b.steamid64 ASC "
         ... "LIMIT %d OFFSET %d",
         BP_BALANCE_TABLE,
+        joinCondition,
         BP_LEADERBOARD_PAGE_SIZE,
         offset);
     g_Database.Query(PointsStore_ShowCurrencyLeaderboardCallback, query, pack);
