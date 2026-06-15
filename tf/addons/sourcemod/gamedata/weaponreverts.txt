@@ -12,7 +12,7 @@
 			"CObjectSentrygun::OnWrenchHit"
 			{
 				"library" "server"
- 				"linux"   "@_ZN16CObjectSentrygun11OnWrenchHitEP9CTFPlayerP9CTFWrench6Vector"
+				"linux"   "@_ZN16CObjectSentrygun11OnWrenchHitEP9CTFPlayerP9CTFWrench6Vector"
 			}
 			"CObjectSentrygun::OnTakeDamage"
 			{
@@ -34,6 +34,11 @@
 				"library" "server"
 				"linux"   "@_ZN11CTFLunchBox16ApplyBiteEffectsEP9CTFPlayer"
 			}
+			"CTFPlayerShared::StunPlayer"
+			{
+				"library" "server"
+				"linux"   "@_ZN15CTFPlayerShared10StunPlayerEffiP9CTFPlayer"
+			}
         }
 
 		"Offsets"
@@ -52,6 +57,11 @@
 			{
 				"windows"	"404"
 				"linux"		"418"
+			}
+			"CTFStunBall::ApplyBallImpactEffectOnVictim"
+			{
+				"windows"	"267"
+				"linux"		"268"
 			}
 		}
 
@@ -81,7 +91,7 @@
 					"verify"    "\xF3\x0F\x59\x05\x2A\x2A\x2A\x2A" // MULSS xmm0, [absolute addr]
 					"patch"     "\xF3\x0F\x59\x05\x00\x00\x00\x00" // MULSS xmm0, [0] (retrieve from plugin)
 				}
-			}		
+			}
 			"CObjectSentrygun::OnWrenchHit_CustomShieldShellRefill"
 			{
 				"signature" "CObjectSentrygun::OnWrenchHit"
@@ -183,6 +193,46 @@
 					"pPlayer"
 					{
 						"type"	"cbaseentity"
+					}
+				}
+			}
+			"CTFStunBall::ApplyBallImpactEffectOnVictim"
+			{
+				"offset"	"CTFStunBall::ApplyBallImpactEffectOnVictim"
+				"hooktype"	"entity"
+				"this"		"entity"
+				"return"	"void"
+				"arguments"
+				{
+					"pOther"
+					{
+						"type"	"cbaseentity"
+					}
+				}
+			}
+			"CTFPlayerShared::StunPlayer"
+			{
+				"signature"	"CTFPlayerShared::StunPlayer"
+				"callconv"	"thiscall"
+				"this"		"address"
+				"return"	"void"
+				"arguments"
+				{
+					"flTime"
+					{
+						"type"	"float"
+					}
+					"flReductionAmount"
+					{
+						"type"	"float"
+					}
+					"iStunFlags"
+					{
+						"type"	"int"
+					}
+					"pAttacker"
+					{
+						"type"	"int"
 					}
 				}
 			}

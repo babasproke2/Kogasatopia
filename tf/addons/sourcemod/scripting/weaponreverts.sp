@@ -3,6 +3,7 @@
 #include <sdktools>
 #include <tf2>
 #include <tf2_stocks>
+#include <tf2utils>
 #include <tf_custom_attributes>
 #include <tf2items>
 #include <tf2attributes>
@@ -89,6 +90,8 @@
 tf2_player tf2_players[MAXPLAYERS + 1];
 float g_flProjectileSpawnTime[MAX_TRACKED_ENTITIES];
 bool g_bProjectileSandmanPreJI[MAX_TRACKED_ENTITIES];
+int g_iSandmanStunFrame[MAXPLAYERS + 1];
+int g_iSandmanStunInflictorRef[MAXPLAYERS + 1];
 
 enum struct tf2_player
 {
@@ -140,8 +143,10 @@ float g_flWranglerCustomShieldValue = 0.75;
 
 DynamicDetour dhook_CTFPlayer_CalculateMaxSpeed;
 DynamicDetour dhook_CTFLunchBox_ApplyBiteEffects;
+DynamicDetour dhook_CTFPlayerShared_StunPlayer;
 DynamicHook dhook_CObjectCartDispenser_DispenseMetal;
 DynamicHook dhook_CTFWeaponBase_CanFireCriticalShot;
+DynamicHook dhook_CTFStunBall_ApplyBallImpactEffectOnVictim;
 
 static bool WeaponReverts_IsEnabled()
 {
@@ -175,6 +180,7 @@ public Plugin myinfo =
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 {
 	RegPluginLibrary("weaponreverts");
+	MarkNativeAsOptional("TF2Util_GetPlayerFromSharedAddress");
 	CreateNative("WeaponReverts_GetWeaponInfo", Native_GetWeaponInfo);
 	CreateNative("WeaponReverts_CanClassUseWeapon", Native_CanClassUseWeapon);
 	return APLRes_Success;
@@ -205,6 +211,8 @@ stock void ResetClientArrays(int client)
 	{
 		tf2_players[client].markVictims[i] = -1;
 	}
+	g_iSandmanStunFrame[client] = 0;
+	g_iSandmanStunInflictorRef[client] = INVALID_ENT_REFERENCE;
 }
 
 public void OnPluginStart() {
@@ -272,17 +280,22 @@ public void OnPluginStart() {
 
 		dhook_CTFPlayer_CalculateMaxSpeed = DynamicDetour.FromConf(conf, "CTFPlayer::TeamFortress_CalculateMaxSpeed");
 		dhook_CTFLunchBox_ApplyBiteEffects = DynamicDetour.FromConf(conf, "CTFLunchBox::ApplyBiteEffects");
+		dhook_CTFPlayerShared_StunPlayer = DynamicDetour.FromConf(conf, "CTFPlayerShared::StunPlayer");
 		dhook_CObjectCartDispenser_DispenseMetal = DynamicHook.FromConf(conf, "CObjectCartDispenser::DispenseMetal");
 		dhook_CTFWeaponBase_CanFireCriticalShot = DynamicHook.FromConf(conf, "CTFWeaponBase::CanFireCriticalShot");
+		dhook_CTFStunBall_ApplyBallImpactEffectOnVictim = DynamicHook.FromConf(conf, "CTFStunBall::ApplyBallImpactEffectOnVictim");
 
 		if (dhook_CTFPlayer_CalculateMaxSpeed == null) SetFailState("Failed to create dhook_CTFPlayer_CalculateMaxSpeed");
 		if (dhook_CTFLunchBox_ApplyBiteEffects == null) SetFailState("Failed to create dhook_CTFLunchBox_ApplyBiteEffects");
+		if (dhook_CTFPlayerShared_StunPlayer == null) SetFailState("Failed to create dhook_CTFPlayerShared_StunPlayer");
 		if (dhook_CObjectCartDispenser_DispenseMetal == null) SetFailState("Failed to create dhook_CObjectCartDispenser_DispenseMetal");
 		if (dhook_CTFWeaponBase_CanFireCriticalShot == null) SetFailState("Failed to create dhook_CTFWeaponBase_CanFireCriticalShot");
+		if (dhook_CTFStunBall_ApplyBallImpactEffectOnVictim == null) SetFailState("Failed to create dhook_CTFStunBall_ApplyBallImpactEffectOnVictim");
 
 		dhook_CTFPlayer_CalculateMaxSpeed.Enable(Hook_Post, CalculateMaxSpeed);
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Pre, ApplyBiteEffects_Pre);
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Post, ApplyBiteEffects_Post);
+		dhook_CTFPlayerShared_StunPlayer.Enable(Hook_Pre, SandmanPreJI_StunPlayer_Pre);
 
 		// Create the patches
 		patch_RevertCozyCamper_FlinchNerf = MemoryPatch.CreateFromConf(conf, "CTFPlayer::ApplyPunchImpulseX_FakeFullyChargedCondition");
@@ -416,6 +429,10 @@ public void OnEntityCreated(int entity, const char[] class) {
 	if (StrEqual(class, "tf_projectile_stun_ball"))
 	{
 		SDKHook(entity, SDKHook_SpawnPost, SandmanPreJI_OnStunBallSpawnPost);
+		if (dhook_CTFStunBall_ApplyBallImpactEffectOnVictim != null)
+		{
+			dhook_CTFStunBall_ApplyBallImpactEffectOnVictim.HookEntity(Hook_Pre, entity, SandmanPreJI_ApplyBallImpactEffectOnVictim_Pre);
+		}
 	}
 
 	if (StrEqual(class, "tf_projectile_energy_ring"))
@@ -1506,9 +1523,29 @@ public void SandmanPreJI_OnStunBallSpawnPost(int entity)
 	g_bProjectileSandmanPreJI[entity] = SandmanPreJI_IsEnabledWeapon(sandman);
 }
 
+static bool SandmanPreJI_IsEnabledProjectile(int projectile)
+{
+	if (!SandmanPreJI_IsStunBall(projectile))
+		return false;
+
+	if (projectile > 0 && projectile < MAX_TRACKED_ENTITIES && g_bProjectileSandmanPreJI[projectile])
+	{
+		return true;
+	}
+
+	int owner = GetProjectileOwner(projectile);
+	int sandman = GetDamageSourceWeapon(owner, -1, projectile);
+	bool enabled = SandmanPreJI_IsEnabledWeapon(sandman);
+	if (enabled && projectile > 0 && projectile < MAX_TRACKED_ENTITIES)
+	{
+		g_bProjectileSandmanPreJI[projectile] = true;
+	}
+	return enabled;
+}
+
 static bool SandmanPreJI_IsEnabledForDamage(int attacker, int weapon, int inflictor)
 {
-	if (inflictor > 0 && inflictor < MAX_TRACKED_ENTITIES && g_bProjectileSandmanPreJI[inflictor])
+	if (SandmanPreJI_IsEnabledProjectile(inflictor))
 	{
 		return true;
 	}
@@ -1526,29 +1563,98 @@ static Action SandmanPreJI_OnBaseballDamage(int victim, int attacker, int weapon
 		return Plugin_Continue;
 
 	damage = SANDMAN_PRE_JI_DAMAGE;
+	return Plugin_Changed;
+}
 
-	if (!SandmanPreJI_IsStunBall(inflictor))
-		return Plugin_Changed;
+public MRESReturn SandmanPreJI_ApplyBallImpactEffectOnVictim_Pre(int entity, DHookParam parameters)
+{
+	int victim = parameters.Get(1);
+	if (!WR_IsClientInGame(victim) || !SandmanPreJI_IsEnabledProjectile(entity))
+	{
+		return MRES_Ignored;
+	}
+
+	g_iSandmanStunFrame[victim] = GetGameTickCount();
+	g_iSandmanStunInflictorRef[victim] = EntIndexToEntRef(entity);
+	return MRES_Ignored;
+}
+
+static int SandmanPreJI_FindPendingStunVictim()
+{
+	int frame = GetGameTickCount();
+	int victim = 0;
+	for (int i = 1; i <= MaxClients; i++)
+	{
+		if (!WR_IsClientInGame(i) || g_iSandmanStunFrame[i] != frame)
+		{
+			continue;
+		}
+
+		if (victim != 0)
+		{
+			return 0;
+		}
+		victim = i;
+	}
+	return victim;
+}
+
+static int SandmanPreJI_GetStunVictim(Address sharedAddress)
+{
+	if (GetFeatureStatus(FeatureType_Native, "TF2Util_GetPlayerFromSharedAddress") == FeatureStatus_Available)
+	{
+		int victim = TF2Util_GetPlayerFromSharedAddress(sharedAddress);
+		if (WR_IsClientInGame(victim))
+		{
+			return victim;
+		}
+	}
+
+	return SandmanPreJI_FindPendingStunVictim();
+}
+
+public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam parameters)
+{
+	int victim = SandmanPreJI_GetStunVictim(sharedAddress);
+	if (!WR_IsClientInGame(victim) || g_iSandmanStunFrame[victim] != GetGameTickCount())
+	{
+		return MRES_Ignored;
+	}
+
+	int inflictor = EntRefToEntIndex(g_iSandmanStunInflictorRef[victim]);
+	g_iSandmanStunFrame[victim] = 0;
+	g_iSandmanStunInflictorRef[victim] = INVALID_ENT_REFERENCE;
+	if (!SandmanPreJI_IsEnabledProjectile(inflictor))
+	{
+		return MRES_Ignored;
+	}
 
 	float spawnTime = (inflictor > 0 && inflictor < MAX_TRACKED_ENTITIES) ? g_flProjectileSpawnTime[inflictor] : 0.0;
 	float flightTime = spawnTime > 0.0 ? GetGameTime() - spawnTime : SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME;
 	float cappedFlightTime = flightTime < SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME ? flightTime : SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME;
 	float lifetimeRatio = cappedFlightTime / SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME;
 	if (lifetimeRatio <= SANDMAN_PRE_JI_MIN_STUN_RATIO)
-		return Plugin_Changed;
+	{
+		return MRES_Supercede;
+	}
 
 	float stunDuration = lifetimeRatio * SandmanPreJI_GetBaseStunDuration();
 	if (HasEntProp(inflictor, Prop_Send, "m_bCritical") && GetEntProp(inflictor, Prop_Send, "m_bCritical") != 0)
 	{
 		stunDuration += 2.0;
 	}
+
+	int stunFlags = TF_STUNFLAGS_SMALLBONK;
 	if (lifetimeRatio >= 1.0)
 	{
 		stunDuration += 1.0;
+		stunFlags = TF_STUNFLAGS_BIGBONK;
 	}
 
-	TF2_StunPlayer(victim, stunDuration, SANDMAN_PRE_JI_SLOWDOWN, TF_STUNFLAGS_SMALLBONK, attacker);
-	return Plugin_Changed;
+	parameters.Set(1, stunDuration);
+	parameters.Set(2, SANDMAN_PRE_JI_SLOWDOWN);
+	parameters.Set(3, stunFlags);
+	return MRES_ChangedHandled;
 }
 
 
@@ -1584,7 +1690,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	bool validWeapon = (weapon > MaxClients && IsValidEntity(weapon));
 	new wepindex = (validWeapon ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
 
-	if (damagecustom == SANDMAN_DAMAGE_CUSTOM || SandmanPreJI_IsStunBall(inflictor))
+	if (damagecustom == SANDMAN_DAMAGE_CUSTOM)
 	{
 		return SandmanPreJI_OnBaseballDamage(client, attacker, weapon, inflictor, damage);
 	}
