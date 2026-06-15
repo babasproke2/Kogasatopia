@@ -615,11 +615,6 @@ int GetQuickStatsCapacity()
 
 int GetQuickStatsPlayerCount()
 {
-    if (GetFeatureStatus(FeatureType_Native, "DGM_RealPlayerCount") == FeatureStatus_Available)
-    {
-        return DGM_RealPlayerCount();
-    }
-
     return GetClientCount(false);
 }
 
