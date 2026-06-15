@@ -4,6 +4,7 @@
 #include <sourcemod>
 #include <clientprefs>
 #include <morecolors>
+#include <sdktools>
 #include <tf2_stocks>
 #undef REQUIRE_PLUGIN
 #include <clans_api>
@@ -49,11 +50,14 @@ int     g_iSavedAutoteamBalance;
 int     g_iSavedUnbalanceLimit;
 Handle  g_hAutoBalanceTimer = INVALID_HANDLE;
 float   g_fImbalanceDetectedAt = 0.0;
+Handle  g_hDuelGameConf = null;
+Handle  g_hIsInDuel = null;
+bool    g_bDuelDetectionAvailable = false;
 
 public Plugin myinfo =
 {
     name        = "autobalance_4teams",
-    author      = "Hombre",
+    author      = "Hombre, AW 'Swixel' Stanley",
     description = "Moves players when 4 teams are imbalanced.",
     version     = "1.3",
     url         = "https://kogasa.tf"
@@ -81,6 +85,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 public void OnPluginStart()
 {
     LoadTranslations("common.phrases");
+    SetupDuelDetection();
     g_hLogEnabled = CreateConVar("sm_autobalance_log", "1", "Enable autobalance debug logging.", _, true, 0.0, true, 1.0);
     g_hDiffThreshold = CreateConVar("sm_autobalance_diff", "1", "Autobalance when team size difference is above this value.", _, true, 1.0, true, 10.0);
     g_hActionDelay = CreateConVar("sm_autobalance_action_delay", "10", "Seconds an imbalance must persist before normal autobalance can move a player.", _, true, 0.0, true, 120.0);
@@ -123,6 +128,7 @@ public void OnMapStart()
 public void OnPluginEnd()
 {
     ApplyServerBalanceCvars(false);
+    CloseDuelDetection();
 
     if (g_hAutoBalanceTimer != INVALID_HANDLE)
     {
@@ -450,6 +456,15 @@ public Action Timer_Autobalance(Handle timer)
         return Plugin_Continue;
     }
 
+    if (IsClientInDuel(pick))
+    {
+        if (loggingEnabled)
+        {
+            LogBalance("Skip balance on %N: client entered a duel before move", pick);
+        }
+        return Plugin_Continue;
+    }
+
     if (loggingEnabled)
     {
         LogBalance(
@@ -498,6 +513,59 @@ static void PlayTeamMoveSaySound()
     }
 
     SaySounds_PlayCommand(0, TEAM_MOVE_SAYSOUND, true);
+}
+
+static void SetupDuelDetection()
+{
+    //Credit to AW 'Swixel' Stanley for duel detection
+    g_hDuelGameConf = LoadGameConfigFile("duel.tf2");
+    if (g_hDuelGameConf == null)
+    {
+        SetFailState("Missing duel.tf2 gamedata; refusing to run without duel protection.");
+        return;
+    }
+
+    StartPrepSDKCall(SDKCall_Static);
+    if (!PrepSDKCall_SetFromConf(g_hDuelGameConf, SDKConf_Signature, "IsInDuel"))
+    {
+        SetFailState("Missing IsInDuel signature in duel.tf2; refusing to run without duel protection.");
+        return;
+    }
+
+    PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
+    PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_ByValue);
+    g_hIsInDuel = EndPrepSDKCall();
+    if (g_hIsInDuel == null)
+    {
+        SetFailState("Failed to create IsInDuel SDKCall; refusing to run without duel protection.");
+        return;
+    }
+
+    g_bDuelDetectionAvailable = true;
+}
+
+static void CloseDuelDetection()
+{
+    g_bDuelDetectionAvailable = false;
+    delete g_hIsInDuel;
+    g_hIsInDuel = null;
+    delete g_hDuelGameConf;
+    g_hDuelGameConf = null;
+}
+
+static bool IsClientInDuel(int client)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return false;
+    }
+
+    if (!g_bDuelDetectionAvailable || g_hIsInDuel == null)
+    {
+        return true;
+    }
+
+    return SDKCall(g_hIsInDuel, client) != 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -571,6 +639,7 @@ static bool IsBasicBalanceCandidate(int client, int team)
     if (client <= 0 || client > MaxClients) return false;
     if (!IsClientInGame(client) || IsFakeClient(client)) return false;
     if (GetClientTeam(client) != team) return false;
+    if (IsClientInDuel(client)) return false;
     if (ClientHasDecapitationHeads(client)) return false;
 
     return true;
