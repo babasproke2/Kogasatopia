@@ -173,6 +173,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("PointsStore_AreBonusPointsLoaded", Native_PointsStore_AreBonusPointsLoaded);
     CreateNative("PointsStore_GetBonusPoints", Native_PointsStore_GetBonusPoints);
     CreateNative("PointsStore_ApplyBonusPoints", Native_PointsStore_ApplyBonusPoints);
+    CreateNative("PointsStore_ApplyBonusPointsSteamId", Native_PointsStore_ApplyBonusPointsSteamId);
     CreateNative("PointsStore_SpendBonusPoints", Native_PointsStore_SpendBonusPoints);
     CreateNative("PointsStore_HasPurchase", Native_PointsStore_HasPurchase);
     CreateNative("PointsStore_GetPurchasePrice", Native_PointsStore_GetPurchasePrice);
@@ -4070,7 +4071,7 @@ void LogPointsStoreEvent(const char[] format, any ...)
     QueuePointsStoreEvent(message);
 }
 
-void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAfter, const char[] type, int target, bool playSound, bool chatAlert, float randomChance, bool saveQueued, int perMap = 0, int perMapUsed = 0)
+void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAfter, const char[] type, int target, bool playSound, bool chatAlert, float randomChance, bool saveQueued, int perMap = 0, int perMapUsed = 0, const char[] targetNameSnapshot = "")
 {
     if (!IsPointsEventLoggingEnabled())
     {
@@ -4101,6 +4102,11 @@ void LogBonusPointsDelta(int client, int delta, int balanceBefore, int balanceAf
         targetClient = target;
         GetClientLogIdentity(target, targetSteamId, sizeof(targetSteamId), targetName, sizeof(targetName));
         GetClientLogClass(target, targetClass, sizeof(targetClass));
+    }
+    else if (targetNameSnapshot[0] != '\0')
+    {
+        strcopy(targetName, sizeof(targetName), targetNameSnapshot);
+        SanitizeLogField(targetName, sizeof(targetName));
     }
 
     LogPointsStoreEvent(
@@ -4404,6 +4410,10 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     {
         strcopy(label, maxlen, "Medic assists life");
     }
+    else if (StrEqual(type, "top_scoring_player", false))
+    {
+        strcopy(label, maxlen, "Top-scoring player");
+    }
 }
 
 void GetMultikillBonusPointsLabel(int kills, char[] label, int maxlen)
@@ -4418,15 +4428,14 @@ void GetMultikillBonusPointsLabel(int kills, char[] label, int maxlen)
     }
 }
 
-bool QueueBonusPointsDeltaSave(int client, int delta)
+bool QueueBonusPointsDeltaSaveForSteamId(const char[] steamId, int delta)
 {
     if (delta == 0 || !g_DatabaseReady || g_Database == null)
     {
         return false;
     }
 
-    char steamId[32];
-    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    if (steamId[0] == '\0')
     {
         return false;
     }
@@ -4434,7 +4443,7 @@ bool QueueBonusPointsDeltaSave(int client, int delta)
     char escapedSteamId[65];
     if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)))
     {
-        LogError("[points_store] Failed to escape SteamID64 for bonus-point save for client %d.", client);
+        LogError("[points_store] Failed to escape SteamID64 for bonus-point save.");
         return false;
     }
 
@@ -4450,6 +4459,17 @@ bool QueueBonusPointsDeltaSave(int client, int delta)
 
     g_Database.Query(SQL_OnIgnoredResult, query);
     return true;
+}
+
+bool QueueBonusPointsDeltaSave(int client, int delta)
+{
+    char steamId[32];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    {
+        return false;
+    }
+
+    return QueueBonusPointsDeltaSaveForSteamId(steamId, delta);
 }
 
 bool ShouldRecordCurrencySpend(const char[] type)
@@ -4603,23 +4623,29 @@ void PlayWelfareSound()
 }
 
 
-bool BuildPerMapAwardKey(int client, const char[] type, char[] key, int maxlen)
+bool BuildPerMapAwardKeyForSteamId(const char[] steamId, const char[] type, char[] key, int maxlen)
 {
     key[0] = '\0';
 
-    if (g_PerMapAwardCounts == null || type[0] == '\0')
-    {
-        return false;
-    }
-
-    char steamId[32];
-    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    if (g_PerMapAwardCounts == null || steamId[0] == '\0' || type[0] == '\0')
     {
         return false;
     }
 
     Format(key, maxlen, "%s:%s", steamId, type);
     return true;
+}
+
+bool BuildPerMapAwardKey(int client, const char[] type, char[] key, int maxlen)
+{
+    char steamId[32];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    {
+        key[0] = '\0';
+        return false;
+    }
+
+    return BuildPerMapAwardKeyForSteamId(steamId, type, key, maxlen);
 }
 
 int GetPerMapAwardCount(int client, const char[] type)
@@ -4637,6 +4663,18 @@ int GetPerMapAwardCount(int client, const char[] type)
 
 bool CanApplyPerMapAward(int client, int points, const char[] type, int perMap, int &used)
 {
+    char steamId[32];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    {
+        used = 0;
+        return false;
+    }
+
+    return CanApplyPerMapAwardForSteamId(steamId, points, type, perMap, used);
+}
+
+bool CanApplyPerMapAwardForSteamId(const char[] steamId, int points, const char[] type, int perMap, int &used)
+{
     used = 0;
     if (points <= 0 || perMap <= 0)
     {
@@ -4644,7 +4682,7 @@ bool CanApplyPerMapAward(int client, int points, const char[] type, int perMap, 
     }
 
     char key[128];
-    if (!BuildPerMapAwardKey(client, type, key, sizeof(key)))
+    if (!BuildPerMapAwardKeyForSteamId(steamId, type, key, sizeof(key)))
     {
         return false;
     }
@@ -4655,8 +4693,19 @@ bool CanApplyPerMapAward(int client, int points, const char[] type, int perMap, 
 
 int IncrementPerMapAwardCount(int client, const char[] type)
 {
+    char steamId[32];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId)))
+    {
+        return 0;
+    }
+
+    return IncrementPerMapAwardCountForSteamId(steamId, type);
+}
+
+int IncrementPerMapAwardCountForSteamId(const char[] steamId, const char[] type)
+{
     char key[128];
-    if (!BuildPerMapAwardKey(client, type, key, sizeof(key)))
+    if (!BuildPerMapAwardKeyForSteamId(steamId, type, key, sizeof(key)))
     {
         return 0;
     }
@@ -4687,7 +4736,7 @@ int GetEffectivePerMapAwardLimit(const char[] type, int perMap)
     return perMap;
 }
 
-bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, int perMap = 0)
+bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, int perMap = 0, const char[] targetNameSnapshot = "")
 {
     perMap = GetEffectivePerMapAwardLimit(type, perMap);
 
@@ -4748,7 +4797,7 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
     {
         perMapUsed = IncrementPerMapAwardCount(client, type);
     }
-    LogBonusPointsDelta(client, points, balanceBefore, g_ClientBonusPoints[client], type, target, playSound, chatAlert, randomChance, saveQueued, perMap, perMapUsed);
+    LogBonusPointsDelta(client, points, balanceBefore, g_ClientBonusPoints[client], type, target, playSound, chatAlert, randomChance, saveQueued, perMap, perMapUsed, targetNameSnapshot);
     if (!saveQueued)
     {
         LogBonusPointsRejected("save_not_queued", client, points, type, target, g_ClientBonusPoints[client], randomChance, randomRoll, perMap, perMapUsed);
@@ -4768,7 +4817,7 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
         return true;
     }
 
-    PrintBonusPointsDelta(client, points, type, target, perMapUsed, perMap);
+    PrintBonusPointsDelta(client, points, type, target, perMapUsed, perMap, targetNameSnapshot);
     return true;
 }
 
@@ -4802,16 +4851,69 @@ bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool ch
     pack.WriteFloat(randomChance);
     pack.WriteString(type);
     pack.WriteCell(perMap);
+    char targetNameSnapshot[256];
+    targetNameSnapshot[0] = '\0';
     if (StrEqual(type, "killstreak", false) || StrEqual(type, "multikill", false))
     {
         pack.WriteCell(target);
     }
     else
     {
+        if (IsClientInGameHuman(target))
+        {
+            BuildPurchaseDisplayName(target, targetNameSnapshot, sizeof(targetNameSnapshot));
+        }
         pack.WriteCell(IsClientInGameHuman(target) ? GetClientUserId(target) : 0);
     }
+    pack.WriteString(targetNameSnapshot);
 
     CreateTimer(delay, Timer_DeferredApplyBonusPoints, pack, TIMER_FLAG_NO_MAPCHANGE | TIMER_DATA_HNDL_CLOSE);
+    return true;
+}
+
+bool ApplyBonusPointsSteamId(const char[] steamId, int points, bool playSound = true, bool chatAlert = true, const char[] type = "", int perMap = 0)
+{
+    if (steamId[0] == '\0' || points == 0 || !g_DatabaseReady || g_Database == null)
+    {
+        return false;
+    }
+
+    int client = FindClientBySteamId64(steamId);
+    if (client > 0 && AreBonusPointsReady(client))
+    {
+        return ApplyBonusPointsNow(client, points, playSound, chatAlert, 1.0, type, 0, perMap);
+    }
+
+    perMap = GetEffectivePerMapAwardLimit(type, perMap);
+
+    int perMapUsed = 0;
+    if (!CanApplyPerMapAwardForSteamId(steamId, points, type, perMap, perMapUsed))
+    {
+        return false;
+    }
+
+    if (!QueueBonusPointsDeltaSaveForSteamId(steamId, points))
+    {
+        return false;
+    }
+
+    if (points > 0 && perMap > 0)
+    {
+        perMapUsed = IncrementPerMapAwardCountForSteamId(steamId, type);
+    }
+
+    char safeType[64];
+    strcopy(safeType, sizeof(safeType), type);
+    SanitizeLogField(safeType, sizeof(safeType));
+    LogPointsStoreEvent(
+        "event=bp_delta_offline|time=%d|steamid64=%s|delta=%d|type=%s|per_map=%d|per_map_used=%d",
+        GetTime(),
+        steamId,
+        points,
+        safeType,
+        perMap,
+        perMapUsed);
+
     return true;
 }
 
@@ -4855,13 +4957,15 @@ public Action Timer_DeferredApplyBonusPoints(Handle timer, any data)
     pack.ReadString(type, sizeof(type));
     int perMap = pack.ReadCell();
     int targetValue = pack.ReadCell();
+    char targetNameSnapshot[256];
+    pack.ReadString(targetNameSnapshot, sizeof(targetNameSnapshot));
     int target = (StrEqual(type, "killstreak", false) || StrEqual(type, "multikill", false)) ? targetValue : GetClientOfUserId(targetValue);
 
-    ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target, perMap);
+    ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target, perMap, targetNameSnapshot);
     return Plugin_Stop;
 }
 
-void PrintBonusPointsDelta(int client, int points, const char[] type, int target, int perMapUsed = 0, int perMap = 0)
+void PrintBonusPointsDelta(int client, int points, const char[] type, int target, int perMapUsed = 0, int perMap = 0, const char[] targetNameSnapshot = "")
 {
     char prefix[96];
     GetCurrencyPrefix(prefix, sizeof(prefix));
@@ -4886,12 +4990,22 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
         CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}killing{default} %s%s", prefix, sign, points, targetName, perMapSuffix);
         return;
     }
+    if (StrEqual(type, "points_diff", false) && targetNameSnapshot[0] != '\0')
+    {
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}killing{default} %s%s", prefix, sign, points, targetNameSnapshot, perMapSuffix);
+        return;
+    }
 
     if (StrEqual(type, "top_score_kill", false) && IsClientInGameHuman(target))
     {
         char targetName[256];
         BuildPurchaseDisplayName(target, targetName, sizeof(targetName));
         CPrintToChat(client, "%s {limegreen}%s%i{default} for killing {gold}Top-scoring player{default} (%s)%s", prefix, sign, points, targetName, perMapSuffix);
+        return;
+    }
+    if (StrEqual(type, "top_score_kill", false) && targetNameSnapshot[0] != '\0')
+    {
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for killing {gold}Top-scoring player{default} (%s)%s", prefix, sign, points, targetNameSnapshot, perMapSuffix);
         return;
     }
 
@@ -4904,6 +5018,11 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
     if (StrEqual(type, "player_revenge", false) && IsClientInGameHuman(target))
     {
         CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Revenge{default} on %N%s", prefix, sign, points, target, perMapSuffix);
+        return;
+    }
+    if (StrEqual(type, "player_revenge", false) && targetNameSnapshot[0] != '\0')
+    {
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Revenge{default} on %s%s", prefix, sign, points, targetNameSnapshot, perMapSuffix);
         return;
     }
 
@@ -5742,6 +5861,28 @@ public any Native_PointsStore_ApplyBonusPoints(Handle plugin, int numParams)
     float delay = (numParams >= 8) ? view_as<float>(GetNativeCell(8)) : 3.0;
     int perMap = (numParams >= 9) ? GetNativeCell(9) : 0;
     return ApplyBonusPoints(client, points, playSound, chatAlert, randomChance, type, target, delay, perMap);
+}
+
+public any Native_PointsStore_ApplyBonusPointsSteamId(Handle plugin, int numParams)
+{
+    char steamId[32];
+    GetNativeString(1, steamId, sizeof(steamId));
+    TrimString(steamId);
+
+    int points = GetNativeCell(2);
+    bool playSound = (numParams >= 3) ? view_as<bool>(GetNativeCell(3)) : true;
+    bool chatAlert = (numParams >= 4) ? view_as<bool>(GetNativeCell(4)) : true;
+
+    char type[64];
+    type[0] = '\0';
+    if (numParams >= 5)
+    {
+        GetNativeString(5, type, sizeof(type));
+        TrimString(type);
+    }
+
+    int perMap = (numParams >= 6) ? GetNativeCell(6) : 0;
+    return ApplyBonusPointsSteamId(steamId, points, playSound, chatAlert, type, perMap);
 }
 
 public any Native_PointsStore_SpendBonusPoints(Handle plugin, int numParams)

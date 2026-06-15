@@ -38,6 +38,19 @@ native int PointsStore_GetBonusPoints(int client);
 native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0, int perMap = 0);
 
 /**
+ * Applies currency to a SteamID64, including disconnected clients.
+ *
+ * @param steamId64      Target SteamID64.
+ * @param points         Points delta.
+ * @param playSound      Play the reward sound if the client is online.
+ * @param chatAlert      Print currency chat line if the client is online.
+ * @param type           Message type key.
+ * @param perMap         Positive cap for successful awards of this type per map. 0 = unlimited.
+ * @return               True on success.
+ */
+native bool PointsStore_ApplyBonusPointsSteamId(const char[] steamId64, int points, bool playSound = true, bool chatAlert = true, const char[] type = "", int perMap = 0);
+
+/**
  * Spends currency immediately without sound or chat output.
  *
  * @param client        Client index.
@@ -113,6 +126,7 @@ public void __pl_points_store_SetNTVOptional()
     MarkNativeAsOptional("PointsStore_AreBonusPointsLoaded");
     MarkNativeAsOptional("PointsStore_GetBonusPoints");
     MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
+    MarkNativeAsOptional("PointsStore_ApplyBonusPointsSteamId");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("PointsStore_GetPurchasePrice");
