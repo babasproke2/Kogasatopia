@@ -126,7 +126,7 @@
         {
                 "inherits" "Upgradeable TF_WEAPON_SNIPERRIFLE"
                 "name" "Wine Red • Admire"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-icon_aru_sniper.png"
                 "description"
                 {
                         "positive"             "Enables wall climb, minicrits instead of crits, +50% headshot damage, 35% faster swap to speed"
@@ -151,7 +151,7 @@
         {
                 "inherits" "Upgradeable TF_WEAPON_SNIPERRIFLE"
                 "name" "Wine Red (Stock Reskin)"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-icon_aru_sniper.png"
                 "description"
                 {
                         "positive"             ""
@@ -452,7 +452,7 @@
 		"defindex"	"9"
 		"item_class"	"tf_weapon_shotgun_primary"
                 "name"                  "Hitscan Flamethrower"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Nostromo_Napalmer.png"
                 "description"
                 {
                         "positive"             "A shotgun that fires two bullets with a tighter spread, deals 80 base damage, consumes 5 ammo per shot, +30 health on kill"
@@ -550,7 +550,7 @@
         {
 		"inherits" "TTG Sam Revolver"
                 "name"                  "Big Kill tf2c"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Big_Kill.png"
                 "description"
                 {
                         "positive"             ""
@@ -831,7 +831,7 @@
         "oldscottishresistance"
         {
                 "name"                  "Old Scottish Resistance"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Scottish_Resistance.png"
                 "description"
                 {
                         "positive"             ""
@@ -931,7 +931,7 @@
 	"engi1" // we just need a unique identifier here - this is not necessarily a UUID
 	{
 		"name"			"Pretty Boy's Pocket Pistol"		
-		"image"                 "100px-item_icon_wrangler.png"
+		"image"                 "90px-Backpack_Pretty_Boy's_Pocket_Pistol.png"
 		"description"
 		{
 		        "positive"             "The Winger, Pretty Boy's Pocket Pistol"
@@ -948,7 +948,7 @@
 	"engi2"
 	{
 		"name"			"The Winger"
-		"image"                 "100px-item_icon_wrangler.png"
+		"image"                 "90px-Backpack_Winger.png"
 		"description"
 		{
 		        "positive"             "The Winger, Pretty Boy's Pocket Pistol"
@@ -964,7 +964,7 @@
         "engi3"
         {
                 "name"                  "Boost/Jump Pads"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-icon_pads.png"
                 "description"
                 {
                         "positive"             "Boost/Jump pads (Or use !pads for convenience)"
@@ -1011,7 +1011,7 @@
         "engi4"
         {
                 "name"                  "Amplifier (Dispenser)"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "120px-icon_amplifier.png"
                 "description"
                 {
                         "positive"             "Amplifier Dispenser Replacement (Or use !amp or !a)"
@@ -1031,7 +1031,7 @@
         "engi5"
         {
                 "name"                  "Amplifier (Sentry)"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "120px-icon_amplifier.png"
                 "description"
                 {
                         "positive"             "Amplifier Dispenser Replacement (Or use !amp or !a)"
@@ -1088,7 +1088,7 @@
         "medic1"
         {
                 "name"                  "TF2C Shock Therapy"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-Backpack_Shock_Therapy.png"
                 "description"
                 {
                         "positive"             "Hit allies to fully overheal them, enemies take charge as damage"
@@ -1115,7 +1115,7 @@
         "medic2"
         {
                 "name"                  "The Mantreads"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Mantreads.png"
                 "description"
                 {
                         "positive"             "The Mantreads"
@@ -1236,7 +1236,7 @@
 	"demomanbanana"
 	{
 		"name"		"Demoman Banana"
-		"image"                 "100px-item_icon_wrangler.png"
+		"image"                 "90px-Backpack_Second_Banana.png"
 		"description"
 		{
 		        "positive"             "Throw and eat to heal yourself!"
@@ -1252,7 +1252,7 @@
         "oldclaid"
         {
                 "name"          "Old Claidheamh Mòr"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "Backpack_Claidheamh_Mor.png"
                 "description"
                 {
                         "positive"             "no damage vuln."
