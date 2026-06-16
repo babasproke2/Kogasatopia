@@ -168,7 +168,7 @@
         {
                 "inherits"    "The Disciplinary Action"
                 "name"                  "Reimu's Gohei - Disc. Action"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_gohei.png"
                 "description"
                 {
                         "positive"             "Reimu's Gohei - Stock, Whip and Market Gardener options"
@@ -193,7 +193,7 @@
         {
                 "inherits"    "The Market Gardener"
                 "name"                  "Reimu's Gohei - Market Gardener"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_gohei.png"
                 "description"
                 {
                         "positive"             "Reimu's Gohei - Stock, Whip and Market Gardener options"
@@ -215,7 +215,7 @@
         {
                 "inherits"    "Prinny Machete"
                 "name"                  "Reimu's Gohei"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_gohei.png"
                 "all_class"             "true"
                 "description"
                 {
@@ -319,7 +319,7 @@
         {
                 "inherits"    "TF_WEAPON_KNIFE"
                 "name"                  "Reimu's Purification Rod"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_gohei.png"
                 "description"
                 {
                         "positive"             "Reimu's Gohei - Stock Reskin"
