@@ -233,7 +233,7 @@
         {
                 "inherits"              "The Equalizer"
                 "name"                  "Efficiency IV Diamond Pickaxe"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_diamond_pickaxe.png"
                 "points_store_purchase" "diamond_pickaxe"
                 "attributes_game"
                 {
@@ -257,7 +257,7 @@
         {
                 "inherits"              "Prinny Machete"
                 "name"                  "Diamond Pickaxe"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_diamond_pickaxe.png"
                 "all_class"             "true"
                 "points_store_purchase" "diamond_pickaxe"
                 "attributes_game"
@@ -280,7 +280,7 @@
         {
                 "inherits"              "Prinny Machete"
                 "name"                  "Holy Bible"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_holy_bible.png"
                 "all_class"             "true"
                 "points_store_purchase" "holy_bible"
                 "attributes_game"
@@ -303,7 +303,7 @@
         {
                 "inherits"              "The Pain Train"
                 "name"                  "The Pain Train"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Pain_Train.png"
                 "description"
                 {
                         "positive"             ""
@@ -397,7 +397,7 @@
         {
                 "inherits"    "Crit-a-Cola"
                 "name"                  "Sproke / Redbull"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_sproke.png"
                 "description"
                 {
                         "positive"             "Ammo becomes magazine for 12 seconds, FaN/Popper receive +25% reload speed instead"
@@ -435,7 +435,7 @@
 		"defindex"	"9"
 		"item_class"	"tf_weapon_shotgun_primary"
                 "name"                  "The Shotgun"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Shotgun.png"
                 "description"
                 {
                         "positive"             "Stock Shotgun"
@@ -480,7 +480,7 @@
         {
 		"inherits" "TF_WEAPON_SHOTGUN_PYRO"
                 "name"                  "Flame Shotgun"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Widowmaker.png"
                 "description"
                 {
                         "positive"             "Hitting a target accurately twice creates a fiery explosion, explosions restore clip"
@@ -504,7 +504,7 @@
         {
 		"inherits" "TF_WEAPON_SHOTGUN_PYRO"
                 "name"                  "Flame Shotgun (Stock Spread)"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Widowmaker.png"
                 "description"
                 {
                         "positive"             "Hitting a target accurately twice creates a fiery explosion, explosions restore clip"
@@ -575,7 +575,7 @@
         {
 		"inherits" "TF_WEAPON_SHOTGUN_PYRO"
                 "name"                  "Hitscan Flaregun"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Shooting_Star.png"
                 "description"
                 {
                         "positive"             "Fires one bullet that deals 65 base damage, mini crits burning targets"
@@ -602,7 +602,7 @@
         {
 		"inherits" "Upgradeable TF_WEAPON_SMG"
                 "name"                  "Soldier's M16"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_SMG.png"
                 "description"
                 {
                         "positive"             "SMG, dealing 25 damage restores 1 rocket, kills restore 1 rocket"
@@ -660,7 +660,7 @@
         "soldierpistol"
         {
                 "name"                  "Soldier's Pistol"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Pistol.png"
                 "description"
                 {
                         "positive"             "Soldier's Pistol"
@@ -702,7 +702,7 @@
         "oldpanic"
         {
                 "name"                  "Old Panic Attack"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Panic_Attack.png"
                 "description"
                 {
                         "positive"             "Hold fire to load up to 4 shells, fires faster as HP decreases"
@@ -790,7 +790,7 @@
         "straightdemo"
         {
                 "name"                  "Grenade Launcher (fixed spin)"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Grenade_Launcher.png"
                 "description"
                 {
                         "positive"             "Grenade Launcher (straight grenades)"
@@ -852,7 +852,7 @@
         "familybsns"
         {
                 "name"                  "The Family Business"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Family_Business.png"
                 "description"
                 {
                         "positive"             "The Family Business"
@@ -869,7 +869,7 @@
         "pyro1"
         {
                 "name"                  "TF2C Twin Barrel"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "90px-Backpack_Force-A-Nature.png"
                 "description"
                 {
                         "positive"             "Holster reload, +20% bullets per shot, first shot is a recoil jump"
@@ -906,7 +906,7 @@
         "pyro3"
         {
                 "name"                  "TF2C Harvester"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_harvester.png"
                 "description"
                 {
                         "positive"             "Afterburn is returned as health while held"
@@ -1051,7 +1051,7 @@
 	"cobsongun"
         {
                 "name"                  "Conagher's Bull"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_conagher_bull.png"
                 "description"
                 {
                         "positive"             "Drain 100 ammo from buildings on hit, first shot deals 300 damage to enemies holding the same weapon, 60% tighter spread"
@@ -1131,7 +1131,7 @@
         "spy1"
         {
                 "name"                  "TF2C L'escampette"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_l'escampette.png"
                 "description"
                 {
                         "positive"             "Move 30% faster while cloaked"
