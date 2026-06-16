@@ -24,7 +24,7 @@
         {
                 "inherits"    "TF_WEAPON_MINIGUN"
                 "name"                  "Little Machine Gun V"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_nonomi_minigun.png"
                 "description"
                 {
                         "positive"             "Nonomi's Minigun - Stock Reskin"
@@ -41,7 +41,7 @@
         {
                 "inherits"    "Upgradeable TF_WEAPON_SCATTERGUN"
                 "name"                  "Eye of Horus"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_hoshino_shotgun.png"
                 "description"
                 {
                         "positive"             ""
@@ -58,7 +58,7 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_PRIMARY"
                 "name"                  "Eye of Horus"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_hoshino_shotgun.png"
                 "description"
                 {
                         "positive"             "Hoshino's Shotgun - Stock Reskin"
@@ -75,7 +75,7 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_SOLDIER"
                 "name"                  "Eye of Horus"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_hoshino_shotgun.png"
                 "description"
                 {
                         "positive"             "Hoshino's Shotgun - Stock Reskin"
@@ -92,7 +92,7 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_HWG"
                 "name"                  "Eye of Horus"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_hoshino_shotgun.png"
                 "description"
                 {
                         "positive"             "Hoshino's Shotgun - Stock Reskin"
@@ -109,7 +109,7 @@
         {
                 "inherits"    "TF_WEAPON_SHOTGUN_PYRO"
                 "name"                  "Eye of Horus"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_hoshino_shotgun.png"
                 "description"
                 {
                         "positive"             "Hoshino's Shotgun - Stock Reskin"
@@ -340,7 +340,7 @@
         {
                 "inherits"    "The Wrap Assassin"
                 "name"                  "Branch of Hourai"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_hourai_branch.png"
                 "description"
                 {
                         "positive"             ""
@@ -365,7 +365,7 @@
         {
                 "inherits"    "The C.A.P.P.E.R"
                 "name"                  "Reisen's Bunny Pistol"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_reisen_pistol.png"
                 "description"
                 {
                         "positive"             "+35% jump height, +30% damage"
@@ -527,7 +527,7 @@
         {
 		"inherits" "TF_WEAPON_PIPEBOMBLAUNCHER"
                 "name"                  "The Wee Willy"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_wee_willy.png"
                 "description"
                 {
                         "positive"             ""
@@ -629,7 +629,7 @@
         "lightningpistol"
         {
                 "name"                  "Lightning Pistol"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_lightning_pistol.png"
                 "description"
                 {
                         "positive"             "+35% firing rate, +200% clip size, 40% more accurate, +100% ammo"
@@ -734,7 +734,7 @@
         "blackwatchdemo"
         {
                 "name"                  "The Black Watch"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_black_watch.png"
                 "description"
                 {
                         "positive"             "Hitting an enemy directly restores 1 ammo, +25% clip size"
@@ -984,7 +984,7 @@
         "deaglescout"
         {
                 "name"                  "The Desert Eagle"
-                "image"                 "100px-item_icon_wrangler.png"
+                "image"                 "100px-item_icon_desert_eagle.png"
                 "description"
                 {
                         "positive"             "Can headshot, +70%, damage, +50% more accurate"
