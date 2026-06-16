@@ -18,7 +18,7 @@ static const char g_Info[][] = {
     "{default}Some weapons have better stats; use {gold}!reverts{default} to read about your class.\n",
     "{default}We have new weapons; check {gold}!cw{default} to equip.\n",
     "{default}Random crits and bullet spread are disabled\n",
-    "{default}Some classes such as {grey}Heavy{default} are limited;\n",
+    "{default}Heavy is limited to 2 on some gamemodes;\n",
     "{default}Visit our group with {gold}!steam{default} {default}to learn more and see when people are playing.\n"
 };
 
