@@ -5,16 +5,35 @@
         "Signatures"
         {
             /*
-             * Used by the extension native TF2SentryNewTarget_FoundTarget().
-             * Linux symbol is from the public TF2 Source SDK 2013 Itanium ABI name.
-             * Windows requires a byte signature generated from the current TF2 server.dll.
+             * Detoured by the extension. The detour writes m_flSentryRange
+             * immediately before CObjectSentrygun::FindTarget() executes.
+             *
+             * Linux symbol is the Itanium ABI name from the public TF2 SDK class.
+             * Windows requires a current byte signature for the live TF2 server.dll.
              */
-            "CObjectSentrygun::FoundTarget"
+            "CObjectSentrygun::FindTarget"
             {
                 "library"   "server"
-                "linux"     "@_ZN16CObjectSentrygun11FoundTargetEP11CBaseEntityRK6Vectorb"
+                "linux"     "@_ZN16CObjectSentrygun10FindTargetEv"
                 "windows"   ""
             }
+        }
+
+        "Offsets"
+        {
+            /*
+             * Optional override. If this is absent or <= 0, the extension derives
+             * m_flSentryRange as FindSendPropInfo(CObjectSentrygun, m_hEnemy) + 8.
+             * Add platform-specific offsets here only if Valve changes the nearby
+             * member layout.
+             *
+             * Example:
+             * "CObjectSentrygun::m_flSentryRange"
+             * {
+             *     "linux"     "1234"
+             *     "windows"   "1234"
+             * }
+             */
         }
     }
 }

@@ -4,7 +4,7 @@
 #define _tf2_sentry_newtarget_dist_included
 
 /**
- * This is a native SourceMod extension, not a SourcePawn plugin library.
+ * Native extension backing [TF2] Sentry NewTarget Distance.
  */
 public Extension __ext_tf2_sentry_newtarget_dist =
 {
@@ -15,30 +15,18 @@ public Extension __ext_tf2_sentry_newtarget_dist =
 };
 
 /**
- * Enables/disables the native helper extension. The SourcePawn plugin owns the
- * gameplay loop; this is stored by the extension for diagnostics/future use.
+ * Enables or disables the native FindTarget() range override.
  */
 native void TF2SentryNewTarget_SetEnabled(bool enabled);
 
 /**
- * Sets the configured distance threshold in Hammer Units. The SourcePawn plugin
- * owns the gameplay loop; this is stored by the extension for diagnostics/future use.
+ * Sets the target acquisition range in Hammer Units.
+ * Applies to both normal sentries and mini-sentries.
  */
 native void TF2SentryNewTarget_SetDistance(float distance);
 
 /**
- * Calls CObjectSentrygun::FoundTarget on a sentry.
- *
- * sentry:
- *   Entity index/ref of obj_sentrygun.
- *
- * target:
- *   Entity index/ref of the target entity.
- *
- * soundCenter:
- *   Usually the sentry eye position. Stock FindTarget() passes vecSentryOrigin.
- *
- * noSound:
- *   true to suppress the acquisition sound.
+ * Returns the resolved raw offset of CObjectSentrygun::m_flSentryRange,
+ * or -1 if unavailable. Intended for diagnostics only.
  */
-native void TF2SentryNewTarget_FoundTarget(int sentry, int target, const float soundCenter[3], bool noSound = false);
+native int TF2SentryNewTarget_GetRangeOffset();

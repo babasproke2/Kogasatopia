@@ -1,5 +1,5 @@
 #include "extension.h"
-#include "foundtarget_call.h"
+#include "range_override.h"
 
 #include <cstring>
 
@@ -28,7 +28,9 @@ bool TF2SentryNewTargetExt::SDK_OnLoad(char *error, size_t maxlength, bool late)
         return false;
     }
 
-    if (!SentryFoundTarget::Init(g_pGameConf, error, maxlength))
+    CDetourManager::Init(g_pSM->GetScriptingEngine(), g_pGameConf);
+
+    if (!SentryRangeOverride::Init(g_pGameConf, error, maxlength))
         return false;
 
     sharesys->AddNatives(myself, g_TF2SentryNewTargetNatives);
@@ -39,7 +41,7 @@ bool TF2SentryNewTargetExt::SDK_OnLoad(char *error, size_t maxlength, bool late)
 
 void TF2SentryNewTargetExt::SDK_OnUnload()
 {
-    SentryFoundTarget::Shutdown();
+    SentryRangeOverride::Shutdown();
 
     if (g_pGameConf)
     {
