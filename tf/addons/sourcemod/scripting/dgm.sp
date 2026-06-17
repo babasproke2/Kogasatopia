@@ -22,6 +22,10 @@
 #define DGM_SETUP_START_CHECK_MAX 80
 #define DGM_SETUP_FALSE_CONFIRM_MAX 3
 #define DGM_RT_STATE_SETUP 0
+#define DGM_RESPAWN_DISABLED_TIME 30.0
+#define DGM_RESPAWN_LOW_POP_RESTORE_TIME 5.0
+#define DGM_RESPAWN_HIGH_POP_RESTORE_TIME 10.0
+#define DGM_RESPAWN_HIGH_POP_THRESHOLD 15
 
 ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
@@ -1675,6 +1679,11 @@ public void OnMapStart()
 public void ConVarChange_RespawnSetting(ConVar convar, const char[] oldValue, const char[] newValue)
 {
     DGM_RefreshRespawnVisualState();
+
+    if (convar == g_cvRespawnTime && !StrEqual(oldValue, newValue))
+    {
+        DGM_RespawnDeadClients();
+    }
 }
 
 public void ConVarChange_SetupUberMultiplier(ConVar convar, const char[] oldValue, const char[] newValue)
@@ -1936,9 +1945,38 @@ public Action Command_RespawnToggle(int client, int args)
     }
 
     g_InternalOverride = !g_InternalOverride; // toggles between true and false
+
+    if (!g_InternalOverride && FloatCompare(g_cvRespawnTime.FloatValue, DGM_RESPAWN_DISABLED_TIME) == 0)
+    {
+        float restoreTime = DGM_CountRealPlayers() < DGM_RESPAWN_HIGH_POP_THRESHOLD
+            ? DGM_RESPAWN_LOW_POP_RESTORE_TIME
+            : DGM_RESPAWN_HIGH_POP_RESTORE_TIME;
+
+        g_cvRespawnTime.SetFloat(restoreTime);
+    }
+
     DGM_RefreshRespawnVisualState();
+    DGM_RespawnDeadClients();
     PrintToChat(client, "Respawn times %s", g_InternalOverride ? "forced on" : "forced off");
     return Plugin_Handled;
+}
+
+int DGM_RespawnDeadClients()
+{
+    int respawned = 0;
+
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (!IsValidClient(i) || IsPlayerAlive(i) || GetClientTeam(i) <= view_as<int>(TFTeam_Spectator))
+        {
+            continue;
+        }
+
+        TF2_RespawnPlayer(i);
+        respawned++;
+    }
+
+    return respawned;
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
@@ -1957,7 +1995,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
         if (!(IsValidClient(client))) return;
 
         float baseRespawn = GetConVarFloat(g_cvRespawnTime);
-        if (FloatCompare(baseRespawn, 30.0) == 0)
+        if (FloatCompare(baseRespawn, DGM_RESPAWN_DISABLED_TIME) == 0)
         {
             return;
         }
