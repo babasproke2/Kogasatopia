@@ -139,7 +139,7 @@ MemoryPatch patch_Wrangler_CustomShieldShellRefill;
 MemoryPatch patch_Wrangler_CustomShieldRocketRefill;
 MemoryPatch patch_Wrangler_CustomShieldDamageTaken;
 MemoryPatch patch_Wrangler_RescueRanger_CustomShieldRepair;
-float g_flWranglerCustomShieldValue = 0.75;
+float g_flWranglerCustomShieldValue = 0.85;
 
 DynamicDetour dhook_CTFPlayer_CalculateMaxSpeed;
 DynamicDetour dhook_CTFLunchBox_ApplyBiteEffects;
