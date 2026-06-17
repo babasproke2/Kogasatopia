@@ -16,7 +16,6 @@
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
 #define REQUIRE_PLUGIN
-// Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 
 #define FLS_STREAK_TARGET	   2
 #define FLS_STREAK_WINDOW	   4.0
@@ -171,11 +170,14 @@ static void WeaponReverts_DeleteConfigs()
 public Plugin myinfo =
 {
 	name = "WeaponReverts",
-	author = "Hombre",
+	author = "Hombre, Huutti",
 	description = "Weapon changes plugin with custom attribute code such as recoil jumping",
 	version = "6.0",
 	url = "https://kogasa.tf"
 };
+
+// Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
+// Thank you Huutti/Castaway, Chaosxk, Drixevel and others for several pieces of code
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 {
@@ -508,7 +510,6 @@ static bool Ambassador102_IsEnabledWeapon(int weapon)
 	return IsAmbassadorHeadshotWeapon(weapon) && TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_102, 0) != 0;
 }
 
-// Credit goes to Drixevel for preambassador.sp.
 static Action Ambassador102_OnHeadshotDamage(int victim, int attacker, int weapon, float &damage, int damagetype, int damagecustom)
 {
 	if (damagecustom != TF_CUSTOM_HEADSHOT || !Ambassador102_IsEnabledWeapon(weapon))
