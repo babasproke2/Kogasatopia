@@ -170,7 +170,7 @@ static void WeaponReverts_DeleteConfigs()
 public Plugin myinfo =
 {
 	name = "WeaponReverts",
-	author = "Hombre, Huutti",
+	author = "Hombre, Huutti, Utsuho",
 	description = "Weapon changes plugin with custom attribute code such as recoil jumping",
 	version = "6.0",
 	url = "https://kogasa.tf"
