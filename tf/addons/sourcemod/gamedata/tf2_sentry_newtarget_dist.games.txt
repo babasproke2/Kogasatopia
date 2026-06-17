@@ -1,0 +1,20 @@
+"Games"
+{
+    "tf"
+    {
+        "Signatures"
+        {
+            /*
+             * Used by the extension native TF2SentryNewTarget_FoundTarget().
+             * Linux symbol is from the public TF2 Source SDK 2013 Itanium ABI name.
+             * Windows requires a byte signature generated from the current TF2 server.dll.
+             */
+            "CObjectSentrygun::FoundTarget"
+            {
+                "library"   "server"
+                "linux"     "@_ZN16CObjectSentrygun11FoundTargetEP11CBaseEntityRK6Vectorb"
+                "windows"   ""
+            }
+        }
+    }
+}
