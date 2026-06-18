@@ -39,6 +39,7 @@
 #define AMPLIFIER_HEALTH 150
 #define AMPLIFIER_MINI_HEALTH 100
 #define AMPLIFIER_MINI_MODIFIER 0.75
+#define AMPLIFIER_FORCE_MIN_PLAYERS 3
 
 // Entity classes / commands
 #define BUILDING_DISPENSER "obj_dispenser"
@@ -390,7 +391,13 @@ bool IsPlayercountForceActive()
 		return false;
 	}
 
-	return DGM_RealPlayerCount() < forcePlayercount;
+	int playerCount = DGM_RealPlayerCount();
+	if (playerCount < AMPLIFIER_FORCE_MIN_PLAYERS)
+	{
+		return false;
+	}
+
+	return playerCount < forcePlayercount;
 }
 
 bool ShouldClientBuildAmplifier(int client, bool isDispenser, bool isSentry, bool &forcedConversion, bool &playercountForceActive, int &effectiveForceAmplifier, bool &playerRequestedAmplifier)

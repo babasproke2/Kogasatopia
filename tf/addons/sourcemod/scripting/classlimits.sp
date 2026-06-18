@@ -24,6 +24,8 @@
 #define TF_TEAM_BLU             3
 #define TF_TEAM_RED             2
 
+#define HEAVY_POPULATION_RESTRICTION_MIN_PLAYERS 3
+
 public Plugin myinfo =
 {
     name        = "classlimits",
@@ -333,7 +335,7 @@ static bool GetHeavyPopulationRestrictionState(int &currentPlayers, int &thresho
         return false;
 
     threshold = g_hRestrictHeaviesPcount.IntValue;
-    return threshold > 0 && currentPlayers < threshold;
+    return threshold > 0 && currentPlayers >= HEAVY_POPULATION_RESTRICTION_MIN_PLAYERS && currentPlayers < threshold;
 }
 
 bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
