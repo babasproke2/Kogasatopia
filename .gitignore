@@ -2,3 +2,9 @@ plugin_statistics_database_explanation.txt
 tools/live_config_sync*.log
 extensions/*/src/build/
 tf/addons/sourcemod/scripting/compiled/
+*.smx
+*.so
+*.dll
+*.dylib
+*.o
+*.obj
