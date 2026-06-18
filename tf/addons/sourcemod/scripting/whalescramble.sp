@@ -108,10 +108,13 @@ bool g_bDuelDetectionAvailable = false;
 #define FRAG_BALANCE_ENTRY_CLIENT0  1
 #define FRAG_BALANCE_ENTRY_CELLS  (FRAG_BALANCE_ENTRY_CLIENT0 + MAX_SWAP_BUFFER)
 #define SCRAMBLE_PLAYER_PERCENT_DIVISOR  5
-#define SCRAMBLE_RESPAWN_RETRY_DELAY  0.35
-#define SCRAMBLE_RESPAWN_RETRY_COUNT  5
-#define SCRAMBLE_SETUP_POLISH_DELAY  0.45
+#define SCRAMBLE_RESPAWN_RETRY_DELAY  0.50
+#define SCRAMBLE_RESPAWN_RETRY_COUNT  8
+#define SCRAMBLE_SETUP_POLISH_DELAY  0.75
 #define SCRAMBLE_SETUP_UBER_DELAY  0.25
+#define SCRAMBLE_AUTO_RESPAWN_SWEEP_DELAY  0.85
+#define SCRAMBLE_AUTO_RESPAWN_SWEEP_REPEAT_DELAY  1.10
+#define SCRAMBLE_AUTO_RESPAWN_SWEEP_COUNT  3
 #define POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM "scramImmunity24h"
 public Plugin myinfo =
 {
@@ -2262,6 +2265,10 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         CPrintToChatAll("{tomato}[{purple}Gap{tomato}]{default} {gold}Whalescrambling{default} %d players!", moved);
         PlayTeamMoveSaySound();
         LogWhale("Scramble executed: moved=%d pairs=%d suppressRespawn=%d.", moved, pairCount, suppressRespawn ? 1 : 0);
+        if (suppressRespawn)
+        {
+            QueuePostAutoScrambleRespawnSweep();
+        }
         if (setupScramble)
         {
             ApplySetupScramblePolish();
@@ -2417,15 +2424,15 @@ static void ClearScrambleRespawnState(int client)
     g_iScrambleRespawnExpectedTeam[client] = 0;
 }
 
-static void QueueScrambleRespawn(int client, int expectedTeam)
+static bool QueueScrambleRespawn(int client, int expectedTeam)
 {
     if (client <= 0 || client > MaxClients || !IsClientInGame(client))
     {
-        return;
+        return false;
     }
     if (IsClientInDuel(client))
     {
-        return;
+        return false;
     }
 
     if (expectedTeam != TEAM_RED && expectedTeam != TEAM_BLU)
@@ -2436,6 +2443,7 @@ static void QueueScrambleRespawn(int client, int expectedTeam)
     g_iScrambleRespawnAttempts[client] = SCRAMBLE_RESPAWN_RETRY_COUNT;
     g_iScrambleRespawnExpectedTeam[client] = expectedTeam;
     CreateTimer(SCRAMBLE_RESPAWN_RETRY_DELAY, Timer_VerifyScrambleRespawn, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+    return true;
 }
 
 public Action Timer_VerifyScrambleRespawn(Handle timer, any userid)
@@ -2528,8 +2536,27 @@ static void ApplySetupScramblePolish()
 
 public Action Timer_ApplySetupScramblePolish(Handle timer, any data)
 {
-    RespawnSetupScramblePlayers();
+    QueueScrambleRespawnsForActiveTeams("setup polish");
     CreateTimer(SCRAMBLE_SETUP_UBER_DELAY, Timer_FillSetupMedicUbers, 0, TIMER_FLAG_NO_MAPCHANGE);
+    return Plugin_Stop;
+}
+
+static void QueuePostAutoScrambleRespawnSweep()
+{
+    CreateTimer(SCRAMBLE_AUTO_RESPAWN_SWEEP_DELAY, Timer_PostAutoScrambleRespawnSweep, SCRAMBLE_AUTO_RESPAWN_SWEEP_COUNT, TIMER_FLAG_NO_MAPCHANGE);
+    LogWhale("Post-auto scramble respawn sweep queued.");
+}
+
+public Action Timer_PostAutoScrambleRespawnSweep(Handle timer, any remainingSweeps)
+{
+    QueueScrambleRespawnsForActiveTeams("post-auto sweep");
+
+    int remaining = remainingSweeps - 1;
+    if (remaining > 0)
+    {
+        CreateTimer(SCRAMBLE_AUTO_RESPAWN_SWEEP_REPEAT_DELAY, Timer_PostAutoScrambleRespawnSweep, remaining, TIMER_FLAG_NO_MAPCHANGE);
+    }
+
     return Plugin_Stop;
 }
 
@@ -2553,8 +2580,9 @@ static void RestoreSetupTimerAfterScramble()
     LogWhale("Setup scramble polish: restored %d seconds to setup timer.", elapsed);
 }
 
-static void RespawnSetupScramblePlayers()
+static void QueueScrambleRespawnsForActiveTeams(const char[] context)
 {
+    int queued = 0;
     for (int i = 1; i <= MaxClients; i++)
     {
         if (!IsClientInGame(i) || IsClientInDuel(i))
@@ -2568,8 +2596,13 @@ static void RespawnSetupScramblePlayers()
             continue;
         }
 
-        QueueScrambleRespawn(i, team);
+        if (QueueScrambleRespawn(i, team))
+        {
+            queued++;
+        }
     }
+
+    LogWhale("%s: queued respawn verification for %d active team client(s).", context, queued);
 }
 
 public Action Timer_FillSetupMedicUbers(Handle timer, any data)
