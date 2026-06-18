@@ -3,7 +3,7 @@ The repository for everyone's favorite TF2 server. Visit Kogasatopia's website h
 
 These plugins are very specific and are shared for the sake of letting anyone look at them. The major plugins are as follows:
 - weaponreverts.sp for weapon attribute changes, custom attributes and nerf reverts
-- cwx by nosoop with some local changes sucha as a descriptions feature
+- cwx by nosoop with some local changes such as a descriptions feature
 - mapsdb, a plugin that handles per-gamemode setting configurations, map popularity statistics and once-only server configs for better load times between maps
 - dgm.sp for instant respawn configuration and gamemode tweaks
 - airshot.sp for airshot announcements, including dropshots and on-kill differentiation
