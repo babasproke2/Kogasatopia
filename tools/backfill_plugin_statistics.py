@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import bisect
 import calendar
+import os
 import re
 import shlex
 import subprocess
@@ -13,7 +14,8 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 
-DEFAULT_LOG_ROOT = "/home/kogasa/hlserver/tf2/tf/addons/sourcemod/logs"
+DEFAULT_SM_PATH = Path(os.environ.get("SM_PATH", os.path.expanduser("~/hlserver/tf2/tf/addons/sourcemod")))
+DEFAULT_LOG_ROOT = str(DEFAULT_SM_PATH / "logs")
 DEFAULT_HOST_PORT = 27015
 LOG_SOURCES = {
     "whalescramble.log": "whalescramble_statistics_events",

@@ -3,21 +3,24 @@
 cd "$(dirname "$0")"
 
 test -e compiled || mkdir compiled
+SM_PATH="${SM_PATH:-$(cd .. && pwd)}"
+PLUGIN_DIR="${SM_PLUGIN_DIR:-$SM_PATH/plugins}"
+SPCOMP="${SPCOMP:-./spcomp}"
 
 if [[ $# -ne 0 ]]; then
     for sourcefile in "$@"
     do
         smxfile="$(echo "$sourcefile" | sed -e 's/\.sp$/\.smx/')"
         echo -e "\nCompiling $sourcefile..."
-        ./spcomp "$sourcefile" -ocompiled/"$smxfile"
-        cp compiled/"$smxfile" ../plugins/
+        "$SPCOMP" "$sourcefile" -ocompiled/"$smxfile"
+        cp compiled/"$smxfile" "$PLUGIN_DIR"/
     done
 else
     for sourcefile in *.sp
     do
         smxfile="$(echo "$sourcefile" | sed -e 's/\.sp$/\.smx/')"
         echo -e "\nCompiling $sourcefile ..."
-        ./spcomp "$sourcefile" -ocompiled/"$smxfile"
-        cp compiled/"$smxfile" /home/kogasa/hlserver/tf2/tf/addons/sourcemod/plugins/
+        "$SPCOMP" "$sourcefile" -ocompiled/"$smxfile"
+        cp compiled/"$smxfile" "$PLUGIN_DIR"/
     done
 fi

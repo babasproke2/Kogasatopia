@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import calendar
+import os
 import re
 import shlex
 import subprocess
@@ -159,8 +160,9 @@ def insert_events(events: list[Event], mysql_args: list[str], chunk_size: int) -
 
 
 def main() -> None:
+    default_sm_path = Path(os.environ.get("SM_PATH", os.path.expanduser("~/hlserver/tf2/tf/addons/sourcemod")))
     parser = argparse.ArgumentParser(description="Backfill server_connection_statistics_events from legacy SourceMod connection logs.")
-    parser.add_argument("--log-root", default="/home/kogasa/hlserver/tf2/tf/addons/sourcemod/logs/connections")
+    parser.add_argument("--log-root", default=str(default_sm_path / "logs" / "connections"))
     parser.add_argument("--host-port", type=int, default=27015)
     parser.add_argument("--timezone", default="America/New_York")
     parser.add_argument("--mysql", required=True, help="mysql command and arguments, quoted as one shell-like string")

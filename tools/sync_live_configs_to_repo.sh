@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_DIR="${REPO_DIR:-/home/kogasa/Kogasatopia}"
-LIVE_TF_DIR="${LIVE_TF_DIR:-/home/kogasa/hlserver/tf2/tf}"
-FRONTEND_DIR="${FRONTEND_DIR:-/home/kogasa/Kogasatopia-Frontend}"
+REPO_DIR="${REPO_DIR:-$HOME/Kogasatopia}"
+SM_PATH="${SM_PATH:-$HOME/hlserver/tf2/tf/addons/sourcemod}"
+LIVE_TF_DIR="${LIVE_TF_DIR:-$(cd "$SM_PATH/../.." && pwd)}"
+FRONTEND_DIR="${FRONTEND_DIR:-$HOME/Kogasatopia-Frontend}"
 BRANCH="${BRANCH:-main}"
 
 cd "$REPO_DIR"
@@ -13,7 +14,7 @@ if ! git diff --cached --quiet; then
     exit 2
 fi
 
-export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -i /home/kogasa/.ssh/id_ed25519 -o IdentitiesOnly=yes}"
+export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -i $HOME/.ssh/id_ed25519 -o IdentitiesOnly=yes}"
 
 targets=(
     "addons/sourcemod/configs/announcers.cfg|tf/addons/sourcemod/configs/announcers.cfg|raw"

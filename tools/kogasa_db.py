@@ -5,7 +5,8 @@ import re
 import subprocess
 
 
-DEFAULT_DB_CONFIG = "/home/kogasa/hlserver/tf2/tf/addons/sourcemod/configs/databases.cfg"
+DEFAULT_SM_PATH = os.environ.get("SM_PATH", os.path.expanduser("~/hlserver/tf2/tf/addons/sourcemod"))
+DEFAULT_DB_CONFIG = os.path.join(DEFAULT_SM_PATH, "configs", "databases.cfg")
 
 
 def parse_databases_cfg(path: str, section: str) -> dict[str, str]:

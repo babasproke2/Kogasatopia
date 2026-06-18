@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-CFG="/home/kogasa/hlserver/tf2/tf/addons/sourcemod/configs/databases.cfg"
+SM_PATH="${SM_PATH:-$HOME/hlserver/tf2/tf/addons/sourcemod}"
+CFG="${DATABASES_CFG:-$SM_PATH/configs/databases.cfg}"
 TABLE="whaletracker_feedback"
 
 cfg_value() {
