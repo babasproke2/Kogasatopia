@@ -108,8 +108,6 @@ public void OnPluginStart() {
 	cvarDispenserLevel.AddChangeHook(cvarChanged);
 	cvarTeleportLevel.AddChangeHook(cvarChanged);
 
-	FindConVar("tf_cheapobjects").SetInt(1);
-
 	// Commands
 	RegAdminCmd("sm_quickbuild", cmdQuickBuild, ADMFLAG_ROOT);
 	RegAdminCmd("sm_sentrylevel", cmdSentryLevel, ADMFLAG_ROOT);
@@ -292,7 +290,6 @@ public Action eventObjectBuilt(Event event, const char[] name, bool dontBroadcas
 		}
 	}
 
-	SetEntProp(entity, Prop_Send, "m_iUpgradeMetalRequired", 0);
 	SetVariantInt(GetEntProp(entity, Prop_Data, "m_iMaxHealth"));
 	AcceptEntityInput(entity, "SetHealth");
 	return Plugin_Continue;
