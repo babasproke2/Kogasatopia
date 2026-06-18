@@ -8,3 +8,4 @@ tf/addons/sourcemod/scripting/compiled/
 *.dylib
 *.o
 *.obj
+__pycache__/
