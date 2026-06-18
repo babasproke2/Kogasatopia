@@ -4,6 +4,10 @@
 #include <sourcemod>
 #include <sdktools>
 
+#undef REQUIRE_PLUGIN
+#include <amplifier>
+#define REQUIRE_PLUGIN
+
 enum {
 	OBJ_DISPENSER,
 	OBJ_TELEPORTER,
@@ -28,6 +32,11 @@ public Plugin myinfo = {
 	version = PLUGIN_VERSION,
 	url = "https://github.com/JoinedSenses"
 };
+
+public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax) {
+	MarkNativeAsOptional("Amplifier_WouldReplaceBuilding");
+	return APLRes_Success;
+}
 
 // --------------- SM API
 
@@ -224,6 +233,15 @@ public Action eventObjectBuilt(Event event, const char[] name, bool dontBroadcas
 
 	int obj = event.GetInt("object");
 	int entity = event.GetInt("index");
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (client <= 0 && entity > MaxClients && IsValidEntity(entity)) {
+		client = GetEntPropEnt(entity, Prop_Send, "m_hBuilder");
+	}
+
+	if (ShouldLetAmplifierHandleBuild(client, obj)) {
+		return Plugin_Continue;
+	}
+
 	int entRef = EntIndexToEntRef(entity);
 
 	RequestFrame(frame_StartAndFinishBuild, entity);
@@ -278,6 +296,14 @@ public Action eventObjectBuilt(Event event, const char[] name, bool dontBroadcas
 	SetVariantInt(GetEntProp(entity, Prop_Data, "m_iMaxHealth"));
 	AcceptEntityInput(entity, "SetHealth");
 	return Plugin_Continue;
+}
+
+bool ShouldLetAmplifierHandleBuild(int client, int objectType) {
+	if (client <= 0 || GetFeatureStatus(FeatureType_Native, "Amplifier_WouldReplaceBuilding") != FeatureStatus_Available) {
+		return false;
+	}
+
+	return Amplifier_WouldReplaceBuilding(client, objectType);
 }
 
 public Action eventUpgradedObject(Event event, const char[] sName, bool bDontBroadcast) {

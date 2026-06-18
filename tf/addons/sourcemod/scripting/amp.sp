@@ -44,6 +44,9 @@
 #define BUILDING_DISPENSER "obj_dispenser"
 #define BUILDING_SENTRY "obj_sentrygun"
 #define BUILDING_SAPPER "obj_attachment_sapper"
+#define OBJECT_DISPENSER 0
+#define OBJECT_TELEPORTER 1
+#define OBJECT_SENTRY 2
 #define DESTROY_DISPENSER "destroy 0"
 #define DESTROY_SENTRY "destroy 2"
 #define TIMER_NO_MAPCHANGE TIMER_FLAG_NO_MAPCHANGE
@@ -196,6 +199,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("SetAmplifierSentry", Native_SetAmplifierSentry);
 	CreateNative("HasAmplifier", Native_HasAmplifier);
 	CreateNative("ConvertToAmplifier", Native_ConvertToAmplifier);
+	CreateNative("Amplifier_WouldReplaceBuilding", Native_WouldReplaceBuilding);
 	fwdOnAmplify = CreateGlobalForward("OnAmplify", ET_Hook, Param_Cell, Param_Cell, Param_Cell);
 	RegPluginLibrary("Amplifier");
 	return APLRes_Success;
@@ -387,6 +391,63 @@ bool IsPlayercountForceActive()
 	}
 
 	return DGM_RealPlayerCount() < forcePlayercount;
+}
+
+bool ShouldClientBuildAmplifier(int client, bool isDispenser, bool isSentry, bool &forcedConversion, bool &playercountForceActive, int &effectiveForceAmplifier, bool &playerRequestedAmplifier)
+{
+	forcedConversion = false;
+	playercountForceActive = false;
+	effectiveForceAmplifier = 0;
+	playerRequestedAmplifier = false;
+
+	if ((!isDispenser && !isSentry) || !IsValidClient(client))
+	{
+		return false;
+	}
+
+	playercountForceActive = IsPlayercountForceActive();
+	effectiveForceAmplifier = GetEffectiveForceAmplifier();
+
+	bool hasAmplifierAttribute = (isDispenser && CheckAmpAttributesDisp(client))
+		|| (isSentry && CheckAmpAttributesSentry(client));
+	bool hasAmplifierPreference = (isDispenser && g_PlayerState[client].useDispenser)
+		|| (isSentry && g_PlayerState[client].useSentry);
+	playerRequestedAmplifier = hasAmplifierAttribute || hasAmplifierPreference;
+
+	if (effectiveForceAmplifier == 1 && isDispenser)
+	{
+		forcedConversion = true;
+		return true;
+	}
+	if (effectiveForceAmplifier == 2 && isSentry)
+	{
+		forcedConversion = true;
+		return true;
+	}
+	if (effectiveForceAmplifier == 3)
+	{
+		forcedConversion = true;
+		return true;
+	}
+
+	return playerRequestedAmplifier;
+}
+
+bool WouldObjectTypeBecomeAmplifier(int client, int objectType)
+{
+	bool forcedConversion;
+	bool playercountForceActive;
+	int effectiveForceAmplifier;
+	bool playerRequestedAmplifier;
+
+	return ShouldClientBuildAmplifier(
+		client,
+		objectType == OBJECT_DISPENSER,
+		objectType == OBJECT_SENTRY,
+		forcedConversion,
+		playercountForceActive,
+		effectiveForceAmplifier,
+		playerRequestedAmplifier);
 }
 
 public void AddToDownload()
@@ -1226,24 +1287,11 @@ void CheckBuilding(int ent)
 	ResetAmplifierBuildingState(ent);
 	BuildingRef[ent] = EntIndexToEntRef(ent);
 
-    bool shouldConvert = false;
-    bool forcedConversion = false;
-    bool playercountForceActive = IsPlayercountForceActive();
-    int effectiveForceAmplifier = GetEffectiveForceAmplifier();
-	bool hasAmplifierAttribute = (isDispenser && CheckAmpAttributesDisp(Client))
-		|| (isSentry && CheckAmpAttributesSentry(Client));
-	bool hasAmplifierPreference = (isDispenser && g_PlayerState[Client].useDispenser)
-		|| (isSentry && g_PlayerState[Client].useSentry);
-	bool playerRequestedAmplifier = hasAmplifierAttribute || hasAmplifierPreference;
-
-	// Check force mode
-    if (effectiveForceAmplifier == 1 && isDispenser) { shouldConvert = true; forcedConversion = true; }
-    else if (effectiveForceAmplifier == 2 && isSentry) { shouldConvert = true; forcedConversion = true; }
-    else if (effectiveForceAmplifier == 3) { shouldConvert = true; forcedConversion = true; }
-	// Check custom attributes
-	else if (hasAmplifierAttribute) shouldConvert = true;
-	// Check player preference
-	else if (hasAmplifierPreference) shouldConvert = true;
+	bool forcedConversion = false;
+	bool playercountForceActive = false;
+	int effectiveForceAmplifier = 0;
+	bool playerRequestedAmplifier = false;
+	bool shouldConvert = ShouldClientBuildAmplifier(Client, isDispenser, isSentry, forcedConversion, playercountForceActive, effectiveForceAmplifier, playerRequestedAmplifier);
 
     if (shouldConvert)
     {
@@ -1665,6 +1713,13 @@ public any Native_ConvertToAmplifier(Handle plugin, int numParams)
 	g_PlayerState[client].useDispenser = saveDisp;
 	g_PlayerState[client].useSentry = saveSentry;
 	return 0;
+}
+
+public any Native_WouldReplaceBuilding(Handle plugin, int numParams)
+{
+	int client = GetNativeCell(1);
+	int objectType = GetNativeCell(2);
+	return WouldObjectTypeBecomeAmplifier(client, objectType);
 }
 
 // Utility Functions
