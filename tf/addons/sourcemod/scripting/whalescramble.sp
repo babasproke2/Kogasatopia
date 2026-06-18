@@ -12,6 +12,7 @@
 #define REQUIRE_PLUGIN
 #include "include/dgm_api.inc"
 #include "include/plugin_statistics.inc"
+#include "include/kogasa_steam_identity.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -2885,7 +2886,7 @@ static bool IsScrambleImmune(int client)
     }
 
     char steamId[32];
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
     {
         return false;
     }
@@ -2933,7 +2934,7 @@ static void MarkScrambleImmune(int client)
     }
 
     char steamId[32];
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
     {
         return;
     }

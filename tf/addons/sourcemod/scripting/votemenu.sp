@@ -10,6 +10,7 @@
 #define REQUIRE_PLUGIN
 #include "include/plugin_statistics.inc"
 #include "include/kogasa_sql.inc"
+#include "include/kogasa_steam_identity.inc"
 
 // Configuration locations
 #define VOTEMENU_CONFIG      "configs/votemenu.cfg"
@@ -358,7 +359,7 @@ static bool PrepareVoteMenuCharge(int client)
     }
 
     char steamId[32];
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId), true))
+    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
     {
         CPrintToChat(client, "{red}[Vote]{default} Could not read your SteamID64 for the vote charge.");
         return false;
@@ -555,7 +556,7 @@ static void ChargePassedVoteAndExecuteOutcome()
 static bool IsPendingChargeClient(int client)
 {
     char steamId[32];
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId), true))
+    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
     {
         return false;
     }
@@ -736,7 +737,7 @@ static void CaptureCurrentVoteInitiator(int client)
     g_CurrentVoteInitiatorSteamId64[0] = '\0';
     g_CurrentVoteInitiatorName[0] = '\0';
 
-    GetClientAuthId(client, AuthId_SteamID64, g_CurrentVoteInitiatorSteamId64, sizeof(g_CurrentVoteInitiatorSteamId64), true);
+    Kogasa_GetClientSteamId64(client, g_CurrentVoteInitiatorSteamId64, sizeof(g_CurrentVoteInitiatorSteamId64), true);
     GetClientName(client, g_CurrentVoteInitiatorName, sizeof(g_CurrentVoteInitiatorName));
 }
 

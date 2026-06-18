@@ -4,6 +4,7 @@
 	#include <dbi>
 	#include <morecolors>
 	#include "include/kogasa_sql.inc"
+	#include "include/kogasa_steam_identity.inc"
 	
 
 	#pragma semicolon 1
@@ -1651,7 +1652,7 @@ void UpdateLastRapists(int recipient, int sender)
 			return false;
 
 		char steamID[32];
-		if (!GetClientAuthId(client, AuthId_Steam3, steamID, sizeof(steamID)))
+		if (!Kogasa_GetClientSteam3(client, steamID, sizeof(steamID), true))
 			return false;
 
 		if (StrEqual(steamID, "[U:1:1605262060]") || StrEqual(steamID, "[U:1:360445377]"))
@@ -1721,7 +1722,7 @@ void ResetClientStats(int client)
 		}
 
 		char auth[32];
-		if (!GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth)))
+		if (!Kogasa_GetClientSteam2(client, auth, sizeof(auth), true))
 		{
 			return false;
 		}

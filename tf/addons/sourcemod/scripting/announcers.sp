@@ -8,6 +8,7 @@
 #include "include/dgm_api.inc"
 #define REQUIRE_PLUGIN
 #include "include/plugin_statistics.inc"
+#include "include/kogasa_steam_identity.inc"
 #pragma newdecls required
 
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
@@ -1855,7 +1856,7 @@ void GetAnnouncerLogIdentity(int client, char[] steamId, int steamLen, char[] na
         return;
     }
 
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, steamLen, true))
+    if (!Kogasa_GetClientSteamId64(client, steamId, steamLen, true))
     {
         strcopy(steamId, steamLen, "unknown");
     }

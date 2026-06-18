@@ -2,6 +2,7 @@
 #include <geoip>
 #include "include/dgm_api.inc"
 #include "include/kogasa_sql.inc"
+#include "include/kogasa_steam_identity.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -193,7 +194,7 @@ void QueueClientEvent(int client, bool isConnecting, const char[] disconnectReas
     PopulateBaseEvent(event, isConnecting ? "connect" : "disconnect");
 
     GetClientName(client, event.PlayerName, sizeof(event.PlayerName));
-    if (!GetClientAuthId(client, AuthId_Steam2, event.SteamId, sizeof(event.SteamId), false))
+    if (!Kogasa_GetClientSteam2(client, event.SteamId, sizeof(event.SteamId), false))
     {
         strcopy(event.SteamId, sizeof(event.SteamId), "Unknown");
     }

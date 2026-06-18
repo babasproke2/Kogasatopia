@@ -15,6 +15,7 @@
 #include "include/dgm_api.inc"
 #include "include/plugin_statistics.inc"
 #include "include/kogasa_sql.inc"
+#include "include/kogasa_steam_identity.inc"
 
 native int FilterAlerts_MarkAutobalance(int client);
 
@@ -915,7 +916,7 @@ static bool IsClientPersistentlyImmune(int client)
     }
 
     char steamId[32];
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
     {
         return false;
     }
@@ -929,7 +930,7 @@ static bool IsClientMapImmune(int client)
     if (g_hMapImmunity == null || !IsClientInGame(client)) return false;
 
     char steamId[32];
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
     {
         return false;
     }
@@ -946,7 +947,7 @@ static bool SetClientMapImmunity(int client, bool immune)
     }
 
     char steamId[32];
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
     {
         return false;
     }
@@ -970,7 +971,7 @@ static bool IsClientVolunteer(int client)
     }
 
     char steamId[32];
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
     {
         return false;
     }
@@ -1266,7 +1267,7 @@ public Action Command_Volunteer(int client, int args)
     bool wasVolunteer = IsClientVolunteer(target);
 
     char steamId[32];
-    if (!GetClientAuthId(target, AuthId_SteamID64, steamId, sizeof(steamId)))
+    if (!Kogasa_GetClientSteamId64(target, steamId, sizeof(steamId), true))
     {
         ReplyToCommand(client, "[autobalance_4teams] Failed to read SteamID64 for %N.", target);
         return Plugin_Handled;
@@ -1457,7 +1458,7 @@ public Action Command_Immune(int client, int args)
     }
 
     char steamId[32];
-    if (!GetClientAuthId(target, AuthId_SteamID64, steamId, sizeof(steamId)))
+    if (!Kogasa_GetClientSteamId64(target, steamId, sizeof(steamId), true))
     {
         ReplyToCommand(client, "[autobalance_4teams] Failed to read SteamID64 for %N.", target);
         return Plugin_Handled;

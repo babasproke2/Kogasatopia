@@ -16,6 +16,7 @@
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
 #define REQUIRE_PLUGIN
+#include "include/kogasa_steam_identity.inc"
 
 #define FLS_STREAK_TARGET	   2
 #define FLS_STREAK_WINDOW	   4.0
@@ -2526,7 +2527,7 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 		char auth[32];
 		if (g_hFallingStompAllWeapons != null
 			&& GetConVarBool(g_hFallingStompAllWeapons)
-			&& GetClientAuthId(client, AuthId_Steam2, auth, sizeof(auth)))
+			&& Kogasa_GetClientSteam2(client, auth, sizeof(auth), true))
 		{
 			if (!(StrEqual(auth, "STEAM_0:1:101494818")))
 			{

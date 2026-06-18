@@ -4,6 +4,7 @@
 #include <sourcemod>
 #include <clans_api>
 #include "include/kogasa_sql.inc"
+#include "include/kogasa_steam_identity.inc"
 
 #define PLUGIN_NAME "Tags"
 #define PLUGIN_AUTHOR "Codex"
@@ -260,7 +261,7 @@ bool GetClientSteam64(int client, char[] steamid64, int maxlen)
         return false;
     }
 
-    return GetClientAuthId(client, AuthId_SteamID64, steamid64, maxlen, true);
+    return Kogasa_GetClientSteamId64(client, steamid64, maxlen, true);
 }
 
 void EscapeSql(const char[] input, char[] output, int maxlen)

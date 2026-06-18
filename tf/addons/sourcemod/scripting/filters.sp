@@ -6,6 +6,7 @@
 #include <basecomm>
 #include <morecolors>
 #include "include/kogasa_sql.inc"
+#include "include/kogasa_steam_identity.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -1144,7 +1145,7 @@ static void Filters_RelayChatToServers(int client, const char[] message)
     if (client > 0 && IsClientInGame(client))
     {
         char steamId[32];
-        if (GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+        if (Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
         {
             Format(hash, sizeof(hash), "player:%s", steamId);
         }
@@ -1183,7 +1184,7 @@ void Filters_LogChatMessage(int client, const char[] message)
     char steamId[32];
     bool hasSteam = false;
     steamId[0] = '\0';
-    if (client > 0 && IsClientInGame(client) && GetClientAuthId(client, AuthId_SteamID64, steamId, sizeof(steamId)))
+    if (client > 0 && IsClientInGame(client) && Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
     {
         hasSteam = true;
     }
@@ -1566,7 +1567,7 @@ static void LogBlacklistedMessage(int client, const char[] message, bool hasBlac
     GetClientName(client, name, sizeof(name));
 
     char steamId[32];
-    if (!GetClientAuthId(client, AuthId_Steam2, steamId, sizeof(steamId)))
+    if (!Kogasa_GetClientSteam2(client, steamId, sizeof(steamId), true))
     {
         strcopy(steamId, sizeof(steamId), "unknown");
     }
@@ -2058,34 +2059,8 @@ void BuildNameColorTag(int client, char[] colorTag, int length)
 
 static bool Filters_FindClientBySteamId64(const char[] steamId, int &client)
 {
-    client = 0;
-
-    if (!steamId[0])
-    {
-        return false;
-    }
-
-    char clientSteamId[32];
-    for (int i = 1; i <= MaxClients; i++)
-    {
-        if (!IsClientInGame(i))
-        {
-            continue;
-        }
-
-        if (!GetClientAuthId(i, AuthId_SteamID64, clientSteamId, sizeof(clientSteamId), true))
-        {
-            continue;
-        }
-
-        if (StrEqual(clientSteamId, steamId, false))
-        {
-            client = i;
-            return true;
-        }
-    }
-
-    return false;
+    client = Kogasa_FindClientBySteamId64(steamId, true);
+    return client > 0;
 }
 
 static bool Filters_GetClientColorToken(int client, char[] colorTag, int maxlen)
@@ -3203,7 +3178,7 @@ void SaveNamePreferencesToDb(int client)
     }
 
     char steamId64[32];
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId64, sizeof(steamId64)))
+    if (!Kogasa_GetClientSteamId64(client, steamId64, sizeof(steamId64), true))
     {
         return;
     }
@@ -3233,7 +3208,7 @@ void LoadNamePreferencesFromDb(int client)
     }
 
     char steamId64[32];
-    if (!GetClientAuthId(client, AuthId_SteamID64, steamId64, sizeof(steamId64)))
+    if (!Kogasa_GetClientSteamId64(client, steamId64, sizeof(steamId64), true))
     {
         return;
     }
@@ -3332,7 +3307,7 @@ void ProcessCookies(int client)
 
     // Check if client has forced status from config
     char steamid[32];
-    if (GetClientAuthId(client, AuthId_Steam2, steamid, sizeof(steamid)))
+    if (Kogasa_GetClientSteam2(client, steamid, sizeof(steamid), true))
     {
         for (int i = 0; i < g_ForcedStatusCount; i++)
         {
@@ -3427,7 +3402,7 @@ static void Filters_StartAutoRedlistCheck(int client)
     }
 
     char steamId64[32];
-    if (GetClientAuthId(client, AuthId_SteamID64, steamId64, sizeof(steamId64)))
+    if (Kogasa_GetClientSteamId64(client, steamId64, sizeof(steamId64), true))
     {
         char query[256];
         Format(query, sizeof(query), "SELECT kills FROM whaletracker WHERE steamid = '%s' LIMIT 1", steamId64);
@@ -3435,7 +3410,7 @@ static void Filters_StartAutoRedlistCheck(int client)
     }
 
     char steamId2[32];
-    if (GetClientAuthId(client, AuthId_Steam2, steamId2, sizeof(steamId2)))
+    if (Kogasa_GetClientSteam2(client, steamId2, sizeof(steamId2), true))
     {
         char query[256];
         Format(query, sizeof(query), "SELECT rapes_given FROM hugs_stats WHERE steamid = '%s' LIMIT 1", steamId2);
@@ -3446,7 +3421,7 @@ static void Filters_StartAutoRedlistCheck(int client)
 static bool Filters_IsForcedRedlist(int client)
 {
     char steamid[32];
-    if (!GetClientAuthId(client, AuthId_Steam2, steamid, sizeof(steamid)))
+    if (!Kogasa_GetClientSteam2(client, steamid, sizeof(steamid), true))
     {
         return false;
     }
@@ -4569,7 +4544,7 @@ static int Prename_FindClientBySteam2(const char[] steam2)
         }
 
         char id[32];
-        GetClientAuthId(i, AuthId_Steam2, id, sizeof(id), true);
+        Kogasa_GetClientSteam2(i, id, sizeof(id), true);
         if (StrEqual(id, steam2, false))
         {
             return i;
@@ -4673,8 +4648,8 @@ static void Prename_GetClientIds(int client, char[] steam2, int steam2Max, char[
 {
     steam2[0] = '\0';
     steam64[0] = '\0';
-    GetClientAuthId(client, AuthId_SteamID64, steam64, steam64Max, true);
-    GetClientAuthId(client, AuthId_Steam2, steam2, steam2Max, true);
+    Kogasa_GetClientSteamId64(client, steam64, steam64Max, true);
+    Kogasa_GetClientSteam2(client, steam2, steam2Max, true);
 }
 
 static bool Prename_IsIdString(const char[] text)

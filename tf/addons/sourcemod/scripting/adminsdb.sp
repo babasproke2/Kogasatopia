@@ -3,6 +3,7 @@
 #include <files>
 #include <morecolors>
 #include "include/kogasa_sql.inc"
+#include "include/kogasa_steam_identity.inc"
 
 #pragma semicolon 1
 #pragma newdecls required
@@ -447,9 +448,9 @@ public Action Command_CheckId(int client, int args)
     char steam3[32];
     char steam64[32];
 
-    bool ok2 = GetClientAuthId(target, AuthId_Steam2, steam2, sizeof(steam2), false);
-    bool ok3 = GetClientAuthId(target, AuthId_Steam3, steam3, sizeof(steam3), false);
-    bool ok64 = GetClientAuthId(target, AuthId_SteamID64, steam64, sizeof(steam64), false);
+    bool ok2 = Kogasa_GetClientSteam2(target, steam2, sizeof(steam2), false);
+    bool ok3 = Kogasa_GetClientSteam3(target, steam3, sizeof(steam3), false);
+    bool ok64 = Kogasa_GetClientSteamId64(target, steam64, sizeof(steam64), false);
 
     if (!ok2 && !ok3 && !ok64)
     {
