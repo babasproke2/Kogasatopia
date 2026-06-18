@@ -4440,6 +4440,24 @@ void GetMultikillBonusPointsLabel(int kills, char[] label, int maxlen)
     }
 }
 
+void GetBonusPointsFallbackLabel(const char[] type, char[] label, int maxlen)
+{
+    label[0] = '\0';
+
+    strcopy(label, maxlen, type);
+    TrimString(label);
+    if (label[0] == '\0')
+    {
+        return;
+    }
+
+    ReplaceString(label, maxlen, "\r", " ", false);
+    ReplaceString(label, maxlen, "\n", " ", false);
+    ReplaceString(label, maxlen, "\t", " ", false);
+    ReplaceString(label, maxlen, "{", "", false);
+    ReplaceString(label, maxlen, "}", "", false);
+}
+
 bool QueueBonusPointsDeltaSaveForSteamId(const char[] steamId, int delta)
 {
     if (delta == 0 || !g_DatabaseReady || g_Database == null)
@@ -5141,6 +5159,13 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
 
     char label[64];
     GetBonusPointsTypeLabel(type, label, sizeof(label));
+    if (label[0] != '\0')
+    {
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s{default}%s", prefix, sign, points, label, perMapSuffix);
+        return;
+    }
+
+    GetBonusPointsFallbackLabel(type, label, sizeof(label));
     if (label[0] != '\0')
     {
         CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}%s{default}%s", prefix, sign, points, label, perMapSuffix);
