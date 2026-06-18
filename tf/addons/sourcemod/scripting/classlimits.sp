@@ -97,7 +97,7 @@ public void OnPluginStart()
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 {
     MarkNativeAsOptional("DGM_GetGameModeKey");
-    MarkNativeAsOptional("DGM_RealTeamPlayerCount");
+    MarkNativeAsOptional("DGM_RealPlayerCount");
     return APLRes_Success;
 }
 
@@ -312,9 +312,9 @@ static int GetHumanTeamClientCount(int team)
 
 static int GetGameplayHumanClientCount()
 {
-    if (GetFeatureStatus(FeatureType_Native, "DGM_RealTeamPlayerCount") == FeatureStatus_Available)
+    if (GetFeatureStatus(FeatureType_Native, "DGM_RealPlayerCount") == FeatureStatus_Available)
     {
-        return DGM_RealTeamPlayerCount(TF_TEAM_RED) + DGM_RealTeamPlayerCount(TF_TEAM_BLU);
+        return DGM_RealPlayerCount();
     }
 
     return GetHumanTeamClientCount(TF_TEAM_RED) + GetHumanTeamClientCount(TF_TEAM_BLU);
