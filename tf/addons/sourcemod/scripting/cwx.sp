@@ -2,23 +2,25 @@
  * [TF2] Custom Weapons X
  */
 #pragma semicolon 1
-#include <sourcemod>
-#include <morecolors>
-
 #pragma newdecls required
 
+#include <sourcemod>
+#include <clientprefs>
+
+#include <tf2utils>
 #include <tf_econ_data>
+#include <tf2attributes>
+
+#include <morecolors>
+#include <tf_custom_attributes>
+#include <dhooks>
 #include <stocksoup/convars>
 #include <stocksoup/handles>
 #include <stocksoup/math>
 #include <stocksoup/tf/econ>
 #include <stocksoup/tf/entity_prop_stocks>
 #include <stocksoup/tf/weapon>
-#include <tf2attributes>
-#include <tf_custom_attributes>
-#include <tf2utils>
-#include <clientprefs>
-#include <dhooks>
+
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
 #define REQUIRE_PLUGIN

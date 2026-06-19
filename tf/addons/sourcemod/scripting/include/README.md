@@ -1,3 +1,74 @@
+# SourceMod Include Policy
+
+Each plugin must include only the APIs it directly uses. Do not copy a universal include block between plugins.
+
+## Include categories
+
+1. SourceMod/core includes: `sourcemod`, `clientprefs`, `dbi`, `files`, `textparse`, `geoip`, `basecomm`.
+2. SDK/TF2 includes: `sdktools`, `sdkhooks`, `sdktools_sound`, `sdktools_gamerules`, `tf2`, `tf2_stocks`, `tf2utils`.
+3. Public plugin API includes: `points_store_api`, `clans_api`, `saysounds`, `dgm_api`, etc.
+4. Repo-private helper includes: `kogasa_sql.inc`, `kogasa_steam_identity.inc`, `plugin_statistics.inc`.
+5. Fragile/extension includes: `dhooks`, `sourcescramble`, `socket`, `nativevotes`, `tf2items`, `tf2attributes`, `tf_custom_attributes`, `scattergun_pellets`.
+
+## Include order
+
+Use this order at the top of every `.sp` file:
+
+1. `#pragma semicolon 1`
+2. `#pragma newdecls required`
+3. SourceMod/core includes
+4. SDK/engine includes
+5. TF2 includes
+6. Required third-party APIs
+7. Optional plugin APIs
+8. Optional extensions
+9. Repo-private helpers
+10. Local implementation fragments
+
+## Optional dependencies
+
+Optional plugin APIs must be wrapped narrowly:
+
+```sourcepawn
+#undef REQUIRE_PLUGIN
+#include <some_api>
+#define REQUIRE_PLUGIN
+```
+
+Optional extensions must be wrapped narrowly:
+
+```sourcepawn
+#undef REQUIRE_EXTENSIONS
+#include <some_extension>
+#define REQUIRE_EXTENSIONS
+```
+
+Every optional native that may be called must be marked with `MarkNativeAsOptional` in `AskPluginLoad2` and guarded at runtime.
+
+## Public APIs
+
+If one plugin exposes natives that another plugin calls, those native declarations belong in `scripting/include/<name>_api.inc`.
+
+Do not manually declare another plugin's natives inside a `.sp` file except as a temporary migration step.
+
+## Local helpers
+
+Repo-private stock/helper includes should be named `kogasa_*.inc`, have include guards, and avoid declaring plugin natives.
+
+## Large plugins
+
+Large integration plugins may have large include blocks, but only when each dependency is actually used. These files should not be copied as templates for smaller plugins.
+
+## Current layout
+
+```text
+scripting/include/
+  Public plugin APIs: *_api.inc, saysounds.inc, amplifier.inc, conch_no_speed.inc
+  Repo-private helpers: kogasa_sql.inc, kogasa_steam_identity.inc, kogasa_clients.inc, kogasa_tf2.inc
+  Special integration helpers: plugin_statistics.inc
+  Legacy / to migrate: addplayerhealth.inc
+```
+
 # SourceMod API Includes
 
 Only plugin-facing natives and forwards are listed here; internal stock helper files are not part of this API list.
@@ -13,6 +84,12 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `TF2ConchNoSpeed_AddRegenBuff` - Starts a Concheror-style regen buff without speed on a client.
 - `TF2ConchNoSpeed_RemoveRegenBuff` - Removes the no-speed regen buff from a client.
 - `TF2ConchNoSpeed_IsRegenBuffActive` - Returns whether the no-speed regen buff is active for a client.
+
+## custom_hats_api.inc
+- `CustomHats_GetPrefix` - Writes the configured chat prefix for a client's active custom hat.
+- `CustomHats_GetTagChoices` - Writes the available custom hat tag choices for a client.
+- `CustomHats_ResolveTag` - Resolves a custom hat tag key into display text.
+- `CustomHats_FindTagSource` - Finds the custom hat tag key that produced a display tag.
 
 ## cwx.inc
 - `CWX_SetPlayerLoadoutItem` - Stores a custom item UID in a player's class loadout slot.
@@ -46,6 +123,15 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `DGM_GetObjectiveLeader` - Counts objective ownership and returns the leading side.
 - `DGM_GetObjectiveLeaderTeam` - Returns the team currently leading objective ownership.
 
+## filters_api.inc
+- `Filters_IsRedlisted` - Returns whether a client is redlisted.
+- `Filters_GetChatName` - Writes the filtered/colorized chat name for a client.
+- `Filters_GetSteamIdColorTag` - Writes the color token associated with a SteamID64.
+
+## hugs_api.inc
+- `Hugs_GetRapesGiven` - Returns how many rapes a client has given in hugs stats.
+- `Hugs_AreStatsLoaded` - Returns whether a client's hugs stats are loaded.
+
 ## points_store_api.inc
 - `PointsStore_AreBonusPointsLoaded` - Returns whether a client's currency cache is ready.
 - `PointsStore_GetBonusPoints` - Returns a client's current currency balance.
@@ -72,6 +158,11 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `TF2Scatter_GetLastKillPellets` - Returns pellet count for the last matching scattergun kill.
 - `TF2Scatter_WasLastKillFull` - Returns whether the last matching scattergun kill used a full pellet hit.
 
+## tags_api.inc
+- `Tags_GetTag` - Writes the resolved tag for a live client or SteamID64.
+- `Tags_GetSelectedTag` - Writes a live client's selected/resolved tag.
+- `Tags_SetSelectedTag` - Sets a live client's selected tag.
+
 ## tf2_sentry_newtarget_dist.inc
 - `TF2SentryNewTarget_SetEnabled` - Enables or disables the sentry target-distance override.
 - `TF2SentryNewTarget_SetDistance` - Sets the sentry target-distance override.
@@ -95,3 +186,18 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 ## weaponreverts_api.inc
 - `WeaponReverts_GetWeaponInfo` - Writes configured weapon revert display data for an item index.
 - `WeaponReverts_CanClassUseWeapon` - Returns whether a class can use an item index from weaponreverts.cfg.
+
+## whaletracker_api.inc
+- `WhaleTracker_GetCumulativeKills` - Returns a client's cumulative tracked kills.
+- `WhaleTracker_AreStatsLoaded` - Returns whether a client's WhaleTracker stats are loaded.
+- `WhaleTracker_HasPlaytimeHours` - Returns whether a client's playtime meets an hour threshold.
+- `WhaleTracker_GetWhalePoints` - Returns a client's current Whale Points total.
+- `WhaleTracker_ComputeWhalePoints` - Computes Whale Points from raw cumulative totals.
+- `WhaleTracker_GetLastRecordedName` - Writes the best recorded name for a SteamID64 into a buffer.
+- `WhaleTracker_GetLastSeen` - Returns the best known last-seen timestamp for a SteamID64.
+- `WhaleTracker_OnAirshot` - Fires when WhaleTracker records an airshot.
+- `WhaleTracker_OnProjectileDirectHit` - Fires when WhaleTracker records a projectile direct hit.
+- `WhaleTracker_OnMedicDrop` - Fires when WhaleTracker records a medic drop.
+- `WhaleTracker_OnKillstreak` - Fires when WhaleTracker records a killstreak milestone.
+- `WhaleTracker_OnKillstreakEnd` - Fires when WhaleTracker records the end of a killstreak.
+- `WhaleTracker_OnMultikill` - Fires when WhaleTracker records a multikill milestone.

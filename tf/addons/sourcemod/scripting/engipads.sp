@@ -1,13 +1,16 @@
-#include <sourcemod>
-#include <sdkhooks>
-#include <tf2_stocks>
-#include <tf_custom_attributes>
-#include <tf2attributes>
-#include <clientprefs>
-#include <morecolors>
-
 #pragma semicolon 1
 #pragma newdecls required
+
+#include <sourcemod>
+#include <clientprefs>
+
+#include <sdkhooks>
+
+#include <tf2_stocks>
+#include <tf2attributes>
+
+#include <morecolors>
+#include <tf_custom_attributes>
 
 //Define version number in a needlessly complex way
 #define MAJOR	"1"

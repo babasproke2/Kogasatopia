@@ -2,10 +2,14 @@
 #pragma newdecls required
 
 #include <sourcemod>
-#include <sdktools>
 #include <string>
+
+#include <sdktools>
+
 #include <morecolors>
+
 #undef REQUIRE_PLUGIN
+#include <filters_api>
 #include <points_store_api>
 #include <saysounds>
 #define REQUIRE_PLUGIN
@@ -13,8 +17,6 @@
 #define TPA_CURRENCY_SHORT_MAX 32
 #define TPA_TELEPORT_SOUND "tp-enderman"
 #define TPA_DIFFERENT_TEAM_VERTICAL_OFFSET 150.0
-
-native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
 enum TpaRequestType
 {

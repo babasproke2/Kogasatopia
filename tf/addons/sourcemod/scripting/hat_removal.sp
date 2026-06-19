@@ -1,10 +1,12 @@
+#pragma semicolon 1
+
 #include <sourcemod>
 #include <clientprefs>
-#include <sdkhooks>
-#include <sdktools>
-#include <morecolors>
 
-#pragma semicolon 1
+#include <sdktools>
+#include <sdkhooks>
+
+#include <morecolors>
 
 #define VERSION "1.1a"
 

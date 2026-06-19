@@ -1,12 +1,18 @@
-#include <sourcemod>
-#include <tf2_stocks>
-#include <morecolors>
-#include <tf2>
-#include "include/dgm_api.inc"
-
 #pragma semicolon 1
-#pragma tabsize 4
 #pragma newdecls required
+#pragma tabsize 4
+
+#include <sourcemod>
+
+#include <tf2>
+#include <tf2_stocks>
+
+#include <morecolors>
+
+
+#undef REQUIRE_PLUGIN
+#include <dgm_api>
+#define REQUIRE_PLUGIN
 
 #define PL_VERSION "1.0.2"
 

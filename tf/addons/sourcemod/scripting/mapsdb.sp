@@ -1,9 +1,13 @@
-#include <sourcemod>
-#include "include/dgm_api.inc"
-#include "include/kogasa_sql.inc"
-
 #pragma semicolon 1
 #pragma newdecls required
+
+#include <sourcemod>
+
+#undef REQUIRE_PLUGIN
+#include <dgm_api>
+#define REQUIRE_PLUGIN
+
+#include "include/kogasa_sql.inc"
 
 #define MAPSDB_DEFAULT_CFG "default"
 #define MAPSDB_SECRET_CFG "secrets"

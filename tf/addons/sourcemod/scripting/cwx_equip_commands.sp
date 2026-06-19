@@ -5,12 +5,13 @@
  * original plugin to use the shared plugin API instead.
  */
 #pragma semicolon 1
-#include <sourcemod>
-
 #pragma newdecls required
 
-#include <cwx>
+#include <sourcemod>
+
 #include <tf2_stocks>
+
+#include <cwx>
 
 public Plugin myinfo = {
 	name = "[TF2] Custom Weapons X - Equip Commands",

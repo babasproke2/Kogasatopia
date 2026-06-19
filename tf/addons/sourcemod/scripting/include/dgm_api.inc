@@ -3,6 +3,8 @@
 #endif
 #define _dgm_api_included
 
+#include <sourcemod>
+
 enum DGMObjectiveLeader
 {
     DGMObjectiveLeader_None = 0,

@@ -3,10 +3,13 @@
 
 #include <sourcemod>
 #include <clientprefs>
+
 #include <sdktools>
+
 #include <tf2_stocks>
 #include <tf2attributes>
 #include <tf2items>
+
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
 #define REQUIRE_PLUGIN

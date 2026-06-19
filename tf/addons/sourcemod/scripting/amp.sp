@@ -1,17 +1,24 @@
 #pragma semicolon 1
 
 #include <sourcemod>
+#include <clientprefs>
+
 #include <sdktools>
-#include <sdktools_functions>
 #include <sdkhooks>
+#include <sdktools_functions>
+
 #include <tf2>
 #include <tf2_stocks>
+#include <tf2attributes>
+
 #include <morecolors>
 #include <tf_custom_attributes>
-#include <clientprefs>
-#include <tf2attributes>
 #include <conch_no_speed>
-#include "include/dgm_api.inc"
+
+
+#undef REQUIRE_PLUGIN
+#include <dgm_api>
+#define REQUIRE_PLUGIN
 
 #define MAX_AMPLIFIER_CLIENTS (MAXPLAYERS + 1)
 #define MAX_AMPLIFIER_ENTITIES 2048

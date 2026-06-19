@@ -1,8 +1,12 @@
 #pragma semicolon 1
+
 #include <sourcemod>
+
+#include <sdktools>
+
 #include <tf2>
 #include <tf2_stocks>
-#include <sdktools>
+
 #include <morecolors>
 
 #define PLUGIN_VERSION			"1.0"

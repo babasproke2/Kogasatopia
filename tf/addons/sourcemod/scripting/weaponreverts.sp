@@ -1,21 +1,30 @@
+#pragma semicolon 1
+#pragma newdecls required
+
 #include <sourcemod>
-#include <sdkhooks>
+
 #include <sdktools>
+#include <sdkhooks>
+
 #include <tf2>
 #include <tf2_stocks>
 #include <tf2utils>
-#include <tf_custom_attributes>
-#include <tf2items>
 #include <tf2attributes>
-#include <addplayerhealth>
+#include <tf2items>
+
+#include <tf_custom_attributes>
 #include <sourcescramble>
 #include <dhooks>
-#undef REQUIRE_EXTENSIONS
-#include <scattergun_pellets>
-#define REQUIRE_EXTENSIONS
+#include <addplayerhealth>
+
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
 #define REQUIRE_PLUGIN
+
+#undef REQUIRE_EXTENSIONS
+#include <scattergun_pellets>
+#define REQUIRE_EXTENSIONS
+
 #include "include/kogasa_steam_identity.inc"
 
 #define FLS_STREAK_TARGET	   2
@@ -707,7 +716,7 @@ static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float
 		drained = currentShells - newShells;
 	}
 
-	if (drained > 0 && TF2_GetPlayerClass(attacker) == TFClassType:TFClass_Engineer && g_iMetalOffset != -1)
+	if (drained > 0 && TF2_GetPlayerClass(attacker) == TFClass_Engineer && g_iMetalOffset != -1)
 	{
 		int attackerMetal = TF_GetMetalAmount(attacker);
 		int credit = drained;
@@ -994,9 +1003,9 @@ static int Accuracy_GetClassSubtractionValue(int client)
 	}
 }
 
-public Event_TF2RocketJump(Handle:event, const String:name[], bool:dontBroadcast)
+public void Event_TF2RocketJump(Event event, const char[] name, bool dontBroadcast)
 {
-	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	int client = GetClientOfUserId(GetEventInt(event, "userid"));
 	if (client > 0) {
 		if (tf2_players[client].jump_status == TF2_JUMP_ROCKET_START) {
 			tf2_players[client].jump_status = TF2_JUMP_ROCKET;
@@ -1006,9 +1015,9 @@ public Event_TF2RocketJump(Handle:event, const String:name[], bool:dontBroadcast
 	}
 }
 
-public Event_TF2StickyJump(Handle:event, const String:name[], bool:dontBroadcast)
+public void Event_TF2StickyJump(Event event, const char[] name, bool dontBroadcast)
 {
-	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	int client = GetClientOfUserId(GetEventInt(event, "userid"));
 	if (client > 0) {
 		if (tf2_players[client].jump_status != TF2_JUMP_STICKY) {
 			tf2_players[client].jump_status = TF2_JUMP_STICKY;
@@ -1016,9 +1025,9 @@ public Event_TF2StickyJump(Handle:event, const String:name[], bool:dontBroadcast
 	}
 }
 
-public Event_TF2JumpLanded(Handle:event, const String:name[], bool:dontBroadcast)
+public void Event_TF2JumpLanded(Event event, const char[] name, bool dontBroadcast)
 {
-	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	int client = GetClientOfUserId(GetEventInt(event, "userid"));
 	if (client > 0)
 	{
 		tf2_players[client].jump_status = TF2_JUMP_NONE;
@@ -1183,7 +1192,7 @@ Action OnEnergyRingTouch(int entity, int other) {
 	return Plugin_Continue;
 }
 
-public Action TF2_CalcIsAttackCritical(client, weapon, String:weaponname[], &bool:result) {
+public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname, bool &result) {
 	if (!IsClientInGame(client) || weapon <= MaxClients || !IsValidEntity(weapon))
 		return Plugin_Continue;
 
@@ -1296,7 +1305,7 @@ static bool TryApplyHolsterReload(int weapon)
 	return true;
 }
 
-public Action OnWeaponSwitch(client, weapon)
+public Action OnWeaponSwitch(int client, int weapon)
 {
 	if (!WeaponReverts_IsEnabled())
 	{
@@ -1660,7 +1669,7 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 }
 
 
-public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damagetype, &weapon, Float:damageForce[3], Float:damagePosition[3], damagecustom)
+public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
 {
 	if (client < 1 || client > MaxClients || !IsClientInGame(client)) return Plugin_Continue;
 	if (attacker < 1) return Plugin_Continue;
@@ -1690,7 +1699,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	}
 
 	bool validWeapon = (weapon > MaxClients && IsValidEntity(weapon));
-	new wepindex = (validWeapon ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
+	int wepindex = (validWeapon ? GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex") : -1);
 
 	if (damagecustom == SANDMAN_DAMAGE_CUSTOM)
 	{
@@ -1807,7 +1816,7 @@ public Action OnTakeDamage(client, &attacker, &inflictor, &Float:damage, &damage
 	return Plugin_Continue;
 }
 
-public Action OnTraceAttack(victim, &attacker, &inflictor, &Float:damage, &damagetype, &ammotype, hitbox, hitgroup)
+public Action OnTraceAttack(int victim, int &attacker, int &inflictor, float &damage, int &damagetype, int &ammotype, int hitbox, int hitgroup)
 {
     if (!Accuracy_IsValidClient(attacker) || !IsPlayerAlive(attacker))
         return Plugin_Continue;
@@ -1902,7 +1911,7 @@ public Action OnTakeDamageAlive(
 		inflictor == attacker &&
 		TF2CustAttr_GetInt(weapon, "taser damage becomes metal") == 1
 	) {
-		if (TF2_GetPlayerClass(attacker) == TFClassType:TFClass_Engineer && g_iMetalOffset != -1)
+		if (TF2_GetPlayerClass(attacker) == TFClass_Engineer && g_iMetalOffset != -1)
 		{
 			int attackerMetal = TF_GetMetalAmount(attacker);
 			int credit = RoundFloat(damage);
@@ -2065,7 +2074,7 @@ public MRESReturn CanFireCriticalShot_Post(int weapon, DHookReturn hReturn, DHoo
 }
 
 // Gas passer buff is a candidate for removal, it's uninspired and could be more creative
-public TF2_OnConditionAdded(int client, TFCond condition)
+public void TF2_OnConditionAdded(int client, TFCond condition)
 {
 	if (condition == TFCond_Gas) //If gas is applied
 	{
@@ -2105,7 +2114,7 @@ public TF2_OnConditionAdded(int client, TFCond condition)
 	}
 }
 
-public TF2_OnConditionRemoved(int client, TFCond condition)
+public void TF2_OnConditionRemoved(int client, TFCond condition)
 {
 	if (condition == TFCond_Cloaked)
 	{
@@ -2518,11 +2527,11 @@ static void WeaponReverts_QueuePrimaryClipBonusRefresh(int client)
 	RequestFrame(WeaponReverts_FrameApplyPrimaryClipBonus, GetClientUserId(client));
 }
 
-public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, quality, entity)
+public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemDefinitionIndex, int itemLevel, int itemQuality, int entityIndex)
 {
 	if (WeaponReverts_IsEnabled()) {
 		tf2_players[client].shockCharge = 30;
-		TF2Attrib_SetByName(entity, "crit mod disabled hidden", 0.00);
+		TF2Attrib_SetByName(entityIndex, "crit mod disabled hidden", 0.00);
 
 		char auth[32];
 		if (g_hFallingStompAllWeapons != null
@@ -2531,13 +2540,15 @@ public TF2Items_OnGiveNamedItem_Post(client, String:classname[], index, level, q
 		{
 			if (!(StrEqual(auth, "STEAM_0:1:101494818")))
 			{
-				TF2Attrib_SetByName(entity, "boots falling stomp", 1.00);
+				TF2Attrib_SetByName(entityIndex, "boots falling stomp", 1.00);
 			}
 		}
 
-		WeaponReverts_ApplyConfiguredAttributes(client, index, entity);
+		WeaponReverts_ApplyConfiguredAttributes(client, itemDefinitionIndex, entityIndex);
 		WeaponReverts_QueuePrimaryClipBonusRefresh(client);
 	}
+
+	return 0;
 }
 
 bool ValidateAndNullCheck(MemoryPatch patch) {

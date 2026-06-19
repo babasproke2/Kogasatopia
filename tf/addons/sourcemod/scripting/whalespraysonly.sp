@@ -1,8 +1,13 @@
+#pragma semicolon 1
+#pragma newdecls required
+
 #include <sourcemod>
+
 #include <sdktools>
 
-#pragma newdecls required
-#pragma semicolon 1
+#undef REQUIRE_PLUGIN
+#include <whaletracker_api>
+#define REQUIRE_PLUGIN
 
 #define PLUGIN_VERSION "1.26"
 
@@ -10,9 +15,6 @@ ConVar g_hCVarsEnabled;
 ConVar g_hCVarsKills;
 ConVar g_hCVarsReason;
 ConVar g_hCVarsWarn;
-
-native int WhaleTracker_GetCumulativeKills(int client);
-native bool WhaleTracker_AreStatsLoaded(int client);
 
 public Plugin myinfo =
 {

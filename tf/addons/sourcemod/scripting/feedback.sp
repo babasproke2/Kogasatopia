@@ -2,6 +2,7 @@
 #pragma newdecls required
 
 #include <sourcemod>
+
 #include "include/kogasa_sql.inc"
 
 #define FEEDBACK_DB_CONFIG "default"

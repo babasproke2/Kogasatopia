@@ -12,7 +12,7 @@ if [[ $# -ne 0 ]]; then
     do
         smxfile="$(echo "$sourcefile" | sed -e 's/\.sp$/\.smx/')"
         echo -e "\nCompiling $sourcefile..."
-        "$SPCOMP" "$sourcefile" -ocompiled/"$smxfile"
+        "$SPCOMP" "$sourcefile" -iinclude -ocompiled/"$smxfile"
         cp compiled/"$smxfile" "$PLUGIN_DIR"/
     done
 else
@@ -20,7 +20,7 @@ else
     do
         smxfile="$(echo "$sourcefile" | sed -e 's/\.sp$/\.smx/')"
         echo -e "\nCompiling $sourcefile ..."
-        "$SPCOMP" "$sourcefile" -ocompiled/"$smxfile"
+        "$SPCOMP" "$sourcefile" -iinclude -ocompiled/"$smxfile"
         cp compiled/"$smxfile" "$PLUGIN_DIR"/
     done
 fi

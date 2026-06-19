@@ -1,18 +1,22 @@
 #pragma semicolon 1
 #pragma newdecls required
+
 #include <sourcemod>
 #include <clientprefs>
-#include <sdkhooks>
+
 #include <sdktools>
+#include <sdkhooks>
+
 #include <tf2>
 #include <tf2_stocks>
-#include <morecolors>
-#undef REQUIRE_PLUGIN
-#include <saysounds>
-#include <points_store_api>
-#define REQUIRE_PLUGIN
 
-native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
+#include <morecolors>
+
+#undef REQUIRE_PLUGIN
+#include <filters_api>
+#include <points_store_api>
+#include <saysounds>
+#define REQUIRE_PLUGIN
 
 #define HEADSHOT_SUPPRESS_WINDOW 0.5
 #define AIRSHOT_MIN_HEIGHT 50.0

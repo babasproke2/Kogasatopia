@@ -2,6 +2,7 @@
 #pragma newdecls required
 
 #include <sourcemod>
+
 #include <sdktools>
 
 #define CONFIG_FILE "configs/precachefiles.cfg"

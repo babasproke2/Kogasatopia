@@ -1,14 +1,20 @@
-	#include <sourcemod>
-	#include <clientprefs>
-	#include <sdktools>
-	#include <dbi>
-	#include <morecolors>
-	#include "include/kogasa_sql.inc"
-	#include "include/kogasa_steam_identity.inc"
-	
+#pragma semicolon 1
+#pragma newdecls required
 
-	#pragma semicolon 1
-	#pragma newdecls required
+#include <sourcemod>
+#include <clientprefs>
+#include <dbi>
+
+#include <sdktools>
+
+#include <morecolors>
+
+#undef REQUIRE_PLUGIN
+#include <filters_api>
+#define REQUIRE_PLUGIN
+
+#include "include/kogasa_sql.inc"
+#include "include/kogasa_steam_identity.inc"
 
 	public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 	{
@@ -55,8 +61,6 @@ Handle g_hReminderTimer[MAXPLAYERS + 1];
 Handle g_hStatsRetryTimer[MAXPLAYERS + 1];
 int g_iSchemaOpsPending = 0;
 Handle g_hRedlistCookie = INVALID_HANDLE;
-
-native bool Filters_IsRedlisted(int client);
 
 	public any Native_Hugs_GetRapesGiven(Handle plugin, int numParams)
 	{

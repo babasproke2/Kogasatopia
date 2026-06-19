@@ -1,12 +1,14 @@
+#pragma semicolon 1
+#pragma newdecls required
+
 #include <sourcemod>
 #include <dbi>
 #include <files>
+
 #include <morecolors>
+
 #include "include/kogasa_sql.inc"
 #include "include/kogasa_steam_identity.inc"
-
-#pragma semicolon 1
-#pragma newdecls required
 
 #define ADMIN_DB_CONFIG "default"
 #define ADMIN_TABLE_NAME "admins"

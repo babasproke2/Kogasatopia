@@ -1,10 +1,14 @@
 #pragma semicolon 1
+#pragma newdecls required
 
 #include <sourcemod>
 #include <clientprefs>
-#include <sdktools_sound>
 #include <textparse>
+
+#include <sdktools_sound>
+
 #include <tf_custom_attributes>
+
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
 #define REQUIRE_PLUGIN

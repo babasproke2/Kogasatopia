@@ -2,13 +2,22 @@
 #pragma newdecls required
 
 #include <sourcemod>
-#include <morecolors>
-#include <tf2_stocks>
+
 #include <sdktools_gamerules>
+
+#include <tf2_stocks>
+
+#include <morecolors>
+
 #undef REQUIRE_PLUGIN
+#include <dgm_api>
+#include <filters_api>
 #include <points_store_api>
-#define REQUIRE_PLUGIN
+#include <tags_api>
 #include <whaletracker_api>
+#define REQUIRE_PLUGIN
+
+
 #include "include/kogasa_sql.inc"
 #include "include/kogasa_steam_identity.inc"
 
@@ -175,11 +184,6 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional("Tags_SetSelectedTag");
     return APLRes_Success;
 }
-
-native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
-native bool Tags_GetTag(int client, const char[] steamid64, char[] buffer, int maxlen);
-native bool Tags_SetSelectedTag(int client, const char[] tag);
-native bool DGM_IsRoundRunning();
 
 bool IsClanPointsStoreAvailable()
 {

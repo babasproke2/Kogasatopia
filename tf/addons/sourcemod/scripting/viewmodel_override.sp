@@ -12,19 +12,19 @@
  * take priority.
  */
 #pragma semicolon 1
+#pragma newdecls required
+
 #include <sourcemod>
 
 #include <sdktools>
 #include <sdkhooks>
 
-#pragma newdecls required
-
-#include <tf_custom_attributes>
-#include <stocksoup/tf/entity_prop_stocks>
-#include <stocksoup/tf/econ>
+#include <tf2utils>
 #include <tf_econ_data>
 
-#include <tf2utils>
+#include <tf_custom_attributes>
+#include <stocksoup/tf/econ>
+#include <stocksoup/tf/entity_prop_stocks>
 
 #define EF_NODRAW (1 << 5)
 #define EF_BONEMERGE (1 << 0)

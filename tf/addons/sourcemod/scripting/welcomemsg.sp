@@ -1,5 +1,7 @@
 #include <sourcemod>
+
 #include <tf2_stocks>
+
 #include <morecolors>
 
 bool g_HasBeenWelcomed[MAXPLAYERS + 1];

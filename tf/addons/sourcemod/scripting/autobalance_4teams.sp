@@ -3,19 +3,25 @@
 
 #include <sourcemod>
 #include <clientprefs>
-#include <morecolors>
+
 #include <sdktools>
+
 #include <tf2_stocks>
+
+#include <morecolors>
+
 #undef REQUIRE_PLUGIN
+#include <dgm_api>
 #include <clans_api>
-#include <whaletracker_api>
 #include <points_store_api>
 #include <saysounds>
+#include <whaletracker_api>
 #define REQUIRE_PLUGIN
-#include "include/dgm_api.inc"
-#include "include/plugin_statistics.inc"
+
 #include "include/kogasa_sql.inc"
 #include "include/kogasa_steam_identity.inc"
+#include "include/kogasa_tf2.inc"
+#include "include/plugin_statistics.inc"
 
 native int FilterAlerts_MarkAutobalance(int client);
 
@@ -883,29 +889,7 @@ static int SelectAutobalanceReplacementForPass(int protectedClient, int team, bo
 
 static bool IsEngineerWithBuildings(int client)
 {
-    if (client <= 0 || !IsClientInGame(client) || TF2_GetPlayerClass(client) != TFClass_Engineer)
-    {
-        return false;
-    }
-
-    return ClientOwnsBuilding(client, "obj_sentrygun")
-        || ClientOwnsBuilding(client, "obj_dispenser")
-        || ClientOwnsBuilding(client, "obj_teleporter");
-}
-
-static bool ClientOwnsBuilding(int client, const char[] classname)
-{
-    int entity = -1;
-    while ((entity = FindEntityByClassname(entity, classname)) != -1)
-    {
-        if (HasEntProp(entity, Prop_Send, "m_hBuilder")
-            && GetEntPropEnt(entity, Prop_Send, "m_hBuilder") == client)
-        {
-            return true;
-        }
-    }
-
-    return false;
+    return Kogasa_IsEngineerWithBuildings(client);
 }
 
 static bool IsClientPersistentlyImmune(int client)

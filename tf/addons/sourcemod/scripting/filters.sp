@@ -1,15 +1,24 @@
+#pragma semicolon 1
+#pragma newdecls required
+
 #include <sourcemod>
+#include <clientprefs>
+#include <basecomm>
+
 #include <sdktools>
 #include <sdktools_functions>
 #include <sdktools_voice>
-#include <clientprefs>
-#include <basecomm>
+
 #include <morecolors>
+
+#undef REQUIRE_PLUGIN
+#include <hugs_api>
+#include <tags_api>
+#include <whaletracker_api>
+#define REQUIRE_PLUGIN
+
 #include "include/kogasa_sql.inc"
 #include "include/kogasa_steam_identity.inc"
-
-#pragma semicolon 1
-#pragma newdecls required
 
 #define MAX_FILTERS 128
 #define MAX_BLACKLIST 128
@@ -52,12 +61,6 @@ int g_AutoRedlistKills[MAXPLAYERS + 1];
 int g_AutoRedlistRapes[MAXPLAYERS + 1];
 bool g_AutoRedlistGotKills[MAXPLAYERS + 1];
 bool g_AutoRedlistGotRapes[MAXPLAYERS + 1];
-
-native int Hugs_GetRapesGiven(int client);
-native bool Hugs_AreStatsLoaded(int client);
-native int WhaleTracker_GetCumulativeKills(int client);
-native bool WhaleTracker_AreStatsLoaded(int client);
-native bool Tags_GetSelectedTag(int client, char[] buffer, int maxlen);
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {

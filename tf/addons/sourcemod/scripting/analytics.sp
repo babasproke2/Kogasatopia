@@ -1,11 +1,15 @@
-#include <sourcemod>
-#include <geoip>
-#include "include/dgm_api.inc"
-#include "include/kogasa_sql.inc"
-#include "include/kogasa_steam_identity.inc"
-
 #pragma semicolon 1
 #pragma newdecls required
+
+#include <sourcemod>
+#include <geoip>
+
+#undef REQUIRE_PLUGIN
+#include <dgm_api>
+#define REQUIRE_PLUGIN
+
+#include "include/kogasa_sql.inc"
+#include "include/kogasa_steam_identity.inc"
 
 #define PLUGIN_VERSION "1.5"
 

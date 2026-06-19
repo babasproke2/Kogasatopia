@@ -2,7 +2,12 @@
 #pragma newdecls required
 
 #include <sourcemod>
+
+#undef REQUIRE_PLUGIN
 #include <clans_api>
+#include <custom_hats_api>
+#define REQUIRE_PLUGIN
+
 #include "include/kogasa_sql.inc"
 #include "include/kogasa_steam_identity.inc"
 
@@ -22,11 +27,6 @@
 #define TAG_SQL_KEY_MAXLEN ((TAG_KEY_MAXLEN * 2) + 1)
 #define TAG_SOURCE_LITERAL "literal"
 #define TAG_SOURCE_CUSTOM_HAT "custom_hat"
-
-native bool CustomHats_GetPrefix(int client, char[] buffer, int maxlen);
-native bool CustomHats_GetTagChoices(int client, char[] buffer, int maxlen);
-native bool CustomHats_ResolveTag(int client, const char[] key, char[] buffer, int maxlen);
-native bool CustomHats_FindTagSource(int client, const char[] tag, char[] key, int maxlen);
 
 public Plugin myinfo =
 {

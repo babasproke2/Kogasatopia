@@ -1,10 +1,13 @@
+#pragma semicolon 1
+#pragma newdecls required
+
 #include <sourcemod>
-#undef REQUIRE_PLUGIN
-#include <mapchooser>
+
 #include <morecolors>
 
-#pragma newdecls required
-#pragma semicolon 1
+#undef REQUIRE_PLUGIN
+#include <mapchooser>
+#define REQUIRE_PLUGIN
 
 #define PL_VERSION "3.0.0"
 

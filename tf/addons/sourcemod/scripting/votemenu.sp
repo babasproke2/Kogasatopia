@@ -2,15 +2,18 @@
 #pragma newdecls required
 
 #include <sourcemod>
-#include <morecolors>
 #include <adt_array>
+
+#include <morecolors>
+
 #undef REQUIRE_PLUGIN
+#include <dgm_api>
 #include <points_store_api>
-#include "include/dgm_api.inc"
 #define REQUIRE_PLUGIN
-#include "include/plugin_statistics.inc"
+
 #include "include/kogasa_sql.inc"
 #include "include/kogasa_steam_identity.inc"
+#include "include/plugin_statistics.inc"
 
 // Configuration locations
 #define VOTEMENU_CONFIG      "configs/votemenu.cfg"

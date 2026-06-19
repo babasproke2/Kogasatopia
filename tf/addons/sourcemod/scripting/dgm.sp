@@ -2,16 +2,20 @@
 #pragma newdecls required
 
 #include <sourcemod>
-#include <sdkhooks>
+
 #include <sdktools>
+#include <sdkhooks>
 #include <sdktools_gamerules>
-#include <tf2_stocks>
+
 #include <tf2>
+#include <tf2_stocks>
 #include <controlpoints>
+
 #undef REQUIRE_EXTENSIONS
-#include <tf2setupuber>
 #include <tf2_setuptime>
+#include <tf2setupuber>
 #define REQUIRE_EXTENSIONS
+
 // I forked the controlpoints file from powerlord to add new gamemodes, you can get it at https://github.com/babasproke2/sourcemod-snippets
 
 #define PLUGIN_VERSION "4.3"

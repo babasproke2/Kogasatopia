@@ -2,17 +2,20 @@
 #pragma newdecls required
 
 #include <sourcemod>
-#include <multicolors>
+
 #include <tf2_stocks>
+
+#include <multicolors>
+
 #undef REQUIRE_PLUGIN
+#include <dgm_api>
+#include <filters_api>
 #include <saysounds>
 #define REQUIRE_PLUGIN
-#include "include/dgm_api.inc"
-#include "include/plugin_statistics.inc"
+
 #include "include/kogasa_sql.inc"
 #include "include/kogasa_steam_identity.inc"
-
-native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
+#include "include/plugin_statistics.inc"
 
 #define BP_TRANS_DB_CONFIG_DEFAULT "default"
 #define BP_TRANS_TABLE "bonuspoints_transactions"

@@ -1,7 +1,14 @@
+#pragma semicolon 1
+#pragma newdecls required
+
 #include <sourcemod>
-#include <tf2_stocks>
+
 #include <sdktools_voice>
-#include "include/dgm_api.inc"
+
+#include <tf2_stocks>
+#undef REQUIRE_PLUGIN
+#include <dgm_api>
+#define REQUIRE_PLUGIN
 
 public Plugin myinfo =
 {

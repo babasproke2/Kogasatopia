@@ -1,15 +1,23 @@
 #pragma semicolon 1
+#pragma newdecls required
+
 #include <sourcemod>
 #include <clientprefs>
-#include <morecolors>
 #include <textparse>
+
 #include <tf2_stocks>
+
+#include <morecolors>
+
 #undef REQUIRE_PLUGIN
-#include "include/dgm_api.inc"
+#include <dgm_api>
+#include <filters_api>
+#include <points_store_api>
+#include <saysounds>
 #define REQUIRE_PLUGIN
-#include "include/plugin_statistics.inc"
+
 #include "include/kogasa_steam_identity.inc"
-#pragma newdecls required
+#include "include/plugin_statistics.inc"
 
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
 #define WHALE_MULTIKILL_MIN_LEVEL 2
@@ -28,14 +36,6 @@
 #define ANNOUNCER_SOUND_GET_GROUP_NATIVE "SaySounds_GetCommandGroup"
 #define DGM_CAPACITY_NATIVE "DGM_ServerCapacitycheck"
 #define POINTS_STORE_BONUS_NATIVE "PointsStore_ApplyBonusPoints"
-
-native bool SaySounds_PlayCommand(int client, const char[] commandName, bool ignoreOptIn = false, bool bypassAdminOnly = true);
-native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const char[] commandName, bool ignoreOptIn = false, bool bypassAdminOnly = true);
-native bool SaySounds_CanClientUseCommand(int client, const char[] commandName, bool bypassAdminOnly = true);
-native bool SaySounds_IsCommandPaid(const char[] commandName);
-native bool SaySounds_GetCommandGroup(const char[] commandName, char[] groupName, int groupLen);
-native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
-native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound, bool chatAlert, float randomChance, const char[] type, int target = 0, float delay = 3.0, int perMap = 0);
 
 static const char g_KillstreakLabels[][] =
 {

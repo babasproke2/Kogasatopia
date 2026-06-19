@@ -2,11 +2,13 @@
 #pragma newdecls required
 
 #include <sourcemod>
+
 #include <sdkhooks>
-#include <tf2_stocks>
+
 #include <tf2>
-#include <tf2items>
+#include <tf2_stocks>
 #include <tf2attributes>
+#include <tf2items>
 
 #define PLUGIN_VERSION "1.1"
 ConVar g_cvDisableStuns;

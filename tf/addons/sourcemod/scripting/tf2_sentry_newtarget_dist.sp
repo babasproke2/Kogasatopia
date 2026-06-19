@@ -2,6 +2,7 @@
 #pragma newdecls required
 
 #include <sourcemod>
+
 #include <tf2_sentry_newtarget_dist>
 
 #define PLUGIN_VERSION "1.1.0"

@@ -1,8 +1,9 @@
-#include <sourcemod>
-#include <morecolors>
-
 #pragma semicolon 1
 #pragma newdecls required
+
+#include <sourcemod>
+
+#include <morecolors>
 
 #define PLUGIN_VERSION "0.1.0"
 #define GIT_REPO_LINE_MAX 1024
