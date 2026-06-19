@@ -361,7 +361,8 @@ public void OnGroundEntityChangedPost(int client)
 
     if (onGround)
     {
-        SetAirblastThinkHook(client, false);
+        int activeWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+        ConfigureAirblastTracking(client, activeWeapon);
     }
     else
     {
@@ -696,10 +697,25 @@ void ShowClimbStatus(int client, const char[] format, any ...)
 
 void ConfigureAirblastTracking(int client, int weapon)
 {
-    if (!g_Enabled
-        || !IsLivingClient(client)
-        || TF2_GetPlayerClass(client) != TFClass_Pyro
-        || !IsAirblastJumpWeapon(weapon))
+    if (!g_Enabled)
+    {
+        StopAirblastTracking(client);
+        return;
+    }
+
+    if (!IsLivingClient(client))
+    {
+        StopAirblastTracking(client);
+        return;
+    }
+
+    if (TF2_GetPlayerClass(client) != TFClass_Pyro)
+    {
+        StopAirblastTracking(client);
+        return;
+    }
+
+    if (!IsAirblastJumpWeapon(weapon))
     {
         StopAirblastTracking(client);
         return;
@@ -717,8 +733,7 @@ void ConfigureAirblastTracking(int client, int weapon)
         g_NextAirblastAttributeCheck[client] = 0.0;
     }
 
-    bool airborne = (GetEntityFlags(client) & FL_ONGROUND) == 0;
-    SetAirblastThinkHook(client, airborne);
+    SetAirblastThinkHook(client, true);
 }
 
 void SetAirblastThinkHook(int client, bool shouldHook)
@@ -773,23 +788,25 @@ bool IsAirblastJumpWeapon(int weapon)
     char className[64];
     GetEntityClassname(weapon, className, sizeof(className));
 
-    return TF2CustAttr_GetInt(weapon, ATTR_AIRBLAST_JUMP, 0) > 0;
+    if (TF2CustAttr_GetInt(weapon, ATTR_AIRBLAST_JUMP, 0) <= 0)
+    {
+        return false;
+    }
+    return true;
 }
 
 public void OnAirblastPostThinkPost(int client)
 {
+    if ((GetClientButtons(client) & IN_ATTACK2) == 0)
+    {
+        return;
+    }
+
     if (!g_Enabled || !IsLivingClient(client))
     {
         StopAirblastTracking(client);
         return;
     }
-
-    if ((GetEntityFlags(client) & FL_ONGROUND) != 0)
-    {
-        SetAirblastThinkHook(client, false);
-        return;
-    }
-
 
     int weapon = EntRefToEntIndex(g_AirblastWeaponRef[client]);
     if (weapon == INVALID_ENT_REFERENCE
@@ -800,6 +817,7 @@ public void OnAirblastPostThinkPost(int client)
         QueueClientRefresh(client);
         return;
     }
+
     float now = GetGameTime();
     if (now >= g_NextAirblastAttributeCheck[client])
     {
@@ -824,11 +842,9 @@ public void OnAirblastPostThinkPost(int client)
     {
         return;
     }
-
     g_LastSecondaryAttack[client] = nextSecondaryAttack;
 
-    if ((GetClientButtons(client) & IN_ATTACK2) == 0
-        || GetEntProp(client, Prop_Data, "m_nWaterLevel") > 1)
+    if (GetEntProp(client, Prop_Data, "m_nWaterLevel") > 1)
     {
         return;
     }
@@ -839,6 +855,10 @@ public void OnAirblastPostThinkPost(int client)
         return;
     }
 
+    if ((GetEntityFlags(client) & FL_ONGROUND) != 0)
+    {
+        return;
+    }
     ApplyAirblastJump(client);
 }
 
