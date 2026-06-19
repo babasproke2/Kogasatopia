@@ -22,11 +22,16 @@
 #include <stocksoup/tf/weapon>
 
 #undef REQUIRE_PLUGIN
+#include <dgm_api>
 #include <points_store_api>
 #define REQUIRE_PLUGIN
 
 #define CWX_INCLUDE_SHAREDDEFS_ONLY
 #include <cwx>
+
+#include "include/kogasa_sql.inc"
+#include "include/kogasa_steam_identity.inc"
+#include "include/plugin_statistics.inc"
 
 #tryinclude <autoversioning/version>
 #if defined __ninjabuild_auto_version_included
@@ -60,6 +65,10 @@ public Plugin myinfo = {
 // otherwise it'll warn on array-based enumstruct
 #define NUM_PLAYER_CLASSES 10
 
+#define CWX_STATS_DB_CONFIG_DEFAULT "default"
+#define CWX_STATS_EVENTS_TABLE "cwx_statistics_events"
+#define CWX_STATS_STATE_TABLE "cwx_weapon_popularity"
+
 // we're recycling the following attribute to ensure that the item UID persists across dropped
 // weapons - it's kinda icky and if anyone else happened to get the same idea it'd be bad, but
 // it's the best we've got without trying TOO hard
@@ -74,8 +83,15 @@ Cookie g_ItemPersistCookies[NUM_PLAYER_CLASSES][NUM_ITEMS];
 bool g_bForceReequipItems[MAXPLAYERS + 1];
 
 ConVar sm_cwx_enable_loadout;
+ConVar sm_cwx_statistics;
+ConVar sm_cwx_statistics_database;
 
 ConVar mp_stalemate_meleeonly;
+
+Database g_CwxStatsDb = null;
+bool g_CwxStatsDbReady = false;
+bool g_CwxStatsIsMySql = false;
+Handle g_hCwxStatsDbReconnectTimer = null;
 
 #include "cwx/item_config.sp"
 #include "cwx/item_entity.sp"
@@ -86,6 +102,10 @@ ConVar mp_stalemate_meleeonly;
 int g_attrdef_AllowedInMedievalMode;
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int maxlen) {
+	MarkNativeAsOptional("DGM_CurrentNormalizedMap");
+	MarkNativeAsOptional("DGM_NormalizeMapName");
+	MarkNativeAsOptional("DGM_GetGameModeKey");
+
 	RegPluginLibrary("cwx");
 	
 	CreateNative("CWX_SetPlayerLoadoutItem", Native_SetPlayerLoadoutItem);
@@ -132,6 +152,15 @@ public void OnPluginStart() {
 	
 	sm_cwx_enable_loadout = CreateConVar("sm_cwx_enable_loadout", "1",
 			"Allows players to receive custom items they have selected.");
+	sm_cwx_statistics = CreateConVar("sm_cwx_statistics", "1",
+			"Record Custom Weapons X equip/unequip popularity statistics.", _, true, 0.0, true, 1.0);
+	sm_cwx_statistics_database = CreateConVar("sm_cwx_statistics_database",
+			CWX_STATS_DB_CONFIG_DEFAULT,
+			"Database config used for Custom Weapons X popularity statistics.");
+	sm_cwx_statistics.AddChangeHook(OnCwxStatisticsEnabledChanged);
+	sm_cwx_statistics_database.AddChangeHook(OnCwxStatisticsDatabaseChanged);
+	PluginStats_Init(CWX_STATS_EVENTS_TABLE);
+	ConnectCwxStatisticsDatabase();
 	
 	RegAdminCmd("sm_cwx_export", ExportActiveWeapon, ADMFLAG_ROOT);
 	
@@ -173,6 +202,12 @@ public void OnPluginStart() {
 			FetchLoadoutItems(i);
 		}
 	}
+}
+
+public void OnPluginEnd() {
+	PluginStats_Shutdown();
+	KogasaSql_CancelTimer(g_hCwxStatsDbReconnectTimer);
+	KogasaSql_Close(g_CwxStatsDb, g_CwxStatsDbReady);
 }
 
 public void OnAllPluginsLoaded() {
@@ -270,6 +305,7 @@ void AppendItemDescriptionPart(char[] buffer, int maxlen, const char[] color, co
 }
 
 public void OnMapStart() {
+	PluginStats_OnMapStart();
 	LoadCustomItemConfig();
 	
 	PrecacheMenuResources();
@@ -313,6 +349,7 @@ public void OnClientCookiesCached(int client) {
 		}
 	}
 	g_bRetrievedLoadout[client] = true;
+	CwxStats_MirrorClientSavedLoadout(client);
 
 	/*
 	 * Clientprefs can finish after the first PlayerLoadoutUpdated message.  In that
@@ -787,9 +824,21 @@ bool SetClientCustomLoadoutItem(int client, int playerClass, const char[] itemui
 	int itemSlot = item.loadoutPosition[playerClass];
 	if (0 <= itemSlot < NUM_ITEMS) {
 		if (flags & LOADOUT_FLAG_UPDATE_BACKEND) {
+			char previousUid[MAX_ITEM_IDENTIFIER_LENGTH];
+			strcopy(previousUid, sizeof(previousUid),
+					g_CurrentLoadout[client][playerClass][itemSlot].uid);
+			bool changed = !StrEqual(previousUid, itemuid, false);
+
 			// item being set as user preference; update backend and set permanent UID slot
 			g_ItemPersistCookies[playerClass][itemSlot].Set(client, itemuid);
 			g_CurrentLoadout[client][playerClass][itemSlot].SetItemUID(itemuid);
+
+			if (changed) {
+				if (previousUid[0]) {
+					CwxStats_RecordUnequip(client, playerClass, itemSlot, previousUid);
+				}
+				CwxStats_RecordEquip(client, playerClass, itemSlot, itemuid, item);
+			}
 		} else {
 			// item being set temporarily; set as overload
 			g_CurrentLoadout[client][playerClass][itemSlot].SetOverloadItemUID(itemuid);
@@ -822,8 +871,16 @@ int Native_RemovePlayerLoadoutItem(Handle plugin, int argc) {
  */
 void UnsetClientCustomLoadoutItem(int client, int playerClass, int itemSlot, int flags) {
 	if (flags & LOADOUT_FLAG_UPDATE_BACKEND) {
+		char previousUid[MAX_ITEM_IDENTIFIER_LENGTH];
+		strcopy(previousUid, sizeof(previousUid),
+				g_CurrentLoadout[client][playerClass][itemSlot].uid);
+
 		g_CurrentLoadout[client][playerClass][itemSlot].Clear();
 		g_ItemPersistCookies[playerClass][itemSlot].Set(client, "");
+
+		if (previousUid[0]) {
+			CwxStats_RecordUnequip(client, playerClass, itemSlot, previousUid);
+		}
 	} else {
 		g_CurrentLoadout[client][playerClass][itemSlot].SetOverloadItemUID("");
 	}
@@ -831,6 +888,451 @@ void UnsetClientCustomLoadoutItem(int client, int playerClass, int itemSlot, int
 	if (flags & LOADOUT_FLAG_ATTEMPT_REGEN) {
 		OnClientCustomLoadoutItemModified(client, playerClass);
 	}
+}
+
+void OnCwxStatisticsEnabledChanged(ConVar convar, const char[] oldValue, const char[] newValue) {
+	if (StringToInt(newValue)) {
+		ConnectCwxStatisticsDatabase();
+	} else {
+		KogasaSql_CancelTimer(g_hCwxStatsDbReconnectTimer);
+		KogasaSql_Close(g_CwxStatsDb, g_CwxStatsDbReady);
+	}
+}
+
+void OnCwxStatisticsDatabaseChanged(ConVar convar, const char[] oldValue, const char[] newValue) {
+	ConnectCwxStatisticsDatabase();
+}
+
+bool CwxStats_IsEnabled() {
+	return sm_cwx_statistics == null || sm_cwx_statistics.BoolValue;
+}
+
+bool CwxStats_CanWriteState() {
+	return CwxStats_IsEnabled() && KogasaSql_IsReady(g_CwxStatsDb, g_CwxStatsDbReady);
+}
+
+void ConnectCwxStatisticsDatabase() {
+	KogasaSql_CancelTimer(g_hCwxStatsDbReconnectTimer);
+	KogasaSql_Close(g_CwxStatsDb, g_CwxStatsDbReady);
+
+	if (!CwxStats_IsEnabled()) {
+		return;
+	}
+
+	char dbConfig[64];
+	sm_cwx_statistics_database.GetString(dbConfig, sizeof(dbConfig));
+	TrimString(dbConfig);
+	if (!dbConfig[0]) {
+		strcopy(dbConfig, sizeof(dbConfig), CWX_STATS_DB_CONFIG_DEFAULT);
+	}
+
+	if (!KogasaSql_CheckConfigOrLog("cwx", dbConfig)) {
+		return;
+	}
+
+	SQL_TConnect(CwxStats_OnDatabaseConnected, dbConfig);
+}
+
+public void CwxStats_OnDatabaseConnected(Handle owner, Handle hndl, const char[] error, any data) {
+	if (hndl == null) {
+		LogError("[CWX] Statistics database connection failed: %s",
+				error[0] ? error : "unknown error");
+		ScheduleCwxStatsDatabaseReconnect();
+		return;
+	}
+
+	KogasaSql_Close(g_CwxStatsDb, g_CwxStatsDbReady);
+	g_CwxStatsDb = view_as<Database>(hndl);
+
+	char driverIdent[32];
+	DBDriver driver = g_CwxStatsDb.Driver;
+	driver.GetIdentifier(driverIdent, sizeof(driverIdent));
+	g_CwxStatsIsMySql = StrEqual(driverIdent, "mysql", false);
+	if (g_CwxStatsIsMySql && !g_CwxStatsDb.SetCharset("utf8mb4")) {
+		LogError("[CWX] Failed to set statistics database charset to utf8mb4.");
+	}
+
+	EnsureCwxStatsSchema();
+}
+
+void ScheduleCwxStatsDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY) {
+	g_CwxStatsDbReady = false;
+	if (g_hCwxStatsDbReconnectTimer == null) {
+		g_hCwxStatsDbReconnectTimer = CreateTimer(delay, Timer_ReconnectCwxStatsDatabase,
+				_, TIMER_FLAG_NO_MAPCHANGE);
+	}
+}
+
+public Action Timer_ReconnectCwxStatsDatabase(Handle timer, any data) {
+	g_hCwxStatsDbReconnectTimer = null;
+	ConnectCwxStatisticsDatabase();
+	return Plugin_Stop;
+}
+
+void EnsureCwxStatsSchema() {
+	if (g_CwxStatsDb == null) {
+		return;
+	}
+
+	char query[2048];
+	if (g_CwxStatsIsMySql) {
+		Format(query, sizeof(query),
+			"CREATE TABLE IF NOT EXISTS %s ("
+			... "steamid64 VARCHAR(32) NOT NULL, "
+			... "player_name VARCHAR(128) NOT NULL DEFAULT '', "
+			... "class_index TINYINT NOT NULL, "
+			... "class_name VARCHAR(16) NOT NULL DEFAULT '', "
+			... "loadout_slot TINYINT NOT NULL, "
+			... "weapon_uid VARCHAR(64) NOT NULL, "
+			... "weapon_name VARCHAR(128) NOT NULL DEFAULT '', "
+			... "equipped TINYINT(1) NOT NULL DEFAULT 0, "
+			... "first_equipped_at INT NOT NULL DEFAULT 0, "
+			... "last_equipped_at INT NOT NULL DEFAULT 0, "
+			... "last_unequipped_at INT NOT NULL DEFAULT 0, "
+			... "equip_count INT NOT NULL DEFAULT 0, "
+			... "unequip_count INT NOT NULL DEFAULT 0, "
+			... "updated_at INT NOT NULL DEFAULT 0, "
+			... "PRIMARY KEY (steamid64, class_index, loadout_slot, weapon_uid), "
+			... "KEY idx_cwx_weapon_equipped (weapon_uid, equipped), "
+			... "KEY idx_cwx_weapon_unique (weapon_uid, steamid64), "
+			... "KEY idx_cwx_class_weapon (class_name, weapon_uid)) "
+			... "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+			CWX_STATS_STATE_TABLE);
+	} else {
+		Format(query, sizeof(query),
+			"CREATE TABLE IF NOT EXISTS %s ("
+			... "steamid64 VARCHAR(32) NOT NULL, "
+			... "player_name VARCHAR(128) NOT NULL DEFAULT '', "
+			... "class_index INTEGER NOT NULL, "
+			... "class_name VARCHAR(16) NOT NULL DEFAULT '', "
+			... "loadout_slot INTEGER NOT NULL, "
+			... "weapon_uid VARCHAR(64) NOT NULL, "
+			... "weapon_name VARCHAR(128) NOT NULL DEFAULT '', "
+			... "equipped INTEGER NOT NULL DEFAULT 0, "
+			... "first_equipped_at INTEGER NOT NULL DEFAULT 0, "
+			... "last_equipped_at INTEGER NOT NULL DEFAULT 0, "
+			... "last_unequipped_at INTEGER NOT NULL DEFAULT 0, "
+			... "equip_count INTEGER NOT NULL DEFAULT 0, "
+			... "unequip_count INTEGER NOT NULL DEFAULT 0, "
+			... "updated_at INTEGER NOT NULL DEFAULT 0, "
+			... "PRIMARY KEY (steamid64, class_index, loadout_slot, weapon_uid))",
+			CWX_STATS_STATE_TABLE);
+	}
+
+	g_CwxStatsDb.Query(CwxStats_OnSchemaReady, query);
+}
+
+public void CwxStats_OnSchemaReady(Database db, DBResultSet results, const char[] error, any data) {
+	if (error[0]) {
+		LogError("[CWX] Failed to create statistics schema: %s", error);
+		if (KogasaSql_IsTransientError(error)) {
+			ScheduleCwxStatsDatabaseReconnect();
+		}
+		return;
+	}
+
+	g_CwxStatsDbReady = true;
+	KogasaSql_CancelTimer(g_hCwxStatsDbReconnectTimer);
+	if (!g_CwxStatsIsMySql) {
+		g_CwxStatsDb.Query(CwxStats_OnQueryComplete,
+				"CREATE INDEX IF NOT EXISTS idx_cwx_weapon_equipped "
+				... "ON cwx_weapon_popularity (weapon_uid, equipped)");
+		g_CwxStatsDb.Query(CwxStats_OnQueryComplete,
+				"CREATE INDEX IF NOT EXISTS idx_cwx_weapon_unique "
+				... "ON cwx_weapon_popularity (weapon_uid, steamid64)");
+		g_CwxStatsDb.Query(CwxStats_OnQueryComplete,
+				"CREATE INDEX IF NOT EXISTS idx_cwx_class_weapon "
+				... "ON cwx_weapon_popularity (class_name, weapon_uid)");
+	}
+	CwxStats_MirrorLoadedClients();
+}
+
+public void CwxStats_OnQueryComplete(Database db, DBResultSet results, const char[] error, any data) {
+	if (!error[0]) {
+		return;
+	}
+
+	LogError("[CWX] Statistics query failed: %s", error);
+	if (KogasaSql_IsTransientError(error)) {
+		ScheduleCwxStatsDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+	}
+}
+
+void CwxStats_RecordEquip(int client, int playerClass, int itemSlot, const char[] itemUid,
+		const CustomItemDefinition item) {
+	if (!CwxStats_IsEnabled()) {
+		return;
+	}
+
+	char weaponName[MAX_ITEM_NAME_LENGTH];
+	if (item.displayName[0]) {
+		strcopy(weaponName, sizeof(weaponName), item.displayName);
+	} else {
+		strcopy(weaponName, sizeof(weaponName), itemUid);
+	}
+	CwxStats_LogTransition("cwx_weapon_equip", client, playerClass, itemSlot, itemUid, weaponName);
+
+	char steamId64[KOGASA_STEAMID_MAX], playerName[MAX_NAME_LENGTH];
+	if (!CwxStats_GetClientStateIdentity(client, steamId64, sizeof(steamId64),
+			playerName, sizeof(playerName))) {
+		return;
+	}
+
+	CwxStats_ClearSlotState(steamId64, playerClass, itemSlot, true);
+	CwxStats_UpsertEquipState(steamId64, playerName, playerClass, itemSlot, itemUid,
+			weaponName, true);
+}
+
+void CwxStats_RecordUnequip(int client, int playerClass, int itemSlot, const char[] itemUid) {
+	if (!CwxStats_IsEnabled()) {
+		return;
+	}
+
+	char weaponName[MAX_ITEM_NAME_LENGTH];
+	CwxStats_GetWeaponName(itemUid, weaponName, sizeof(weaponName));
+	CwxStats_LogTransition("cwx_weapon_unequip", client, playerClass, itemSlot, itemUid,
+			weaponName);
+
+	char steamId64[KOGASA_STEAMID_MAX], playerName[MAX_NAME_LENGTH];
+	if (!CwxStats_GetClientStateIdentity(client, steamId64, sizeof(steamId64),
+			playerName, sizeof(playerName))) {
+		return;
+	}
+
+	CwxStats_ClearSlotState(steamId64, playerClass, itemSlot, true);
+}
+
+void CwxStats_MirrorLoadedClients() {
+	for (int client = 1; client <= MaxClients; client++) {
+		if (IsClientConnected(client) && g_bRetrievedLoadout[client]) {
+			CwxStats_MirrorClientSavedLoadout(client);
+		}
+	}
+}
+
+void CwxStats_MirrorClientSavedLoadout(int client) {
+	if (!CwxStats_CanWriteState()) {
+		return;
+	}
+
+	char steamId64[KOGASA_STEAMID_MAX], playerName[MAX_NAME_LENGTH];
+	if (!CwxStats_GetClientStateIdentity(client, steamId64, sizeof(steamId64),
+			playerName, sizeof(playerName))) {
+		return;
+	}
+
+	for (int playerClass = 1; playerClass < NUM_PLAYER_CLASSES; playerClass++) {
+		for (int itemSlot = 0; itemSlot < NUM_ITEMS; itemSlot++) {
+			char itemUid[MAX_ITEM_IDENTIFIER_LENGTH];
+			strcopy(itemUid, sizeof(itemUid), g_CurrentLoadout[client][playerClass][itemSlot].uid);
+			if (!itemUid[0]) {
+				continue;
+			}
+
+			char weaponName[MAX_ITEM_NAME_LENGTH];
+			CwxStats_GetWeaponName(itemUid, weaponName, sizeof(weaponName));
+			CwxStats_UpsertEquipState(steamId64, playerName, playerClass, itemSlot,
+					itemUid, weaponName, false);
+		}
+	}
+}
+
+bool CwxStats_GetClientStateIdentity(int client, char[] steamId64, int steamLen,
+		char[] playerName, int nameLen) {
+	if (!CwxStats_CanWriteState()) {
+		return false;
+	}
+
+	if (!Kogasa_GetClientSteamId64(client, steamId64, steamLen, true)) {
+		return false;
+	}
+
+	if (!GetClientName(client, playerName, nameLen) || !playerName[0]) {
+		strcopy(playerName, nameLen, steamId64);
+	}
+	return true;
+}
+
+void CwxStats_LogTransition(const char[] eventName, int client, int playerClass, int itemSlot,
+		const char[] itemUid, const char[] weaponName) {
+	char steamId64[KOGASA_STEAMID_MAX] = "unknown";
+	char playerName[MAX_NAME_LENGTH] = "unknown";
+	char className[16];
+	char safeEvent[64];
+	char safeUid[MAX_ITEM_IDENTIFIER_LENGTH];
+	char safeWeaponName[MAX_ITEM_NAME_LENGTH];
+
+	if (client > 0 && client <= MaxClients && IsClientConnected(client)) {
+		Kogasa_GetClientSteamId64(client, steamId64, sizeof(steamId64), true);
+		GetClientName(client, playerName, sizeof(playerName));
+	}
+	CwxStats_GetClassName(playerClass, className, sizeof(className));
+	strcopy(safeEvent, sizeof(safeEvent), eventName);
+	strcopy(safeUid, sizeof(safeUid), itemUid);
+	strcopy(safeWeaponName, sizeof(safeWeaponName), weaponName);
+	CwxStats_SanitizeField(steamId64, sizeof(steamId64));
+	CwxStats_SanitizeField(playerName, sizeof(playerName));
+	CwxStats_SanitizeField(className, sizeof(className));
+	CwxStats_SanitizeField(safeEvent, sizeof(safeEvent));
+	CwxStats_SanitizeField(safeUid, sizeof(safeUid));
+	CwxStats_SanitizeField(safeWeaponName, sizeof(safeWeaponName));
+
+	int userid = (client > 0 && client <= MaxClients && IsClientConnected(client))
+			? GetClientUserId(client) : 0;
+	char message[PLUGIN_STATS_MESSAGE_MAX];
+	Format(message, sizeof(message),
+			"event=%s|client=%d|userid=%d|steamid64=%s|name=%s|class=%s|class_index=%d|slot=%d|weapon_uid=%s|weapon_name=%s",
+			safeEvent,
+			client,
+			userid,
+			steamId64,
+			playerName,
+			className,
+			playerClass,
+			itemSlot,
+			safeUid,
+			safeWeaponName);
+	PluginStats_LogMessage(message);
+}
+
+void CwxStats_ClearSlotState(const char[] steamId64, int playerClass, int itemSlot,
+		bool incrementUnequipCount) {
+	if (!CwxStats_CanWriteState()) {
+		return;
+	}
+
+	char escapedSteam[64];
+	KogasaSql_Escape(g_CwxStatsDb, steamId64, escapedSteam, sizeof(escapedSteam), "cwx");
+
+	int now = GetTime();
+	char query[1024];
+	if (incrementUnequipCount) {
+		Format(query, sizeof(query),
+			"UPDATE %s SET equipped = 0, "
+			... "last_unequipped_at = CASE WHEN equipped != 0 THEN %d ELSE last_unequipped_at END, "
+			... "unequip_count = unequip_count + CASE WHEN equipped != 0 THEN 1 ELSE 0 END, "
+			... "updated_at = %d "
+			... "WHERE steamid64 = '%s' AND class_index = %d AND loadout_slot = %d AND equipped != 0",
+			CWX_STATS_STATE_TABLE,
+			now,
+			now,
+			escapedSteam,
+			playerClass,
+			itemSlot);
+	} else {
+		Format(query, sizeof(query),
+			"UPDATE %s SET equipped = 0, updated_at = %d "
+			... "WHERE steamid64 = '%s' AND class_index = %d AND loadout_slot = %d AND equipped != 0",
+			CWX_STATS_STATE_TABLE,
+			now,
+			escapedSteam,
+			playerClass,
+			itemSlot);
+	}
+	g_CwxStatsDb.Query(CwxStats_OnQueryComplete, query);
+}
+
+void CwxStats_UpsertEquipState(const char[] steamId64, const char[] playerName,
+		int playerClass, int itemSlot, const char[] itemUid, const char[] weaponName,
+		bool incrementEquipCount) {
+	if (!CwxStats_CanWriteState()) {
+		return;
+	}
+
+	char className[16];
+	CwxStats_GetClassName(playerClass, className, sizeof(className));
+
+	char escapedSteam[64], escapedName[256], escapedClass[64], escapedUid[128], escapedWeapon[256];
+	KogasaSql_Escape(g_CwxStatsDb, steamId64, escapedSteam, sizeof(escapedSteam), "cwx");
+	KogasaSql_Escape(g_CwxStatsDb, playerName, escapedName, sizeof(escapedName), "cwx");
+	KogasaSql_Escape(g_CwxStatsDb, className, escapedClass, sizeof(escapedClass), "cwx");
+	KogasaSql_Escape(g_CwxStatsDb, itemUid, escapedUid, sizeof(escapedUid), "cwx");
+	KogasaSql_Escape(g_CwxStatsDb, weaponName, escapedWeapon, sizeof(escapedWeapon), "cwx");
+
+	int now = GetTime();
+	int updateIncrement = incrementEquipCount ? 1 : 0;
+	char query[2048];
+	if (g_CwxStatsIsMySql) {
+		Format(query, sizeof(query),
+			"INSERT INTO %s (steamid64, player_name, class_index, class_name, loadout_slot, "
+			... "weapon_uid, weapon_name, equipped, first_equipped_at, last_equipped_at, "
+			... "last_unequipped_at, equip_count, unequip_count, updated_at) "
+			... "VALUES ('%s', '%s', %d, '%s', %d, '%s', '%s', 1, %d, %d, 0, 1, 0, %d) "
+			... "ON DUPLICATE KEY UPDATE player_name = VALUES(player_name), "
+			... "class_name = VALUES(class_name), weapon_name = VALUES(weapon_name), "
+			... "equipped = 1, last_equipped_at = VALUES(last_equipped_at), "
+			... "equip_count = equip_count + %d, updated_at = VALUES(updated_at)",
+			CWX_STATS_STATE_TABLE,
+			escapedSteam,
+			escapedName,
+			playerClass,
+			escapedClass,
+			itemSlot,
+			escapedUid,
+			escapedWeapon,
+			now,
+			now,
+			now,
+			updateIncrement);
+	} else {
+		Format(query, sizeof(query),
+			"INSERT INTO %s (steamid64, player_name, class_index, class_name, loadout_slot, "
+			... "weapon_uid, weapon_name, equipped, first_equipped_at, last_equipped_at, "
+			... "last_unequipped_at, equip_count, unequip_count, updated_at) "
+			... "VALUES ('%s', '%s', %d, '%s', %d, '%s', '%s', 1, %d, %d, 0, 1, 0, %d) "
+			... "ON CONFLICT(steamid64, class_index, loadout_slot, weapon_uid) DO UPDATE SET "
+			... "player_name = excluded.player_name, class_name = excluded.class_name, "
+			... "weapon_name = excluded.weapon_name, equipped = 1, "
+			... "last_equipped_at = excluded.last_equipped_at, "
+			... "equip_count = %s.equip_count + %d, updated_at = excluded.updated_at",
+			CWX_STATS_STATE_TABLE,
+			escapedSteam,
+			escapedName,
+			playerClass,
+			escapedClass,
+			itemSlot,
+			escapedUid,
+			escapedWeapon,
+			now,
+			now,
+			now,
+			CWX_STATS_STATE_TABLE,
+			updateIncrement);
+	}
+	g_CwxStatsDb.Query(CwxStats_OnQueryComplete, query);
+}
+
+void CwxStats_GetWeaponName(const char[] itemUid, char[] buffer, int maxlen) {
+	CustomItemDefinition item;
+	if (GetCustomItemDefinition(itemUid, item) && item.displayName[0]) {
+		strcopy(buffer, maxlen, item.displayName);
+		return;
+	}
+	strcopy(buffer, maxlen, itemUid);
+}
+
+void CwxStats_GetClassName(int playerClass, char[] buffer, int maxlen) {
+	switch (view_as<TFClassType>(playerClass)) {
+		case TFClass_Scout: strcopy(buffer, maxlen, "scout");
+		case TFClass_Sniper: strcopy(buffer, maxlen, "sniper");
+		case TFClass_Soldier: strcopy(buffer, maxlen, "soldier");
+		case TFClass_DemoMan: strcopy(buffer, maxlen, "demoman");
+		case TFClass_Medic: strcopy(buffer, maxlen, "medic");
+		case TFClass_Heavy: strcopy(buffer, maxlen, "heavy");
+		case TFClass_Pyro: strcopy(buffer, maxlen, "pyro");
+		case TFClass_Spy: strcopy(buffer, maxlen, "spy");
+		case TFClass_Engineer: strcopy(buffer, maxlen, "engineer");
+		default: strcopy(buffer, maxlen, "unknown");
+	}
+}
+
+void CwxStats_SanitizeField(char[] value, int maxlen) {
+	ReplaceString(value, maxlen, "|", "/", false);
+	ReplaceString(value, maxlen, "\r", " ", false);
+	ReplaceString(value, maxlen, "\n", " ", false);
+	ReplaceString(value, maxlen, "\t", " ", false);
+	ReplaceString(value, maxlen, "\"", "'", false);
+	TrimString(value);
 }
 
 // bool CWX_GetPlayerLoadoutItem(int client, TFClassType playerClass, int itemSlot, char[] uid, int uidLen, int flags = 0);
