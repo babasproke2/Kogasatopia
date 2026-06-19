@@ -404,6 +404,13 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 		 */
 		DispatchSpawn(itemEntity);
 	}
+
+	/*
+	 * Weapons are spawned a second time above.  Normally the runtime custom-attribute
+	 * storage survives, but make that an invariant before EquipPlayerWeapon fires so
+	 * consumers such as viewmodel_override always observe the final entity state.
+	 */
+	EnsureCustomItemRuntimeAttributes(itemEntity, item);
 	
 	// we didn't remove a weapon by its weapon slot; remove item based on loadout slot
 	if (!bRemovedWeaponInSlot) {
@@ -425,6 +432,27 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 	}
 	TF2_EquipPlayerEconItem(client, itemEntity);
 	return itemEntity;
+}
+
+static void EnsureCustomItemRuntimeAttributes(int itemEntity,
+		const CustomItemDefinition item) {
+	if (!IsValidEntity(itemEntity)) {
+		return;
+	}
+
+	if (!TF2Attrib_GetByName(itemEntity, ATTRIB_NAME_CUSTOM_UID)) {
+		TF2Attrib_SetFromStringValue(itemEntity, ATTRIB_NAME_CUSTOM_UID, item.uid);
+	}
+
+	if (!item.customAttributes) {
+		return;
+	}
+
+	KeyValues currentAttributes = TF2CustAttr_GetAttributeKeyValues(itemEntity);
+	if (!currentAttributes) {
+		TF2CustAttr_UseKeyValues(itemEntity, item.customAttributes);
+	}
+	delete currentAttributes;
 }
 
 /**

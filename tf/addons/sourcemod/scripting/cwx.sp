@@ -302,6 +302,8 @@ void FetchLoadoutItems(int client) {
 }
 
 public void OnClientCookiesCached(int client) {
+	bool wasRetrieved = g_bRetrievedLoadout[client];
+
 	for (int c; c < NUM_PLAYER_CLASSES; c++) {
 		for (int i; i < NUM_ITEMS; i++) {
 			g_ItemPersistCookies[c][i].Get(client, g_CurrentLoadout[client][c][i].uid,
@@ -309,6 +311,30 @@ public void OnClientCookiesCached(int client) {
 		}
 	}
 	g_bRetrievedLoadout[client] = true;
+
+	/*
+	 * Clientprefs can finish after the first PlayerLoadoutUpdated message.  In that
+	 * case the initial equip pass saw an empty loadout and no later pass occurs until
+	 * a class change / regeneration.  Apply the newly retrieved loadout next frame.
+	 */
+	if (!wasRetrieved && IsClientInGame(client)) {
+		RequestFrame(Frame_ApplyRetrievedLoadout, GetClientUserId(client));
+	}
+}
+
+void Frame_ApplyRetrievedLoadout(any userid) {
+	int client = GetClientOfUserId(userid);
+	if (!client || !IsClientInGame(client) || !IsPlayerAlive(client)
+			|| !g_bRetrievedLoadout[client]) {
+		return;
+	}
+
+	int playerClass = view_as<int>(TF2_GetPlayerClass(client));
+	if (playerClass <= 0 || playerClass >= NUM_PLAYER_CLASSES) {
+		return;
+	}
+
+	ApplyClientCustomLoadout(client);
 }
 
 // int CWX_EquipPlayerItem(int client, const char[] uid);
@@ -468,13 +494,26 @@ Action OnPlayerLoadoutUpdated(UserMsg msg_id, BfRead msg, const int[] players,
  * and we keep track of them so we don't unnecessarily reequip them).
  */
 void OnPlayerLoadoutUpdatedPost(UserMsg msg_id, bool sent) {
-	if (!sm_cwx_enable_loadout.BoolValue) {
+	int client = GetClientFromSerial(s_LastUpdatedClient);
+	ApplyClientCustomLoadout(client);
+}
+
+/**
+ * Equips the configured custom loadout for the client's current class.
+ * Called both after the normal TF2 loadout update and after an asynchronous
+ * clientprefs load completes too late for that update.
+ */
+void ApplyClientCustomLoadout(int client) {
+	if (!sm_cwx_enable_loadout.BoolValue || client <= 0 || client > MaxClients
+			|| !IsClientInGame(client)) {
 		return;
 	}
-	
-	int client = GetClientFromSerial(s_LastUpdatedClient);
+
 	int playerClass = view_as<int>(TF2_GetPlayerClass(client));
-	
+	if (playerClass <= 0 || playerClass >= NUM_PLAYER_CLASSES) {
+		return;
+	}
+
 	for (int i; i < NUM_ITEMS; i++) {
 		if (g_CurrentLoadout[client][playerClass][i].IsEmpty()) {
 			// no item specified, use default
