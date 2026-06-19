@@ -238,6 +238,7 @@ public void OnPluginStart() {
 	LoadWeaponRevertsConfig();
 	RegAdminCmd("sm_scatterpellets_status", Command_ScatterPelletsStatus, ADMFLAG_GENERIC, "Print scattergun pellet integration status.");
 	RegAdminCmd("sm_weaponreverts_reload", Command_ReloadWeaponRevertsConfig, ADMFLAG_CONFIG, "Reload weapon revert definitions from configs/weaponreverts.cfg.");
+	RegAdminCmd("sm_weaponreverts_refresh", Command_ReloadWeaponRevertsConfig, ADMFLAG_CONFIG, "Refresh weapon revert definitions from configs/weaponreverts.cfg.");
 	if (WeaponReverts_IsEnabled()) {
 		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
 	// This is used to ignore clients without the m_iAmmo netprop
