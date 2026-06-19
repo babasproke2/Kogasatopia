@@ -983,24 +983,9 @@ stock bool PluginStats_KnownEventName(const char[] message, char[] output, int m
         strcopy(output, maxlen, "imbalance_detected");
         return true;
     }
-    if (strncmp(message[start], "Volunteer priority", 18, false) == 0)
-    {
-        strcopy(output, maxlen, "volunteer_priority");
-        return true;
-    }
     if (strncmp(message[start], "Skip balance", 12, false) == 0)
     {
         strcopy(output, maxlen, "balance_skipped");
-        return true;
-    }
-    if (strncmp(message[start], "Persistent immunity", 19, false) == 0)
-    {
-        strcopy(output, maxlen, "immunity_changed");
-        return true;
-    }
-    if (StrContains(message[start], "volunteer", false) != -1)
-    {
-        strcopy(output, maxlen, "volunteer_changed");
         return true;
     }
 

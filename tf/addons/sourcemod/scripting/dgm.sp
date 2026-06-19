@@ -21,7 +21,9 @@
 #define PLUGIN_VERSION "4.3"
 
 #include "include/dgm_api.inc"
+#include "include/plugin_statistics.inc"
 #define DGM_MAX_CONTROL_POINTS 8
+#define DGM_MAX_CAPTURE_INTERVALS 64
 #define DGM_SETUP_START_CHECK_INTERVAL 0.25
 #define DGM_SETUP_START_CHECK_MAX 80
 #define DGM_SETUP_FALSE_CONFIRM_MAX 3
@@ -63,6 +65,12 @@ int g_iSetupStartChecks = 0;
 int g_iSetupFalseChecks = 0;
 int g_iRoundStartTimestamp = 0;
 int g_iLastRoundDuration = 0;
+int g_iLastCaptureTimestamp = 0;
+int g_iCaptureIntervalCount = 0;
+int g_iCaptureIntervalSeconds[DGM_MAX_CAPTURE_INTERVALS];
+int g_iCaptureRoundElapsedSeconds[DGM_MAX_CAPTURE_INTERVALS];
+int g_iCaptureTeam[DGM_MAX_CAPTURE_INTERVALS];
+int g_iCapturePoint[DGM_MAX_CAPTURE_INTERVALS];
 
 public Plugin myinfo = {
     name = "Gamemode Detector",
@@ -1368,6 +1376,57 @@ int DGM_CalculateRoundDurationSeconds(int firstTimestamp, int secondTimestamp)
     return secondTimestamp - firstTimestamp;
 }
 
+void DGM_ResetCaptureIntervalStats(int startTimestamp)
+{
+    g_iLastCaptureTimestamp = startTimestamp;
+    g_iCaptureIntervalCount = 0;
+}
+
+void DGM_RecordCaptureInterval(Event event)
+{
+    if (g_iCaptureIntervalCount >= DGM_MAX_CAPTURE_INTERVALS)
+    {
+        return;
+    }
+
+    int now = GetTime();
+    int previousTimestamp = g_iLastCaptureTimestamp;
+    if (previousTimestamp <= 0)
+    {
+        previousTimestamp = g_iRoundStartTimestamp;
+    }
+
+    int interval = DGM_CalculateRoundDurationSeconds(previousTimestamp, now);
+    int roundElapsed = DGM_CalculateRoundDurationSeconds(g_iRoundStartTimestamp, now);
+    int index = g_iCaptureIntervalCount++;
+
+    g_iCaptureIntervalSeconds[index] = interval;
+    g_iCaptureRoundElapsedSeconds[index] = roundElapsed;
+    g_iCaptureTeam[index] = event.GetInt("team");
+    g_iCapturePoint[index] = event.GetInt("cp");
+    g_iLastCaptureTimestamp = now;
+}
+
+void DGM_LogCaptureIntervalStats(int winnerTeam, int roundDuration)
+{
+    for (int i = 0; i < g_iCaptureIntervalCount; i++)
+    {
+        char message[384];
+        Format(message, sizeof(message),
+            "event=control_point_capture_interval|winner_team=%d|capture_team=%d|capture_point=%d|capture_sequence=%d|capture_count=%d|interval_seconds=%d|round_elapsed_seconds=%d|round_duration_seconds=%d|real_players=%d",
+            winnerTeam,
+            g_iCaptureTeam[i],
+            g_iCapturePoint[i],
+            i + 1,
+            g_iCaptureIntervalCount,
+            g_iCaptureIntervalSeconds[i],
+            g_iCaptureRoundElapsedSeconds[i],
+            roundDuration,
+            DGM_CountRealPlayers());
+        PluginStats_LogMessage(message);
+    }
+}
+
 void DGM_SetSetupActive(bool setupActive)
 {
     if (setupActive)
@@ -1619,6 +1678,8 @@ void CreateDefaultConfigs()
 
 public void OnPluginStart()
 {
+    PluginStats_Init("dgm_statistics_events");
+
     // The respawn time
     g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 30.0);
     // See description
@@ -1652,7 +1713,7 @@ public void OnPluginStart()
     HookEvent("teamplay_round_active", Event_RoundFullyActive, EventHookMode_PostNoCopy);
     HookEvent("teamplay_setup_finished", Event_SetupFinished);
     HookEvent("teamplay_round_win", Event_RoundWin, EventHookMode_Pre);
-    HookEvent("teamplay_point_captured", Event_PointCaptured, EventHookMode_PostNoCopy);
+    HookEvent("teamplay_point_captured", Event_PointCaptured, EventHookMode_Post);
     HookEvent("player_team", Event_PlayerTeam, EventHookMode_Post);
     HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
 
@@ -1668,10 +1729,17 @@ public void OnPluginStart()
     RegConsoleCmd("sm_manual", Command_CvarHelp, "Displays information about plugin ConVars.");
 }
 
+public void OnPluginEnd()
+{
+    PluginStats_Shutdown();
+}
+
 public void OnMapStart()
 {
+    PluginStats_OnMapStart();
     DGM_ClearSetupStartTimer();
     g_hSetupStateTimer = INVALID_HANDLE;
+    DGM_ResetCaptureIntervalStats(0);
 
     g_bSetupActive = false;
     g_bNoEngineerSetupReduced = false;
@@ -1723,6 +1791,7 @@ public void OnConfigsExecuted()
     g_bRoundStartedOnce = false;
     g_iRoundStartTimestamp = 0;
     g_iLastRoundDuration = 0;
+    DGM_ResetCaptureIntervalStats(0);
     DGM_ApplySetupUberMultiplier();
     RequestFrame(DGM_FrameUpdateSetupState);
     DGM_QueueSetupStartCheck();
@@ -1736,6 +1805,8 @@ public void DGM_FrameUpdateSetupState(any data)
 // Fires when a control point is captured
 public void Event_PointCaptured(Event event, const char[] name, bool dontBroadcast)
 {
+    DGM_RecordCaptureInterval(event);
+
     if (DGM_ShouldDisableInstantRespawn())
     {
         return;
@@ -2041,6 +2112,7 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
 {
     g_iRoundStartTimestamp = GetTime();
     g_iLastRoundDuration = 0;
+    DGM_ResetCaptureIntervalStats(g_iRoundStartTimestamp);
 
     if (g_cvTimeOverride != null)    g_cvTimeOverride.RestoreDefault();
     g_InternalOverride = false; // This is set to true when a round is won, it changes back to false now
@@ -2099,9 +2171,11 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 {
     int roundEndTimestamp = GetTime();
     g_iLastRoundDuration = DGM_CalculateRoundDurationSeconds(g_iRoundStartTimestamp, roundEndTimestamp);
+    DGM_LogCaptureIntervalStats(event.GetInt("team"), g_iLastRoundDuration);
 
     SetConVarInt(g_cvTimeOverride, 30);
     g_PointCaptures = 0;
+    DGM_ResetCaptureIntervalStats(0);
     g_InternalOverride = true; // We're gonna stop clients from getting insta-respawned with this
     DGM_RefreshRespawnVisualState();
 }

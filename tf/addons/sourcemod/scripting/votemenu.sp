@@ -454,7 +454,6 @@ static bool StartYesNoVote(int initiator)
     if (!vote.DisplayVoteToAll(voteDuration))
     {
         delete vote;
-        LogVoteMenuVoteCancelled("display_failed", 0, 0, 0);
         ClearCurrentVoteInitiator();
         return false;
     }
@@ -513,12 +512,10 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
         int reason = param1;
         if (reason == VoteCancel_NoVotes)
         {
-            LogVoteMenuVoteCancelled("no_votes", 0, 0, 0);
             CPrintToChatAll("{red}[Vote]{default} Vote failed: no votes received.");
         }
         else
         {
-            LogVoteMenuVoteCancelled("cancelled", reason, 0, 0);
             CPrintToChatAll("{red}[Vote]{default} Vote cancelled.");
         }
         ClearCurrentVoteInitiator();
@@ -853,35 +850,6 @@ static void LogVoteMenuVoteResult(const char[] result, int yesVotes, int noVotes
         noVotes,
         totalVotes,
         yesRatio,
-        g_CurrentVote.ratio,
-        GetVoteRequiredPercent(g_CurrentVote.ratio),
-        GetVoteMenuMapElapsedSeconds(),
-        g_PendingChargeCost,
-        g_PendingVoteCharge ? 1 : 0);
-    PluginStats_LogMessage(message);
-}
-
-static void LogVoteMenuVoteCancelled(const char[] reason, int cancelReason, int yesVotes, int noVotes)
-{
-    char optionId[96];
-    char optionName[160];
-    char playerName[MAX_NAME_LENGTH];
-    char steamId[32];
-    GetCurrentVoteStatsFields(optionId, sizeof(optionId), optionName, sizeof(optionName));
-    GetCurrentVoteInitiatorStatsFields(steamId, sizeof(steamId), playerName, sizeof(playerName));
-
-    char message[512];
-    Format(message, sizeof(message),
-        "event=vote_cancelled|reason=%s|cancel_reason=%d|option_id=%s|option_name=%s|userid=%d|steamid64=%s|name=%s|yes_votes=%d|no_votes=%d|required_ratio=%.4f|required_percent=%d|map_elapsed_seconds=%d|cost=%d|shop_enabled=%d",
-        reason,
-        cancelReason,
-        optionId,
-        optionName,
-        g_CurrentVoteInitiatorUserId,
-        steamId,
-        playerName,
-        yesVotes,
-        noVotes,
         g_CurrentVote.ratio,
         GetVoteRequiredPercent(g_CurrentVote.ratio),
         GetVoteMenuMapElapsedSeconds(),
