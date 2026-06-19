@@ -25,12 +25,14 @@ new Handle:fwOnPyroAirBlast = INVALID_HANDLE;
 public Plugin:myinfo = {
 	name		= "New Player Movement",
 	author		= "Nanochip + Leonardo + MikeJS + Hombre",
-	description = "Climb walls with melee attack.",
+	description = "Cust attrs for airblast jump and melee wall climb",
 	version		= PLUGIN_VERSION,
 	url			= "http://thecubeserver.org/"
 };
 
 // This fork of the plugin is designed to be used with tf2custattr for cwx
+// It's a combination of an airblast jumping plugin and a wall climb plugin
+// Since I don't want to hook OnGameFrame often.
 
 public OnConfigsExecuted()
 {
