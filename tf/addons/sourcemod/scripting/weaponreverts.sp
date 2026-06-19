@@ -87,7 +87,7 @@
 #define LUNCHBOX_CHOCOLATE_BAR 1
 #define LUNCHBOX_FISHCAKE 7
 #define DALOKOHS_OVERHEAL 450
-#define VITASAW_ITEMDEF 173
+#define ATTR_VITA_SAW_REVERT "vita saw revert"
 #define VITASAW_MAX_PRESERVED_CHARGE 0.20
 #define WEAPON_SLOT_PRIMARY 0
 #define WEAPON_SLOT_LAST 5
@@ -602,7 +602,7 @@ static void VitaSaw_ClearStoredCharge(int client)
 static bool VitaSaw_IsEquipped(int client)
 {
 	int melee = GetPlayerWeaponSlot(client, TFWeaponSlot_Melee);
-	return IsValidWeaponEntity(melee) && GetEntProp(melee, Prop_Send, "m_iItemDefinitionIndex") == VITASAW_ITEMDEF;
+	return IsValidWeaponEntity(melee) && TF2CustAttr_GetInt(melee, ATTR_VITA_SAW_REVERT, 0) != 0;
 }
 
 static bool VitaSaw_GetMedigun(int client, int &medigun)
