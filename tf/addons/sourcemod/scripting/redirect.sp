@@ -1,28 +1,30 @@
 #pragma semicolon 1
+#pragma newdecls required
 
+#include <sourcemod>
 #include <sdktools>
 
 #define MAXSERVERS         25
-new String:szSever[MAXSERVERS][32];
-new String:szSvrIP[MAXSERVERS][32];
-new iMaxServers;
-new iCurrentServer = -1;
-new String:szCurrentIP[32];
-new Handle:hServerMenu = INVALID_HANDLE;
-new Handle:cvShowAddress = INVALID_HANDLE;
+char szSever[MAXSERVERS][32];
+char szSvrIP[MAXSERVERS][32];
+int iMaxServers;
+int iCurrentServer = -1;
+char szCurrentIP[32];
+Menu hServerMenu = null;
+ConVar cvShowAddress = null;
 
 #define PLUGIN_VERSION              "1.1.2"
-public Plugin:myinfo = {
+public Plugin myinfo = {
 	name = "Supreme Redirect System",
 	author = "Mitchell",
 	description = "Uses the new 'redirect' command to make a player join a different server.",
 	version = PLUGIN_VERSION,
 	url = "https://forums.alliedmods.net/showthread.php?p=2261322"
-}
+};
 /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ------Plugin Functions
 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-public OnPluginStart() {
+public void OnPluginStart() {
 	cvShowAddress = CreateConVar( "sm_supremeredirect_showaddress", "0", "Set to 1 to show the address of the server as a disabled item, 2 to let the player connect to the current server." );
 	AutoExecConfig();
 	CreateConVar("sm_supremeredirect_version", PLUGIN_VERSION, "Redirect Version",  FCVAR_PLUGIN|FCVAR_SPONLY|FCVAR_REPLICATED|FCVAR_NOTIFY|FCVAR_DONTRECORD);
@@ -31,7 +33,7 @@ public OnPluginStart() {
 	RegAdminCmd("sm_direct", Cmd_Redirect, 0);
 }
 
-public OnMapStart() {
+public void OnMapStart() {
 	LoadConfig();
 	SetupMenu();
 }
@@ -40,7 +42,7 @@ public OnMapStart() {
 ------Cmd_Redirect		(type: Public Function)
 	Sends the redirect menu.
 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-public Action:Cmd_Redirect(client, args) {
+public Action Cmd_Redirect(int client, int args) {
 	if(client && IsClientInGame(client)) {
 		if(IsRedirectMenuReady()) {
 			DisplayMenu(hServerMenu, client, MENU_TIME_FOREVER);
@@ -52,18 +54,18 @@ public Action:Cmd_Redirect(client, args) {
 ------SetupMenu		(type: Public Function)
 	Setups a menu...wat
 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-public SetupMenu() {
-	if(hServerMenu != INVALID_HANDLE) {
-		CloseHandle(hServerMenu);
-		hServerMenu = INVALID_HANDLE;
+public void SetupMenu() {
+	if(hServerMenu != null) {
+		delete hServerMenu;
+		hServerMenu = null;
 	}
 	hServerMenu = CreateMenu(Menu_Redirect, MENU_ACTIONS_DEFAULT);
 	SetMenuTitle(hServerMenu, "Server Redirect:");
-	new iAction = GetConVarInt(cvShowAddress);
+	int iAction = GetConVarInt(cvShowAddress);
 	if(iAction == 1 && iCurrentServer != -1) {
 		AddMenuItem(hServerMenu, "", szSever[iCurrentServer], ITEMDRAW_DISABLED);
 	}
-	for(new i = 0; i < iMaxServers; i++) {
+	for(int i = 0; i < iMaxServers; i++) {
 		if(iAction <= 1 && iCurrentServer == i) {
 			continue;
 		}
@@ -71,41 +73,49 @@ public SetupMenu() {
 	}
 	SetMenuExitButton(hServerMenu, true);
 }
-public Menu_Redirect(Handle:main, MenuAction:action, client, param2) {
+public int Menu_Redirect(Menu main, MenuAction action, int client, int param2) {
 	switch (action) {
 		case MenuAction_Select: {
-			new String:info[32];
+			char info[32];
 			GetMenuItem(main, param2, info, sizeof(info));
 			ClientCommand(client, "redirect %s", info);
 			PrintToChat(client, "Attempting redirect; ensure cl_showpluginmessage is set to 1");
 		}
 	}
-	return;
+	return 0;
 }
 /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 ------LoadConfig		(type: Public Function)
 	Loads the config from 
 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-public LoadConfig() {
+public void LoadConfig() {
 	iCurrentServer = -1;
 	iMaxServers = 0;
 	//Could probably use steam tools or something and use this as a fall back method.
-	decl String:sHostIP[32];
-	decl String:sHostPort[8];
+	char sHostIP[32];
+	char sHostPort[8];
 	GetConVarString(FindConVar("ip"), sHostIP, 32);
 	GetConVarString(FindConVar("hostport"), sHostPort, 8);
 	Format(szCurrentIP, sizeof(szCurrentIP), "%s:%s", sHostIP, sHostPort);
 	PrintToServer(szCurrentIP);
-	new Handle:SMC = SMC_CreateParser(); 
+	SMCParser SMC = SMC_CreateParser();
 	SMC_SetReaders(SMC, NewSection, KeyValue, EndSection); 
-	decl String:sPaths[PLATFORM_MAX_PATH];
+	char sPaths[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, sPaths, sizeof(sPaths),"configs/redirect.cfg");
 	SMC_ParseFile(SMC, sPaths);
 	CloseHandle(SMC);
 }
-public SMCResult:NewSection(Handle:smc, const String:name[], bool:opt_quotes) {}
-public SMCResult:EndSection(Handle:smc) {}  
-public SMCResult:KeyValue(Handle:smc, const String:key[], const String:value[], bool:key_quotes, bool:value_quotes) {
+public SMCResult NewSection(SMCParser smc, const char[] name, bool opt_quotes)
+{
+	return SMCParse_Continue;
+}
+
+public SMCResult EndSection(SMCParser smc)
+{
+	return SMCParse_Continue;
+}
+
+public SMCResult KeyValue(SMCParser smc, const char[] key, const char[] value, bool key_quotes, bool value_quotes) {
 	if (iMaxServers >= MAXSERVERS) {
 		LogError("[SupremeRedirect] Too many servers in redirect.cfg (max %d). Skipping %s", MAXSERVERS, key);
 		return SMCParse_Continue;
@@ -118,6 +128,6 @@ public SMCResult:KeyValue(Handle:smc, const String:key[], const String:value[], 
 	iMaxServers++;
 	return SMCParse_Continue;
 }
-public bool:IsRedirectMenuReady () {
-	return hServerMenu != INVALID_HANDLE;
+public bool IsRedirectMenuReady() {
+	return hServerMenu != null;
 }

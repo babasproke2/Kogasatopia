@@ -1,4 +1,5 @@
 #pragma semicolon 1
+#pragma newdecls required
 
 #include <sourcemod>
 #include <clientprefs>
@@ -1464,9 +1465,9 @@ public Action SapperCheckStage1(Handle hTimer, any ref)
 	return Plugin_Continue;
 }
 
-public Action:SapperCheckStage2(Handle:hTimer, any:ref)
+public Action SapperCheckStage2(Handle hTimer, any ref)
 {
-	new ent = EntRefToEntIndex(ref);
+	int ent = EntRefToEntIndex(ref);
 	if (ent <= 0 || !IsValidEntity(ent)) return Plugin_Stop;
 
 	if (GetEntProp(ent, Prop_Send, "m_bHasSapper") == 0 && AmplifierSapped[ent])

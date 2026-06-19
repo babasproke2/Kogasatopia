@@ -1,3 +1,6 @@
+#pragma semicolon 1
+#pragma newdecls required
+
 #include <sourcemod>
 
 #include <tf2_stocks>
@@ -187,7 +190,7 @@ static const char g_SpyCustom2[][] = {
     "\x01 [PDA] TF2C L'escampette: {chartreuse}Move 30% faster while cloaked,{red} 50% less cloak, 10% cloak lost on hit, no pickups while cloaked\n"
 };
 
-public Plugin:myinfo = {
+public Plugin myinfo = {
     name = "Welcome Message",
     author = "Hombre",
     description = "Welcome message & server info plugin for Kogasatopia, very specific",
@@ -195,7 +198,7 @@ public Plugin:myinfo = {
     url = "https://kogasa.tf"
 };
 
-public OnPluginStart()
+public void OnPluginStart()
 {
     HookEvent("player_spawn", Event_PlayerSpawn);
     g_hUncleCycleState = FindConVar("uncle_cycle_active");
@@ -247,15 +250,15 @@ static const char g_UncleWelcomeMsg[][] = {
     "{peachpuff}Be aware of fake Uncletopia servers pretending to offer these features."
 };
 
-public OnClientPutInServer(client)
+public void OnClientPutInServer(int client)
 {
     if (client > 0 && client <= MaxClients)
         g_HasBeenWelcomed[client] = false;
 }
 
-public Event_PlayerSpawn(Handle:event, const String:name[], bool:dontBroadcast)
+public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 {
-    new client = GetClientOfUserId(GetEventInt(event, "userid"));
+    int client = GetClientOfUserId(GetEventInt(event, "userid"));
     if (client && IsClientInGame(client))
         CreateTimer(20.0, Timer_Welcome, GetClientUserId(client));
 }
@@ -424,7 +427,7 @@ static const char g_CommandInfo[][] = {
     "{lightgreen}Server:{default} {gold}!steam !chat !info !rules !voice !git !repo !feedback{default}"
 };
 
-public Action:Command_cmds(int client, int args)
+public Action Command_cmds(int client, int args)
 {
     for (int i = 0; i < sizeof(g_CommandInfo); i++)
     {
@@ -433,7 +436,7 @@ public Action:Command_cmds(int client, int args)
     return Plugin_Handled;
 }
 
-public Action:Command_news(int client, int args)
+public Action Command_news(int client, int args)
 {
     char buffer[512];
 
@@ -445,7 +448,7 @@ public Action:Command_news(int client, int args)
     return Plugin_Handled;
 }
 
-public Action:Command_Rules(int client, int args)
+public Action Command_Rules(int client, int args)
 {
     char rule[256];
 
@@ -469,21 +472,21 @@ public Action:Command_Rules(int client, int args)
     return Plugin_Handled;
 }
 
-public Action:Command_Steam(int client, int args)
+public Action Command_Steam(int client, int args)
 {
     char deez[128] = "{chartreuse}Steam Group: {unique} steamcommunity.com/groups/kogtf2";
     CPrintToChat(client, "%s", deez);
     return Plugin_Handled;
 }
 
-public Action:Command_chat(int client, int args)
+public Action Command_chat(int client, int args)
 {
     char deez[256] = "{chartreuse}Steam community chat: \n{unique} steamcommunity.com/chat/invite/Es09gkBm \n{chartreuse}Note: This chat is how the server is generally organized";
     CPrintToChat(client, "%s", deez);
     return Plugin_Handled;
 }
 
-public Action:Command_DiamondPickaxe(int client, int args)
+public Action Command_DiamondPickaxe(int client, int args)
 {
     if (!client || !IsClientInGame(client))
     {

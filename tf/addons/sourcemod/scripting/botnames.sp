@@ -1,4 +1,5 @@
 #pragma semicolon 1
+#pragma newdecls required
 
 #include <sourcemod>
 
@@ -11,28 +12,28 @@
 
 #define PLUGIN_VERSION			"1.0"
 
-public Plugin:myinfo =
+public Plugin myinfo =
 {
 	name = "[TF2] Rename bots",
 	author = "Hombre",
 	description = "Rename bots based by class",
 	version = PLUGIN_VERSION,
 	url = "https://kogasa.tf"
-}
+};
 
-public OnPluginStart()
+public void OnPluginStart()
 {
 	HookEvent("player_spawn", OnPlayerSpawn, EventHookMode_Post);
 	HookEvent("player_changename", Event_OnNameChange, EventHookMode_Pre);
 }
 
-public OnPlayerSpawn(Handle:hEvent, const String:strEventName[], bool:bDontBroadcast)
+public void OnPlayerSpawn(Event hEvent, const char[] strEventName, bool bDontBroadcast)
 {
-	new iClient = GetClientOfUserId(GetEventInt(hEvent, "userid"));
+	int iClient = GetClientOfUserId(GetEventInt(hEvent, "userid"));
 	
 	if (IsClientInGame(iClient) && IsFakeClient(iClient))
 	{
-		new TFClassType:class = TF2_GetPlayerClass(iClient);
+		TFClassType class = TF2_GetPlayerClass(iClient);
 		if (GetClientTeam(iClient) == 3) // Blue
 		{
 			switch(class)
@@ -64,9 +65,9 @@ public OnPlayerSpawn(Handle:hEvent, const String:strEventName[], bool:bDontBroad
 	}
 }
 
-public Action:Event_OnNameChange(Handle:event, const String:name[], bool:dontBroadcast)
+public Action Event_OnNameChange(Event event, const char[] name, bool dontBroadcast)
 {
-	new client = GetClientOfUserId(GetEventInt(event, "userid"));
+	int client = GetClientOfUserId(GetEventInt(event, "userid"));
 	if (client <= 0 || !IsClientInGame(client) || !IsFakeClient(client))
 	{
 		return Plugin_Continue;
