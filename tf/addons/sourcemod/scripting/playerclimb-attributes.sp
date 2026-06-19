@@ -1,356 +1,872 @@
 #pragma semicolon 1
+#pragma newdecls required
 
 #include <sourcemod>
+#include <sdkhooks>
+#include <sdktools>
 #include <tf2_stocks>
 #include <tf_custom_attributes>
-#include <sdkhooks>
-#include <clientprefs>
 
-#define PLUGIN_VERSION "3.0"
+#define PLUGIN_VERSION "4.0.0"
 
-new Handle:cvarEnable, Handle:cvarMaxClimbs, Handle:cvarCooldown, Handle:cvarNextClimb;
-new maxClimbs[MAXPLAYERS+1] = {0, ...};
-new bool:gClimb[MAXPLAYERS+1][9];
-new bool:justClimbed[MAXPLAYERS+1] = {false, ...};
-new bool:blockClimb[MAXPLAYERS+1] = {false, ...};
+#define ATTR_WALL_CLIMB       "wall climb enabled"
+#define ATTR_AIRBLAST_JUMP     "airblast jump"
+#define DRAGONS_FURY_CLASSNAME "tf_weapon_rocketlauncher_fireball"
+#define CLIMB_SOUND            "player/taunt_clip_spin.wav"
 
-//Pyro airblast jump code begins here
+#define TF_WEAPON_SLOT_COUNT       5
+#define CLIMB_TRACE_DISTANCE       100.0
+#define CLIMB_VERTICAL_VELOCITY    600.0
+#define MAX_CLIMBABLE_NORMAL_Z     0.5
+#define SECONDARY_ATTACK_EPSILON   0.0001
+#define STATUS_MESSAGE_INTERVAL    1.0
+#define ATTRIBUTE_RECHECK_INTERVAL 1.0
 
-new Handle:tf_flamethrower_burst_zvelocity = INVALID_HANDLE;
-new bool:bPluginEnabled = true;
-new Float:flZVelocity = 0.0;
-new Float:flNextSecondaryAttack[MAXPLAYERS+1];
-new Handle:fwOnPyroAirBlast = INVALID_HANDLE;
+ConVar g_CvarEnabled;
+ConVar g_CvarMaxClimbs;
+ConVar g_CvarLandingCooldown;
+ConVar g_CvarNextClimb;
+ConVar g_CvarAirblastVelocity;
 
-public Plugin:myinfo = {
-	name		= "New Player Movement",
-	author		= "Nanochip + Leonardo + MikeJS + Hombre",
-	description = "Cust attrs for airblast jump and melee wall climb",
-	version		= PLUGIN_VERSION,
-	url			= "http://thecubeserver.org/"
+bool g_Enabled;
+int g_MaxClimbs;
+float g_LandingCooldown;
+float g_NextClimbDelay;
+float g_AirblastVelocity;
+
+bool g_ClientHooksInstalled[MAXPLAYERS + 1];
+bool g_WasOnGround[MAXPLAYERS + 1];
+int g_ClimbsSinceGround[MAXPLAYERS + 1];
+bool g_ClimbedSinceGround[MAXPLAYERS + 1];
+float g_ClimbBlockedUntil[MAXPLAYERS + 1];
+float g_NextStatusMessageAt[MAXPLAYERS + 1];
+int g_LastClimbTick[MAXPLAYERS + 1];
+
+bool g_HasWallClimb[MAXPLAYERS + 1];
+bool g_RefreshPending[MAXPLAYERS + 1];
+bool g_RefreshFrameQueued;
+
+bool g_AirblastThinkHooked[MAXPLAYERS + 1];
+int g_AirblastWeaponRef[MAXPLAYERS + 1];
+float g_LastSecondaryAttack[MAXPLAYERS + 1];
+float g_NextAirblastAttributeCheck[MAXPLAYERS + 1];
+
+public Plugin myinfo =
+{
+    name = "[TF2] Custom Attribute Movement",
+    author = "Nanochip, Leonardo, MikeJS, Hombre",
+    description = "Wall climbing and Dragon's Fury airblast jumping via TF2 custom attributes.",
+    version = PLUGIN_VERSION,
+    url = "https://github.com/eltanschauung/Kogasatopia"
 };
 
-// This fork of the plugin is designed to be used with tf2custattr for cwx
-// It's a combination of an airblast jumping plugin and a wall climb plugin
-// Since I don't want to hook OnGameFrame often.
-
-public OnConfigsExecuted()
+public void OnPluginStart()
 {
-    flZVelocity = GetConVarFloat( tf_flamethrower_burst_zvelocity );
-}
-
-public OnClientPutInServer( iClient )
-{
-    flNextSecondaryAttack[iClient] = GetGameTime();
-    SDKHook( iClient, SDKHook_WeaponSwitchPost, OnWeaponSwitchPost );
-}
-
-public OnPluginStart()
-{
-	CreateConVar("sm_playerclimb_version", PLUGIN_VERSION, "Player Climb Version", FCVAR_PLUGIN|FCVAR_SPONLY|FCVAR_UNLOGGED|FCVAR_DONTRECORD|FCVAR_REPLICATED|FCVAR_NOTIFY);
-	cvarEnable = CreateConVar("sm_playerclimb_enable", "1", "Enable the plugin? 1 = Yes, 0 = No.", _, true, 0.0, true, 1.0);
-	cvarMaxClimbs = CreateConVar("sm_playerclimb_maxclimbs", "0.0", "The maximum amount of times the player can melee the wall (climb) while being in the air before they have to touch the ground again. 0 = Disabled, 1 = 1 Climb... 23 = 23 Climbs.");
-	cvarCooldown = CreateConVar("sm_playerclimb_cooldown", "0.0", "Time in seconds before the player may climb the wall again, this cooldown starts when the player touches the ground after climbing.");
-	cvarNextClimb = CreateConVar("sm_playerclimb_nextclimb", "1.56", "Time in seconds in between melee climbs", _, true, 0.1);
-	
-	for (new i = 1; i <= MaxClients; i++)
-	{
-		for (new col = 0; col < 9; col++)
-		{
-			gClimb[i][col] = true;
-		}
-	}
-	//Pyro airblast jump code begins here
-    
-    decl String:strGameDir[8];
-    GetGameFolderName( strGameDir, sizeof(strGameDir) );
-    if( !StrEqual( strGameDir, "tf", false ) && !StrEqual( strGameDir, "tf_beta", false ) )
-        SetFailState( "THIS PLUGIN IS FOR TEAM FORTRESS 2 ONLY!" );
-    
-    tf_flamethrower_burst_zvelocity = FindConVar( "tf_flamethrower_burst_zvelocity" );
-    
-    fwOnPyroAirBlast = CreateGlobalForward( "TF2_OnPyroAirBlast", ET_Event, Param_Cell );
-    
-    for( new i = 0; i <= MAXPLAYERS; i++ )
+    if (GetEngineVersion() != Engine_TF2)
     {
-        flNextSecondaryAttack[i] = GetGameTime();
-        if( IsValidClient(i) )
+        SetFailState("This plugin only supports Team Fortress 2.");
+    }
+
+    CreateConVar(
+        "sm_playerclimb_version",
+        PLUGIN_VERSION,
+        "Player climb plugin version.",
+        FCVAR_NOTIFY | FCVAR_DONTRECORD
+    );
+
+    g_CvarEnabled = CreateConVar(
+        "sm_playerclimb_enable",
+        "1",
+        "Enable wall climbing and airblast jumping.",
+        0,
+        true,
+        0.0,
+        true,
+        1.0
+    );
+    g_CvarMaxClimbs = CreateConVar(
+        "sm_playerclimb_maxclimbs",
+        "0",
+        "Maximum airborne wall climbs before landing. 0 disables the limit.",
+        0,
+        true,
+        0.0
+    );
+    g_CvarLandingCooldown = CreateConVar(
+        "sm_playerclimb_cooldown",
+        "0.0",
+        "Seconds after landing before another wall climb is allowed.",
+        0,
+        true,
+        0.0
+    );
+    g_CvarNextClimb = CreateConVar(
+        "sm_playerclimb_nextclimb",
+        "1.56",
+        "Seconds before the climbing melee weapon may attack again.",
+        0,
+        true,
+        0.1
+    );
+
+    g_CvarAirblastVelocity = FindConVar("tf_flamethrower_burst_zvelocity");
+    if (g_CvarAirblastVelocity == null)
+    {
+        SetFailState("Required convar tf_flamethrower_burst_zvelocity was not found.");
+    }
+
+    HookConVarChange(g_CvarEnabled, OnMovementConVarChanged);
+    HookConVarChange(g_CvarMaxClimbs, OnMovementConVarChanged);
+    HookConVarChange(g_CvarLandingCooldown, OnMovementConVarChanged);
+    HookConVarChange(g_CvarNextClimb, OnMovementConVarChanged);
+    HookConVarChange(g_CvarAirblastVelocity, OnMovementConVarChanged);
+    CacheConVars();
+
+    PrecacheSound(CLIMB_SOUND, true);
+
+    HookEvent("player_spawn", Event_PlayerSpawn, EventHookMode_Post);
+    HookEvent("player_death", Event_PlayerDeath, EventHookMode_Post);
+    HookEvent("post_inventory_application", Event_PostInventoryApplication, EventHookMode_Post);
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsUsableClient(client))
         {
-            SDKHook( i, SDKHook_WeaponSwitchPost, OnWeaponSwitchPost );
+            InstallClientHooks(client);
+            ResetClimbState(client);
+            QueueClientRefresh(client);
         }
     }
 }
 
-public OnClientDisconnect(client)
+public void OnConfigsExecuted()
 {
-	justClimbed[client] = false;
-	blockClimb[client] = false;
-	maxClimbs[client] = 0;
+    CacheConVars();
 }
 
-public OnWeaponSwitchPost( iClient, iWeapon )
+public void OnMapStart()
 {
-    if( !IsValidClient(iClient) || !IsPlayerAlive(iClient) || !IsValidEntity(iWeapon) )
+    g_RefreshFrameQueued = false;
+    PrecacheSound(CLIMB_SOUND, true);
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        g_RefreshPending[client] = false;
+
+        if (IsUsableClient(client))
+        {
+            QueueClientRefresh(client);
+        }
+    }
+}
+
+public void OnMapEnd()
+{
+    g_RefreshFrameQueued = false;
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        g_RefreshPending[client] = false;
+    }
+}
+
+public void OnClientPutInServer(int client)
+{
+    ResetClientState(client);
+    InstallClientHooks(client);
+    QueueClientRefresh(client);
+}
+
+public void OnClientDisconnect(int client)
+{
+    StopAirblastTracking(client);
+    ResetClientState(client);
+}
+
+public void OnMovementConVarChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    bool wasEnabled = g_Enabled;
+    CacheConVars();
+
+    if (wasEnabled == g_Enabled)
+    {
         return;
-    
-	if (!TF2CustAttr_GetInt(iWeapon, "airblast jump", 1))
-		return;
-    
-    flNextSecondaryAttack[iClient] = GetEntPropFloat( iWeapon, Prop_Send, "m_flNextSecondaryAttack" );
-}
+    }
 
-public OnClientAuthorized(client, const String:auth[])
-{
-	if (!GetConVarBool(cvarEnable)) return;
-	for (new i = 1; i <= MaxClients; i++)
-	{
-		for (new col = 0; col < 9; col++)
-		{
-			gClimb[i][col] = true;
-		}
-	}
-}
-
-public Action:TF2_CalcIsAttackCritical(client, weapon, String:weaponname[], &bool:result)
-{
-	if (!GetConVarBool(cvarEnable) || !IsValidClient(client))
-		return Plugin_Continue;
-
-	if (TF2_GetPlayerClass(client) != TFClass_Spy &&
-        TF2_GetPlayerClass(client) != TFClass_Sniper &&
-        TF2_GetPlayerClass(client) != TFClass_Medic)
-		return Plugin_Continue;
-
-	if (IsValidEntity(weapon))
-	{
-		if (weapon == GetPlayerWeaponSlot(client, TFWeaponSlot_Melee))
-		{
-			if (HasWallClimbAttribute(client))
-			{
-				SickleClimbWalls(client, weapon);
-				return Plugin_Changed;
-			}
-		}
-	}
-	return Plugin_Continue;
-}
-
-bool HasWallClimbAttribute(int client)
-{
-    if (client < 1 || client > MaxClients || !IsClientInGame(client))
-        return false;
-    
-    // Check all weapon slots
-    for (int slot = 0; slot < 5; slot++)
+    for (int client = 1; client <= MaxClients; client++)
     {
-        int weapon = GetPlayerWeaponSlot(client, slot);
-        if (weapon != -1 && IsValidEntity(weapon))
+        if (!IsClientInGame(client))
         {
-            if (TF2CustAttr_GetInt(weapon, "wall climb enabled") > 0)
-                return true;
+            continue;
+        }
+
+        if (g_Enabled)
+        {
+            QueueClientRefresh(client);
+        }
+        else
+        {
+            StopAirblastTracking(client);
         }
     }
-    
-    // Check all wearables
+}
+
+void CacheConVars()
+{
+    g_Enabled = g_CvarEnabled.BoolValue;
+    g_MaxClimbs = g_CvarMaxClimbs.IntValue;
+    g_LandingCooldown = g_CvarLandingCooldown.FloatValue;
+    g_NextClimbDelay = g_CvarNextClimb.FloatValue;
+    g_AirblastVelocity = g_CvarAirblastVelocity.FloatValue;
+}
+
+void InstallClientHooks(int client)
+{
+    if (g_ClientHooksInstalled[client] || !IsClientInGame(client))
+    {
+        return;
+    }
+
+    if (IsClientSourceTV(client) || IsClientReplay(client))
+    {
+        return;
+    }
+
+    SDKHook(client, SDKHook_GroundEntChangedPost, OnGroundEntityChangedPost);
+    SDKHook(client, SDKHook_WeaponEquipPost, OnWeaponEquipPost);
+    SDKHook(client, SDKHook_WeaponDropPost, OnWeaponDropPost);
+    SDKHook(client, SDKHook_WeaponSwitchPost, OnWeaponSwitchPost);
+    g_ClientHooksInstalled[client] = true;
+}
+
+void ResetClientState(int client)
+{
+    g_ClientHooksInstalled[client] = false;
+    g_WasOnGround[client] = false;
+    g_ClimbsSinceGround[client] = 0;
+    g_ClimbedSinceGround[client] = false;
+    g_ClimbBlockedUntil[client] = 0.0;
+    g_NextStatusMessageAt[client] = 0.0;
+    g_LastClimbTick[client] = -1;
+
+    g_HasWallClimb[client] = false;
+    g_RefreshPending[client] = false;
+
+    g_AirblastThinkHooked[client] = false;
+    g_AirblastWeaponRef[client] = INVALID_ENT_REFERENCE;
+    g_LastSecondaryAttack[client] = 0.0;
+    g_NextAirblastAttributeCheck[client] = 0.0;
+}
+
+void ResetClimbState(int client)
+{
+    g_WasOnGround[client] = IsClientInGame(client)
+        && ((GetEntityFlags(client) & FL_ONGROUND) != 0);
+    g_ClimbsSinceGround[client] = 0;
+    g_ClimbedSinceGround[client] = false;
+    g_ClimbBlockedUntil[client] = 0.0;
+    g_NextStatusMessageAt[client] = 0.0;
+    g_LastClimbTick[client] = -1;
+}
+
+public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
+{
+    int client = GetClientOfUserId(event.GetInt("userid"));
+    if (!IsUsableClient(client))
+    {
+        return;
+    }
+
+    StopAirblastTracking(client);
+    ResetClimbState(client);
+    QueueClientRefresh(client);
+}
+
+public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
+{
+    int client = GetClientOfUserId(event.GetInt("userid"));
+    if (client < 1 || client > MaxClients)
+    {
+        return;
+    }
+
+    StopAirblastTracking(client);
+    ResetClimbState(client);
+    g_HasWallClimb[client] = false;
+}
+
+public void Event_PostInventoryApplication(Event event, const char[] name, bool dontBroadcast)
+{
+    int client = GetClientOfUserId(event.GetInt("userid"));
+    if (IsUsableClient(client))
+    {
+        QueueClientRefresh(client);
+    }
+}
+
+public void OnWeaponEquipPost(int client, int weapon)
+{
+    if (IsUsableClient(client))
+    {
+        QueueClientRefresh(client);
+    }
+}
+
+public void OnWeaponDropPost(int client, int weapon)
+{
+    if (!IsUsableClient(client))
+    {
+        return;
+    }
+
+    if (EntRefToEntIndex(g_AirblastWeaponRef[client]) == weapon)
+    {
+        StopAirblastTracking(client);
+    }
+
+    QueueClientRefresh(client);
+}
+
+public void OnWeaponSwitchPost(int client, int weapon)
+{
+    if (!IsUsableClient(client))
+    {
+        return;
+    }
+    ConfigureAirblastTracking(client, weapon);
+}
+
+public void OnGroundEntityChangedPost(int client)
+{
+    if (!IsUsableClient(client))
+    {
+        return;
+    }
+
+    bool onGround = (GetEntityFlags(client) & FL_ONGROUND) != 0;
+
+    if (onGround && !g_WasOnGround[client])
+    {
+        g_ClimbsSinceGround[client] = 0;
+
+        if (g_ClimbedSinceGround[client] && g_LandingCooldown > 0.0)
+        {
+            g_ClimbBlockedUntil[client] = GetGameTime() + g_LandingCooldown;
+        }
+
+        g_ClimbedSinceGround[client] = false;
+    }
+
+    g_WasOnGround[client] = onGround;
+
+    if (onGround)
+    {
+        SetAirblastThinkHook(client, false);
+    }
+    else
+    {
+        int activeWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+        ConfigureAirblastTracking(client, activeWeapon);
+    }
+}
+
+public Action TF2CustAttr_OnKeyValuesAdded(int entity, KeyValues attributes)
+{
+    if (entity > MaxClients && IsValidEntity(entity))
+    {
+        RequestFrame(Frame_AttributeEntityReady, EntIndexToEntRef(entity));
+    }
+
+    return Plugin_Continue;
+}
+
+public void Frame_AttributeEntityReady(any entityRef)
+{
+    int entity = EntRefToEntIndex(entityRef);
+    if (entity == INVALID_ENT_REFERENCE || !IsValidEntity(entity))
+    {
+        return;
+    }
+
+    if (!HasEntProp(entity, Prop_Send, "m_hOwnerEntity"))
+    {
+        return;
+    }
+
+    int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+    if (IsUsableClient(owner))
+    {
+        QueueClientRefresh(owner);
+    }
+}
+
+void QueueClientRefresh(int client)
+{
+    if (!IsUsableClient(client))
+    {
+        return;
+    }
+
+    if (!g_Enabled)
+    {
+        g_HasWallClimb[client] = false;
+        StopAirblastTracking(client);
+        return;
+    }
+
+    g_RefreshPending[client] = true;
+
+    if (!g_RefreshFrameQueued)
+    {
+        g_RefreshFrameQueued = true;
+        RequestFrame(Frame_RefreshQueuedClients);
+    }
+}
+
+public void Frame_RefreshQueuedClients(any data)
+{
+    g_RefreshFrameQueued = false;
+
+    bool refreshClient[MAXPLAYERS + 1];
+    bool anyRefresh = false;
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        refreshClient[client] = false;
+    }
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!g_RefreshPending[client])
+        {
+            continue;
+        }
+
+        g_RefreshPending[client] = false;
+
+        if (!IsUsableClient(client))
+        {
+            continue;
+        }
+
+        refreshClient[client] = true;
+        anyRefresh = true;
+        g_HasWallClimb[client] = HasWallClimbOnWeapon(client);
+    }
+
+    if (!anyRefresh)
+    {
+        return;
+    }
+
     int wearable = -1;
     while ((wearable = FindEntityByClassname(wearable, "tf_wearable")) != -1)
     {
-        if (GetEntPropEnt(wearable, Prop_Send, "m_hOwnerEntity") == client)
+        if (!IsValidEntity(wearable)
+            || !HasEntProp(wearable, Prop_Send, "m_hOwnerEntity"))
         {
-            if (TF2CustAttr_GetInt(wearable, "wall climb enabled") > 0)
-                return true;
+            continue;
+        }
+
+        int owner = GetEntPropEnt(wearable, Prop_Send, "m_hOwnerEntity");
+        if (!IsUsableClient(owner)
+            || !refreshClient[owner]
+            || g_HasWallClimb[owner])
+        {
+            continue;
+        }
+
+        if (TF2CustAttr_GetInt(wearable, ATTR_WALL_CLIMB, 0) > 0)
+        {
+            g_HasWallClimb[owner] = true;
         }
     }
-    
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!refreshClient[client])
+        {
+            continue;
+        }
+
+        int activeWeapon = -1;
+        if (IsPlayerAlive(client))
+        {
+            activeWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+        }
+
+        ConfigureAirblastTracking(client, activeWeapon);
+    }
+}
+
+bool HasWallClimbOnWeapon(int client)
+{
+    for (int slot = 0; slot < TF_WEAPON_SLOT_COUNT; slot++)
+    {
+        int weapon = GetPlayerWeaponSlot(client, slot);
+        if (weapon > MaxClients
+            && IsValidEntity(weapon)
+            && TF2CustAttr_GetInt(weapon, ATTR_WALL_CLIMB, 0) > 0)
+        {
+            return true;
+        }
+    }
+
     return false;
 }
 
-public Timer_NoAttacking(any:ref)
+public Action TF2_CalcIsAttackCritical(
+    int client,
+    int weapon,
+    char[] weaponName,
+    bool &result
+)
 {
-	new weapon = EntRefToEntIndex(ref);
-	SetNextAttack(weapon, GetConVarFloat(cvarNextClimb));
+    if (!g_Enabled
+        || !IsLivingClient(client)
+        || !g_HasWallClimb[client]
+        || weapon <= MaxClients
+        || !IsValidEntity(weapon)
+        || weapon != GetPlayerWeaponSlot(client, TFWeaponSlot_Melee))
+    {
+        return Plugin_Continue;
+    }
+
+    TryWallClimb(client, weapon);
+    return Plugin_Continue;
 }
 
-public void OnGameFrame()
+void TryWallClimb(int client, int weapon)
 {
-    float cooldown = GetConVarFloat(cvarCooldown); // Cache convar value once per frame
-    for (int i = 1; i <= MaxClients; i++)
+    float now = GetGameTime();
+
+    if (now < g_ClimbBlockedUntil[client])
     {
-        if (!IsClientInGame(i))
-            continue;
-			
-		if (IsValidClient(i))
-			OnPreThink( i );
+        ShowClimbStatus(
+            client,
+            "[SM] Climbing is on cooldown for another %.1f seconds.",
+            g_ClimbBlockedUntil[client] - now
+        );
+        return;
+    }
 
-        if ((GetEntityFlags(i) & FL_ONGROUND) == 0)
-            continue;
+    bool airborne = (GetEntityFlags(client) & FL_ONGROUND) == 0;
+    if (airborne
+        && g_MaxClimbs > 0
+        && g_ClimbsSinceGround[client] >= g_MaxClimbs)
+    {
+        ShowClimbStatus(
+            client,
+            "[SM] Touch the ground before climbing again."
+        );
+        return;
+    }
 
-        maxClimbs[i] = 0;
+    float hitPosition[3];
+    if (!TraceClimbableWall(client, hitPosition))
+    {
+        return;
+    }
 
-        if (cooldown > 0.0 && justClimbed[i])
+    int gameTick = GetGameTickCount();
+    if (g_LastClimbTick[client] == gameTick)
+    {
+        return;
+    }
+    g_LastClimbTick[client] = gameTick;
+
+    float velocity[3];
+    GetEntPropVector(client, Prop_Data, "m_vecVelocity", velocity);
+    velocity[2] = CLIMB_VERTICAL_VELOCITY;
+    TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
+
+    EmitAmbientSound(CLIMB_SOUND, hitPosition);
+
+    RequestFrame(Frame_SetNextWeaponAttack, EntIndexToEntRef(weapon));
+    g_ClimbsSinceGround[client]++;
+    g_ClimbedSinceGround[client] = true;
+}
+
+bool TraceClimbableWall(int client, float hitPosition[3])
+{
+    float eyePosition[3];
+    float eyeAngles[3];
+    float direction[3];
+    float endPosition[3];
+
+    GetClientEyePosition(client, eyePosition);
+    GetClientEyeAngles(client, eyeAngles);
+    GetAngleVectors(eyeAngles, direction, NULL_VECTOR, NULL_VECTOR);
+
+    ScaleVector(direction, CLIMB_TRACE_DISTANCE);
+    AddVectors(eyePosition, direction, endPosition);
+
+    Handle trace = TR_TraceRayFilterEx(
+        eyePosition,
+        endPosition,
+        MASK_PLAYERSOLID,
+        RayType_EndPoint,
+        TraceFilter_IgnoreClient,
+        client
+    );
+
+    if (trace == null || !TR_DidHit(trace))
+    {
+        delete trace;
+        return false;
+    }
+
+    int hitEntity = TR_GetEntityIndex(trace);
+    if (!IsClimbableEntity(hitEntity))
+    {
+        delete trace;
+        return false;
+    }
+
+    float planeNormal[3];
+    TR_GetPlaneNormal(trace, planeNormal);
+    if (FloatAbs(planeNormal[2]) > MAX_CLIMBABLE_NORMAL_Z)
+    {
+        delete trace;
+        return false;
+    }
+
+    TR_GetEndPosition(hitPosition, trace);
+    delete trace;
+    return true;
+}
+
+bool IsClimbableEntity(int entity)
+{
+    // World and static-prop traces may report a non-positive entity index.
+    if (entity <= 0)
+    {
+        return true;
+    }
+
+    if (!IsValidEntity(entity))
+    {
+        return false;
+    }
+
+    char className[64];
+    GetEntityClassname(entity, className, sizeof(className));
+
+    if (StrEqual(className, "worldspawn", false))
+    {
+        return true;
+    }
+
+    // Preserve the legacy behavior: climb non-physics prop_* entities.
+    return StrContains(className, "prop_", false) == 0
+        && className[5] != 'p';
+}
+
+public bool TraceFilter_IgnoreClient(int entity, int contentsMask, any client)
+{
+    return entity != client;
+}
+
+public void Frame_SetNextWeaponAttack(any weaponRef)
+{
+    int weapon = EntRefToEntIndex(weaponRef);
+    if (weapon <= MaxClients || weapon == INVALID_ENT_REFERENCE || !IsValidEntity(weapon))
+    {
+        return;
+    }
+
+    float nextAttack = GetGameTime() + g_NextClimbDelay;
+    SetEntPropFloat(weapon, Prop_Send, "m_flNextPrimaryAttack", nextAttack);
+    SetEntPropFloat(weapon, Prop_Send, "m_flNextSecondaryAttack", nextAttack);
+}
+
+void ShowClimbStatus(int client, const char[] format, any ...)
+{
+    float now = GetGameTime();
+    if (now < g_NextStatusMessageAt[client])
+    {
+        return;
+    }
+
+    char message[192];
+    VFormat(message, sizeof(message), format, 3);
+    PrintToChat(client, "%s", message);
+    g_NextStatusMessageAt[client] = now + STATUS_MESSAGE_INTERVAL;
+}
+
+void ConfigureAirblastTracking(int client, int weapon)
+{
+    if (!g_Enabled
+        || !IsLivingClient(client)
+        || TF2_GetPlayerClass(client) != TFClass_Pyro
+        || !IsAirblastJumpWeapon(weapon))
+    {
+        StopAirblastTracking(client);
+        return;
+    }
+
+    int weaponRef = EntIndexToEntRef(weapon);
+    if (g_AirblastWeaponRef[client] != weaponRef)
+    {
+        g_AirblastWeaponRef[client] = weaponRef;
+        g_LastSecondaryAttack[client] = GetEntPropFloat(
+            weapon,
+            Prop_Send,
+            "m_flNextSecondaryAttack"
+        );
+        g_NextAirblastAttributeCheck[client] = 0.0;
+    }
+
+    bool airborne = (GetEntityFlags(client) & FL_ONGROUND) == 0;
+    SetAirblastThinkHook(client, airborne);
+}
+
+void SetAirblastThinkHook(int client, bool shouldHook)
+{
+    if (client < 1 || client > MaxClients
+        || shouldHook == g_AirblastThinkHooked[client])
+    {
+        return;
+    }
+
+    if (!IsClientInGame(client))
+    {
+        g_AirblastThinkHooked[client] = false;
+        return;
+    }
+
+    if (shouldHook)
+    {
+        SDKHook(client, SDKHook_PostThinkPost, OnAirblastPostThinkPost);
+    }
+    else
+    {
+        SDKUnhook(client, SDKHook_PostThinkPost, OnAirblastPostThinkPost);
+    }
+
+    g_AirblastThinkHooked[client] = shouldHook;
+}
+
+void StopAirblastTracking(int client)
+{
+    if (client < 1 || client > MaxClients)
+    {
+        return;
+    }
+
+    SetAirblastThinkHook(client, false);
+
+    g_AirblastWeaponRef[client] = INVALID_ENT_REFERENCE;
+    g_LastSecondaryAttack[client] = 0.0;
+    g_NextAirblastAttributeCheck[client] = 0.0;
+}
+
+bool IsAirblastJumpWeapon(int weapon)
+{
+    if (weapon <= MaxClients
+        || !IsValidEntity(weapon)
+        || !HasEntProp(weapon, Prop_Send, "m_flNextSecondaryAttack"))
+    {
+        return false;
+    }
+
+    char className[64];
+    GetEntityClassname(weapon, className, sizeof(className));
+
+    return TF2CustAttr_GetInt(weapon, ATTR_AIRBLAST_JUMP, 0) > 0;
+}
+
+public void OnAirblastPostThinkPost(int client)
+{
+    if (!g_Enabled || !IsLivingClient(client))
+    {
+        StopAirblastTracking(client);
+        return;
+    }
+
+    if ((GetEntityFlags(client) & FL_ONGROUND) != 0)
+    {
+        SetAirblastThinkHook(client, false);
+        return;
+    }
+
+
+    int weapon = EntRefToEntIndex(g_AirblastWeaponRef[client]);
+    if (weapon == INVALID_ENT_REFERENCE
+        || !IsValidEntity(weapon)
+        || GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon") != weapon)
+    {
+        StopAirblastTracking(client);
+        QueueClientRefresh(client);
+        return;
+    }
+    float now = GetGameTime();
+    if (now >= g_NextAirblastAttributeCheck[client])
+    {
+        g_NextAirblastAttributeCheck[client] = now
+            + ATTRIBUTE_RECHECK_INTERVAL;
+
+        if (!IsAirblastJumpWeapon(weapon))
         {
-            justClimbed[i] = false;
-            blockClimb[i] = true;
-            CreateTimer(cooldown, Timer_ClimbCooldown, i, TIMER_FLAG_NO_MAPCHANGE);
+            StopAirblastTracking(client);
+            return;
         }
     }
-}
 
-public OnPreThink( iClient )
-{
-    if( !IsPlayerAlive(iClient) )
-        return;
-    
-    if( TF2_GetPlayerClass(iClient) != TFClass_Pyro )
-        return;
-    
-    // This schedules the entity's next think function to execute 5 server ticks from now
-	// which would be roughly 0.075 seconds in the future on a standard 66-tick server
-    
-    //new iNextTickTime = RoundToNearest( FloatDiv( GetGameTime() , GetTickInterval() ) ) + 5;
-    //SetEntProp( iClient, Prop_Data, "m_nNextThinkTick", iNextTickTime );
-    
-    new Float:flSpeed = GetEntPropFloat( iClient, Prop_Send, "m_flMaxspeed" );
-    if( flSpeed > 0.0 && flSpeed < 5.0 )
-        return;
-    
-    if( GetEntProp( iClient, Prop_Data, "m_nWaterLevel" ) > 1 )
-        return;
-    
-    if(!(GetClientButtons(iClient) & IN_ATTACK2))
+    float nextSecondaryAttack = GetEntPropFloat(
+        weapon,
+        Prop_Send,
+        "m_flNextSecondaryAttack"
+    );
+
+    if (nextSecondaryAttack <= g_LastSecondaryAttack[client]
+        + SECONDARY_ATTACK_EPSILON)
     {
         return;
     }
 
-    new iWeapon = GetEntPropEnt( iClient, Prop_Send, "m_hActiveWeapon" );
-    if( !IsValidEntity(iWeapon) )
+    g_LastSecondaryAttack[client] = nextSecondaryAttack;
+
+    if ((GetClientButtons(client) & IN_ATTACK2) == 0
+        || GetEntProp(client, Prop_Data, "m_nWaterLevel") > 1)
+    {
         return;
-    
-    decl String:strClassname[64];
-    GetEntityClassname( iWeapon, strClassname, sizeof(strClassname) );
-    
-    if( !StrEqual( strClassname, "tf_weapon_rocketlauncher_fireball", false ))
+    }
+
+    float maxSpeed = GetEntPropFloat(client, Prop_Send, "m_flMaxspeed");
+    if (maxSpeed > 0.0 && maxSpeed < 5.0)
+    {
         return;
+    }
 
-    if( ( GetEntPropFloat( iWeapon, Prop_Send, "m_flNextSecondaryAttack" ) - flNextSecondaryAttack[iClient] ) <= 0.0 )
-        return;
-    flNextSecondaryAttack[iClient] = GetEntPropFloat( iWeapon, Prop_Send, "m_flNextSecondaryAttack" );
-    
-    //PrintToChat( iClient, "%0.1f", GetEntPropFloat( iWeapon, Prop_Send, "m_flNextSecondaryAttack" ) - flNextSecondaryAttack[iClient] );
-    //PrintToChat( iClient, "%0.1f %0.1f %0.1f", GetEntPropFloat( iWeapon, Prop_Send, "m_flNextSecondaryAttack" ), flNextSecondaryAttack[iClient], GetGameTime() );
-    
-    decl Action:result;
-    Call_StartForward(fwOnPyroAirBlast);
-    Call_PushCell( iClient );
-    Call_Finish( result );
-    if( result == Plugin_Handled || result == Plugin_Stop )
-        return;
-    
-    if( (GetEntityFlags(iClient) & FL_ONGROUND) == FL_ONGROUND )
-        return;
-    
-    if( !bPluginEnabled )
-        return;
-    
-    decl Float:vecAngles[3], Float:vecVelocity[3];
-    GetClientEyeAngles( iClient, vecAngles );
-    GetEntPropVector( iClient, Prop_Data, "m_vecVelocity", vecVelocity );
-    vecAngles[0] = DegToRad( -1.0 * vecAngles[0] );
-    vecAngles[1] = DegToRad( vecAngles[1] );
-    vecVelocity[0] -= flZVelocity * Cosine( vecAngles[0] ) * Cosine( vecAngles[1] );
-    vecVelocity[1] -= flZVelocity * Cosine( vecAngles[0] ) * Sine( vecAngles[1] );
-    vecVelocity[2] -= flZVelocity * Sine( vecAngles[0] );
-    TeleportEntity( iClient, NULL_VECTOR, NULL_VECTOR, vecVelocity );
+    ApplyAirblastJump(client);
 }
 
-public Action:Timer_ClimbCooldown(Handle:timer, any:client)
+void ApplyAirblastJump(int client)
 {
-	blockClimb[client] = false;
+    float eyeAngles[3];
+    float impulse[3];
+    float velocity[3];
+
+    GetClientEyeAngles(client, eyeAngles);
+    GetAngleVectors(eyeAngles, impulse, NULL_VECTOR, NULL_VECTOR);
+    ScaleVector(impulse, -g_AirblastVelocity);
+
+    GetEntPropVector(client, Prop_Data, "m_vecVelocity", velocity);
+    AddVectors(velocity, impulse, velocity);
+    TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
 }
 
-SickleClimbWalls(int client, int weapon)	 //Credit to Mecha the Slag
+bool IsUsableClient(int client)
 {
-	if (!IsValidClient(client)) return;
-	
-	decl String:classname[64];
-	decl Float:vecClientEyePos[3], Float:vecClientEyeAng[3];
-	GetClientEyePosition(client, vecClientEyePos);	 // Get the position of the player's eyes
-	GetClientEyeAngles(client, vecClientEyeAng);	   // Get the angle the player is looking
-	
-	//Check for colliding entities
-	TR_TraceRayFilter(vecClientEyePos, vecClientEyeAng, MASK_PLAYERSOLID, RayType_Infinite, TraceRayDontHitSelf, client);
-	
-	if (!TR_DidHit(INVALID_HANDLE)) return;
-	
-	new TRIndex = TR_GetEntityIndex(INVALID_HANDLE);
-	GetEdictClassname(TRIndex, classname, sizeof(classname));
-	if (!((StrStarts(classname, "prop_") && classname[5] != 'p') || StrEqual(classname, "worldspawn"))) return;
-	
-	decl Float:fNormal[3];
-	TR_GetPlaneNormal(INVALID_HANDLE, fNormal);
-	GetVectorAngles(fNormal, fNormal);
-	
-	if (fNormal[0] >= 30.0 && fNormal[0] <= 330.0) return;
-	if (fNormal[0] <= -30.0) return;
-	
-	decl Float:pos[3];
-	TR_GetEndPosition(pos);
-	new Float:distance = GetVectorDistance(vecClientEyePos, pos);
-	
-	if (distance >= 100.0) return;
-	
-	if (blockClimb[client])
-	{
-		PrintToChat(client, "[SM] Climbing is currently on cool-down, please wait.");
-		return;
-	}
-	
-	new maxNumClimbs = GetConVarInt(cvarMaxClimbs);
-	
-	if (maxNumClimbs != 0 && maxClimbs[client] >= maxNumClimbs && !(GetEntityFlags(client) & FL_ONGROUND))
-	{
-		PrintToChat(client, "[SM] You need to touch the ground before you can climb again.");
-		return;
-	}
-	
-	new Float:fVelocity[3];
-	GetEntPropVector(client, Prop_Data, "m_vecVelocity", fVelocity);
-	
-	fVelocity[2] = 600.0;
-	
-	TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, fVelocity);
-	
-	EmitAmbientSound("player/taunt_clip_spin.wav", vecClientEyePos);
-	//if (level > 1) SDKHooks_TakeDamage(client, client, client, GetConVarFloat(cvarDamageAmount), DMG_CLUB, 0);
-	
-	RequestFrame(Timer_NoAttacking, EntIndexToEntRef(weapon));
-	maxClimbs[client]++;
-	justClimbed[client] = true;
+    return client >= 1
+        && client <= MaxClients
+        && IsClientInGame(client)
+        && !IsClientSourceTV(client)
+        && !IsClientReplay(client);
 }
 
-public bool:TraceRayDontHitSelf(entity, mask, any:data)
+bool IsLivingClient(int client)
 {
-	return (entity != data);
-}
-
-stock SetNextAttack(weapon, Float:duration = 0.0)
-{
-	if (weapon <= MaxClients || !IsValidEntity(weapon)) return;
-	new Float:next = GetGameTime() + duration;
-	SetEntPropFloat(weapon, Prop_Send, "m_flNextPrimaryAttack", next);
-	SetEntPropFloat(weapon, Prop_Send, "m_flNextSecondaryAttack", next);
-}
-
-stock bool:IsValidClient(iClient)
-{
-	return (0 < iClient && iClient <= MaxClients && IsClientInGame(iClient));
-}
-
-stock bool:StrStarts(const String:szStr[], const String:szSubStr[], bool:bCaseSensitive = true) 
-{
-	return !StrContains(szStr, szSubStr, bCaseSensitive);
-}
-
-stock int TF2_GetPlayerMaxHealth(int client) {
-	return GetEntProp(GetPlayerResourceEntity(), Prop_Send, "m_iMaxHealth", _, client);
+    return IsUsableClient(client) && IsPlayerAlive(client);
 }
