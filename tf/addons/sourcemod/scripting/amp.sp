@@ -1355,7 +1355,7 @@ void CheckBuilding(int ent)
             }
             else
             {
-                CPrintToChat(Client, "{orange}[Amplifier]{default} Sentries are being replaced with Amplifiers right now; have an Amplifier instead!");
+                CPrintToChat(Client, "{orange}[Amplifier]{default} Sentries have been disabled for this map; have an Amplifier instead!");
             }
         }
     }
