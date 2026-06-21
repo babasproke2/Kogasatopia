@@ -1698,6 +1698,12 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     }
 
     int oldAmount = g_ClientLotteryTicketValue[client];
+    if (amount == oldAmount)
+    {
+        CPrintToChat(client, "%s[Lottery]{default} Your current ticket is equal to {gold}%d", colorTag, amount);
+        return;
+    }
+
     int postRefundBalance = GetCachedBonusPoints(client) + oldAmount;
     if (postRefundBalance < amount)
     {
