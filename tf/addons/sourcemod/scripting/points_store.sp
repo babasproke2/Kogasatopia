@@ -80,6 +80,7 @@ ConVar g_CvarCurrencyLong = null;
 ConVar g_CvarCurrencyColor = null;
 ConVar g_CvarSendCooldown = null;
 ConVar g_CvarEnableWelfare = null;
+ConVar g_CvarWelfareMinPlayers = null;
 ConVar g_CvarLotteryDisabled = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
@@ -228,6 +229,7 @@ public void OnPluginStart()
     g_CvarCurrencyColor = CreateConVar("sm_points_store_currency_color", "magenta", "Multicolors tag name used for the currency prefix, without braces.");
     g_CvarSendCooldown = CreateConVar("sm_points_store_send_cooldown", "15.0", "Seconds a client must wait between successful !send currency transfers.", _, true, 0.0);
     g_CvarEnableWelfare = CreateConVar("sm_points_store_welfare", "1", "Enable welfare?", _, true, 0.0, true, 1.0);
+    g_CvarWelfareMinPlayers = CreateConVar("sm_points_store_welfare_min_players", "3", "Minimum GetClientCount(false) value required to collect welfare. 0 disables the requirement.", _, true, 0.0, true, 64.0);
     g_CvarLotteryDisabled = CreateConVar("sm_points_store_lottery_disabled", "0", "Disable lottery ticket commands and lottery draws on this server.", _, true, 0.0, true, 1.0);
     g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
@@ -4053,6 +4055,17 @@ bool IsWelfareEnabled()
     return g_CvarEnableWelfare != null && g_CvarEnableWelfare.BoolValue;
 }
 
+int GetWelfareMinPlayers()
+{
+    if (g_CvarWelfareMinPlayers == null)
+    {
+        return 0;
+    }
+
+    int minPlayers = g_CvarWelfareMinPlayers.IntValue;
+    return minPlayers > 0 ? minPlayers : 0;
+}
+
 void QueuePointsStoreEvent(const char[] message)
 {
     PluginStats_LogMessage(message);
@@ -5408,6 +5421,13 @@ public Action Command_Welfare(int client, int args)
     if (!IsWelfareEnabled())
     {
         CPrintToChat(client, "%s Welfare is currently disabled", prefix);
+        return Plugin_Handled;
+    }
+
+    int minPlayers = GetWelfareMinPlayers();
+    if (minPlayers > 0 && GetClientCount(false) < minPlayers)
+    {
+        CPrintToChat(client, "%s Minimum playercount for welfare collection is {gold}%d", prefix, minPlayers);
         return Plugin_Handled;
     }
 
