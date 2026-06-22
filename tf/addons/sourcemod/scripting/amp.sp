@@ -17,10 +17,6 @@
 #include <conch_no_speed>
 
 
-#undef REQUIRE_PLUGIN
-#include <dgm_api>
-#define REQUIRE_PLUGIN
-
 #define MAX_AMPLIFIER_CLIENTS (MAXPLAYERS + 1)
 #define MAX_AMPLIFIER_ENTITIES 2048
 
@@ -202,7 +198,6 @@ public Plugin myinfo = {
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
-	MarkNativeAsOptional("DGM_RealPlayerCount");
 	CreateNative("ControlAmplifier", Native_ControlAmplifier);
 	CreateNative("SetAmplifierDisp", Native_SetAmplifierDisp);
 	CreateNative("SetAmplifierSentry", Native_SetAmplifierSentry);
@@ -394,12 +389,7 @@ bool IsPlayercountForceActive()
 		return false;
 	}
 
-	if (GetFeatureStatus(FeatureType_Native, "DGM_RealPlayerCount") != FeatureStatus_Available)
-	{
-		return false;
-	}
-
-	int playerCount = DGM_RealPlayerCount();
+	int playerCount = GetClientCount(false);
 	if (playerCount < AMPLIFIER_FORCE_MIN_PLAYERS)
 	{
 		return false;
