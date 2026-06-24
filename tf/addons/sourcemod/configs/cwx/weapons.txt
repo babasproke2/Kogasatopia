@@ -816,13 +816,13 @@
         {
                 "name"                  "Grenade Launcher (fixed spin)"
                 "image"                 "90px-Backpack_Grenade_Launcher.png"
+                "inherits"              "TF_WEAPON_GRENADELAUNCHER"
                 "description"
                 {
-                        "positive"             "Grenade Launcher (straight grenades)"
-                        "neutral"              ""
+                        "positive"             ""
+                        "neutral"              "Grenades fly straight instead of spinning"
                         "negative"             ""
                 }
-                "inherits"              "TF_WEAPON_GRENADELAUNCHER"
                 "used_by_classes"
                 {
                     "demoman" "primary"
@@ -872,6 +872,29 @@
                 {
                         "fire rate bonus"                             "1.00"
                         "sticky arm time penalty"                                  "0.40"
+                }
+        }
+        "oldquickie"
+        {
+                "name"  "Old Quickiebomb Launcher"
+                "image" "90px-Backpack_Quickiebomb_Launcher.png"
+                "inherits" "The Quickiebomb Launcher"
+                "description"
+                {
+                        "positive"             "Up to +25% more damage based on charge, max charge time decreased by 50%"
+                        "neutral"              ""
+                        "negative"             "Stickybombs fizzle 4 seconds after landing, -25% clip size"
+                }
+                "used_by_classes"
+                {
+                    "demoman" "secondary"
+                }
+                "attributes_game"
+                {
+                        "clip size penalty"     "0.75"
+                        "stickybomb_charge_damage_increase"     "1.25"
+                        "stickybomb fizzle time"        "4"
+                        "stickybomb charge rate"        "0.50"
                 }
         }
         "familybsns"
@@ -1038,7 +1061,7 @@
                 "image"                 "120px-icon_amplifier.png"
                 "description"
                 {
-                        "positive"             "Equip this custom weapon to replace your Dispenser with an Amplifier"
+                        "positive"             "Equip this custom Destroy PDA to replace your Dispenser with an Amplifier"
                         "neutral"              "Using !a to toggle Amplifiers is more convenient"
                         "negative"             ""
                 }
@@ -1058,7 +1081,7 @@
                 "image"                 "120px-icon_amplifier.png"
                 "description"
                 {
-                        "positive"             "Equip this custom weapon to replace your Sentry with an Amplifier"
+                        "positive"             "Equip this custom Destroy PDA to replace your Sentry with an Amplifier"
                         "neutral"              "Using !a to toggle Amplifiers is more convenient"
                         "negative"             ""
                 }
