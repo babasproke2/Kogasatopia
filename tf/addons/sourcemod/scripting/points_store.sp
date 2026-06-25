@@ -268,6 +268,10 @@ public void OnPluginStart()
     RegConsoleCmd("sm_gamble", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_bet", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_lotto", Command_Lottery, "Open the currency lottery.");
+    RegConsoleCmd("sm_lottowhen", Command_LotteryTime, "Show time until the next lottery draw.");
+    RegConsoleCmd("sm_when", Command_LotteryTime, "Show time until the next lottery draw.");
+    RegConsoleCmd("sm_lottotime", Command_LotteryTime, "Show time until the next lottery draw.");
+    RegConsoleCmd("sm_time", Command_LotteryTime, "Show time until the next lottery draw.");
     RegConsoleCmd("sm_pool", Command_LotteryPrizePool, "Show the lottery prize pool.");
     RegConsoleCmd("sm_prizepool", Command_LotteryPrizePool, "Show the lottery prize pool.");
     RegConsoleCmd("sm_ticket", Command_ViewLotteryTicket, "View your current lottery ticket.");
@@ -1244,6 +1248,40 @@ public Action Command_LotteryRefund(int client, int args)
 
     RefundLotteryTicket(client);
     return Plugin_Handled;
+}
+
+public Action Command_LotteryTime(int client, int args)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return Plugin_Handled;
+    }
+
+    int secondsUntilLottery = SecondsUntilNextLotteryDraw(GetTime());
+    int minutesUntilLottery = (secondsUntilLottery + 59) / 60;
+    char minuteLabel[16];
+    strcopy(minuteLabel, sizeof(minuteLabel), minutesUntilLottery == 1 ? "minute" : "minutes");
+
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    CPrintToChat(client, "%s[Lotto]{default} Time until the lottery: {gold}%d %s", colorTag, minutesUntilLottery, minuteLabel);
+    return Plugin_Handled;
+}
+
+int SecondsUntilNextLotteryDraw(int timestamp)
+{
+    static int drawSeconds[] = {60, 960, 1860, 2760};
+    int elapsedThisHour = timestamp % 3600;
+
+    for (int i = 0; i < sizeof(drawSeconds); i++)
+    {
+        if (elapsedThisHour <= drawSeconds[i])
+        {
+            return drawSeconds[i] - elapsedThisHour;
+        }
+    }
+
+    return 3660 - elapsedThisHour;
 }
 
 public Action Command_LotteryPrizePool(int client, int args)
