@@ -1257,6 +1257,12 @@ public Action Command_LotteryTime(int client, int args)
         return Plugin_Handled;
     }
 
+    PrintLotteryTime(client, true);
+    return Plugin_Handled;
+}
+
+void PrintLotteryTime(int client, bool includePrefix)
+{
     int secondsUntilLottery = SecondsUntilNextLotteryDraw(GetTime());
     int minutesUntilLottery = (secondsUntilLottery + 59) / 60;
     char minuteLabel[16];
@@ -1264,8 +1270,15 @@ public Action Command_LotteryTime(int client, int args)
 
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
-    CPrintToChat(client, "%s[Lotto]{default} Time until the lottery: {gold}%d %s", colorTag, minutesUntilLottery, minuteLabel);
-    return Plugin_Handled;
+
+    if (includePrefix)
+    {
+        CPrintToChat(client, "%s[Lotto]{default} Time until the lottery: {gold}%d %s", colorTag, minutesUntilLottery, minuteLabel);
+    }
+    else
+    {
+        CPrintToChat(client, "{default}Time until the lottery: {gold}%d %s", minutesUntilLottery, minuteLabel);
+    }
 }
 
 int SecondsUntilNextLotteryDraw(int timestamp)
@@ -2186,6 +2199,7 @@ public void SQL_OnLotteryPrizePoolLoaded(Database db, DBResultSet results, const
     }
 
     CPrintToChat(client, "%s[Lotto]{default} Prize pool: %s%d", colorTag, colorTag, pool);
+    PrintLotteryTime(client, false);
     CPrintToChat(client, "{default}Participants: {gold}%d", participants);
 }
 
