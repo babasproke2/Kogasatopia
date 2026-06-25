@@ -74,6 +74,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 {
     MarkNativeAsOptional("FilterAlerts_MarkAutobalance");
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
+    MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("PointsStore_ConsumePurchaseUse");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
@@ -495,6 +496,10 @@ public Action Timer_Autobalance(Handle timer)
 
     ChangeClientTeam(pick, smallestTeam);
     TF2_RespawnPlayer(pick);
+    if (volunteerSelection && GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+    {
+        PointsStore_ApplyBonusPoints(pick, 1, true, true, 1.0, "autobalance_volunteer", 0, 0.0, 0);
+    }
     SetClientMapImmunity(pick, true);
     g_fImbalanceDetectedAt = 0.0;
     PlayTeamMoveSaySound();
