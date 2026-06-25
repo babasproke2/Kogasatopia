@@ -125,10 +125,12 @@ int g_LotteryDrawLotteryId = 0;
 int g_LotteryDrawPrizePool = 0;
 int g_LotteryDrawWinnerPrize = 0;
 int g_LotteryDrawWelfarePoolPrize = 0;
+int g_LotteryDrawWinnerTicketValue = 0;
 char g_LotteryDrawWinnerSteamId[32];
 char g_LotteryDrawWinnerName[LOTTO_NAME_MAX];
 int g_LotteryDrawExtraWinnerCount = 0;
 int g_LotteryDrawExtraWinnerPrizes[MAXPLAYERS + 1];
+int g_LotteryDrawExtraWinnerTicketValues[MAXPLAYERS + 1];
 char g_LotteryDrawExtraWinnerSteamIds[MAXPLAYERS + 1][32];
 char g_LotteryDrawExtraWinnerNames[MAXPLAYERS + 1][LOTTO_NAME_MAX];
 char g_LotteryDrawHash[LOTTO_HASH_MAX];
@@ -2379,6 +2381,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
     ArrayList steamIds = new ArrayList(ByteCountToCells(32));
     ArrayList storedNames = new ArrayList(ByteCountToCells(LOTTO_NAME_MAX));
     ArrayList tickets = new ArrayList(ByteCountToCells(LOTTO_TICKET_MAX));
+    ArrayList ticketValues = new ArrayList();
     ArrayList ticketChances = new ArrayList();
     bool selectedWinners[MAXPLAYERS + 1];
     int totalChances = 0;
@@ -2407,6 +2410,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
         steamIds.PushString(steamId);
         storedNames.PushString(storedName);
         tickets.PushString(ticket);
+        ticketValues.Push(ticketValue);
         ticketChances.Push(chanceCount);
         totalChances += chanceCount;
     }
@@ -2420,6 +2424,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
         delete steamIds;
         delete storedNames;
         delete tickets;
+        delete ticketValues;
         delete ticketChances;
         return;
     }
@@ -2433,6 +2438,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
         delete steamIds;
         delete storedNames;
         delete tickets;
+        delete ticketValues;
         delete ticketChances;
         return;
     }
@@ -2465,6 +2471,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
     tickets.GetString(mainWinnerIndex, mainTicket, sizeof(mainTicket));
 
     strcopy(g_LotteryDrawWinnerSteamId, sizeof(g_LotteryDrawWinnerSteamId), mainSteamId);
+    g_LotteryDrawWinnerTicketValue = ticketValues.Get(mainWinnerIndex);
     ResolveLotteryWinnerName(mainSteamId, mainStoredName, g_LotteryDrawWinnerName, sizeof(g_LotteryDrawWinnerName));
 
     for (int i = 0; i < g_LotteryDrawExtraWinnerCount; i++)
@@ -2478,6 +2485,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
 
         selectedWinners[extraWinnerIndex] = true;
         g_LotteryDrawExtraWinnerPrizes[i] = extraPrize;
+        g_LotteryDrawExtraWinnerTicketValues[i] = ticketValues.Get(extraWinnerIndex);
         char extraSteamId[32];
         char extraStoredName[LOTTO_NAME_MAX];
         steamIds.GetString(extraWinnerIndex, extraSteamId, sizeof(extraSteamId));
@@ -2506,6 +2514,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
     delete steamIds;
     delete storedNames;
     delete tickets;
+    delete ticketValues;
     delete ticketChances;
 
     if (g_LotteryDrawTokens.Length <= 0)
@@ -2631,6 +2640,19 @@ void FinalizeLotteryDraw()
     g_Database.Query(SQL_OnLotteryFinished, query, pack);
 }
 
+void FormatLotteryPayoutDelta(char[] buffer, int maxlen, int payout, int investment)
+{
+    int delta = payout - investment;
+    if (delta >= 0)
+    {
+        Format(buffer, maxlen, "{green}(+%%%d)", delta);
+    }
+    else
+    {
+        Format(buffer, maxlen, "{red}(-%%%d)", -delta);
+    }
+}
+
 public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[] error, any data)
 {
     DataPack pack = view_as<DataPack>(data);
@@ -2684,11 +2706,15 @@ public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[]
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
     GetLotteryShortHash(hash, shortHash, sizeof(shortHash));
-    CPrintToChatAll("%s[Lotto]{default} %s won lottery %s%s{default} for %s%d %s{default}!", colorTag, winnerName, hashColor, shortHash, colorTag, winnerPrize, currencyLong);
+    char winnerDelta[32];
+    FormatLotteryPayoutDelta(winnerDelta, sizeof(winnerDelta), winnerPrize, g_LotteryDrawWinnerTicketValue);
+    CPrintToChatAll("%s[Lotto]{default} %s won lottery %s%s{default} for %s%d %s{default} %s{default}!", colorTag, winnerName, hashColor, shortHash, colorTag, winnerPrize, currencyLong, winnerDelta);
 
     for (int i = 0; i < g_LotteryDrawExtraWinnerCount; i++)
     {
-        CPrintToChatAll("{default}%s won %s%d %s{default}!", g_LotteryDrawExtraWinnerNames[i], colorTag, g_LotteryDrawExtraWinnerPrizes[i], currencyLong);
+        char extraDelta[32];
+        FormatLotteryPayoutDelta(extraDelta, sizeof(extraDelta), g_LotteryDrawExtraWinnerPrizes[i], g_LotteryDrawExtraWinnerTicketValues[i]);
+        CPrintToChatAll("{default}%s won %s%d %s{default} %s{default}!", g_LotteryDrawExtraWinnerNames[i], colorTag, g_LotteryDrawExtraWinnerPrizes[i], currencyLong, extraDelta);
     }
 
     g_LotteryDrawInProgress = false;
@@ -2708,12 +2734,14 @@ void ResetLotteryDrawState()
     g_LotteryDrawPrizePool = 0;
     g_LotteryDrawWinnerPrize = 0;
     g_LotteryDrawWelfarePoolPrize = 0;
+    g_LotteryDrawWinnerTicketValue = 0;
     g_LotteryDrawWinnerSteamId[0] = '\0';
     g_LotteryDrawWinnerName[0] = '\0';
     g_LotteryDrawExtraWinnerCount = 0;
     for (int i = 0; i <= MaxClients; i++)
     {
         g_LotteryDrawExtraWinnerPrizes[i] = 0;
+        g_LotteryDrawExtraWinnerTicketValues[i] = 0;
         g_LotteryDrawExtraWinnerSteamIds[i][0] = '\0';
         g_LotteryDrawExtraWinnerNames[i][0] = '\0';
     }
