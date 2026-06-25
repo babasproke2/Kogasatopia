@@ -2445,23 +2445,9 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
 
     selectedWinners[mainWinnerIndex] = true;
 
-    g_LotteryDrawExtraWinnerCount = validTicketCount / LOTTO_EXTRA_WINNER_PARTICIPANTS;
-    if (g_LotteryDrawExtraWinnerCount > validTicketCount - 1)
-    {
-        g_LotteryDrawExtraWinnerCount = validTicketCount - 1;
-    }
-
-    int extraPrize = (prizePool * LOTTO_EXTRA_WINNER_PERCENT) / 100;
-    int welfarePoolPrize = (prizePool * LOTTO_WELFARE_POOL_PERCENT) / 100;
-    if (extraPrize <= 0)
-    {
-        g_LotteryDrawExtraWinnerCount = 0;
-    }
-
-    if (g_LotteryDrawExtraWinnerCount <= 0)
-    {
-        welfarePoolPrize = 0;
-    }
+    g_LotteryDrawExtraWinnerCount = 0;
+    int extraPrize = 0;
+    int welfarePoolPrize = 0;
 
     char mainSteamId[32];
     char mainStoredName[LOTTO_NAME_MAX];
@@ -2643,13 +2629,19 @@ void FinalizeLotteryDraw()
 void FormatLotteryPayoutDelta(char[] buffer, int maxlen, int payout, int investment)
 {
     int delta = payout - investment;
+    float percent = 0.0;
+    if (investment > 0)
+    {
+        percent = (float(delta) / float(investment)) * 100.0;
+    }
+
     if (delta >= 0)
     {
-        Format(buffer, maxlen, "{green}(+%%%d)", delta);
+        Format(buffer, maxlen, "{green}(+%.2f%%)", percent);
     }
     else
     {
-        Format(buffer, maxlen, "{red}(-%%%d)", -delta);
+        Format(buffer, maxlen, "{red}(-%.2f%%)", -percent);
     }
 }
 
