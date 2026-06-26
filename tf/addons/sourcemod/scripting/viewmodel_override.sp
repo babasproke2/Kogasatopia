@@ -41,6 +41,8 @@
 
 bool g_bIgnoreWeaponSwitch[MAXPLAYERS + 1];
 ConVar g_cvEdictReserve;
+ConVar g_cvDebug;
+ConVar g_cvValidationRepair;
 bool g_bLoggedEdictReserve;
 
 int g_iLastViewmodelRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
@@ -63,6 +65,10 @@ public void OnPluginStart() {
 	g_cvEdictReserve = CreateConVar("sm_viewmodel_override_edict_reserve", "128",
 		"Minimum free edicts kept before spawning cosmetic override wearables. Set to 0 to disable.",
 		_, true, 0.0);
+	g_cvDebug = CreateConVar("sm_viewmodel_override_debug", "0",
+		"Log verbose model override validation state.", _, true, 0.0, true, 1.0);
+	g_cvValidationRepair = CreateConVar("sm_viewmodel_override_validate_repair", "1",
+		"Re-assert m_bValidatedAttachedEntity if TF2 clears it after attachment.", _, true, 0.0, true, 1.0);
 
 	HookEvent("player_death", OnPlayerDeath);
 	HookEvent("post_inventory_application", OnInventoryAppliedPost);
@@ -132,7 +138,7 @@ void OnDroppedWeaponSpawnPost(int weapon) {
 		if (FileExists(wm, true)) {
 			SetEntityModel(weapon, wm);
 			SetWeaponWorldModel(weapon, wm);
-			MarkValidatedAttachedEntity(weapon);
+			MarkValidatedAttachedEntityEx(weapon, GetEntityOwner(weapon), INVALID_ENT_REFERENCE, "dropped_weapon");
 		}
 	}
 }
@@ -307,7 +313,7 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 		if (IsValidEntity(weaponvm)) {
 			SetEntityModel(weaponvm, vm);
 			TF2Util_EquipPlayerWearable(client, weaponvm);
-			MarkValidatedAttachedEntity(weaponvm);
+			MarkValidatedAttachedEntityEx(weaponvm, client, weapon, "viewmodel_wearable_vm");
 			
 			g_iLastViewmodelRef[client] = EntIndexToEntRef(weaponvm);
 			bitsActiveModels |= MODEL_VIEW_ACTIVE;
@@ -319,7 +325,7 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 			&& FileExistsAndLog(wm, true)) {
 		// this allows other players to see the given weapon with the correct model
 		SetWeaponWorldModel(weapon, wm);
-		MarkValidatedAttachedEntity(weapon);
+		MarkValidatedAttachedEntityEx(weapon, client, weapon, "active_weapon_worldmodel");
 		
 		// the following shows the weapon in third-person, as m_nModelIndexOverrides is messy
 		int weaponwm = CanCreateOverrideWearable() ? TF2_SpawnWearable() : -1;
@@ -327,7 +333,7 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 			SetEntityModel(weaponwm, wm);
 			
 			TF2Util_EquipPlayerWearable(client, weaponwm);
-			MarkValidatedAttachedEntity(weaponwm);
+			MarkValidatedAttachedEntityEx(weaponwm, client, weapon, "worldmodel_wearable");
 			g_iLastWorldModelRef[client] = EntIndexToEntRef(weaponwm);
 			
 			SetEntityRenderMode(weapon, RENDER_TRANSCOLOR);
@@ -419,7 +425,7 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 				&& FileExistsAndLog(ohvm, true)) {
 			PrecacheModelAndLog(ohvm);
 			SetEntityModel(shield, ohvm);
-			MarkValidatedAttachedEntity(shield);
+			MarkValidatedAttachedEntityEx(shield, client, weapon, "demoman_shield");
 			
 			if (TF2Util_IsEntityWeapon(weapon)
 					&& TF2Util_GetWeaponSlot(weapon) == TFWeaponSlot_Melee) {
@@ -428,7 +434,7 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 					SetEntityModel(offhandwearable, ohvm);
 					
 					TF2Util_EquipPlayerWearable(client, offhandwearable);
-					MarkValidatedAttachedEntity(offhandwearable);
+					MarkValidatedAttachedEntityEx(offhandwearable, client, weapon, "demoman_offhand_vm");
 					g_iLastOffHandViewmodelRef[client] = EntIndexToEntRef(offhandwearable);
 					
 					bitsActiveModels |= MODEL_OFFHAND_ACTIVE;
@@ -460,7 +466,7 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 		
 		SetEntityModel(armvm, armvmPath);
 		TF2Util_EquipPlayerWearable(client, armvm);
-		MarkValidatedAttachedEntity(armvm);
+		MarkValidatedAttachedEntityEx(armvm, client, weapon, "arm_viewmodel");
 		
 		g_iLastArmModelRef[client] = EntIndexToEntRef(armvm);
 		
@@ -486,7 +492,7 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 			if (IsValidEntity(weaponvm)) {
 				SetEntityModel(weaponvm, vm);
 				TF2Util_EquipPlayerWearable(client, weaponvm);
-				MarkValidatedAttachedEntity(weaponvm);
+				MarkValidatedAttachedEntityEx(weaponvm, client, weapon, "fallback_weapon_viewmodel");
 				
 				g_iLastViewmodelRef[client] = EntIndexToEntRef(weaponvm);
 				
@@ -617,7 +623,7 @@ bool ApplyWearableModelOverride(int wearable, const char[] model) {
 
 	PrecacheModelAndLog(model);
 	SetEntityModel(wearable, model);
-	MarkValidatedAttachedEntity(wearable);
+	MarkValidatedAttachedEntityEx(wearable, GetEntityOwner(wearable), wearable, "wearable_model_override");
 	return true;
 }
 
@@ -751,7 +757,9 @@ void OnObjectSappedPost(Event event, const char[] name, bool dontBroadcast) {
 	if (TF2CustAttr_GetString(sapper, "clientmodel override", wm, sizeof(wm))
 			|| TF2CustAttr_GetString(sapper, "worldmodel override", wm, sizeof(wm))) {
 		int attachedSapper = event.GetInt("sapperid");
-		SetAttachedSapperModel(attachedSapper, wm);
+		if (SetAttachedSapperModel(attachedSapper, wm)) {
+			MarkValidatedAttachedEntityEx(attachedSapper, client, sapper, "attached_sapper");
+		}
 	}
 }
 
@@ -895,16 +903,160 @@ stock int TF2_SpawnWearableViewmodel() {
 	if (IsValidEntity(wearable)) {
 		SetEntProp(wearable, Prop_Send, "m_iItemDefinitionIndex", DEFINDEX_UNDEFINED);
 		DispatchSpawn(wearable);
-		MarkValidatedAttachedEntity(wearable);
+		MarkValidatedAttachedEntityEx(wearable, 0, INVALID_ENT_REFERENCE, "spawn_wearable_vm");
 	}
 	return wearable;
 }
 
-void MarkValidatedAttachedEntity(int entity) {
-	if (entity > MaxClients && IsValidEntity(entity)
-			&& HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity")) {
-		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
+void MarkValidatedAttachedEntityEx(int entity, int client, int sourceEntity, const char[] context) {
+	if (!IsDebugEntity(entity)) {
+		return;
 	}
+
+	if (!HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity")) {
+		LogValidatedAttachedEntityState("missing_prop", entity, client, sourceEntity, context, -1, -1, false);
+		return;
+	}
+
+	int before = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
+	SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
+	int after = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
+	LogValidatedAttachedEntityState("set", entity, client, sourceEntity, context, before, after, false);
+
+	QueueValidatedAttachedEntityCheck(entity, client, sourceEntity, context, 0.1);
+	QueueValidatedAttachedEntityCheck(entity, client, sourceEntity, context, 0.5);
+}
+
+void QueueValidatedAttachedEntityCheck(int entity, int client, int sourceEntity, const char[] context, float delay) {
+	if (!IsDebugEntity(entity) || (!ViewmodelDebugEnabled() && !ValidationRepairEnabled())) {
+		return;
+	}
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(EntIndexToEntRef(entity));
+	pack.WriteCell(IsValidViewmodelClient(client) ? GetClientUserId(client) : 0);
+	pack.WriteCell(IsDebugEntity(sourceEntity) ? EntIndexToEntRef(sourceEntity) : INVALID_ENT_REFERENCE);
+	pack.WriteString(context);
+	CreateTimer(delay, Timer_CheckValidatedAttachedEntity, pack, TIMER_FLAG_NO_MAPCHANGE);
+}
+
+Action Timer_CheckValidatedAttachedEntity(Handle timer, any data) {
+	DataPack pack = view_as<DataPack>(data);
+	pack.Reset();
+	int entityRef = pack.ReadCell();
+	int userid = pack.ReadCell();
+	int sourceRef = pack.ReadCell();
+	char context[64];
+	pack.ReadString(context, sizeof(context));
+	delete pack;
+
+	int entity = EntRefToEntIndex(entityRef);
+	int client = userid ? GetClientOfUserId(userid) : 0;
+	int sourceEntity = EntRefToEntIndex(sourceRef);
+	if (sourceEntity == INVALID_ENT_REFERENCE) {
+		sourceEntity = INVALID_ENT_REFERENCE;
+	}
+
+	if (!IsDebugEntity(entity)) {
+		if (ViewmodelDebugEnabled()) {
+			LogMessage("[ViewmodelOverride][Validate] entity_gone context=%s ref=%d client=%d", context, entityRef, client);
+		}
+		return Plugin_Stop;
+	}
+
+	if (!HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity")) {
+		LogValidatedAttachedEntityState("missing_prop_delayed", entity, client, sourceEntity, context, -1, -1, false);
+		return Plugin_Stop;
+	}
+
+	int before = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
+	int after = before;
+	bool repaired = false;
+	if (!before && ValidationRepairEnabled()) {
+		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
+		after = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
+		repaired = after != 0;
+	}
+
+	if (!before) {
+		LogValidatedAttachedEntityState("dropped", entity, client, sourceEntity, context, before, after, repaired);
+	} else if (ViewmodelDebugEnabled()) {
+		LogValidatedAttachedEntityState("retained", entity, client, sourceEntity, context, before, after, false);
+	}
+	return Plugin_Stop;
+}
+
+bool ViewmodelDebugEnabled() {
+	return g_cvDebug != null && g_cvDebug.BoolValue;
+}
+
+bool ValidationRepairEnabled() {
+	return g_cvValidationRepair == null || g_cvValidationRepair.BoolValue;
+}
+
+bool IsDebugEntity(int entity) {
+	return entity > 0 && IsValidEntity(entity);
+}
+
+void LogValidatedAttachedEntityState(const char[] phase, int entity, int client, int sourceEntity,
+		const char[] context, int before, int after, bool repaired) {
+	if (!ViewmodelDebugEnabled() && !StrEqual(phase, "dropped")) {
+		return;
+	}
+
+	char entityClass[64];
+	char entityModel[PLATFORM_MAX_PATH];
+	int entityDef;
+	int owner;
+	GetEntityDebugInfo(entity, entityClass, sizeof(entityClass), entityModel, sizeof(entityModel), entityDef, owner);
+
+	char sourceClass[64];
+	char sourceModel[PLATFORM_MAX_PATH];
+	int sourceDef;
+	int sourceOwner;
+	GetEntityDebugInfo(sourceEntity, sourceClass, sizeof(sourceClass), sourceModel, sizeof(sourceModel), sourceDef, sourceOwner);
+
+	char clientLabel[96];
+	GetClientDebugLabel(client, clientLabel, sizeof(clientLabel));
+
+	char ownerLabel[96];
+	GetClientDebugLabel(owner, ownerLabel, sizeof(ownerLabel));
+
+	char sourceOwnerLabel[96];
+	GetClientDebugLabel(sourceOwner, sourceOwnerLabel, sizeof(sourceOwnerLabel));
+
+	LogMessage("[ViewmodelOverride][Validate] phase=%s context=%s before=%d after=%d repaired=%d entity=%d class=%s def=%d owner=%s model=\"%s\" client=%s source=%d source_class=%s source_def=%d source_owner=%s source_model=\"%s\" free_edicts=%d",
+		phase, context, before, after, repaired ? 1 : 0,
+		entity, entityClass, entityDef, ownerLabel, entityModel, clientLabel,
+		sourceEntity, sourceClass, sourceDef, sourceOwnerLabel, sourceModel,
+		GetMaxEntities() - GetEntityCount());
+}
+
+void GetEntityDebugInfo(int entity, char[] className, int classLen, char[] model, int modelLen, int &defIndex, int &owner) {
+	strcopy(className, classLen, "invalid");
+	model[0] = '\0';
+	defIndex = -1;
+	owner = 0;
+	if (!IsDebugEntity(entity)) {
+		return;
+	}
+
+	GetEntityClassname(entity, className, classLen);
+	if (HasEntProp(entity, Prop_Data, "m_ModelName")) {
+		GetEntPropString(entity, Prop_Data, "m_ModelName", model, modelLen);
+	}
+	if (HasEntProp(entity, Prop_Send, "m_iItemDefinitionIndex")) {
+		defIndex = GetEntProp(entity, Prop_Send, "m_iItemDefinitionIndex");
+	}
+	owner = GetEntityOwner(entity);
+}
+
+void GetClientDebugLabel(int client, char[] buffer, int maxlen) {
+	if (IsValidViewmodelClient(client)) {
+		Format(buffer, maxlen, "%N(%d)", client, client);
+		return;
+	}
+	Format(buffer, maxlen, "%d", client);
 }
 
 bool CanCreateOverrideWearable() {
