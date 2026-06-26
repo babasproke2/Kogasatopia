@@ -97,6 +97,7 @@ ConVar g_hBlacklistMinLen = null;
 ConVar g_hFiltersChristmas = null;
 ConVar g_hFiltersTeamChat = null;
 ConVar g_hRedlistEnabled = null;
+ConVar g_hPChat = null;
 
 // Global arrays for word filtering
 char g_FilterWords[MAX_FILTERS][MAX_WORD_LENGTH];
@@ -162,6 +163,11 @@ bool Filters_DebugEnabled()
 bool Filters_RedlistEnabled()
 {
     return g_hRedlistEnabled != null && g_hRedlistEnabled.BoolValue;
+}
+
+bool Filters_PChatEnabled()
+{
+    return g_hPChat == null || g_hPChat.BoolValue;
 }
 
 static int Filters_GetFilterMode()
@@ -500,6 +506,7 @@ static void Filters_CreateConVars()
     g_hBlacklistMinLen = CreateConVar("filters_blacklist_minlen", "8", "Minimum message length to check blacklist words.");
     g_hFiltersChristmas = CreateConVar("filters_christmas", "0", "If 1, red chat is {axis} and blue chat is {green}.");
     g_hFiltersTeamChat = CreateConVar("teamchat", "0", "If 1, normal chat is sent to the sender's team only.");
+    g_hPChat = CreateConVar("sm_pchat", "1", "If 0, filtered/monitored chat is only printed to server console and not shown to whitelisted clients.", _, true, 0.0, true, 1.0);
     g_hFiltersCaseSensitive = CreateConVar(
         "filters_case_sensitive",
         "1",
@@ -1754,6 +1761,7 @@ void Filters_PrintHelp(int client)
     CPrintToChat(client, "{default}[Filters] filters_blacklist_minlen - Minimum message length to check blacklist words.");
     CPrintToChat(client, "{default}[Filters] filters_christmas - If 1, red chat is {axis} and blue chat is {green}.");
     CPrintToChat(client, "{default}[Filters] teamchat - If 1, normal chat is sent to the sender's team only.");
+    CPrintToChat(client, "{default}[Filters] sm_pchat - If 0, filtered/monitored chat is only printed to server console instead of whitelisted clients.");
     CPrintToChat(client, "{default}[Filters] filters_case_sensitive - If 1, chat filters are case-sensitive.");
 }
 
@@ -1979,7 +1987,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
                     Filters_SendChatToReceiver(i, client, output);
                 }
             }
-            else if (isWhitelisted)
+            else if (isWhitelisted && Filters_PChatEnabled())
             {
                 if (!prefixedReady)
                 {
@@ -2011,7 +2019,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
             {
                 Filters_SendChatToReceiver(i, client, output);
             }
-            else if (g_PlayerState[i].isWhitelisted)
+            else if (g_PlayerState[i].isWhitelisted && Filters_PChatEnabled())
             {
                 if (!prefixedReady)
                 {
@@ -2462,7 +2470,7 @@ static void Filters_SendChatToReceiver(int receiver, int sender, const char[] me
         && g_PlayerState[sender].isredlisted
         && !g_PlayerState[receiver].isredlisted)
     {
-        if (g_PlayerState[receiver].isWhitelisted)
+        if (g_PlayerState[receiver].isWhitelisted && Filters_PChatEnabled())
         {
             CPrintToChatEx(receiver, sender, "{axis}[Fake] %s", message);
         }
@@ -2619,7 +2627,7 @@ bool HandleEnabledChat(int client, const char[] message, const ChatContext conte
                 {
                     Filters_SendChatToReceiver(i, client, message);
                 }
-                else if (g_PlayerState[i].isWhitelisted)
+                else if (g_PlayerState[i].isWhitelisted && Filters_PChatEnabled())
                 {
                     if (!prefixedReady)
                     {
@@ -2760,6 +2768,11 @@ public Action Command_WebSay(int client, int args)
 // Helper function to send message to whitelisted admins
 void SendToWhitelistedAdmins(int sender, const char[] message, const char[] prefix = "")
 {
+    if (!Filters_PChatEnabled())
+    {
+        return;
+    }
+
     for (int i = 1; i <= MaxClients; i++)
     {
         if (!IsClientInGame(i))
@@ -3896,7 +3909,7 @@ void CPrintToChatTeam(int team, int sender, const char[] message)
         {
             Filters_SendChatToReceiver(client, sender, message);
         }
-        else if (g_PlayerState[client].isWhitelisted)
+        else if (g_PlayerState[client].isWhitelisted && Filters_PChatEnabled())
         {
             if (!prefixedReady)
             {
