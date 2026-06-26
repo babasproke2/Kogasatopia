@@ -403,6 +403,7 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 		 * aware of, but we'll burn that bridge when we cross it.
 		 */
 		DispatchSpawn(itemEntity);
+		CWX_MarkValidatedAttachedEntity(itemEntity, client, "custom_weapon_second_spawn", false);
 	}
 
 	/*

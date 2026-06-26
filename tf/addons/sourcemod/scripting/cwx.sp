@@ -85,6 +85,7 @@ bool g_bForceReequipItems[MAXPLAYERS + 1];
 ConVar sm_cwx_enable_loadout;
 ConVar sm_cwx_statistics;
 ConVar sm_cwx_statistics_database;
+ConVar sm_cwx_validate_debug;
 
 ConVar mp_stalemate_meleeonly;
 
@@ -157,6 +158,9 @@ public void OnPluginStart() {
 	sm_cwx_statistics_database = CreateConVar("sm_cwx_statistics_database",
 			CWX_STATS_DB_CONFIG_DEFAULT,
 			"Database config used for Custom Weapons X popularity statistics.");
+	sm_cwx_validate_debug = CreateConVar("sm_cwx_validate_debug", "0",
+			"Log CWX m_bValidatedAttachedEntity state after custom item creation and equip.",
+			_, true, 0.0, true, 1.0);
 	sm_cwx_statistics.AddChangeHook(OnCwxStatisticsEnabledChanged);
 	sm_cwx_statistics_database.AddChangeHook(OnCwxStatisticsDatabaseChanged);
 	PluginStats_Init(CWX_STATS_EVENTS_TABLE);
@@ -578,9 +582,7 @@ void ApplyClientCustomLoadout(int client) {
 			}
 			
 			int entity = EquipCustomItem(client, item);
-			if (IsValidEntity(entity)) {
-				SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
-			}
+			CWX_MarkValidatedAttachedEntity(entity, client, "loadout_apply");
 			
 			g_CurrentLoadout[client][playerClass][i].entity = EntIndexToEntRef(entity);
 		}
@@ -732,7 +734,7 @@ MRESReturn OnManageRegularWeaponsPost(int client, Handle hParams) {
 		
 		SetEntProp(storedItem, Prop_Send, "m_iItemDefinitionIndex", item.defindex);
 		SetEntPropString(storedItem, Prop_Data, "m_iClassname", realClassName);
-		SetEntProp(storedItem, Prop_Send, "m_bValidatedAttachedEntity", 1);
+		CWX_MarkValidatedAttachedEntity(storedItem, client, "manage_regular_weapons");
 	}
 	return MRES_Ignored;
 }

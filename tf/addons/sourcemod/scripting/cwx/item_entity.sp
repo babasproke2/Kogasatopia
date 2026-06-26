@@ -2,6 +2,135 @@
  * Functions related to item entities.
  */
 
+#define CWX_VALIDATE_DELAY_SHORT 0.1
+#define CWX_VALIDATE_DELAY_LONG 0.5
+
+stock void CWX_MarkValidatedAttachedEntity(int entity, int client = 0,
+		const char[] context = "unknown", bool scheduleChecks = true) {
+	if (!IsValidEntity(entity)) {
+		return;
+	}
+
+	if (!HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity")) {
+		CWX_LogValidatedAttachedEntityState("missing_prop", entity, client, context,
+				-1, -1, false);
+		return;
+	}
+
+	int before = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
+	SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
+	int after = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
+	CWX_LogValidatedAttachedEntityState("set", entity, client, context, before, after, false);
+
+	if (scheduleChecks) {
+		CWX_QueueValidatedAttachedEntityCheck(entity, client, context, CWX_VALIDATE_DELAY_SHORT);
+		CWX_QueueValidatedAttachedEntityCheck(entity, client, context, CWX_VALIDATE_DELAY_LONG);
+	}
+}
+
+void CWX_QueueValidatedAttachedEntityCheck(int entity, int client,
+		const char[] context, float delay) {
+	if (!IsValidEntity(entity)) {
+		return;
+	}
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(EntIndexToEntRef(entity));
+	pack.WriteCell(CWX_IsValidClient(client) ? GetClientUserId(client) : 0);
+	pack.WriteString(context);
+	CreateTimer(delay, Timer_CWX_CheckValidatedAttachedEntity, pack, TIMER_FLAG_NO_MAPCHANGE);
+}
+
+public Action Timer_CWX_CheckValidatedAttachedEntity(Handle timer, any data) {
+	DataPack pack = view_as<DataPack>(data);
+	pack.Reset();
+	int entityRef = pack.ReadCell();
+	int userid = pack.ReadCell();
+	char context[64];
+	pack.ReadString(context, sizeof(context));
+	delete pack;
+
+	int entity = EntRefToEntIndex(entityRef);
+	int client = userid ? GetClientOfUserId(userid) : 0;
+	if (!IsValidEntity(entity)) {
+		return Plugin_Stop;
+	}
+
+	if (!HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity")) {
+		CWX_LogValidatedAttachedEntityState("missing_prop_delayed", entity, client,
+				context, -1, -1, false);
+		return Plugin_Stop;
+	}
+
+	int before = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
+	int after = before;
+	bool repaired = false;
+	if (!before) {
+		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
+		after = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
+		repaired = after != 0;
+	}
+
+	if (!before) {
+		CWX_LogValidatedAttachedEntityState("dropped", entity, client, context,
+				before, after, repaired);
+	} else if (CWX_ValidateDebugEnabled()) {
+		CWX_LogValidatedAttachedEntityState("retained", entity, client, context,
+				before, after, false);
+	}
+	return Plugin_Stop;
+}
+
+bool CWX_ValidateDebugEnabled() {
+	return sm_cwx_validate_debug != null && sm_cwx_validate_debug.BoolValue;
+}
+
+void CWX_LogValidatedAttachedEntityState(const char[] phase, int entity, int client,
+		const char[] context, int before, int after, bool repaired) {
+	if (!CWX_ValidateDebugEnabled() && !StrEqual(phase, "dropped")) {
+		return;
+	}
+
+	char entityClass[64] = "invalid";
+	char entityModel[PLATFORM_MAX_PATH];
+	int entityDef = -1;
+	int owner = 0;
+	if (IsValidEntity(entity)) {
+		GetEntityClassname(entity, entityClass, sizeof(entityClass));
+		if (HasEntProp(entity, Prop_Data, "m_ModelName")) {
+			GetEntPropString(entity, Prop_Data, "m_ModelName", entityModel,
+					sizeof(entityModel));
+		}
+		if (HasEntProp(entity, Prop_Send, "m_iItemDefinitionIndex")) {
+			entityDef = GetEntProp(entity, Prop_Send, "m_iItemDefinitionIndex");
+		}
+		if (HasEntProp(entity, Prop_Send, "m_hOwnerEntity")) {
+			owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+		}
+	}
+
+	char clientLabel[96];
+	CWX_FormatClientLabel(client, clientLabel, sizeof(clientLabel));
+	char ownerLabel[96];
+	CWX_FormatClientLabel(owner, ownerLabel, sizeof(ownerLabel));
+
+	LogMessage("[CWX][Validate] phase=%s context=%s before=%d after=%d repaired=%d entity=%d class=%s def=%d owner=%s model=\"%s\" client=%s",
+			phase, context, before, after, repaired ? 1 : 0, entity, entityClass,
+			entityDef, ownerLabel, entityModel, clientLabel);
+}
+
+bool CWX_IsValidClient(int client) {
+	return client > 0 && client <= MaxClients && IsClientInGame(client);
+}
+
+void CWX_FormatClientLabel(int client, char[] buffer, int maxlen) {
+	if (CWX_IsValidClient(client)) {
+		Format(buffer, maxlen, "%N(%d)", client, client);
+		return;
+	}
+	Format(buffer, maxlen, "%d", client);
+}
+
 /**
  * Creates a weapon for the specified player.
  */
@@ -23,10 +152,8 @@ stock int TF2_CreateItem(int defindex, const char[] itemClass) {
 		SetEntProp(weapon, Prop_Send, "m_iEntityQuality", 6);
 		SetEntProp(weapon, Prop_Send, "m_iEntityLevel", 1);
 		
-		// if this is not toggled, then the weapon entity may not be visible
-		SetEntProp(weapon, Prop_Send, "m_bValidatedAttachedEntity", true);
-		
 		DispatchSpawn(weapon);
+		CWX_MarkValidatedAttachedEntity(weapon, 0, "create_post_spawn", false);
 	}
 	return weapon;
 }
@@ -70,8 +197,10 @@ void TF2_EquipPlayerEconItem(int client, int item) {
 	
 	if (StrContains(weaponClass, "tf_wearable", false) == 0) {
 		TF2Util_EquipPlayerWearable(client, item);
+		CWX_MarkValidatedAttachedEntity(item, client, "equip_wearable");
 	} else {
 		EquipPlayerWeapon(client, item);
+		CWX_MarkValidatedAttachedEntity(item, client, "equip_weapon", false);
 		TF2_ResetWeaponAmmo(item);
 		
 		/**
@@ -84,5 +213,6 @@ void TF2_EquipPlayerEconItem(int client, int item) {
 		 * Probably in TF2 Utils.
 		 */
 		ActivateEntity(item);
+		CWX_MarkValidatedAttachedEntity(item, client, "activate_weapon");
 	}
 }
