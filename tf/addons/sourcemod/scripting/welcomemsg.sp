@@ -12,20 +12,13 @@ ConVar g_hUncleCycleState;
 ConVar g_hNewsMode;
 ConVar g_hNewsText;
 ConVar g_hNewsGitFormat;
+ConVar g_hInfo[5];
 ConVar g_hRules[5];
 ConVar g_hGitRepoName;
 ConVar g_hGitRepoBranch;
 ConVar g_hGitRepoCommitShort;
 ConVar g_hGitRepoCommitMessage;
 ConVar g_hGitRepoCommitDate;
-
-static const char g_Info[][] = {
-    "{default}Some weapons have better stats; use {gold}!reverts{default} to read about your class.\n",
-    "{default}We have new weapons; check {gold}!cw{default} to equip.\n",
-    "{default}Random crits and bullet spread are disabled,\n",
-    "{default}Heavy is limited to 2 on some gamemodes;\n",
-    "{default}Visit our group with {gold}!steam{default} {default}to learn more and see when people are playing.\n"
-};
 
 static const char g_ScoutReverts[][] = {
     "{default}Back Scatter:{green} +10% more accurate instead of -20% less\n",
@@ -205,6 +198,11 @@ public void OnPluginStart()
     g_hNewsMode = CreateConVar("sm_wsmg_newsmode", "0", "Use g_WelcomeMsgGit instead of g_WelcomeMsg for welcome/news output.", _, true, 0.0, true, 1.0);
     g_hNewsText = CreateConVar("sm_wsmg_news", "", "News line used by the welcome message and !news.");
     g_hNewsGitFormat = CreateConVar("sm_wsmg_news_git", "{green}Git info: {default}%s, %s, %s, %s, %s{default}", "Git news format used by !news and git welcome mode.");
+    g_hInfo[0] = CreateConVar("sm_welcomemsg_info1", "", "First optional info line printed by !info.");
+    g_hInfo[1] = CreateConVar("sm_welcomemsg_info2", "", "Second optional info line printed by !info.");
+    g_hInfo[2] = CreateConVar("sm_welcomemsg_info3", "", "Third optional info line printed by !info.");
+    g_hInfo[3] = CreateConVar("sm_welcomemsg_info4", "", "Fourth optional info line printed by !info.");
+    g_hInfo[4] = CreateConVar("sm_welcomemsg_info5", "", "Fifth optional info line printed by !info.");
     g_hRules[0] = CreateConVar("sm_welcomemsg_rules1", "", "First optional rule line printed by !rules.");
     g_hRules[1] = CreateConVar("sm_welcomemsg_rules2", "", "Second optional rule line printed by !rules.");
     g_hRules[2] = CreateConVar("sm_welcomemsg_rules3", "", "Third optional rule line printed by !rules.");
@@ -503,9 +501,25 @@ public Action Command_ListInfo(int client, int args)
 {
     if (!client || !IsClientInGame(client))
         return Plugin_Handled;
-    
-    for (int i = 0; i < sizeof(g_Info); i++)
-        CPrintToChat(client, "%s", g_Info[i]);
+
+    char info[256];
+
+    for (int i = 0; i < sizeof(g_hInfo); i++)
+    {
+        if (g_hInfo[i] == null)
+        {
+            continue;
+        }
+
+        g_hInfo[i].GetString(info, sizeof(info));
+        TrimString(info);
+        if (!info[0])
+        {
+            continue;
+        }
+
+        CPrintToChat(client, "%s", info);
+    }
     
     return Plugin_Handled;
 }
