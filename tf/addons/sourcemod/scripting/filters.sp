@@ -68,6 +68,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("Filters_IsRedlisted", Native_Filters_IsRedlisted);
     CreateNative("Filters_GetChatName", Native_Filters_GetChatName);
     CreateNative("Filters_GetSteamIdColorTag", Native_Filters_GetSteamIdColorTag);
+    CreateNative("Filters_GetLastRecordedSteamName", Native_Filters_GetLastRecordedSteamName);
     MarkNativeAsOptional("Hugs_GetRapesGiven");
     MarkNativeAsOptional("Hugs_AreStatsLoaded");
     MarkNativeAsOptional("WhaleTracker_GetCumulativeKills");
@@ -739,6 +740,13 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         ... "INDEX(delivered_at),"
         ... "INDEX(server_stamp)) DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE IF NOT EXISTS prename_rules (pattern VARCHAR(64) PRIMARY KEY, newname VARCHAR(64) NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS filters_steam_names ("
+        ... "steamid64 VARCHAR(32) PRIMARY KEY,"
+        ... "last_name VARCHAR(128) NOT NULL DEFAULT '',"
+        ... "last_name_lower VARCHAR(128) NOT NULL DEFAULT '',"
+        ... "updated_at INT NOT NULL DEFAULT 0,"
+        ... "INDEX(last_name_lower),"
+        ... "INDEX(updated_at)) DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE IF NOT EXISTS filters_namecolors (steamid VARCHAR(32) PRIMARY KEY, color VARCHAR(32) NOT NULL DEFAULT '', pattern VARCHAR(32) NOT NULL DEFAULT '', updated_at INT NOT NULL DEFAULT 0)",
         "ALTER TABLE filters_namecolors ADD COLUMN IF NOT EXISTS pattern VARCHAR(32) NOT NULL DEFAULT '' AFTER color"
     };
@@ -3571,6 +3579,7 @@ public void OnClientPostAdminCheck(int client)
     {
         Filters_StartAutoRedlistCheck(client);
         LoadNamePreferencesFromDb(client);
+        Filters_RecordSteamName(client);
         Prename_Apply(client);
         Filters_AnnounceClientJoin(client);
     }
@@ -3693,6 +3702,30 @@ public any Native_Filters_GetSteamIdColorTag(Handle plugin, int numParams)
 
     SetNativeString(2, buffer, maxlen, true);
     return (buffer[0] != '\0');
+}
+
+public any Native_Filters_GetLastRecordedSteamName(Handle plugin, int numParams)
+{
+    char steamId64[32];
+    GetNativeString(1, steamId64, sizeof(steamId64));
+
+    int maxlen = GetNativeCell(3);
+    if (maxlen <= 0)
+    {
+        return false;
+    }
+
+    char buffer[128];
+    buffer[0] = '\0';
+
+    if (steamId64[0] != '\0' && Filters_QueryLastRecordedSteamName(steamId64, buffer, sizeof(buffer)))
+    {
+        SetNativeString(2, buffer, maxlen, true);
+        return true;
+    }
+
+    SetNativeString(2, "", maxlen, true);
+    return false;
 }
 
 // ==================== WHITELIST COMMANDS ====================
@@ -4057,6 +4090,91 @@ static void Filters_GetServerName(char[] buffer, int maxlen)
     strcopy(buffer, maxlen, g_sServerName);
 }
 
+static void Filters_RecordSteamName(int client)
+{
+    if (!Filters_DbAvailable() || !Filters_IsRealClientInGame(client))
+    {
+        return;
+    }
+
+    char steamId64[32];
+    if (!GetClientAuthId(client, AuthId_SteamID64, steamId64, sizeof(steamId64)) || steamId64[0] == '\0')
+    {
+        return;
+    }
+
+    char name[MAX_NAME_LENGTH];
+    GetClientName(client, name, sizeof(name));
+    TrimString(name);
+    if (name[0] == '\0')
+    {
+        return;
+    }
+
+    char lowerName[128];
+    strcopy(lowerName, sizeof(lowerName), name);
+    Prename_ToLowercaseInPlace(lowerName, sizeof(lowerName));
+
+    char escapedSteam[64];
+    char escapedName[256];
+    char escapedLower[256];
+    KogasaSql_Escape(g_hFiltersDb, steamId64, escapedSteam, sizeof(escapedSteam), "filters");
+    KogasaSql_Escape(g_hFiltersDb, name, escapedName, sizeof(escapedName), "filters");
+    KogasaSql_Escape(g_hFiltersDb, lowerName, escapedLower, sizeof(escapedLower), "filters");
+
+    char query[768];
+    Format(query, sizeof(query),
+        "INSERT INTO filters_steam_names (steamid64, last_name, last_name_lower, updated_at) "
+        ... "VALUES ('%s', '%s', '%s', %d) "
+        ... "ON DUPLICATE KEY UPDATE "
+        ... "last_name = VALUES(last_name), "
+        ... "last_name_lower = VALUES(last_name_lower), "
+        ... "updated_at = VALUES(updated_at)",
+        escapedSteam,
+        escapedName,
+        escapedLower,
+        GetTime());
+    g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
+}
+
+static bool Filters_QueryLastRecordedSteamName(const char[] steamId64, char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+
+    if (!Filters_DbAvailable() || steamId64[0] == '\0')
+    {
+        return false;
+    }
+
+    char escapedSteam[64];
+    KogasaSql_Escape(g_hFiltersDb, steamId64, escapedSteam, sizeof(escapedSteam), "filters");
+
+    char query[256];
+    Format(query, sizeof(query),
+        "SELECT last_name FROM filters_steam_names WHERE steamid64 = '%s' LIMIT 1",
+        escapedSteam);
+
+    DBResultSet results = SQL_Query(g_hFiltersDb, query);
+    if (results == null)
+    {
+        char error[256];
+        SQL_GetError(g_hFiltersDb, error, sizeof(error));
+        LogError("[Filters] Last recorded Steam name query failed: %s", error);
+        return false;
+    }
+
+    bool found = false;
+    if (results.FetchRow())
+    {
+        results.FetchString(0, buffer, maxlen);
+        TrimString(buffer);
+        found = (buffer[0] != '\0');
+    }
+
+    delete results;
+    return found;
+}
+
 // ==================== PRENAME (MERGED) ====================
 
 static void Filters_PrenameLoadRules()
@@ -4416,11 +4534,6 @@ static void Prename_SaveRule(const char[] pattern, const char[] newname)
         "REPLACE INTO prename_rules (pattern, newname) VALUES ('%s', '%s')",
         escapedPattern, escapedNewname);
     g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
-
-    if (Prename_IsIdString(pattern))
-    {
-        Prename_SyncPointsCacheValue(pattern, newname);
-    }
 }
 
 static void Prename_DeleteRule(const char[] pattern)
@@ -4435,30 +4548,6 @@ static void Prename_DeleteRule(const char[] pattern)
 
     char query[256];
     Format(query, sizeof(query), "DELETE FROM prename_rules WHERE pattern = '%s'", escapedPattern);
-    g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
-
-    if (Prename_IsIdString(pattern))
-    {
-        Prename_SyncPointsCacheValue(pattern, "");
-    }
-}
-
-static void Prename_SyncPointsCacheValue(const char[] steamId, const char[] prename)
-{
-    if (!g_bDbReady || g_hFiltersDb == null || !steamId[0])
-    {
-        return;
-    }
-
-    char escapedSteam[64];
-    char escapedPrename[PRENAME_MAX_RENAME * 2];
-    KogasaSql_Escape(g_hFiltersDb, steamId, escapedSteam, sizeof(escapedSteam), "filters");
-    KogasaSql_Escape(g_hFiltersDb, prename, escapedPrename, sizeof(escapedPrename), "filters");
-
-    char query[256];
-    Format(query, sizeof(query),
-        "UPDATE whaletracker_points_cache SET prename = '%s' WHERE steamid = '%s'",
-        escapedPrename, escapedSteam);
     g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
 }
 

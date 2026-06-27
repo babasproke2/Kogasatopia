@@ -520,13 +520,14 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 			return Plugin_Handled;
 		}
 
-		char query[1024];
+		char query[1400];
 		Format(query, sizeof(query),
 			"SELECT h.name, h.rapes_given, h.rapes_received, h.hugs_given, h.hugs_received, h.steamid, "
-			... "(SELECT COALESCE(NULLIF(pc.prename, ''), NULLIF(pc.name, ''), NULLIF(w.cached_personaname, '')) "
-			... "FROM whaletracker w "
-			... "LEFT JOIN whaletracker_points_cache pc ON pc.steamid = w.steamid "
-			... "WHERE w.steamid = CAST(76561197960265728 + (SUBSTRING_INDEX(h.steamid, ':', -1) * 2) + SUBSTRING_INDEX(SUBSTRING_INDEX(h.steamid, ':', 2), ':', -1) AS CHAR) "
+			... "(SELECT COALESCE(NULLIF(pr.newname, ''), NULLIF(fs.last_name, ''), NULLIF(w.cached_personaname, '')) "
+			... "FROM (SELECT CAST(76561197960265728 + (SUBSTRING_INDEX(h.steamid, ':', -1) * 2) + SUBSTRING_INDEX(SUBSTRING_INDEX(h.steamid, ':', 2), ':', -1) AS CHAR) AS steamid64) sid "
+			... "LEFT JOIN prename_rules pr ON pr.pattern = sid.steamid64 COLLATE utf8mb4_general_ci "
+			... "LEFT JOIN filters_steam_names fs ON fs.steamid64 = sid.steamid64 COLLATE utf8mb4_uca1400_ai_ci "
+			... "LEFT JOIN whaletracker w ON w.steamid = sid.steamid64 COLLATE utf8mb4_uca1400_ai_ci "
 			... "LIMIT 1) AS wt_name "
 			... "FROM %s h ORDER BY h.rapes_given DESC LIMIT 10",
 			HUGS_DB_TABLE);

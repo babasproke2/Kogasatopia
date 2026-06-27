@@ -176,6 +176,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("Clans_GetTags", Native_Clans_GetTags);
     CreateNative("Clans_GetSameTeamClanMemberCount", Native_Clans_GetSameTeamClanMemberCount);
     MarkNativeAsOptional("Filters_GetChatName");
+    MarkNativeAsOptional("Filters_GetLastRecordedSteamName");
     MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
     MarkNativeAsOptional("WhaleTracker_GetLastRecordedName");
     MarkNativeAsOptional("WhaleTracker_ComputeWhalePoints");
@@ -690,6 +691,12 @@ void ResolvePlayerDisplayName(const char[] steamid64, char[] buffer, int maxlen)
     if (client > 0)
     {
         GetClientName(client, buffer, maxlen);
+        return;
+    }
+
+    if (GetFeatureStatus(FeatureType_Native, "Filters_GetLastRecordedSteamName") == FeatureStatus_Available
+        && Filters_GetLastRecordedSteamName(steamid64, buffer, maxlen) && buffer[0] != '\0')
+    {
         return;
     }
 

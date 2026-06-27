@@ -5212,11 +5212,13 @@ public Action Command_ShowCurrencyLeaderboard(int client, int args)
         strcopy(joinCondition, sizeof(joinCondition), "pc.steamid = b.steamid64");
     }
 
-    char query[1152];
+    char query[1400];
     Format(query, sizeof(query),
-        "SELECT b.steamid64, b.balance, COALESCE(NULLIF(pc.prename,''), NULLIF(pc.name,''), b.steamid64), COALESCE(NULLIF(pc.name_color,''), 'gold') "
+        "SELECT b.steamid64, b.balance, COALESCE(NULLIF(pr.newname,''), NULLIF(fs.last_name,''), b.steamid64), COALESCE(NULLIF(pc.name_color,''), 'gold') "
         ... "FROM %s b "
         ... "LEFT JOIN whaletracker_points_cache pc ON %s "
+        ... "LEFT JOIN prename_rules pr ON pr.pattern = b.steamid64 "
+        ... "LEFT JOIN filters_steam_names fs ON fs.steamid64 = b.steamid64 COLLATE utf8mb4_uca1400_ai_ci "
         ... "WHERE b.balance > 0 "
         ... "ORDER BY b.balance DESC, b.steamid64 ASC "
         ... "LIMIT %d OFFSET %d",

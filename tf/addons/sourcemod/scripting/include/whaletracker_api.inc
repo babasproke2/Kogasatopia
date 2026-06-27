@@ -57,8 +57,8 @@ native int WhaleTracker_ComputeWhalePoints(int kills, int deaths, int assists, i
  *
  * Lookup order:
  * 1. Connected live client name
- * 2. whaletracker.cached_personaname
- * 3. whaletracker_points_cache.name
+ * 2. filters_steam_names.last_name
+ * 3. whaletracker.cached_personaname
  *
  * @param steamId64     SteamID64 to look up.
  * @param buffer        Output buffer.

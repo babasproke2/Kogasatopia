@@ -13,3 +13,6 @@ native bool Filters_GetChatName(int client, char[] buffer, int maxlen);
 
 /** Writes the color token associated with a SteamID64. */
 native bool Filters_GetSteamIdColorTag(const char[] steamId64, char[] buffer, int maxlen);
+
+/** Writes the last Steam persona name recorded by filters.sp for a SteamID64. */
+native bool Filters_GetLastRecordedSteamName(const char[] steamId64, char[] buffer, int maxlen);
