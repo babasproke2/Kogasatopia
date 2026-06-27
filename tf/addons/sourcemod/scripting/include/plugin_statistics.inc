@@ -20,6 +20,7 @@
 #define PLUGIN_STATS_QUERY_MAX 8192
 #define PLUGIN_STATS_EVENT_NAME_MAX 64
 #define PLUGIN_STATS_MESSAGE_MAX 512
+#define PLUGIN_STATS_EVENT_ID_MAX 96
 #define PLUGIN_STATS_RUST_MAX_BATCH_JSON 32768
 #define PLUGIN_STATS_RUST_MAX_RECV_BUFFER 32768
 #define PLUGIN_STATS_RUST_MAX_LINE 2048
@@ -35,6 +36,7 @@ enum struct PluginStatsEvent
     char Gamemode[32];
     char EventName[PLUGIN_STATS_EVENT_NAME_MAX];
     char Message[PLUGIN_STATS_MESSAGE_MAX];
+    char EventId[PLUGIN_STATS_EVENT_ID_MAX];
 }
 
 static Database g_PluginStatsDb = null;
@@ -50,6 +52,8 @@ static bool g_PluginStatsRustAwaitingAck = false;
 static int g_PluginStatsMapStartedAt = 0;
 static int g_PluginStatsDropped = 0;
 static int g_PluginStatsRustNextBatchId = 1;
+static int g_PluginStatsNextEventId = 1;
+static int g_PluginStatsRustPendingBatchId = 0;
 static int g_PluginStatsRustRecvBufferLen = 0;
 static char g_PluginStatsDbConfig[64] = PLUGIN_STATS_DB_CONFIG_DEFAULT;
 static char g_PluginStatsTable[64];
@@ -60,6 +64,7 @@ static ConVar g_PluginStatsRustPort = null;
 static ConVar g_PluginStatsRustQueueMax = null;
 static ConVar g_PluginStatsRustBatchMax = null;
 static ConVar g_PluginStatsRustServerId = null;
+static ConVar g_PluginStatsRustAuthToken = null;
 static ConVar g_PluginStatsRustFallbackSql = null;
 static ConVar g_PluginStatsRustDebug = null;
 
@@ -135,6 +140,7 @@ stock void PluginStats_LogMessage(const char[] message)
     PluginStats_GetMapSessionId(event.MapSessionId, sizeof(event.MapSessionId));
     PluginStats_DeriveEventName(message, event.EventName, sizeof(event.EventName));
     strcopy(event.Message, sizeof(event.Message), message);
+    PluginStats_BuildEventId(event.EventId, sizeof(event.EventId), event.OccurredAt);
     g_PluginStatsQueue.PushArray(event);
 }
 
@@ -184,6 +190,7 @@ stock void PluginStats_InitConVars()
     g_PluginStatsRustQueueMax = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_queue_max", "5000", "Maximum queued plugin statistics events before dropping oldest events.");
     g_PluginStatsRustBatchMax = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_batch_max", "128", "Maximum plugin statistics events sent per Rust batch.");
     g_PluginStatsRustServerId = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_server_id", "", "Optional server identifier sent to kogasa-statistics-rust.");
+    g_PluginStatsRustAuthToken = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_rust_auth_token", "", "Optional auth token sent to kogasa-statistics-rust.");
     g_PluginStatsRustFallbackSql = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_fallback_sql", "1", "Use SourceMod SQL writes when kogasa-statistics-rust is unavailable.");
     g_PluginStatsRustDebug = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_debug", "0", "Enable verbose kogasa-statistics-rust bridge logging.");
 }
@@ -513,12 +520,86 @@ stock void PluginStats_RustBuildServerId(char[] buffer, int maxlen)
     FormatEx(buffer, maxlen, "%s:%d", hostname, PluginStats_GetHostPort());
 }
 
+stock void PluginStats_BuildEventId(char[] buffer, int maxlen, int occurredAt)
+{
+    int mapStartedAt = g_PluginStatsMapStartedAt;
+    if (mapStartedAt <= 0)
+    {
+        mapStartedAt = GetTime();
+    }
+
+    int sequence = g_PluginStatsNextEventId++;
+    if (g_PluginStatsNextEventId <= 0)
+    {
+        g_PluginStatsNextEventId = 1;
+    }
+
+    FormatEx(buffer, maxlen, "%d-%d-%d-%d", PluginStats_GetHostPort(), mapStartedAt, occurredAt, sequence);
+}
+
+stock bool PluginStats_RustExtractJsonInt(const char[] line, const char[] key, int &value)
+{
+    int pos = StrContains(line, key, false);
+    if (pos == -1)
+    {
+        return false;
+    }
+
+    pos += strlen(key);
+    while (line[pos] == ' ')
+    {
+        pos++;
+    }
+
+    bool negative = false;
+    if (line[pos] == '-')
+    {
+        negative = true;
+        pos++;
+    }
+
+    if (line[pos] < '0' || line[pos] > '9')
+    {
+        return false;
+    }
+
+    int parsed = 0;
+    while (line[pos] >= '0' && line[pos] <= '9')
+    {
+        parsed = (parsed * 10) + (line[pos] - '0');
+        pos++;
+    }
+
+    value = negative ? -parsed : parsed;
+    return true;
+}
+
+stock void PluginStats_RustHandleFailedInflight(const char[] reason, const char[] line = "")
+{
+    g_PluginStatsRustAwaitingAck = false;
+    if (line[0] != '\0')
+    {
+        LogError("[plugin_statistics] %s for %s: %s", reason, g_PluginStatsTable, line);
+    }
+    else
+    {
+        LogError("[plugin_statistics] %s for %s", reason, g_PluginStatsTable);
+    }
+
+    PluginStats_RustRequeueInflight();
+    if (PluginStats_RustFallbackSqlEnabled())
+    {
+        PluginStats_FlushLocal();
+    }
+}
+
 stock void PluginStats_RustClearInflight()
 {
     if (g_PluginStatsInflight != null)
     {
         g_PluginStatsInflight.Clear();
     }
+    g_PluginStatsRustPendingBatchId = 0;
 }
 
 stock void PluginStats_RustRequeueInflight()
@@ -565,6 +646,7 @@ stock void PluginStats_RustDisconnectSocket()
     g_PluginStatsRustConnecting = false;
     g_PluginStatsRustConnected = false;
     g_PluginStatsRustAwaitingAck = false;
+    g_PluginStatsRustPendingBatchId = 0;
     g_PluginStatsRustRecvBufferLen = 0;
     g_PluginStatsRustRecvBuffer[0] = '\0';
 
@@ -662,7 +744,8 @@ stock bool PluginStats_RustFlushBatch()
 
         g_PluginStatsQueue.GetArray(i, event);
 
-        char mapSessionId[128], mapName[256], gamemode[96], eventName[128], message[1024];
+        char mapSessionId[128], mapName[256], gamemode[96], eventName[128], message[1024], eventId[192];
+        PluginStats_RustJsonEscape(event.EventId, eventId, sizeof(eventId));
         PluginStats_RustJsonEscape(event.MapSessionId, mapSessionId, sizeof(mapSessionId));
         PluginStats_RustJsonEscape(event.MapName, mapName, sizeof(mapName));
         PluginStats_RustJsonEscape(event.Gamemode, gamemode, sizeof(gamemode));
@@ -676,7 +759,8 @@ stock bool PluginStats_RustFlushBatch()
         }
 
         pos += FormatEx(out[pos], sizeof(out) - pos,
-            "{\"occurred_at\":%d,\"host_port\":%d,\"map_session_id\":\"%s\",\"map_name\":\"%s\",\"gamemode\":\"%s\",\"event_name\":\"%s\",\"message\":\"%s\",\"weekday\":%d,\"hour_of_day\":%d}",
+            "{\"event_id\":\"%s\",\"occurred_at\":%d,\"host_port\":%d,\"map_session_id\":\"%s\",\"map_name\":\"%s\",\"gamemode\":\"%s\",\"event_name\":\"%s\",\"message\":\"%s\",\"weekday\":%d,\"hour_of_day\":%d}",
+            eventId,
             event.OccurredAt,
             event.HostPort,
             mapSessionId,
@@ -701,6 +785,7 @@ stock bool PluginStats_RustFlushBatch()
     g_PluginStatsRustSocket.Send(out, pos);
     g_PluginStatsRustSocket.SetSendqueueEmptyCallback(PluginStats_RustOnSocketSendqueueEmpty);
     g_PluginStatsRustAwaitingAck = true;
+    g_PluginStatsRustPendingBatchId = batchId;
 
     for (int i = 0; i < sentCount; i++)
     {
@@ -723,10 +808,22 @@ public void PluginStats_RustOnSocketConnected(Socket socket, any arg)
     g_PluginStatsRustRecvBufferLen = 0;
     g_PluginStatsRustRecvBuffer[0] = '\0';
 
-    char serverId[128], escapedServerId[256], hello[512];
+    char serverId[128], escapedServerId[256], authToken[256], escapedAuthToken[512], authJson[640], hello[1024];
     PluginStats_RustBuildServerId(serverId, sizeof(serverId));
     PluginStats_RustJsonEscape(serverId, escapedServerId, sizeof(escapedServerId));
-    int len = FormatEx(hello, sizeof(hello), "{\"type\":\"hello\",\"service\":\"kogasa_plugin_statistics\",\"proto\":1,\"server_id\":\"%s\",\"ts\":%d}\n", escapedServerId, GetTime());
+    authJson[0] = '\0';
+    if (g_PluginStatsRustAuthToken != null)
+    {
+        g_PluginStatsRustAuthToken.GetString(authToken, sizeof(authToken));
+        TrimString(authToken);
+        if (authToken[0] != '\0')
+        {
+            PluginStats_RustJsonEscape(authToken, escapedAuthToken, sizeof(escapedAuthToken));
+            FormatEx(authJson, sizeof(authJson), ",\"auth\":\"%s\"", escapedAuthToken);
+        }
+    }
+
+    int len = FormatEx(hello, sizeof(hello), "{\"type\":\"hello\",\"service\":\"kogasa_plugin_statistics\",\"proto\":1,\"server_id\":\"%s\",\"ts\":%d%s}\n", escapedServerId, GetTime(), authJson);
     socket.Send(hello, len);
     socket.SetSendqueueEmptyCallback(PluginStats_RustOnSocketSendqueueEmpty);
 
@@ -845,6 +942,26 @@ stock void PluginStats_RustHandleBackendLine(const char[] line)
 
     if (StrContains(line, "\"type\":\"ack\"") != -1)
     {
+        int ackBatchId;
+        if (!PluginStats_RustExtractJsonInt(line, "\"batch_id\":", ackBatchId))
+        {
+            PluginStats_RustHandleFailedInflight("Rust statistics ACK missing batch_id", line);
+            return;
+        }
+
+        if (ackBatchId != g_PluginStatsRustPendingBatchId)
+        {
+            PluginStats_RustHandleFailedInflight("Rust statistics ACK batch mismatch", line);
+            return;
+        }
+
+        int dbErrors = 0;
+        if (PluginStats_RustExtractJsonInt(line, "\"db_errors\":", dbErrors) && dbErrors > 0)
+        {
+            PluginStats_RustHandleFailedInflight("Rust statistics ACK reported DB errors", line);
+            return;
+        }
+
         g_PluginStatsRustAwaitingAck = false;
         PluginStats_RustClearInflight();
         PluginStats_RustFlushBatch();
@@ -853,13 +970,7 @@ stock void PluginStats_RustHandleBackendLine(const char[] line)
 
     if (StrContains(line, "\"type\":\"error\"") != -1)
     {
-        g_PluginStatsRustAwaitingAck = false;
-        LogError("[plugin_statistics] Rust statistics backend error for %s: %s", g_PluginStatsTable, line);
-        PluginStats_RustRequeueInflight();
-        if (PluginStats_RustFallbackSqlEnabled())
-        {
-            PluginStats_FlushLocal();
-        }
+        PluginStats_RustHandleFailedInflight("Rust statistics backend error", line);
         return;
     }
 }
