@@ -1734,6 +1734,58 @@ bool GetLoadedClientClanId(int client, int &clanId)
     return true;
 }
 
+bool ResolveClientClanIdForWarScoring(int client, int &clanId)
+{
+    clanId = 0;
+
+    if (GetLoadedClientClanId(client, clanId))
+    {
+        return true;
+    }
+
+    char steamid64[STEAMID64_MAXLEN];
+    if (!GetClientSteam64(client, steamid64, sizeof(steamid64)))
+    {
+        return false;
+    }
+
+    if (GetCachedClanIdForSteam64(steamid64, clanId))
+    {
+        return true;
+    }
+
+    if (!EnsureDatabaseReady() || g_Database == null)
+    {
+        return false;
+    }
+
+    char escapedSteam[SQL_STEAMID64_MAXLEN];
+    EscapeSql(steamid64, escapedSteam, sizeof(escapedSteam));
+
+    char query[160];
+    FormatEx(query, sizeof(query), "SELECT clan_id FROM clan_members WHERE steamid64 = '%s' LIMIT 1", escapedSteam);
+
+    DBResultSet results = SQL_Query(g_Database, query);
+    if (!HasUsableResultSet(results))
+    {
+        char error[256];
+        SQL_GetError(g_Database, error, sizeof(error));
+        LogError("[Clans] Failed to resolve scoring clan id for %N: %s", client, error);
+        HandleDatabaseConnectionLoss(error);
+        delete results;
+        return false;
+    }
+
+    if (results.FetchRow())
+    {
+        clanId = results.FetchInt(0);
+        UpdateClanIdCacheEntry(steamid64, clanId);
+    }
+
+    delete results;
+    return true;
+}
+
 void UpdateClanIdCacheEntry(const char[] steamid64, int clanId)
 {
     if (steamid64[0] == '\0')
@@ -2874,6 +2926,7 @@ bool DispatchActiveWarScoreWrite(int index)
     pack.WriteCell(war.scoreA);
     pack.WriteCell(war.scoreB);
     pack.WriteCell(war.expiresAt);
+    pack.WriteCell(war.instanceId);
 
     war.writePending = true;
     g_hActiveWars.SetArray(index, war);
@@ -2891,7 +2944,10 @@ public void SQL_OnActiveWarScoreWrite(Database db, DBResultSet results, const ch
     int scoreA = pack.ReadCell();
     int scoreB = pack.ReadCell();
     int expiresAt = pack.ReadCell();
+    int instanceId = pack.ReadCell();
     delete pack;
+
+    bool saved = (!error[0] && results != null && results.AffectedRows > 0);
 
     int index = FindActiveWarIndexByWarId(warId);
     if (index != -1)
@@ -2901,11 +2957,11 @@ public void SQL_OnActiveWarScoreWrite(Database db, DBResultSet results, const ch
         if (war.createdAt == createdAt)
         {
             war.writePending = false;
-            if (!error[0] && war.scoreA == scoreA && war.scoreB == scoreB && war.expiresAt == expiresAt)
+            if (saved && war.scoreA == scoreA && war.scoreB == scoreB && war.expiresAt == expiresAt)
             {
                 war.writeDirty = false;
             }
-            else if (error[0])
+            else
             {
                 war.writeDirty = true;
             }
@@ -2917,6 +2973,50 @@ public void SQL_OnActiveWarScoreWrite(Database db, DBResultSet results, const ch
     {
         LogError("[Clans] Failed to persist war %d score snapshot: %s", warId, error);
         HandleDatabaseConnectionLoss(error);
+    }
+    else if (!saved)
+    {
+        LogError("[Clans] Failed to persist war %d score snapshot: no active row matched id=%d created_at=%d", warId, warId, createdAt);
+    }
+    else
+    {
+        DispatchClanWarInstanceScoreWrite(instanceId, createdAt, scoreA, scoreB);
+    }
+}
+
+void DispatchClanWarInstanceScoreWrite(int instanceId, int createdAt, int scoreA, int scoreB)
+{
+    if (!EnsureDatabaseReady() || g_Database == null || instanceId <= 0)
+    {
+        return;
+    }
+
+    char query[192];
+    FormatEx(query, sizeof(query),
+        "UPDATE clan_war_instances SET score_a = %d, score_b = %d WHERE id = %d AND created_at = %d AND status = %d",
+        scoreA,
+        scoreB,
+        instanceId,
+        createdAt,
+        view_as<int>(ClanWarStatus_Active));
+
+    g_Database.Query(SQL_OnClanWarInstanceScoreWrite, query, instanceId);
+}
+
+public void SQL_OnClanWarInstanceScoreWrite(Database db, DBResultSet results, const char[] error, any data)
+{
+    int instanceId = data;
+
+    if (error[0])
+    {
+        LogError("[Clans] Failed to persist war instance %d score snapshot: %s", instanceId, error);
+        HandleDatabaseConnectionLoss(error);
+        return;
+    }
+
+    if (results == null || results.AffectedRows <= 0)
+    {
+        LogError("[Clans] Failed to persist war instance %d score snapshot: no active instance row matched", instanceId);
     }
 }
 
@@ -3974,36 +4074,62 @@ bool StartClanWarAsync(int client, int declaringClanId, int targetClanId, const 
     int clanIdB = 0;
     NormalizeClanWarPair(declaringClanId, targetClanId, clanIdA, clanIdB);
 
+    int existingWarId = 0;
+    int existingClanIdA = 0;
+    int existingClanIdB = 0;
+    int existingScoreA = 0;
+    int existingScoreB = 0;
+    if (GetActiveClanWarByPairCached(declaringClanId, targetClanId, existingWarId, existingClanIdA, existingClanIdB, existingScoreA, existingScoreB))
+    {
+        return false;
+    }
+
     char escapedDeclarer[SQL_STEAMID64_MAXLEN];
     EscapeSql(declarerSteam, escapedDeclarer, sizeof(escapedDeclarer));
 
     int now = GetTime();
-    char query[1024];
+    char query[2048];
     if (IsMySql())
     {
         FormatEx(query, sizeof(query),
             "INSERT INTO clan_wars (clan_id_a, clan_id_b, declared_by, score_a, score_b, winner_clan_id, status, created_at, expires_at, finished_at) "
             ... "VALUES (%d, %d, '%s', 0, 0, NULL, %d, %d, %d, NULL) "
-            ... "ON DUPLICATE KEY UPDATE declared_by = VALUES(declared_by), score_a = 0, score_b = 0, winner_clan_id = NULL, status = VALUES(status), created_at = VALUES(created_at), expires_at = VALUES(expires_at), finished_at = NULL",
+            ... "ON DUPLICATE KEY UPDATE declared_by = IF(status = %d, declared_by, VALUES(declared_by)), score_a = IF(status = %d, score_a, 0), score_b = IF(status = %d, score_b, 0), winner_clan_id = IF(status = %d, winner_clan_id, NULL), status = IF(status = %d, status, VALUES(status)), created_at = IF(status = %d, created_at, VALUES(created_at)), expires_at = IF(status = %d, expires_at, VALUES(expires_at)), finished_at = IF(status = %d, finished_at, NULL)",
             clanIdA,
             clanIdB,
             escapedDeclarer,
             view_as<int>(ClanWarStatus_Active),
             now,
-            now + CLAN_WAR_EXPIRE_SECONDS);
+            now + CLAN_WAR_EXPIRE_SECONDS,
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active));
     }
     else
     {
         FormatEx(query, sizeof(query),
             "INSERT INTO clan_wars (clan_id_a, clan_id_b, declared_by, score_a, score_b, winner_clan_id, status, created_at, expires_at, finished_at) "
             ... "VALUES (%d, %d, '%s', 0, 0, NULL, %d, %d, %d, NULL) "
-            ... "ON CONFLICT(clan_id_a, clan_id_b) DO UPDATE SET declared_by = excluded.declared_by, score_a = 0, score_b = 0, winner_clan_id = NULL, status = excluded.status, created_at = excluded.created_at, expires_at = excluded.expires_at, finished_at = NULL",
+            ... "ON CONFLICT(clan_id_a, clan_id_b) DO UPDATE SET declared_by = CASE WHEN status = %d THEN declared_by ELSE excluded.declared_by END, score_a = CASE WHEN status = %d THEN score_a ELSE 0 END, score_b = CASE WHEN status = %d THEN score_b ELSE 0 END, winner_clan_id = CASE WHEN status = %d THEN winner_clan_id ELSE NULL END, status = CASE WHEN status = %d THEN status ELSE excluded.status END, created_at = CASE WHEN status = %d THEN created_at ELSE excluded.created_at END, expires_at = CASE WHEN status = %d THEN expires_at ELSE excluded.expires_at END, finished_at = CASE WHEN status = %d THEN finished_at ELSE NULL END",
             clanIdA,
             clanIdB,
             escapedDeclarer,
             view_as<int>(ClanWarStatus_Active),
             now,
-            now + CLAN_WAR_EXPIRE_SECONDS);
+            now + CLAN_WAR_EXPIRE_SECONDS,
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active),
+            view_as<int>(ClanWarStatus_Active));
     }
 
     DataPack pack = new DataPack();
@@ -4044,11 +4170,9 @@ public void SQL_OnStartClanWarUpsert(Database db, DBResultSet results, const cha
 
     char query[256];
     FormatEx(query, sizeof(query),
-        "SELECT id FROM clan_wars WHERE clan_id_a = %d AND clan_id_b = %d AND status = %d AND created_at = %d LIMIT 1",
+        "SELECT id, score_a, score_b, created_at, expires_at, status FROM clan_wars WHERE clan_id_a = %d AND clan_id_b = %d LIMIT 1",
         clanIdA,
-        clanIdB,
-        view_as<int>(ClanWarStatus_Active),
-        createdAt);
+        clanIdB);
 
     DataPack next = new DataPack();
     next.WriteCell(userId);
@@ -4089,7 +4213,35 @@ public void SQL_OnStartClanWarSelected(Database db, DBResultSet results, const c
     }
 
     int warId = results.FetchInt(0);
-    int expiresAt = createdAt + CLAN_WAR_EXPIRE_SECONDS;
+    int scoreA = results.FetchInt(1);
+    int scoreB = results.FetchInt(2);
+    int rowCreatedAt = results.FetchInt(3);
+    int expiresAt = results.FetchInt(4);
+    ClanWarStatus status = view_as<ClanWarStatus>(results.FetchInt(5));
+
+    if (status == ClanWarStatus_Active && rowCreatedAt != createdAt)
+    {
+        int instanceId = 0;
+        EnsureClanWarInstanceSync(warId, clanIdA, clanIdB, rowCreatedAt, instanceId);
+        UpsertActiveWarCacheEntry(warId, clanIdA, clanIdB, scoreA, scoreB, rowCreatedAt, expiresAt, instanceId);
+
+        if (client > 0 && IsClientInGame(client))
+        {
+            PrintToChat(client, "[Clans] These clans are already at war.");
+        }
+        return;
+    }
+
+    if (status != ClanWarStatus_Active || rowCreatedAt != createdAt)
+    {
+        LogError("[Clans] Unexpected war row state after declaring pair %d/%d: status=%d created_at=%d expected_created_at=%d", clanIdA, clanIdB, view_as<int>(status), rowCreatedAt, createdAt);
+        if (client > 0 && IsClientInGame(client))
+        {
+            PrintToChat(client, "[Clans] Failed to declare war.");
+        }
+        return;
+    }
+
     UpsertActiveWarCacheEntry(warId, clanIdA, clanIdB, 0, 0, createdAt, expiresAt, 0);
 
     char declaringClanName[CLAN_NAME_MAXLEN + 1];
@@ -5416,7 +5568,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
     int attackerClanId = 0;
     int victimClanId = 0;
-    if (!GetLoadedClientClanId(attacker, attackerClanId) || !GetLoadedClientClanId(victim, victimClanId))
+    if (!ResolveClientClanIdForWarScoring(attacker, attackerClanId) || !ResolveClientClanIdForWarScoring(victim, victimClanId))
     {
         return;
     }
