@@ -12,6 +12,7 @@
 #include <morecolors>
 
 #undef REQUIRE_PLUGIN
+#include <adminsdb_api>
 #include <hugs_api>
 #include <tags_api>
 #include <whaletracker_api>
@@ -69,6 +70,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("Filters_GetChatName", Native_Filters_GetChatName);
     CreateNative("Filters_GetSteamIdColorTag", Native_Filters_GetSteamIdColorTag);
     CreateNative("Filters_GetLastRecordedSteamName", Native_Filters_GetLastRecordedSteamName);
+    MarkNativeAsOptional("AdminsDB_GetClientWhitelistLevel");
     MarkNativeAsOptional("Hugs_GetRapesGiven");
     MarkNativeAsOptional("Hugs_AreStatsLoaded");
     MarkNativeAsOptional("WhaleTracker_GetCumulativeKills");
@@ -78,9 +80,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 }
 
 // Cookie handles
-Handle g_hCookieWhitelist;
 Handle g_hCookieFilterWhitelist;
-Handle g_hCookieBlacklist;
 Handle g_hCookieredlist;
 Handle g_hChatFrontend;
 
@@ -520,24 +520,15 @@ static void Filters_CreateConVars()
 
 static void Filters_RegisterCookies()
 {
-    g_hCookieWhitelist = RegClientCookie("filter_whitelist", "Player is whitelisted from all filters", CookieAccess_Protected);
     g_hCookieFilterWhitelist = RegClientCookie("filter_filterwhitelist", "Player is whitelisted from word filters only", CookieAccess_Protected);
-    g_hCookieBlacklist = RegClientCookie("filter_blacklist", "Player is blacklisted from sending messages", CookieAccess_Protected);
     g_hCookieredlist = RegClientCookie("filter_redlist", "Player cannot hear blacklisted clients", CookieAccess_Protected);
 }
 
 static void Filters_RegisterCommands()
 {
-    RegAdminCmd("sm_whitelist", Command_Whitelist, ADMFLAG_CHAT, "sm_whitelist <player> - Whitelists a player from all filters");
-    RegAdminCmd("sm_unwhitelist", Command_UnWhitelist, ADMFLAG_CHAT, "sm_unwhitelist <player> - Removes whitelist from a player");
-
     RegAdminCmd("sm_filterwhitelist", Command_FilterWhitelist, ADMFLAG_CHAT, "sm_filterwhitelist <player> - Whitelists a player from word filters only");
     RegAdminCmd("sm_unfilterwhitelist", Command_UnFilterWhitelist, ADMFLAG_CHAT, "sm_unfilterwhitelist <player> - Removes filter whitelist from a player");
 
-    RegAdminCmd("sm_blacklist", Command_Blacklist, ADMFLAG_CHAT, "sm_blacklist <player> - Blacklists a player from sending messages");
-    RegAdminCmd("sm_unblacklist", Command_UnBlacklist, ADMFLAG_CHAT, "sm_unblacklist <player> - Removes blacklist from a player");
-    RegAdminCmd("sm_whitelists", Command_ListWhitelists, ADMFLAG_CHAT, "sm_whitelists - Lists whitelisted players");
-    RegAdminCmd("sm_blacklists", Command_ListBlacklists, ADMFLAG_CHAT, "sm_blacklists - Lists blacklisted players");
     RegAdminCmd("sm_redlist", Command_redlist, ADMFLAG_CHAT, "sm_redlist <player> - redlist a player (can't hear blacklisted clients)");
     RegAdminCmd("sm_unredlist", Command_Unredlist, ADMFLAG_CHAT, "sm_unredlist <player> - Removes redlist from a player");
     RegAdminCmd("sm_redlists", Command_Listredlists, ADMFLAG_CHAT, "sm_redlists - Lists redlisted players");
@@ -1386,19 +1377,13 @@ enum struct ChatContext
 
 enum FilterStatusList
 {
-    FilterStatus_Whitelist = 0,
-    FilterStatus_Blacklist,
-    FilterStatus_redlist
+    FilterStatus_redlist = 0
 };
 
 enum FilterAdminAction
 {
-    FilterAdmin_Whitelist = 0,
-    FilterAdmin_UnWhitelist,
-    FilterAdmin_FilterWhitelist,
+    FilterAdmin_FilterWhitelist = 0,
     FilterAdmin_UnFilterWhitelist,
-    FilterAdmin_Blacklist,
-    FilterAdmin_UnBlacklist,
     FilterAdmin_redlist,
     FilterAdmin_Unredlist
 };
@@ -1407,12 +1392,8 @@ static void Filters_ApplyAdminTargetAction(int client, int target, FilterAdminAc
 {
     switch (action)
     {
-        case FilterAdmin_Whitelist: PerformWhitelist(client, target);
-        case FilterAdmin_UnWhitelist: PerformUnWhitelist(client, target);
         case FilterAdmin_FilterWhitelist: PerformFilterWhitelist(client, target);
         case FilterAdmin_UnFilterWhitelist: PerformUnFilterWhitelist(client, target);
-        case FilterAdmin_Blacklist: PerformBlacklist(client, target);
-        case FilterAdmin_UnBlacklist: PerformUnBlacklist(client, target);
         case FilterAdmin_redlist: Performredlist(client, target);
         case FilterAdmin_Unredlist: PerformUnredlist(client, target);
     }
@@ -1565,6 +1546,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
 
 void BuildChatContext(int client, const char[] sArgs, ChatContext context)
 {
+    Filters_RefreshAdminDbStatus(client);
     context.pluginEnabled = GetConVarInt(g_sEnabled) != 0;
     context.cordMode = Filters_IsCordModeEnabled();
     context.isBlacklisted = g_PlayerState[client].isBlacklisted;
@@ -1812,8 +1794,6 @@ void Filters_PrintStatusList(int client, FilterStatusList status)
     char label[16];
     switch (status)
     {
-        case FilterStatus_Whitelist: strcopy(label, sizeof(label), "Whitelisted");
-        case FilterStatus_Blacklist: strcopy(label, sizeof(label), "Blacklisted");
         case FilterStatus_redlist: strcopy(label, sizeof(label), "redlisted");
         default: strcopy(label, sizeof(label), "Players");
     }
@@ -1834,14 +1814,6 @@ void Filters_PrintStatusList(int client, FilterStatusList status)
             continue;
         }
 
-        if (status == FilterStatus_Whitelist && !g_PlayerState[i].isWhitelisted)
-        {
-            continue;
-        }
-        if (status == FilterStatus_Blacklist && !g_PlayerState[i].isBlacklisted)
-        {
-            continue;
-        }
         if (status == FilterStatus_redlist && !g_PlayerState[i].isredlisted)
         {
             continue;
@@ -1901,11 +1873,9 @@ bool HandleListStatusCommand(int client, const char[] sArgs)
     char commandToken[32];
     BreakString(buffer, commandToken, sizeof(commandToken));
 
-    bool listWhitelist = StrEqual(commandToken, "/whitelists", false);
-    bool listBlacklist = StrEqual(commandToken, "/blacklists", false);
     bool listredlist = StrEqual(commandToken, "/redlists", false);
 
-    if (!listWhitelist && !listBlacklist && !listredlist)
+    if (!listredlist)
     {
         return false;
     }
@@ -1916,18 +1886,7 @@ bool HandleListStatusCommand(int client, const char[] sArgs)
         return true;
     }
 
-    if (listWhitelist)
-    {
-        Filters_PrintStatusList(client, FilterStatus_Whitelist);
-    }
-    else if (listBlacklist)
-    {
-        Filters_PrintStatusList(client, FilterStatus_Blacklist);
-    }
-    else
-    {
-        Filters_PrintStatusList(client, FilterStatus_redlist);
-    }
+    Filters_PrintStatusList(client, FilterStatus_redlist);
     return true;
 }
 
@@ -1937,6 +1896,8 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
     {
         return false;
     }
+
+    Filters_RefreshAdminDbStatus(client);
 
     char tag[16];
     BuildTeamTag(GetClientTeam(client), tag, sizeof(tag));
@@ -2967,9 +2928,7 @@ static void Filters_LoadBlacklist50Words(KeyValues kv)
 
 static bool Filters_IsValidForcedStatusType(const char[] status)
 {
-    return StrEqual(status, "whitelist")
-        || StrEqual(status, "blacklist")
-        || StrEqual(status, "redlist")
+    return StrEqual(status, "redlist")
         || StrEqual(status, "filter_whitelist");
 }
 
@@ -3174,8 +3133,6 @@ void CreateDefaultConfig(const char[] path)
     file.WriteLine("    }");
     file.WriteLine("    \"force_status\"");
     file.WriteLine("    {");
-    file.WriteLine("        \"STEAM_0:0:12345678\"    \"whitelist\"");
-    file.WriteLine("        \"STEAM_0:1:87654321\"    \"blacklist\"");
     file.WriteLine("        \"STEAM_0:0:33445566\"    \"redlist\"");
     file.WriteLine("        \"STEAM_0:0:11223344\"    \"filter_whitelist\"");
     file.WriteLine("    }");
@@ -3329,7 +3286,9 @@ void ProcessCookies(int client)
 
     char cookie[32];
 
-    // Check if client has forced status from config
+    Filters_RefreshAdminDbStatus(client);
+
+    // Check if client has forced redlist/filter status from config.
     char steamid[32];
     if (Kogasa_GetClientSteam2(client, steamid, sizeof(steamid), true))
     {
@@ -3337,19 +3296,7 @@ void ProcessCookies(int client)
         {
             if (StrEqual(steamid, g_ForcedStatusSteamIDs[i]))
             {
-                if (StrEqual(g_ForcedStatusTypes[i], "whitelist"))
-                {
-                    PrintToServer("[FILTERS] %N is force whitelisted (from config)", client);
-                    g_PlayerState[client].isWhitelisted = true;
-                    return; // Skip cookie processing for forced status
-                }
-                else if (StrEqual(g_ForcedStatusTypes[i], "blacklist"))
-                {
-                    PrintToServer("[FILTERS] %N is force blacklisted (from config)", client);
-                    g_PlayerState[client].isBlacklisted = true;
-                    return;
-                }
-                else if (StrEqual(g_ForcedStatusTypes[i], "redlist"))
+                if (StrEqual(g_ForcedStatusTypes[i], "redlist"))
                 {
                     PrintToServer("[FILTERS] %N is force redlisted (from config)", client);
                     g_PlayerState[client].isredlisted = true;
@@ -3366,18 +3313,7 @@ void ProcessCookies(int client)
         }
     }
     
-    // Process cookies normally if no forced status
-    GetClientCookie(client, g_hCookieWhitelist, cookie, sizeof(cookie));
-    if (StrEqual(cookie, "1"))
-    {
-        PrintToServer("[FILTERS] %N is whitelisted", client);
-        g_PlayerState[client].isWhitelisted = true;
-    }
-    else
-    {
-        g_PlayerState[client].isWhitelisted = false;
-    }
-    
+    // Process filters-owned cookies normally if no forced status.
     GetClientCookie(client, g_hCookieFilterWhitelist, cookie, sizeof(cookie));
     if (StrEqual(cookie, "1"))
     {
@@ -3389,17 +3325,6 @@ void ProcessCookies(int client)
         g_PlayerState[client].isFilterWhitelisted = false;
     }
     
-    GetClientCookie(client, g_hCookieBlacklist, cookie, sizeof(cookie));
-    if (StrEqual(cookie, "1"))
-    {
-        PrintToServer("[FILTERS] %N is blacklisted", client);
-        g_PlayerState[client].isBlacklisted = true;
-    }
-    else
-    {
-        g_PlayerState[client].isBlacklisted = false;
-    }
-
     GetClientCookie(client, g_hCookieredlist, cookie, sizeof(cookie));
     if (StrEqual(cookie, "1"))
     {
@@ -3411,6 +3336,28 @@ void ProcessCookies(int client)
         g_PlayerState[client].isredlisted = false;
     }
 
+}
+
+static int Filters_GetAdminsDbLevel(int client)
+{
+    if (GetFeatureStatus(FeatureType_Native, "AdminsDB_GetClientWhitelistLevel") != FeatureStatus_Available)
+    {
+        return 0;
+    }
+
+    return AdminsDB_GetClientWhitelistLevel(client);
+}
+
+static void Filters_RefreshAdminDbStatus(int client)
+{
+    if (!Filters_IsRealClientInGame(client))
+    {
+        return;
+    }
+
+    int level = Filters_GetAdminsDbLevel(client);
+    g_PlayerState[client].isWhitelisted = level > 0;
+    g_PlayerState[client].isBlacklisted = level < 0;
 }
 
 static void Filters_StartAutoRedlistCheck(int client)
@@ -3728,40 +3675,6 @@ public any Native_Filters_GetLastRecordedSteamName(Handle plugin, int numParams)
     return false;
 }
 
-// ==================== WHITELIST COMMANDS ====================
-
-public Action Command_Whitelist(int client, int args)
-{
-    return Filters_RunTargetAdminCommand(client, args,
-        "[Kogasa] Usage: sm_whitelist <player>",
-        "Whitelisted %s",
-        FilterAdmin_Whitelist);
-}
-
-public Action Command_UnWhitelist(int client, int args)
-{
-    return Filters_RunTargetAdminCommand(client, args,
-        "[Kogasa] Usage: sm_unwhitelist <player>",
-        "Removed whitelist from %s",
-        FilterAdmin_UnWhitelist);
-}
-
-void PerformWhitelist(int client, int target)
-{
-    g_PlayerState[target].isWhitelisted = true;
-    SetClientCookie(target, g_hCookieWhitelist, "1");
-    LogAction(client, target, "\"%L\" whitelisted \"%L\"", client, target);
-    Filters_UpdateVoiceOverrides();
-}
-
-void PerformUnWhitelist(int client, int target)
-{
-    g_PlayerState[target].isWhitelisted = false;
-    SetClientCookie(target, g_hCookieWhitelist, "0");
-    LogAction(client, target, "\"%L\" removed whitelist from \"%L\"", client, target);
-    Filters_UpdateVoiceOverrides();
-}
-
 // ==================== FILTER WHITELIST COMMANDS ====================
 
 public Action Command_FilterWhitelist(int client, int args)
@@ -3792,34 +3705,6 @@ void PerformUnFilterWhitelist(int client, int target)
     g_PlayerState[target].isFilterWhitelisted = false;
     SetClientCookie(target, g_hCookieFilterWhitelist, "0");
     LogAction(client, target, "\"%L\" removed filter whitelist from \"%L\"", client, target);
-}
-
-// ==================== BLACKLIST COMMANDS ====================
-
-public Action Command_Blacklist(int client, int args)
-{
-    return Filters_RunTargetAdminCommand(client, args,
-        "[Kogasa] Usage: sm_blacklist <player>",
-        "Blacklisted %s",
-        FilterAdmin_Blacklist);
-}
-
-public Action Command_UnBlacklist(int client, int args)
-{
-    return Filters_RunTargetAdminCommand(client, args,
-        "[Kogasa] Usage: sm_unblacklist <player>",
-        "Removed blacklist from %s",
-        FilterAdmin_UnBlacklist);
-}
-
-public Action Command_ListWhitelists(int client, int args)
-{
-    return Filters_RunStatusListCommand(client, FilterStatus_Whitelist);
-}
-
-public Action Command_ListBlacklists(int client, int args)
-{
-    return Filters_RunStatusListCommand(client, FilterStatus_Blacklist);
 }
 
 public Action Command_Listredlists(int client, int args)
@@ -3870,22 +3755,6 @@ public Action Command_FiltersDebug(int client, int args)
     }
 
     return Plugin_Handled;
-}
-
-void PerformBlacklist(int client, int target)
-{
-    g_PlayerState[target].isBlacklisted = true;
-    SetClientCookie(target, g_hCookieBlacklist, "1");
-    LogAction(client, target, "\"%L\" blacklisted \"%L\"", client, target);
-    Filters_UpdateVoiceOverrides();
-}
-
-void PerformUnBlacklist(int client, int target)
-{
-    g_PlayerState[target].isBlacklisted = false;
-    SetClientCookie(target, g_hCookieBlacklist, "0");
-    LogAction(client, target, "\"%L\" removed blacklist from \"%L\"", client, target);
-    Filters_UpdateVoiceOverrides();
 }
 
 // ==================== redlist COMMANDS ====================

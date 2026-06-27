@@ -7,6 +7,7 @@
 #include <morecolors>
 
 #undef REQUIRE_PLUGIN
+#include <adminsdb_api>
 #include <dgm_api>
 #include <points_store_api>
 #define REQUIRE_PLUGIN
@@ -57,6 +58,8 @@ int g_MapStartedAt = 0;
 int g_CurrentVoteInitiatorUserId = 0;
 char g_CurrentVoteInitiatorSteamId64[32];
 char g_CurrentVoteInitiatorName[MAX_NAME_LENGTH];
+int g_WeightedVoteChoice[MAXPLAYERS + 1];
+int g_WeightedVoteWeight[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
@@ -68,6 +71,7 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 {
+    MarkNativeAsOptional("AdminsDB_GetClientWhitelistLevel");
     MarkNativeAsOptional("PointsStore_AreBonusPointsLoaded");
     MarkNativeAsOptional("PointsStore_GetBonusPoints");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
@@ -404,6 +408,7 @@ static bool StartYesNoVote(int initiator)
     }
 
     CaptureCurrentVoteInitiator(initiator);
+    ResetWeightedVoteState();
 
     char startMsg[384];
     char announcer[128];
@@ -467,28 +472,19 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
     if (action == MenuAction_End)
     {
         g_VoteInProgress = false;
+        ResetWeightedVoteState();
         delete menu;
+    }
+    else if (action == MenuAction_Select)
+    {
+        TrackWeightedVoteSelection(menu, param1, param2);
     }
     else if (action == MenuAction_VoteEnd)
     {
-        int winningVotes, totalVotes;
-        GetMenuVoteInfo(param2, winningVotes, totalVotes);
-
-        char info[8];
-        menu.GetItem(param1, info, sizeof(info));
-
         int yesVotes = 0;
         int noVotes = 0;
-        if (StrEqual(info, "yes"))
-        {
-            yesVotes = winningVotes;
-            noVotes = totalVotes - winningVotes;
-        }
-        else
-        {
-            noVotes = winningVotes;
-            yesVotes = totalVotes - winningVotes;
-        }
+        int totalVotes = 0;
+        GetWeightedVoteTotals(yesVotes, noVotes, totalVotes);
 
         float ratio = (totalVotes > 0) ? float(yesVotes) / float(totalVotes) : 0.0;
         bool passed = (totalVotes > 0) && (ratio >= g_CurrentVote.ratio);
@@ -508,6 +504,7 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
     else if (action == MenuAction_VoteCancel)
     {
         g_VoteInProgress = false;
+        ResetWeightedVoteState();
         ClearPendingVoteCharge();
         int reason = param1;
         if (reason == VoteCancel_NoVotes)
@@ -521,6 +518,85 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
         ClearCurrentVoteInitiator();
     }
     return 0;
+}
+
+static void ResetWeightedVoteState()
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        g_WeightedVoteChoice[client] = 0;
+        g_WeightedVoteWeight[client] = 0;
+    }
+}
+
+static int GetVoteMenuClientVoteWeight(int client)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return 0;
+    }
+
+    int level = 0;
+    if (GetFeatureStatus(FeatureType_Native, "AdminsDB_GetClientWhitelistLevel") == FeatureStatus_Available)
+    {
+        level = AdminsDB_GetClientWhitelistLevel(client);
+    }
+
+    int weight = 1 + level;
+    return weight > 0 ? weight : 0;
+}
+
+static void TrackWeightedVoteSelection(Menu menu, int client, int item)
+{
+    if (client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+
+    char info[8];
+    menu.GetItem(item, info, sizeof(info));
+
+    if (StrEqual(info, "yes"))
+    {
+        g_WeightedVoteChoice[client] = 1;
+    }
+    else if (StrEqual(info, "no"))
+    {
+        g_WeightedVoteChoice[client] = 2;
+    }
+    else
+    {
+        g_WeightedVoteChoice[client] = 0;
+    }
+
+    g_WeightedVoteWeight[client] = GetVoteMenuClientVoteWeight(client);
+}
+
+static void GetWeightedVoteTotals(int &yesVotes, int &noVotes, int &totalVotes)
+{
+    yesVotes = 0;
+    noVotes = 0;
+    totalVotes = 0;
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        int weight = g_WeightedVoteWeight[client];
+        if (weight <= 0)
+        {
+            continue;
+        }
+
+        if (g_WeightedVoteChoice[client] == 1)
+        {
+            yesVotes += weight;
+            totalVotes += weight;
+        }
+        else if (g_WeightedVoteChoice[client] == 2)
+        {
+            noVotes += weight;
+            totalVotes += weight;
+        }
+    }
 }
 
 static void ChargePassedVoteAndExecuteOutcome()

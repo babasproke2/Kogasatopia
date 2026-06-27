@@ -12,6 +12,7 @@
 
 #define ADMIN_DB_CONFIG "default"
 #define ADMIN_TABLE_NAME "admins"
+#define ADMIN_WHITELIST_TABLE_NAME "adminsdb_whitelists"
 #define MAX_FLAG_LEN 32
 #define MAX_NAME_LEN 128
 
@@ -19,6 +20,8 @@ char g_sAdminsFile[PLATFORM_MAX_PATH];
 Database g_hDatabase = null;
 bool g_bDatabaseReady = false;
 Handle g_hReconnectTimer = null;
+StringMap g_WhitelistLevels = null;
+int g_ClientWhitelistLevel[MAXPLAYERS + 1];
 static const char STEAM64_BASE_STR[] = "76561197960265728";
 
 public Plugin myinfo =
@@ -30,19 +33,53 @@ public Plugin myinfo =
     url = "https://kogasa.tf"
 };
 
+public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
+{
+    RegPluginLibrary("adminsdb");
+    CreateNative("AdminsDB_GetClientWhitelistLevel", Native_AdminsDB_GetClientWhitelistLevel);
+    CreateNative("AdminsDB_GetSteamWhitelistLevel", Native_AdminsDB_GetSteamWhitelistLevel);
+    return APLRes_Success;
+}
+
 public void OnPluginStart()
 {
     LoadTranslations("common.phrases");
+    g_WhitelistLevels = new StringMap();
     BuildPath(Path_SM, g_sAdminsFile, sizeof(g_sAdminsFile), "configs/admins_simple.ini");
     ConnectToDatabase();
     RegConsoleCmd("sm_admins", Command_ShowAdmins, "Lists online admins");
     RegConsoleCmd("sm_checkid", Command_CheckId, "Shows your SteamID formats");
+    RegAdminCmd("sm_whitelist", Command_Whitelist, ADMFLAG_CHAT, "sm_whitelist <player> <1-3> - Sets whitelist level");
+    RegAdminCmd("sm_unwhitelist", Command_UnWhitelist, ADMFLAG_CHAT, "sm_unwhitelist <player> - Clears whitelist level");
+    RegAdminCmd("sm_blacklist", Command_Blacklist, ADMFLAG_CHAT, "sm_blacklist <player> <1-3> - Sets blacklist level");
+    RegAdminCmd("sm_unblacklist", Command_UnBlacklist, ADMFLAG_CHAT, "sm_unblacklist <player> - Clears blacklist level");
+    RegAdminCmd("sm_whitelists", Command_ListWhitelists, ADMFLAG_CHAT, "sm_whitelists - Lists whitelisted clients");
+    RegAdminCmd("sm_blacklists", Command_ListBlacklists, ADMFLAG_CHAT, "sm_blacklists - Lists blacklisted clients");
 }
 
 public void OnPluginEnd()
 {
     KogasaSql_CancelTimer(g_hReconnectTimer);
     KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
+
+    if (g_WhitelistLevels != null)
+    {
+        delete g_WhitelistLevels;
+        g_WhitelistLevels = null;
+    }
+}
+
+public void OnClientPostAdminCheck(int client)
+{
+    RefreshClientWhitelistLevel(client);
+}
+
+public void OnClientDisconnect(int client)
+{
+    if (client > 0 && client <= MaxClients)
+    {
+        g_ClientWhitelistLevel[client] = 0;
+    }
 }
 
 void ConnectToDatabase()
@@ -71,7 +108,9 @@ public void SQL_OnDatabaseConnected(Handle owner, Handle hndl, const char[] erro
     g_bDatabaseReady = true;
     KogasaSql_CancelTimer(g_hReconnectTimer);
     EnsureAdminTable();
+    EnsureWhitelistTable();
     SyncAdmins();
+    LoadWhitelistLevels();
 }
 
 void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
@@ -100,6 +139,64 @@ void EnsureAdminTable()
     char query[256];
     Format(query, sizeof(query), "CREATE TABLE IF NOT EXISTS %s (steamid2 VARCHAR(32) NOT NULL, steamid64 VARCHAR(32) NOT NULL, admin_status ENUM('yes','no') NOT NULL DEFAULT 'no')", ADMIN_TABLE_NAME);
     SQL_TQuery(g_hDatabase, SQLErrorCheckCallback, query);
+}
+
+void EnsureWhitelistTable()
+{
+    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    {
+        return;
+    }
+
+    char query[256];
+    Format(query, sizeof(query), "CREATE TABLE IF NOT EXISTS %s (steamid64 VARCHAR(32) PRIMARY KEY, level INT NOT NULL DEFAULT 0) DEFAULT CHARSET=utf8mb4", ADMIN_WHITELIST_TABLE_NAME);
+    SQL_TQuery(g_hDatabase, SQLErrorCheckCallback, query);
+}
+
+void LoadWhitelistLevels()
+{
+    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    {
+        return;
+    }
+
+    char query[128];
+    Format(query, sizeof(query), "SELECT steamid64, level FROM %s WHERE level <> 0", ADMIN_WHITELIST_TABLE_NAME);
+    SQL_TQuery(g_hDatabase, SQL_OnWhitelistLevelsLoaded, query);
+}
+
+public void SQL_OnWhitelistLevelsLoaded(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[AdminsDB] Failed to load whitelist levels: %s", error);
+        return;
+    }
+
+    if (g_WhitelistLevels == null)
+    {
+        g_WhitelistLevels = new StringMap();
+    }
+    else
+    {
+        g_WhitelistLevels.Clear();
+    }
+
+    if (results != null)
+    {
+        char steamId64[32];
+        while (results.FetchRow())
+        {
+            results.FetchString(0, steamId64, sizeof(steamId64));
+            int level = AdminsDb_ClampStoredLevel(results.FetchInt(1));
+            if (steamId64[0] != '\0' && level != 0)
+            {
+                g_WhitelistLevels.SetValue(steamId64, level);
+            }
+        }
+    }
+
+    RefreshConnectedWhitelistLevels();
 }
 
 void SyncAdmins()
@@ -329,6 +426,76 @@ bool ConvertSteam2ToSteam64(const char[] steam2, char[] steam64, int maxlen)
     return true;
 }
 
+bool ConvertSteam3ToSteam64(const char[] steam3, char[] steam64, int maxlen)
+{
+    char input[64];
+    strcopy(input, sizeof(input), steam3);
+    TrimString(input);
+
+    ReplaceString(input, sizeof(input), "[", "", false);
+    ReplaceString(input, sizeof(input), "]", "", false);
+
+    char parts[3][32];
+    int count = ExplodeString(input, ":", parts, sizeof(parts), sizeof(parts[]));
+    if (count != 3 || !StrEqual(parts[0], "U", false))
+    {
+        return false;
+    }
+
+    AddDecimalStrings(STEAM64_BASE_STR, parts[2], steam64, maxlen);
+    return steam64[0] != '\0';
+}
+
+bool IsDecimalSteam64(const char[] steamId)
+{
+    int len = strlen(steamId);
+    if (len < 16 || len > 20)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < len; i++)
+    {
+        if (steamId[i] < '0' || steamId[i] > '9')
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool NormalizeSteamIdToSteam64(const char[] input, char[] steam64, int maxlen)
+{
+    steam64[0] = '\0';
+
+    char value[64];
+    strcopy(value, sizeof(value), input);
+    TrimString(value);
+    if (!value[0])
+    {
+        return false;
+    }
+
+    if (IsDecimalSteam64(value))
+    {
+        strcopy(steam64, maxlen, value);
+        return true;
+    }
+
+    if (StrContains(value, "STEAM_", false) == 0)
+    {
+        return ConvertSteam2ToSteam64(value, steam64, maxlen);
+    }
+
+    if (value[0] == '[' || StrContains(value, "U:", false) == 0)
+    {
+        return ConvertSteam3ToSteam64(value, steam64, maxlen);
+    }
+
+    return false;
+}
+
 void AddDecimalStrings(const char[] base, const char[] delta, char[] output, int maxlen)
 {
     char buffer[64];
@@ -368,6 +535,335 @@ public void SQLErrorCheckCallback(Database db, DBResultSet results, const char[]
         if (KogasaSql_IsTransientError(error))
         {
             ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+        }
+    }
+}
+
+public any Native_AdminsDB_GetClientWhitelistLevel(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    return AdminsDb_GetClientWhitelistLevel(client);
+}
+
+public any Native_AdminsDB_GetSteamWhitelistLevel(Handle plugin, int numParams)
+{
+    char steamId[64];
+    GetNativeString(1, steamId, sizeof(steamId));
+    return AdminsDb_GetSteamWhitelistLevel(steamId);
+}
+
+int AdminsDb_ClampStoredLevel(int level)
+{
+    if (level > 3)
+    {
+        return 3;
+    }
+    if (level < -3)
+    {
+        return -3;
+    }
+    return level;
+}
+
+int AdminsDb_GetSteamWhitelistLevel(const char[] steamId)
+{
+    char steamId64[32];
+    if (!NormalizeSteamIdToSteam64(steamId, steamId64, sizeof(steamId64)) || g_WhitelistLevels == null)
+    {
+        return 0;
+    }
+
+    int level = 0;
+    if (!g_WhitelistLevels.GetValue(steamId64, level))
+    {
+        return 0;
+    }
+    return AdminsDb_ClampStoredLevel(level);
+}
+
+int AdminsDb_GetClientWhitelistLevel(int client)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return 0;
+    }
+
+    return AdminsDb_ClampStoredLevel(g_ClientWhitelistLevel[client]);
+}
+
+void RefreshClientWhitelistLevel(int client)
+{
+    if (client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+
+    g_ClientWhitelistLevel[client] = 0;
+    if (!IsClientInGame(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    char steamId64[32];
+    if (Kogasa_GetClientSteamId64(client, steamId64, sizeof(steamId64), true))
+    {
+        g_ClientWhitelistLevel[client] = AdminsDb_GetSteamWhitelistLevel(steamId64);
+    }
+}
+
+void RefreshConnectedWhitelistLevels()
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        RefreshClientWhitelistLevel(client);
+    }
+}
+
+Action RunWhitelistLevelCommand(int client, int args, bool blacklist)
+{
+    if (args < 2)
+    {
+        ReplyToCommand(client, "[AdminsDB] Usage: sm_%s <player> <1-3>", blacklist ? "blacklist" : "whitelist");
+        return Plugin_Handled;
+    }
+
+    char targetArg[64];
+    char levelArg[16];
+    GetCmdArg(1, targetArg, sizeof(targetArg));
+    GetCmdArg(2, levelArg, sizeof(levelArg));
+
+    int absoluteLevel = StringToInt(levelArg);
+    if (absoluteLevel < 1 || absoluteLevel > 3)
+    {
+        ReplyToCommand(client, "[AdminsDB] Level must be 1, 2, or 3.");
+        return Plugin_Handled;
+    }
+
+    int target = FindTarget(client, targetArg, true, false);
+    if (target <= 0)
+    {
+        return Plugin_Handled;
+    }
+
+    int level = blacklist ? -absoluteLevel : absoluteLevel;
+    SetTargetWhitelistLevel(client, target, level);
+    return Plugin_Handled;
+}
+
+Action RunClearWhitelistLevelCommand(int client, int args, const char[] commandName)
+{
+    if (args < 1)
+    {
+        ReplyToCommand(client, "[AdminsDB] Usage: %s <player>", commandName);
+        return Plugin_Handled;
+    }
+
+    char targetArg[64];
+    GetCmdArg(1, targetArg, sizeof(targetArg));
+
+    int target = FindTarget(client, targetArg, true, false);
+    if (target <= 0)
+    {
+        return Plugin_Handled;
+    }
+
+    SetTargetWhitelistLevel(client, target, 0);
+    return Plugin_Handled;
+}
+
+void SetTargetWhitelistLevel(int admin, int target, int level)
+{
+    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    {
+        ReplyToCommand(admin, "[AdminsDB] Whitelist database is not ready.");
+        ConnectToDatabase();
+        return;
+    }
+
+    if (IsFakeClient(target))
+    {
+        ReplyToCommand(admin, "[AdminsDB] Target is a bot.");
+        return;
+    }
+
+    char steamId64[32];
+    if (!Kogasa_GetClientSteamId64(target, steamId64, sizeof(steamId64), true))
+    {
+        ReplyToCommand(admin, "[AdminsDB] Could not read target SteamID64.");
+        return;
+    }
+
+    char escapedSteam[64];
+    KogasaSql_Escape(g_hDatabase, steamId64, escapedSteam, sizeof(escapedSteam), "AdminsDB");
+
+    char query[256];
+    if (level == 0)
+    {
+        Format(query, sizeof(query), "DELETE FROM %s WHERE steamid64 = '%s'", ADMIN_WHITELIST_TABLE_NAME, escapedSteam);
+        if (g_WhitelistLevels != null)
+        {
+            g_WhitelistLevels.Remove(steamId64);
+        }
+    }
+    else
+    {
+        level = AdminsDb_ClampStoredLevel(level);
+        Format(query, sizeof(query),
+            "REPLACE INTO %s (steamid64, level) VALUES ('%s', %d)",
+            ADMIN_WHITELIST_TABLE_NAME,
+            escapedSteam,
+            level);
+        if (g_WhitelistLevels != null)
+        {
+            g_WhitelistLevels.SetValue(steamId64, level);
+        }
+    }
+
+    g_ClientWhitelistLevel[target] = level;
+    SQL_TQuery(g_hDatabase, SQLErrorCheckCallback, query);
+
+    char targetName[MAX_NAME_LENGTH];
+    GetClientName(target, targetName, sizeof(targetName));
+    if (level > 0)
+    {
+        ShowActivity2(admin, "[AdminsDB] ", "set whitelist level %d for %s", level, targetName);
+        LogAction(admin, target, "\"%L\" set whitelist level %d for \"%L\"", admin, level, target);
+    }
+    else if (level < 0)
+    {
+        ShowActivity2(admin, "[AdminsDB] ", "set blacklist level %d for %s", -level, targetName);
+        LogAction(admin, target, "\"%L\" set blacklist level %d for \"%L\"", admin, -level, target);
+    }
+    else
+    {
+        ShowActivity2(admin, "[AdminsDB] ", "cleared whitelist/blacklist level for %s", targetName);
+        LogAction(admin, target, "\"%L\" cleared whitelist/blacklist level for \"%L\"", admin, target);
+    }
+}
+
+public Action Command_Whitelist(int client, int args)
+{
+    return RunWhitelistLevelCommand(client, args, false);
+}
+
+public Action Command_Blacklist(int client, int args)
+{
+    return RunWhitelistLevelCommand(client, args, true);
+}
+
+public Action Command_UnWhitelist(int client, int args)
+{
+    return RunClearWhitelistLevelCommand(client, args, "sm_unwhitelist");
+}
+
+public Action Command_UnBlacklist(int client, int args)
+{
+    return RunClearWhitelistLevelCommand(client, args, "sm_unblacklist");
+}
+
+public Action Command_ListWhitelists(int client, int args)
+{
+    return RunWhitelistLevelListCommand(client, true);
+}
+
+public Action Command_ListBlacklists(int client, int args)
+{
+    return RunWhitelistLevelListCommand(client, false);
+}
+
+Action RunWhitelistLevelListCommand(int client, bool whitelist)
+{
+    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    {
+        ReplyToCommand(client, "[AdminsDB] Whitelist database is not ready.");
+        ConnectToDatabase();
+        return Plugin_Handled;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(client <= 0 ? 0 : GetClientUserId(client));
+    pack.WriteCell(whitelist ? 1 : 0);
+
+    char query[512];
+    Format(query, sizeof(query),
+        "SELECT aw.steamid64, aw.level, COALESCE(NULLIF(fs.last_name, ''), aw.steamid64) "
+        ... "FROM %s aw "
+        ... "LEFT JOIN filters_steam_names fs ON fs.steamid64 = aw.steamid64 COLLATE utf8mb4_uca1400_ai_ci "
+        ... "WHERE aw.level %s 0 "
+        ... "ORDER BY ABS(aw.level) DESC, aw.steamid64 ASC LIMIT 64",
+        ADMIN_WHITELIST_TABLE_NAME,
+        whitelist ? ">" : "<");
+    SQL_TQuery(g_hDatabase, SQL_OnWhitelistLevelList, query, pack);
+    return Plugin_Handled;
+}
+
+public void SQL_OnWhitelistLevelList(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    bool whitelist = pack.ReadCell() != 0;
+    delete pack;
+
+    int client = userId == 0 ? 0 : GetClientOfUserId(userId);
+    if (userId != 0 && (client <= 0 || !IsClientInGame(client)))
+    {
+        return;
+    }
+
+    if (error[0] != '\0')
+    {
+        if (client > 0)
+        {
+            CPrintToChat(client, "{green}[AdminsDB]{default} Failed to load %s.", whitelist ? "whitelists" : "blacklists");
+        }
+        else
+        {
+            PrintToServer("[AdminsDB] Failed to load %s.", whitelist ? "whitelists" : "blacklists");
+        }
+        LogError("[AdminsDB] Failed to list whitelist levels: %s", error);
+        return;
+    }
+
+    if (client > 0)
+    {
+        CPrintToChat(client, "{green}[AdminsDB]{default} %s:", whitelist ? "Whitelists" : "Blacklists");
+    }
+    else
+    {
+        PrintToServer("[AdminsDB] %s:", whitelist ? "Whitelists" : "Blacklists");
+    }
+    int count = 0;
+    if (results != null)
+    {
+        char steamId64[32];
+        char displayName[128];
+        while (results.FetchRow())
+        {
+            results.FetchString(0, steamId64, sizeof(steamId64));
+            int level = results.FetchInt(1);
+            results.FetchString(2, displayName, sizeof(displayName));
+            if (client > 0)
+            {
+                CPrintToChat(client, "{green}[AdminsDB]{default} {gold}%d{default}: %s ({lightgreen}%s{default})", level, displayName, steamId64);
+            }
+            else
+            {
+                PrintToServer("[AdminsDB] %d: %s (%s)", level, displayName, steamId64);
+            }
+            count++;
+        }
+    }
+
+    if (count == 0)
+    {
+        if (client > 0)
+        {
+            CPrintToChat(client, "{green}[AdminsDB]{default} None found.");
+        }
+        else
+        {
+            PrintToServer("[AdminsDB] None found.");
         }
     }
 }
