@@ -565,8 +565,10 @@ void ApplyClientCustomLoadout(int client) {
 		
 		// equip our item if it isn't already equipped, or if it's being killed
 		// the latter applies to items that are normally invalid for the class
-		int currentLoadoutItem = g_CurrentLoadout[client][playerClass][i].entity;
-		if (g_bForceReequipItems[client] || !IsValidEntity(currentLoadoutItem)
+		int currentLoadoutItem = EntRefToEntIndex(g_CurrentLoadout[client][playerClass][i].entity);
+		if (g_bForceReequipItems[client]
+				|| currentLoadoutItem == INVALID_ENT_REFERENCE
+				|| !IsValidEntity(currentLoadoutItem)
 				|| GetEntityFlags(currentLoadoutItem) & FL_KILLME) {
 			CustomItemDefinition item;
 			if (!g_CurrentLoadout[client][playerClass][i].GetItemDefinition(item)) {
@@ -623,22 +625,22 @@ MRESReturn OnGetLoadoutItemPost(int client, Handle hReturn, Handle hParams) {
 		return MRES_Ignored;
 	}
 	
-	int storedItem = g_CurrentLoadout[client][playerClass][loadoutSlot].entity;
+	int storedItemRef = g_CurrentLoadout[client][playerClass][loadoutSlot].entity;
+	int storedItem = EntRefToEntIndex(storedItemRef);
 	
 	if (!g_CurrentLoadout[client][playerClass][loadoutSlot].IsEmpty()) {
 		CustomItemDefinition item;
 		if (!g_CurrentLoadout[client][playerClass][loadoutSlot].GetItemDefinition(item)
 				|| !CanPlayerEquipItemForClass(client, playerClass, item)) {
-			int storedEntity = EntRefToEntIndex(storedItem);
-			if (storedEntity != INVALID_ENT_REFERENCE && IsValidEntity(storedEntity)) {
-				RemoveEntity(storedEntity);
+			if (storedItem != INVALID_ENT_REFERENCE && IsValidEntity(storedItem)) {
+				RemoveEntity(storedItem);
 				g_CurrentLoadout[client][playerClass][loadoutSlot].entity = INVALID_ENT_REFERENCE;
 			}
 			return MRES_Ignored;
 		}
 	}
 	
-	if (!IsValidEntity(storedItem) || GetEntityFlags(storedItem) & FL_KILLME
+	if (storedItem == INVALID_ENT_REFERENCE || !IsValidEntity(storedItem) || GetEntityFlags(storedItem) & FL_KILLME
 			|| !HasEntProp(storedItem, Prop_Send, "m_Item")) {
 		// the loadout entity we keep track of isn't valid, so we may need to make one
 		// we expect to have to equip something new at this point
@@ -656,11 +658,12 @@ MRESReturn OnGetLoadoutItemPost(int client, Handle hReturn, Handle hParams) {
 		 * We'll initialize our custom item later in `OnPlayerLoadoutUpdated`.
 		 */
 		static int s_DefaultItem = INVALID_ENT_REFERENCE;
-		if (!IsValidEntity(s_DefaultItem)) {
-			s_DefaultItem = EntIndexToEntRef(TF2_SpawnWearable());
-			RemoveEntity(s_DefaultItem); // (this is OK, RemoveEntity doesn't act immediately)
+		storedItem = EntRefToEntIndex(s_DefaultItem);
+		if (storedItem == INVALID_ENT_REFERENCE || !IsValidEntity(storedItem)) {
+			storedItem = TF2_SpawnWearable();
+			s_DefaultItem = EntIndexToEntRef(storedItem);
+			RemoveEntity(storedItem); // (this is OK, RemoveEntity doesn't act immediately)
 		}
-		storedItem = s_DefaultItem;
 	}
 	
 	Address pStoredItemView = GetEntityAddress(storedItem)
@@ -677,8 +680,8 @@ MRESReturn OnGetLoadoutItemPost(int client, Handle hReturn, Handle hParams) {
 MRESReturn OnManageRegularWeaponsPre(int client, Handle hParams) {
 	TFClassType playerClass = TF2_GetPlayerClass(client);
 	for (int s; s < NUM_ITEMS; s++) {
-		int storedItem = g_CurrentLoadout[client][playerClass][s].entity;
-		if (!IsValidEntity(storedItem)) {
+		int storedItem = EntRefToEntIndex(g_CurrentLoadout[client][playerClass][s].entity);
+		if (storedItem == INVALID_ENT_REFERENCE || !IsValidEntity(storedItem)) {
 			continue;
 		}
 		
@@ -717,8 +720,8 @@ MRESReturn OnManageRegularWeaponsPre(int client, Handle hParams) {
 MRESReturn OnManageRegularWeaponsPost(int client, Handle hParams) {
 	TFClassType playerClass = TF2_GetPlayerClass(client);
 	for (int s; s < NUM_ITEMS; s++) {
-		int storedItem = g_CurrentLoadout[client][playerClass][s].entity;
-		if (!IsValidEntity(storedItem)) {
+		int storedItem = EntRefToEntIndex(g_CurrentLoadout[client][playerClass][s].entity);
+		if (storedItem == INVALID_ENT_REFERENCE || !IsValidEntity(storedItem)) {
 			continue;
 		}
 		
