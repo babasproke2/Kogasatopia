@@ -268,6 +268,8 @@ public void OnPluginStart()
     RegConsoleCmd("sm_gamble", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_bet", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_lotto", Command_Lottery, "Open the currency lottery.");
+    RegConsoleCmd("sm_lottos", Command_LotteryHistory, "Show recent lottery history.");
+    RegConsoleCmd("sm_lottohistory", Command_LotteryHistory, "Show recent lottery history.");
     RegConsoleCmd("sm_lottowhen", Command_LotteryTime, "Show time until the next lottery draw.");
     RegConsoleCmd("sm_when", Command_LotteryTime, "Show time until the next lottery draw.");
     RegConsoleCmd("sm_lottotime", Command_LotteryTime, "Show time until the next lottery draw.");
@@ -1311,6 +1313,144 @@ public Action Command_LotteryPrizePool(int client, int args)
 
     PrintLotteryPrizePool(client);
     return Plugin_Handled;
+}
+
+public Action Command_LotteryHistory(int client, int args)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (!g_DatabaseReady || g_Database == null)
+    {
+        char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+        GetCurrencyColorTag(colorTag, sizeof(colorTag));
+        CPrintToChat(client, "%s[Lotto]{default} The lottery database is not ready.", colorTag);
+        ConnectDatabase();
+        return Plugin_Handled;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+
+    char query[256];
+    Format(query, sizeof(query),
+        "SELECT id, hash, finished_at, winner_name, prize_pool FROM %s WHERE finished = 1 ORDER BY finished_at DESC, id DESC LIMIT 25",
+        LOTTO_TABLE);
+    g_Database.Query(SQL_OnLotteryHistoryLoaded, query, pack);
+    return Plugin_Handled;
+}
+
+public void SQL_OnLotteryHistoryLoaded(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    delete pack;
+
+    int client = GetClientOfUserId(userId);
+    if (!IsClientInGameHuman(client))
+    {
+        return;
+    }
+
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    if (error[0] != '\0')
+    {
+        CPrintToChat(client, "%s[Lotto]{default} Could not load lottery history.", colorTag);
+        LogError("[points_store] Failed to load lottery history: %s", error);
+        return;
+    }
+
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+
+    Menu menu = new Menu(MenuHandler_LotteryHistory);
+    menu.SetTitle("Recent Lottos");
+
+    int count = 0;
+    if (results != null)
+    {
+        while (results.FetchRow())
+        {
+            int lotteryId = results.FetchInt(0);
+            char hash[LOTTO_HASH_MAX];
+            char shortHash[LOTTO_SHORT_HASH_MAX];
+            char winnerName[LOTTO_NAME_MAX];
+            char cleanWinnerName[LOTTO_NAME_MAX];
+            char finishedAt[32];
+            char info[16];
+            char display[192];
+
+            results.FetchString(1, hash, sizeof(hash));
+            int finishedTimestamp = results.FetchInt(2);
+            results.FetchString(3, winnerName, sizeof(winnerName));
+            int prizePool = results.FetchInt(4);
+
+            GetLotteryShortHash(hash, shortHash, sizeof(shortHash));
+            StripMenuColorTags(winnerName, cleanWinnerName, sizeof(cleanWinnerName));
+            if (cleanWinnerName[0] == '\0')
+            {
+                strcopy(cleanWinnerName, sizeof(cleanWinnerName), "Unknown");
+            }
+            FormatTime(finishedAt, sizeof(finishedAt), "%m/%d %H:%M", finishedTimestamp);
+            IntToString(lotteryId, info, sizeof(info));
+            Format(display, sizeof(display), "#%d %s %s - %s - %d %s", lotteryId, shortHash, finishedAt, cleanWinnerName, prizePool, currencyLong);
+            menu.AddItem(info, display, ITEMDRAW_DISABLED);
+            count++;
+        }
+    }
+
+    if (count == 0)
+    {
+        menu.AddItem("none", "No finished lottos found.", ITEMDRAW_DISABLED);
+    }
+
+    menu.ExitButton = true;
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int MenuHandler_LotteryHistory(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+    }
+    return 0;
+}
+
+void StripMenuColorTags(const char[] input, char[] output, int maxlen)
+{
+    if (maxlen <= 0)
+    {
+        return;
+    }
+
+    int out = 0;
+    bool inTag = false;
+    int len = strlen(input);
+    for (int i = 0; i < len && out < maxlen - 1; i++)
+    {
+        if (input[i] == '{')
+        {
+            inTag = true;
+            continue;
+        }
+        if (inTag)
+        {
+            if (input[i] == '}')
+            {
+                inTag = false;
+            }
+            continue;
+        }
+
+        output[out++] = input[i];
+    }
+    output[out] = '\0';
+    TrimString(output);
 }
 
 public Action Command_ViewLotteryTicket(int client, int args)
