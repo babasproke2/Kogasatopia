@@ -3356,7 +3356,7 @@ static void Filters_RefreshAdminDbStatus(int client)
     }
 
     int level = Filters_GetAdminsDbLevel(client);
-    g_PlayerState[client].isWhitelisted = level > 0;
+    g_PlayerState[client].isWhitelisted = level >= 2;
     g_PlayerState[client].isBlacklisted = level < 0;
 }
 
