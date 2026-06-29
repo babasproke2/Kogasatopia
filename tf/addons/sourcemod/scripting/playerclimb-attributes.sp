@@ -21,6 +21,9 @@
 #define SECONDARY_ATTACK_EPSILON   0.0001
 #define STATUS_MESSAGE_INTERVAL    1.0
 #define ATTRIBUTE_RECHECK_INTERVAL 1.0
+#define ATTRIBUTE_REFRESH_SHORT     0.1
+#define ATTRIBUTE_REFRESH_LONG      0.5
+#define AIRBLAST_RECOVERY_INTERVAL  1.0
 
 ConVar g_CvarEnabled;
 ConVar g_CvarMaxClimbs;
@@ -50,6 +53,7 @@ bool g_AirblastThinkHooked[MAXPLAYERS + 1];
 int g_AirblastWeaponRef[MAXPLAYERS + 1];
 float g_LastSecondaryAttack[MAXPLAYERS + 1];
 float g_NextAirblastAttributeCheck[MAXPLAYERS + 1];
+float g_NextAirblastRecoveryRefresh[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
@@ -256,6 +260,7 @@ void ResetClientState(int client)
     g_AirblastWeaponRef[client] = INVALID_ENT_REFERENCE;
     g_LastSecondaryAttack[client] = 0.0;
     g_NextAirblastAttributeCheck[client] = 0.0;
+    g_NextAirblastRecoveryRefresh[client] = 0.0;
 }
 
 void ResetClimbState(int client)
@@ -300,7 +305,7 @@ public void Event_PostInventoryApplication(Event event, const char[] name, bool 
     int client = GetClientOfUserId(event.GetInt("userid"));
     if (IsUsableClient(client))
     {
-        QueueClientRefresh(client);
+        QueueClientRefreshWithDelays(client);
     }
 }
 
@@ -308,7 +313,7 @@ public void OnWeaponEquipPost(int client, int weapon)
 {
     if (IsUsableClient(client))
     {
-        QueueClientRefresh(client);
+        QueueClientRefreshWithDelays(client);
     }
 }
 
@@ -397,8 +402,36 @@ public void Frame_AttributeEntityReady(any entityRef)
     int owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
     if (IsUsableClient(owner))
     {
-        QueueClientRefresh(owner);
+        QueueClientRefreshWithDelays(owner);
     }
+}
+
+void QueueClientRefreshWithDelays(int client)
+{
+    QueueClientRefresh(client);
+    QueueClientRefreshDelayed(client, ATTRIBUTE_REFRESH_SHORT);
+    QueueClientRefreshDelayed(client, ATTRIBUTE_REFRESH_LONG);
+}
+
+void QueueClientRefreshDelayed(int client, float delay)
+{
+    if (!IsUsableClient(client))
+    {
+        return;
+    }
+
+    CreateTimer(delay, Timer_RefreshClient, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+}
+
+public Action Timer_RefreshClient(Handle timer, any userid)
+{
+    int client = GetClientOfUserId(userid);
+    if (IsUsableClient(client))
+    {
+        QueueClientRefresh(client);
+    }
+
+    return Plugin_Stop;
 }
 
 void QueueClientRefresh(int client)
@@ -715,12 +748,13 @@ void ConfigureAirblastTracking(int client, int weapon)
         return;
     }
 
-    if (!IsAirblastJumpWeapon(weapon))
+    if (!IsPotentialAirblastJumpWeapon(weapon))
     {
         StopAirblastTracking(client);
         return;
     }
 
+    bool hasAttribute = HasAirblastJumpAttribute(weapon);
     int weaponRef = EntIndexToEntRef(weapon);
     if (g_AirblastWeaponRef[client] != weaponRef)
     {
@@ -731,6 +765,15 @@ void ConfigureAirblastTracking(int client, int weapon)
             "m_flNextSecondaryAttack"
         );
         g_NextAirblastAttributeCheck[client] = 0.0;
+    }
+
+    if (hasAttribute)
+    {
+        g_NextAirblastRecoveryRefresh[client] = 0.0;
+    }
+    else
+    {
+        QueueAirblastRecoveryRefresh(client);
     }
 
     SetAirblastThinkHook(client, true);
@@ -774,9 +817,10 @@ void StopAirblastTracking(int client)
     g_AirblastWeaponRef[client] = INVALID_ENT_REFERENCE;
     g_LastSecondaryAttack[client] = 0.0;
     g_NextAirblastAttributeCheck[client] = 0.0;
+    g_NextAirblastRecoveryRefresh[client] = 0.0;
 }
 
-bool IsAirblastJumpWeapon(int weapon)
+bool IsPotentialAirblastJumpWeapon(int weapon)
 {
     if (weapon <= MaxClients
         || !IsValidEntity(weapon)
@@ -787,12 +831,26 @@ bool IsAirblastJumpWeapon(int weapon)
 
     char className[64];
     GetEntityClassname(weapon, className, sizeof(className));
+    return StrEqual(className, DRAGONS_FURY_CLASSNAME, false);
+}
 
-    if (TF2CustAttr_GetInt(weapon, ATTR_AIRBLAST_JUMP, 0) <= 0)
+bool HasAirblastJumpAttribute(int weapon)
+{
+    return TF2CustAttr_GetInt(weapon, ATTR_AIRBLAST_JUMP, 0) > 0;
+}
+
+void QueueAirblastRecoveryRefresh(int client)
+{
+    float now = GetGameTime();
+    if (now < g_NextAirblastRecoveryRefresh[client])
     {
-        return false;
+        return;
     }
-    return true;
+
+    // CWX can attach custom attributes after equip without firing the normal add forward.
+    g_NextAirblastRecoveryRefresh[client] = now + AIRBLAST_RECOVERY_INTERVAL;
+    QueueClientRefreshDelayed(client, ATTRIBUTE_REFRESH_SHORT);
+    QueueClientRefreshDelayed(client, ATTRIBUTE_REFRESH_LONG);
 }
 
 public void OnAirblastPostThinkPost(int client)
@@ -824,11 +882,13 @@ public void OnAirblastPostThinkPost(int client)
         g_NextAirblastAttributeCheck[client] = now
             + ATTRIBUTE_RECHECK_INTERVAL;
 
-        if (!IsAirblastJumpWeapon(weapon))
+        if (!HasAirblastJumpAttribute(weapon))
         {
-            StopAirblastTracking(client);
+            QueueAirblastRecoveryRefresh(client);
             return;
         }
+
+        g_NextAirblastRecoveryRefresh[client] = 0.0;
     }
 
     float nextSecondaryAttack = GetEntPropFloat(
