@@ -27,9 +27,7 @@ targets=(
     "addons/sourcemod/configs/points_store.cfg|tf/addons/sourcemod/configs/points_store.cfg|raw"
     "addons/sourcemod/configs/saysounds.cfg|tf/addons/sourcemod/configs/saysounds.cfg|raw"
     "addons/sourcemod/configs/precachefiles.cfg|tf/addons/sourcemod/configs/precachefiles.cfg|raw"
-    "addons/sourcemod/configs/weaponreverts.cfg|tf/addons/sourcemod/configs/weaponreverts.cfg|raw"
-    "addons/sourcemod/configs/weaponreverts_commands.cfg|tf/addons/sourcemod/configs/weaponreverts_commands.cfg|raw"
-    "addons/sourcemod/configs/cwx/weapons.txt|tf/addons/sourcemod/configs/cwx/weapons.txt|raw"
+    "addons/sourcemod/configs/weapons.cfg|tf/addons/sourcemod/configs/weapons.cfg|raw"
     "cfg/bots.cfg|tf/cfg/bots.cfg|scrub_rcon"
     "cfg/cronjobs.txt|tf/cfg/cronjobs.txt|scrub_rcon"
     "cfg/nobots.cfg|tf/cfg/nobots.cfg|scrub_rcon"
@@ -58,8 +56,7 @@ targets=(
 
 repo_targets=()
 frontend_targets=(
-    "addons/sourcemod/configs/weaponreverts.cfg|weaponreverts.cfg|raw"
-    "addons/sourcemod/configs/cwx/weapons.txt|weapons.txt|raw"
+    "addons/sourcemod/configs/weapons.cfg|weapons.cfg|raw"
 )
 
 copy_target() {

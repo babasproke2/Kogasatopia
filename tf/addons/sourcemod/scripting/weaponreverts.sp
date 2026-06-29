@@ -92,7 +92,7 @@
 #define WEAPON_SLOT_PRIMARY 0
 #define WEAPON_SLOT_LAST 5
 
-#define WEAPON_REVERTS_CONFIG_PATH "configs/weaponreverts.cfg"
+#define WEAPON_REVERTS_CONFIG_PATH "configs/weapons.cfg"
 #define WEAPON_REVERTS_ITEM_CLASSES_SECTION "WeaponRevertsItemClasses"
 #define FLAME_SHOTGUN_FULL_PELLET_THRESHOLD 6
 
@@ -237,8 +237,8 @@ public void OnPluginStart() {
 	g_hSandmanBaseDuration = FindConVar("tf_scout_stunball_base_duration");
 	LoadWeaponRevertsConfig();
 	RegAdminCmd("sm_scatterpellets_status", Command_ScatterPelletsStatus, ADMFLAG_GENERIC, "Print scattergun pellet integration status.");
-	RegAdminCmd("sm_weaponreverts_reload", Command_ReloadWeaponRevertsConfig, ADMFLAG_CONFIG, "Reload weapon revert definitions from configs/weaponreverts.cfg.");
-	RegAdminCmd("sm_weaponreverts_refresh", Command_ReloadWeaponRevertsConfig, ADMFLAG_CONFIG, "Refresh weapon revert definitions from configs/weaponreverts.cfg.");
+	RegAdminCmd("sm_weaponreverts_reload", Command_ReloadWeaponRevertsConfig, ADMFLAG_CONFIG, "Reload weapon revert definitions from configs/weapons.cfg.");
+	RegAdminCmd("sm_weaponreverts_refresh", Command_ReloadWeaponRevertsConfig, ADMFLAG_CONFIG, "Refresh weapon revert definitions from configs/weapons.cfg.");
 	if (WeaponReverts_IsEnabled()) {
 		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
 	// This is used to ignore clients without the m_iAmmo netprop
@@ -2159,7 +2159,7 @@ static void LoadWeaponRevertsConfig()
 public Action Command_ReloadWeaponRevertsConfig(int client, int args)
 {
 	LoadWeaponRevertsConfig();
-	ReplyToCommand(client, "[WeaponReverts] Reloaded configs/weaponreverts.cfg");
+	ReplyToCommand(client, "[WeaponReverts] Reloaded configs/weapons.cfg");
 	return Plugin_Handled;
 }
 
@@ -2360,13 +2360,13 @@ static bool WeaponReverts_GetConfiguredInfo(int index, char[] weaponName, int we
 	if (!WeaponReverts_JumpToConfiguredWeapon(index))
 		return false;
 
-	g_hWeaponRevertsConfig.GetString("weapon_name", weaponName, weaponNameLen, "Unknown Weapon");
+	g_hWeaponRevertsConfig.GetString("name", weaponName, weaponNameLen, "Unknown Weapon");
 	positive[0] = '\0';
 	neutral[0] = '\0';
 	negative[0] = '\0';
 	strcopy(type, typeLen, "buff");
 
-	if (g_hWeaponRevertsConfig.JumpToKey("change_description", false))
+	if (g_hWeaponRevertsConfig.JumpToKey("description", false))
 	{
 		g_hWeaponRevertsConfig.GetString("positive", positive, positiveLen, "");
 		g_hWeaponRevertsConfig.GetString("neutral", neutral, neutralLen, "");
@@ -2453,12 +2453,12 @@ static void WeaponReverts_ApplyAttributeSection(int entity, const char[] section
 
 static void WeaponReverts_ApplyGameAttributeSection(int entity)
 {
-	WeaponReverts_ApplyAttributeSection(entity, "game_attributes", false);
+	WeaponReverts_ApplyAttributeSection(entity, "attributes_game", false);
 }
 
 static void WeaponReverts_ApplyCustomAttributeSection(int entity)
 {
-	WeaponReverts_ApplyAttributeSection(entity, "custom_attributes", true);
+	WeaponReverts_ApplyAttributeSection(entity, "attributes_custom", true);
 }
 
 static void WeaponReverts_ApplyConfiguredAttributes(int client, int index, int entity)

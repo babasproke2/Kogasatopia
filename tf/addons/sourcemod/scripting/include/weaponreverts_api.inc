@@ -8,7 +8,7 @@
  * Returns configured revert info for a TF2 item definition index.
  *
  * @param weaponIndex   TF2 item definition index.
- * @param weaponName    Weapon display name from weaponreverts.cfg.
+ * @param weaponName    Weapon display name from weapons.cfg.
  * @param weaponNameLen weaponName buffer length.
  * @param positive      Positive change description.
  * @param positiveLen   positive buffer length.
@@ -18,9 +18,9 @@
  * @param negativeLen   negative buffer length.
  * @param type          Description type. Defaults to "buff" when absent.
  * @param typeLen       type buffer length.
- * @param classes       Comma-separated class keys from weaponreverts.cfg.
+ * @param classes       Comma-separated class keys from weapons.cfg.
  * @param classesLen    classes buffer length.
- * @return              True if weaponIndex exists in weaponreverts.cfg.
+ * @return              True if weaponIndex exists in weapons.cfg.
  */
 native bool WeaponReverts_GetWeaponInfo(int weaponIndex,
 	char[] weaponName, int weaponNameLen,
@@ -31,7 +31,7 @@ native bool WeaponReverts_GetWeaponInfo(int weaponIndex,
 	char[] classes, int classesLen);
 
 /**
- * Checks weaponreverts.cfg for class access to a weapon index.
+ * Checks weapons.cfg for class access to a weapon index.
  */
 native bool WeaponReverts_CanClassUseWeapon(const char[] className, int weaponIndex);
 

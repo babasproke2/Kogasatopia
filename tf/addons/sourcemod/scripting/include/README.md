@@ -185,7 +185,7 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 
 ## weaponreverts_api.inc
 - `WeaponReverts_GetWeaponInfo` - Writes configured weapon revert display data for an item index.
-- `WeaponReverts_CanClassUseWeapon` - Returns whether a class can use an item index from weaponreverts.cfg.
+- `WeaponReverts_CanClassUseWeapon` - Returns whether a class can use an item index from weapons.cfg.
 
 ## whaletracker_api.inc
 - `WhaleTracker_GetCumulativeKills` - Returns a client's cumulative tracked kills.

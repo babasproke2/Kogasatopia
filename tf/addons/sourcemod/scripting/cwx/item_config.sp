@@ -65,60 +65,26 @@ enum struct CustomItemDefinition {
  */
 static StringMap g_CustomItems;
 
+#define CUSTOM_WEAPONS_CONFIG_PATH "configs/weapons.cfg"
+#define CUSTOM_WEAPONS_CONFIG_ROOT "WeaponReverts"
+#define CUSTOM_WEAPONS_CONFIG_SECTION "CWX"
+
 void LoadCustomItemConfig() {
-	KeyValues itemSchema = new KeyValues("Items");
-	
-	// tracks the first file a given item UID was found in, used for duplicate UID warning
-	StringMap origFileSource = new StringMap();
-	
-	// find files within `configs/cwx/` for importing
-	char schemaDir[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, schemaDir, sizeof(schemaDir), "configs/%s", "cwx");
-	
-	ArrayList configFiles = GetFilesInDirectoryRecursive(schemaDir);
-	
-	// insert legacy format at head
+	KeyValues itemSchema = new KeyValues(CUSTOM_WEAPONS_CONFIG_SECTION);
+	KeyValues weaponsConfig = new KeyValues(CUSTOM_WEAPONS_CONFIG_ROOT);
+
 	char schemaPath[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, schemaPath, sizeof(schemaPath), "configs/%s", "cwx_schema.txt");
-	configFiles.ShiftUp(0);
-	configFiles.SetString(0, schemaPath);
-	
-	for (int i, n = configFiles.Length; i < n; i++) {
-		configFiles.GetString(i, schemaPath, sizeof(schemaPath));
-		NormalizePathToPOSIX(schemaPath);
-		
-		// skip files in directories named "disabled", much like SourceMod
-		if (StrContains(schemaPath, "/disabled/") != -1) {
-			continue;
-		}
-		
-		KeyValues importKV = new KeyValues("import");
-		importKV.ImportFromFile(schemaPath);
-		
-		char uid[MAX_ITEM_IDENTIFIER_LENGTH];
-		importKV.GotoFirstSubKey(false);
-		do {
-			importKV.GetSectionName(uid, sizeof(uid));
-			if (importKV.GetDataType(NULL_STRING) == KvData_None) {
-				if (itemSchema.JumpToKey(uid)) {
-					char conflictPath[PLATFORM_MAX_PATH];
-					origFileSource.GetString(uid, conflictPath, sizeof(conflictPath));
-					LogMessage("Item uid %s first loaded from '%s', ignoring entry in '%s'",
-							uid, conflictPath, schemaPath);
-				} else {
-					itemSchema.JumpToKey(uid, true);
-					itemSchema.Import(importKV);
-					origFileSource.SetString(uid, schemaPath);
-				}
-				itemSchema.GoBack();
-			}
-		} while (importKV.GotoNextKey(false));
-		importKV.GoBack();
-		
-		delete importKV;
+	BuildPath(Path_SM, schemaPath, sizeof(schemaPath), CUSTOM_WEAPONS_CONFIG_PATH);
+
+	if (!weaponsConfig.ImportFromFile(schemaPath)) {
+		LogError("Failed to load custom weapons from %s", schemaPath);
+	} else if (!weaponsConfig.JumpToKey(CUSTOM_WEAPONS_CONFIG_SECTION, false)) {
+		LogError("No %s section found in %s", CUSTOM_WEAPONS_CONFIG_SECTION, schemaPath);
+	} else {
+		itemSchema.Import(weaponsConfig);
+		weaponsConfig.GoBack();
 	}
-	delete configFiles;
-	delete origFileSource;
+	delete weaponsConfig;
 	
 	// clean up old items
 	if (g_CustomItems) {

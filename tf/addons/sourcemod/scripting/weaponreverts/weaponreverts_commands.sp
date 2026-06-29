@@ -3,7 +3,7 @@
 #include <morecolors>
 #include <weaponreverts_api>
 
-#define WEAPON_REVERTS_CONFIG_PATH "configs/weaponreverts.cfg"
+#define WEAPON_REVERTS_CONFIG_PATH "configs/weapons.cfg"
 #define WEAPON_REVERTS_ITEM_CLASSES_SECTION "WeaponRevertsItemClasses"
 
 KeyValues g_hWeaponRevertsItemClassesConfig = null;
