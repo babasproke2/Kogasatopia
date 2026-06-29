@@ -744,7 +744,7 @@ void AwardMultikillBonusPoints(int client, int kills)
         return;
     }
 
-    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "multikill", kills, 0.0, 5);
+    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "multikill", kills, 1.0, 5);
 }
 
 void AwardKillstreakBonusPoints(int client, int killstreak)
