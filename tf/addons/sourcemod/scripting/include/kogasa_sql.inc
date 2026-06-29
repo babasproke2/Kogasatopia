@@ -51,7 +51,9 @@ stock bool KogasaSql_IsTransientError(const char[] error)
         || StrContains(error, "Can't connect", false) != -1
         || StrContains(error, "Connection refused", false) != -1
         || StrContains(error, "Connection timed out", false) != -1
-        || StrContains(error, "timeout", false) != -1;
+        || StrContains(error, "timeout", false) != -1
+        || StrContains(error, "Too many connections", false) != -1
+        || StrContains(error, "1040", false) != -1;
 }
 
 stock bool KogasaSql_IsDuplicateColumnError(const char[] error)

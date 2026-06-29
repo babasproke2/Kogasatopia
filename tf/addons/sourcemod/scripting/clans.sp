@@ -425,7 +425,7 @@ void ScheduleDatabaseInitialization()
         g_hDbInitTimer = null;
     }
 
-    g_hDbInitTimer = CreateTimer(0.5, Timer_FinishDatabaseInitialization, _, TIMER_FLAG_NO_MAPCHANGE);
+    g_hDbInitTimer = CreateTimer(0.5, Timer_FinishDatabaseInitialization);
 }
 
 public Action Timer_FinishDatabaseInitialization(Handle timer, any data)
@@ -480,12 +480,12 @@ void FinishDatabaseInitialization()
 
     if (g_hInviteCleanupTimer == null)
     {
-        g_hInviteCleanupTimer = CreateTimer(INVITE_CLEANUP_INTERVAL, Timer_CleanupExpiredInvites, 0, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+        g_hInviteCleanupTimer = CreateTimer(INVITE_CLEANUP_INTERVAL, Timer_CleanupExpiredInvites, 0, TIMER_REPEAT);
     }
 
     if (g_hClanWarFlushTimer == null)
     {
-        g_hClanWarFlushTimer = CreateTimer(CLAN_WAR_FLUSH_INTERVAL, Timer_FlushClanWarDeltas, 0, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+        g_hClanWarFlushTimer = CreateTimer(CLAN_WAR_FLUSH_INTERVAL, Timer_FlushClanWarDeltas, 0, TIMER_REPEAT);
     }
 
     StartDatabaseKeepaliveTimer();
@@ -551,7 +551,7 @@ void StartDatabaseKeepaliveTimer()
         return;
     }
 
-    g_hDbKeepaliveTimer = CreateTimer(CLAN_DB_KEEPALIVE_INTERVAL, Timer_DatabaseKeepalive, 0, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+    g_hDbKeepaliveTimer = CreateTimer(CLAN_DB_KEEPALIVE_INTERVAL, Timer_DatabaseKeepalive, 0, TIMER_REPEAT);
 }
 
 void DropDatabaseConnection()
@@ -585,7 +585,7 @@ void ScheduleDatabaseReconnect(float delay = CLAN_DB_RECONNECT_INTERVAL)
         return;
     }
 
-    g_hDbReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
+    g_hDbReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase);
 }
 
 public Action Timer_ReconnectDatabase(Handle timer, any data)
