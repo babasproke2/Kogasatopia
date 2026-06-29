@@ -1,12 +1,16 @@
 #include <sourcemod>
 #include <tf2_stocks>
 #include <morecolors>
+
+#undef REQUIRE_PLUGIN
 #include <weaponreverts_api>
+#define REQUIRE_PLUGIN
 
 #define WEAPON_REVERTS_CONFIG_PATH "configs/weapons.cfg"
 #define WEAPON_REVERTS_ITEM_CLASSES_SECTION "WeaponRevertsItemClasses"
 
 KeyValues g_hWeaponRevertsItemClassesConfig = null;
+bool g_bWeaponRevertsAvailable = false;
 
 public Plugin myinfo =
 {
@@ -24,6 +28,34 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_revert", Command_InfoReverts, "Lists weapon revert data to the client");
 	RegConsoleCmd("sm_r", Command_InfoReverts, "Lists weapon revert data to the client");
 	RegConsoleCmd("sm_changes", Command_InfoReverts, "Lists weapon revert data to the client");
+}
+
+public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
+{
+	MarkNativeAsOptional("WeaponReverts_GetWeaponInfo");
+	MarkNativeAsOptional("WeaponReverts_CanClassUseWeapon");
+	return APLRes_Success;
+}
+
+public void OnAllPluginsLoaded()
+{
+	g_bWeaponRevertsAvailable = LibraryExists("weaponreverts");
+}
+
+public void OnLibraryAdded(const char[] name)
+{
+	if (StrEqual(name, "weaponreverts"))
+	{
+		g_bWeaponRevertsAvailable = true;
+	}
+}
+
+public void OnLibraryRemoved(const char[] name)
+{
+	if (StrEqual(name, "weaponreverts"))
+	{
+		g_bWeaponRevertsAvailable = false;
+	}
 }
 
 public void OnPluginEnd()
@@ -156,6 +188,12 @@ public Action Command_InfoReverts(int client, int args)
 {
 	if (!WeaponRevertsItemClasses_IsUsableClient(client))
 		return Plugin_Handled;
+
+	if (!g_bWeaponRevertsAvailable)
+	{
+		CPrintToChat(client, "{green}[Info] {default}No weapon revert data available on this server.");
+		return Plugin_Handled;
+	}
 
 	char classKey[16];
 	WeaponRevertsItemClasses_GetClassKey(TF2_GetPlayerClass(client), classKey, sizeof(classKey));
