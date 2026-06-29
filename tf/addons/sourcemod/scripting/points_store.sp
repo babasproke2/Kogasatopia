@@ -82,6 +82,7 @@ ConVar g_CvarSendCooldown = null;
 ConVar g_CvarEnableWelfare = null;
 ConVar g_CvarWelfareMinPlayers = null;
 ConVar g_CvarLotteryDisabled = null;
+ConVar g_CvarLotteryLockSeconds = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 Handle g_hDatabaseReconnectTimer = null;
@@ -233,6 +234,7 @@ public void OnPluginStart()
     g_CvarEnableWelfare = CreateConVar("sm_points_store_welfare", "1", "Enable welfare?", _, true, 0.0, true, 1.0);
     g_CvarWelfareMinPlayers = CreateConVar("sm_points_store_welfare_min_players", "3", "Minimum GetClientCount(false) value required to collect welfare. 0 disables the requirement.", _, true, 0.0, true, 64.0);
     g_CvarLotteryDisabled = CreateConVar("sm_points_store_lottery_disabled", "0", "Disable lottery ticket commands and lottery draws on this server.", _, true, 0.0, true, 1.0);
+    g_CvarLotteryLockSeconds = CreateConVar("sm_points_store_lottery_lock_seconds", "60", "Seconds before a scheduled lottery draw when ticket buys, changes, and refunds are locked. 0 disables the scheduled lock.", _, true, 0.0, true, 900.0);
     g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
@@ -845,6 +847,59 @@ bool IsLotteryEnabled()
     return g_CvarLotteryDisabled == null || !g_CvarLotteryDisabled.BoolValue;
 }
 
+int GetLotteryLockSeconds()
+{
+    if (g_CvarLotteryLockSeconds == null)
+    {
+        return 60;
+    }
+
+    return g_CvarLotteryLockSeconds.IntValue;
+}
+
+bool IsLotteryEntryLocked(int &secondsUntilDraw)
+{
+    secondsUntilDraw = SecondsUntilNextLotteryDraw(GetTime());
+
+    if (g_LotteryDrawInProgress || g_LotteryCallTimer != null)
+    {
+        return true;
+    }
+
+    int lockSeconds = GetLotteryLockSeconds();
+    return lockSeconds > 0 && secondsUntilDraw <= lockSeconds;
+}
+
+bool CheckLotteryEntryUnlocked(int client)
+{
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+
+    if (g_LotteryDrawInProgress)
+    {
+        CPrintToChat(client, "%s[Lottery]{default} A lottery draw is in progress. Entries are locked.", colorTag);
+        return false;
+    }
+
+    if (g_LotteryCallTimer != null)
+    {
+        CPrintToChat(client, "%s[Lottery]{default} A lottery draw is being called. Entries are locked.", colorTag);
+        return false;
+    }
+
+    int secondsUntilDraw = 0;
+    if (!IsLotteryEntryLocked(secondsUntilDraw))
+    {
+        return true;
+    }
+
+    int minutesUntilLottery = (secondsUntilDraw + 59) / 60;
+    char minuteLabel[16];
+    strcopy(minuteLabel, sizeof(minuteLabel), minutesUntilLottery == 1 ? "minute" : "minutes");
+    CPrintToChat(client, "%s[Lottery]{default} Entries are locked. Time until the lottery: {gold}%d %s", colorTag, minutesUntilLottery, minuteLabel);
+    return false;
+}
+
 void ClearLocalLotteryState()
 {
     CancelPendingLotteryCall();
@@ -1281,6 +1336,24 @@ void PrintLotteryTime(int client, bool includePrefix)
     {
         CPrintToChat(client, "{default}Time until the lottery: {gold}%d %s", minutesUntilLottery, minuteLabel);
     }
+
+    int lockSeconds = GetLotteryLockSeconds();
+    int lockedSecondsUntilDraw = 0;
+    if (IsLotteryEntryLocked(lockedSecondsUntilDraw))
+    {
+        CPrintToChat(client, "{default}Entries are {gold}locked{default}.");
+    }
+    else if (lockSeconds > 0)
+    {
+        int secondsUntilLock = secondsUntilLottery - lockSeconds;
+        if (secondsUntilLock > 0)
+        {
+            int minutesUntilLock = (secondsUntilLock + 59) / 60;
+            char lockMinuteLabel[16];
+            strcopy(lockMinuteLabel, sizeof(lockMinuteLabel), minutesUntilLock == 1 ? "minute" : "minutes");
+            CPrintToChat(client, "{default}Entries lock in: {gold}%d %s", minutesUntilLock, lockMinuteLabel);
+        }
+    }
 }
 
 int SecondsUntilNextLotteryDraw(int timestamp)
@@ -1491,6 +1564,11 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
         return Plugin_Handled;
     }
 
+    if (!CheckLotteryEntryUnlocked(client))
+    {
+        return Plugin_Handled;
+    }
+
     if (StrEqual(text, "all", false))
     {
         AttemptLotteryAllTicketPurchase(client);
@@ -1672,6 +1750,11 @@ public int MenuHandler_LotteryOwned(Menu menu, MenuAction action, int client, in
 
 void PromptLotteryCustomAmount(int client)
 {
+    if (!CheckLotteryEntryUnlocked(client))
+    {
+        return;
+    }
+
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
     g_LotteryWaitingCustom[client] = true;
@@ -1712,6 +1795,11 @@ void AttemptLotteryAllTicketPurchase(int client)
         return;
     }
 
+    if (!CheckLotteryEntryUnlocked(client))
+    {
+        return;
+    }
+
     if (g_ClientLotteryHasTicket[client])
     {
         ShowOwnedLotteryTicketMenu(client);
@@ -1736,6 +1824,11 @@ void AttemptLotteryTicketPurchase(int client, int amount)
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
 
     if (!IsLotteryReadyForClient(client))
+    {
+        return;
+    }
+
+    if (!CheckLotteryEntryUnlocked(client))
     {
         return;
     }
@@ -1861,6 +1954,11 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
 
     if (!IsLotteryReadyForClient(client))
+    {
+        return;
+    }
+
+    if (!CheckLotteryEntryUnlocked(client))
     {
         return;
     }
@@ -2169,6 +2267,11 @@ void RefundLotteryTicket(int client)
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
 
     if (!IsLotteryReadyForClient(client))
+    {
+        return;
+    }
+
+    if (!CheckLotteryEntryUnlocked(client))
     {
         return;
     }
