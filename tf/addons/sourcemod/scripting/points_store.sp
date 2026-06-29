@@ -5441,6 +5441,10 @@ public Action Command_ShowCurrencyLeaderboard(int client, int args)
 
     int offset = (page - 1) * BP_LEADERBOARD_PAGE_SIZE;
 
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+    CPrintToChat(client, "{green}[Store]{default} %s leaderboard will print momentarily...", currencyLong);
+
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
     pack.WriteCell(page);
