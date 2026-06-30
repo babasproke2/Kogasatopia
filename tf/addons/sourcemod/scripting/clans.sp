@@ -754,7 +754,7 @@ void GetClanRankLabel(ClanRank rank, char[] buffer, int maxlen)
 {
     if (rank >= ClanRank_Owner)
     {
-        strcopy(buffer, maxlen, "Owner");
+        strcopy(buffer, maxlen, "Hokage");
         return;
     }
 
@@ -5752,7 +5752,7 @@ public void SQL_OnClanInfoMenu(Database db, DBResultSet results, const char[] er
     FormatEx(title, sizeof(title), "Clan Info\n%s", clanName);
     menu.SetTitle(title);
 
-    FormatEx(line, sizeof(line), "Owner: %s", ownerName);
+    FormatEx(line, sizeof(line), "Hokage: %s", ownerName);
     menu.AddItem("owner", line, ITEMDRAW_DISABLED);
 
     FormatEx(line, sizeof(line), "Clan tag: %s", clanTag[0] ? clanTag : "(none)");
@@ -6480,7 +6480,7 @@ public void SQL_OnClanInfoById(Database db, DBResultSet results, const char[] er
     ResolvePlayerDisplayName(ownerSteam, ownerName, sizeof(ownerName));
 
     CPrintToChat(client, "{default}[Clans] %s", clanName);
-    CPrintToChat(client, "{default}[Clans] Owner: %s", ownerName);
+    CPrintToChat(client, "{default}[Clans] Hokage: %s", ownerName);
     CPrintToChat(client, "{default}[Clans] Clan tag: %s", clanTag[0] ? clanTag : "(none)");
     CPrintToChat(client, "{default}[Clans] Desc: %s", description[0] ? description : "(none)");
     CPrintToChat(client, "{default}[Clans] Member count: %d", results.FetchInt(5));
