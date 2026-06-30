@@ -2441,11 +2441,9 @@ public Action Command_DoLottery(int client, int args)
     g_LotteryCallLotteryId = g_CurrentLotteryId;
 
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
-    char shortHash[LOTTO_SHORT_HASH_MAX];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
-    GetLotteryShortHash(g_CurrentLotteryHash, shortHash, sizeof(shortHash));
     int callDelay = GetRandomInt(20, 80);
-    CPrintToChatAll("%s[Lotto]{default} Lottery %s%s{default} is being called in %d seconds!", colorTag, g_CurrentLotteryHashColor, shortHash, callDelay);
+    CPrintToChatAll("%s[Lotto]{default} A lottery is being called soon, {gold}!bet{default} now!", colorTag);
 
     g_LotteryCallTimer = CreateTimer(float(callDelay), Timer_LotteryCall, _, TIMER_FLAG_NO_MAPCHANGE);
     if (g_LotteryCallTimer == null)
