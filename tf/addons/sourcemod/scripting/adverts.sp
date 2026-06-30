@@ -271,10 +271,94 @@ void RestartTimer()
 
 void FormatChatMessage(const char[] prefix, const char[] msg, char[] out, int maxlen)
 {
+	char commandColor[64];
+	char coloredMsg[1024];
+	ExtractPrefixColor(prefix, commandColor, sizeof(commandColor));
+	ColorizeCommandTokens(msg, commandColor, coloredMsg, sizeof(coloredMsg));
+
 	if (prefix[0]) {
-		FormatEx(out, maxlen, "%s{default} %s", prefix, msg);
+		FormatEx(out, maxlen, "%s{default} %s", prefix, coloredMsg);
 	} else {
+		strcopy(out, maxlen, coloredMsg);
+	}
+}
+
+void ExtractPrefixColor(const char[] prefix, char[] color, int maxlen)
+{
+	int out;
+	int pos;
+	color[0] = '\0';
+
+	while (prefix[pos] == '{' && out < maxlen - 1) {
+		int end = pos + 1;
+		while (prefix[end] && prefix[end] != '}') {
+			end++;
+		}
+
+		if (!prefix[end]) {
+			break;
+		}
+
+		for (int i = pos; i <= end && out < maxlen - 1; i++) {
+			color[out++] = prefix[i];
+		}
+		pos = end + 1;
+	}
+	color[out] = '\0';
+}
+
+void ColorizeCommandTokens(const char[] msg, const char[] commandColor, char[] out, int maxlen)
+{
+	if (!commandColor[0]) {
 		strcopy(out, maxlen, msg);
+		return;
+	}
+
+	int i;
+	int outPos;
+	out[0] = '\0';
+	while (msg[i] && outPos < maxlen - 1) {
+		bool commandStart = msg[i] == '!'
+			&& (i == 0 || IsAdvertWhitespace(msg[i - 1]))
+			&& msg[i + 1]
+			&& !IsAdvertWhitespace(msg[i + 1]);
+
+		if (!commandStart) {
+			AppendAdvertChar(out, maxlen, outPos, msg[i++]);
+			continue;
+		}
+
+		AppendAdvertString(out, maxlen, outPos, commandColor);
+		while (msg[i] && !IsAdvertWhitespace(msg[i]) && outPos < maxlen - 1) {
+			AppendAdvertChar(out, maxlen, outPos, msg[i++]);
+		}
+		AppendAdvertString(out, maxlen, outPos, "{default}");
+	}
+}
+
+bool IsAdvertWhitespace(int value)
+{
+	return value == ' ' || value == '\t' || value == '\n' || value == '\r';
+}
+
+void AppendAdvertChar(char[] out, int maxlen, int &pos, int value)
+{
+	if (pos >= maxlen - 1) {
+		return;
+	}
+	out[pos++] = value;
+	out[pos] = '\0';
+}
+
+void AppendAdvertString(char[] out, int maxlen, int &pos, const char[] value)
+{
+	if (pos >= maxlen - 1) {
+		return;
+	}
+	pos += strcopy(out[pos], maxlen - pos, value);
+	if (pos >= maxlen) {
+		pos = maxlen - 1;
+		out[pos] = '\0';
 	}
 }
 
