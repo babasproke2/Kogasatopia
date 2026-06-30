@@ -1427,6 +1427,50 @@ void DGM_LogCaptureIntervalStats(int winnerTeam, int roundDuration)
     }
 }
 
+void DGM_SanitizeStatsField(char[] value, int maxlen)
+{
+    ReplaceString(value, maxlen, "|", "/");
+    ReplaceString(value, maxlen, "\"", "'");
+    ReplaceString(value, maxlen, "\n", " ");
+    ReplaceString(value, maxlen, "\r", " ");
+}
+
+void DGM_LogRespawnToggle(int client, bool forcedOn, float respawnTime)
+{
+    char steamId64[32];
+    char adminName[MAX_NAME_LENGTH];
+    int userId = 0;
+
+    strcopy(steamId64, sizeof(steamId64), "console");
+    strcopy(adminName, sizeof(adminName), "console");
+
+    if (client > 0 && IsClientInGame(client))
+    {
+        userId = GetClientUserId(client);
+        GetClientName(client, adminName, sizeof(adminName));
+
+        if (!GetClientAuthId(client, AuthId_SteamID64, steamId64, sizeof(steamId64), true))
+        {
+            strcopy(steamId64, sizeof(steamId64), "unknown");
+        }
+    }
+
+    DGM_SanitizeStatsField(adminName, sizeof(adminName));
+
+    char message[384];
+    Format(message, sizeof(message),
+        "event=respawn_toggle|time=%d|client=%d|userid=%d|steamid64=%s|name=\"%s\"|toggle_value=%d|respawn_time=%.2f|real_players=%d",
+        GetTime(),
+        client,
+        userId,
+        steamId64,
+        adminName,
+        forcedOn ? 1 : 0,
+        respawnTime,
+        DGM_CountRealPlayers());
+    PluginStats_LogMessage(message);
+}
+
 void DGM_SetSetupActive(bool setupActive)
 {
     if (setupActive)
@@ -2032,6 +2076,7 @@ public Action Command_RespawnToggle(int client, int args)
 
     DGM_RefreshRespawnVisualState();
     DGM_RespawnDeadClients();
+    DGM_LogRespawnToggle(client, g_InternalOverride, g_cvRespawnTime.FloatValue);
     PrintToChat(client, "Respawn times %s", g_InternalOverride ? "forced on" : "forced off");
     return Plugin_Handled;
 }
