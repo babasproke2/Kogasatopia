@@ -52,6 +52,7 @@
 #define LOTTO_EXTRA_WINNER_PARTICIPANTS 4
 #define LOTTO_EXTRA_WINNER_PERCENT 5
 #define LOTTO_WELFARE_POOL_PERCENT 5
+#define LOTTO_TICKET_WRITE_TIMEOUT 15.0
 #define REFLECT_BONUS_PER_MAP_LIMIT 3
 #define BP_LEADERBOARD_PAGE_SIZE 10
 
@@ -1101,6 +1102,10 @@ void BeginLotteryTicketWrite(const char[] steamId)
     {
         g_LotteryPendingSteamIds.SetValue(steamId, 1, true);
         g_LotteryPendingTicketWrites++;
+
+        DataPack pack = new DataPack();
+        pack.WriteString(steamId);
+        CreateTimer(LOTTO_TICKET_WRITE_TIMEOUT, Timer_LotteryTicketWriteTimeout, pack, TIMER_FLAG_NO_MAPCHANGE | TIMER_DATA_HNDL_CLOSE);
     }
 }
 
@@ -1114,6 +1119,23 @@ void FinishLotteryTicketWrite(const char[] steamId)
             g_LotteryPendingTicketWrites--;
         }
     }
+}
+
+public Action Timer_LotteryTicketWriteTimeout(Handle timer, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+
+    char steamId[32];
+    pack.ReadString(steamId, sizeof(steamId));
+
+    if (IsLotteryTicketWritePending(steamId))
+    {
+        LogError("[points_store] Lottery ticket write for %s timed out; clearing pending guard.", steamId);
+        FinishLotteryTicketWrite(steamId);
+    }
+
+    return Plugin_Stop;
 }
 
 void LoadClientLotteryTicket(int client)
@@ -1983,7 +2005,6 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     pack.WriteCell(amount);
     pack.WriteCell(oldAmount);
     pack.WriteCell(balanceDelta);
-    pack.WriteCell(createdAt);
     pack.WriteString(steamId);
     pack.WriteString(g_ClientLotteryTicket[client]);
     pack.WriteString(ticket);
