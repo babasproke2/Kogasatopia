@@ -45,7 +45,7 @@ public void OnPluginStart()
 	g_CvarFile = CreateConVar("sm_adverts_file", "adverts.cfg", "File to read the advertisements from.");
 	g_CvarInterval = CreateConVar("sm_adverts_interval", "600", "Number of seconds between advertisements.");
 	g_CvarRandom = CreateConVar("sm_adverts_random", "1", "Enable/disable random advertisements.");
-	g_CvarPrefix = CreateConVar("sm_adverts_prefix", "{gold}[Server]", "Prefix added before each chat advertisement (a space is appended automatically).");
+	g_CvarPrefix = CreateConVar("sm_adverts_prefix", "{gold}[Server]", "Prefix added before each prefixed chat advertisement ({default} and a space are appended automatically).");
 
 	g_CvarFile.AddChangeHook(CvarChanged_File);
 	g_CvarRandom.AddChangeHook(CvarChanged_Reload);
@@ -272,7 +272,7 @@ void RestartTimer()
 void FormatChatMessage(const char[] prefix, const char[] msg, char[] out, int maxlen)
 {
 	if (prefix[0]) {
-		FormatEx(out, maxlen, "%s %s", prefix, msg);
+		FormatEx(out, maxlen, "%s{default} %s", prefix, msg);
 	} else {
 		strcopy(out, maxlen, msg);
 	}
