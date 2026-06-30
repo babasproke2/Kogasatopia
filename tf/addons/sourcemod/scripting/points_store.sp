@@ -115,6 +115,7 @@ bool g_ClientLotteryTicketLoaded[MAXPLAYERS + 1];
 bool g_ClientLotteryHasTicket[MAXPLAYERS + 1];
 int g_ClientLotteryId[MAXPLAYERS + 1];
 int g_ClientLotteryTicketValue[MAXPLAYERS + 1];
+int g_ClientLotteryTicketCreatedAt[MAXPLAYERS + 1];
 char g_ClientLotteryTicket[MAXPLAYERS + 1][LOTTO_TICKET_MAX];
 
 Handle g_LotteryDrawTimer = null;
@@ -234,7 +235,7 @@ public void OnPluginStart()
     g_CvarEnableWelfare = CreateConVar("sm_points_store_welfare", "1", "Enable welfare?", _, true, 0.0, true, 1.0);
     g_CvarWelfareMinPlayers = CreateConVar("sm_points_store_welfare_min_players", "3", "Minimum GetClientCount(false) value required to collect welfare. 0 disables the requirement.", _, true, 0.0, true, 64.0);
     g_CvarLotteryDisabled = CreateConVar("sm_points_store_lottery_disabled", "0", "Disable lottery ticket commands and lottery draws on this server.", _, true, 0.0, true, 1.0);
-    g_CvarLotteryLockSeconds = CreateConVar("sm_points_store_lottery_lock_seconds", "60", "Seconds before a scheduled lottery draw when ticket buys, changes, and refunds are locked. 0 disables the scheduled lock.", _, true, 0.0, true, 900.0);
+    g_CvarLotteryLockSeconds = CreateConVar("sm_points_store_lottery_lock_seconds", "60", "Seconds after a lottery ticket is bought or changed before it can be changed or refunded. 0 disables the cooldown.", _, true, 0.0, true, 900.0);
     g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
@@ -857,46 +858,34 @@ int GetLotteryLockSeconds()
     return g_CvarLotteryLockSeconds.IntValue;
 }
 
-bool IsLotteryEntryLocked(int &secondsUntilDraw)
+int GetClientLotteryTicketCooldownRemaining(int client)
 {
-    secondsUntilDraw = SecondsUntilNextLotteryDraw(GetTime());
-
-    if (g_LotteryDrawInProgress || g_LotteryCallTimer != null)
+    if (client <= 0 || client > MaxClients || !g_ClientLotteryHasTicket[client])
     {
-        return true;
+        return 0;
     }
 
     int lockSeconds = GetLotteryLockSeconds();
-    return lockSeconds > 0 && secondsUntilDraw <= lockSeconds;
+    if (lockSeconds <= 0)
+    {
+        return 0;
+    }
+
+    int remaining = (g_ClientLotteryTicketCreatedAt[client] + lockSeconds) - GetTime();
+    return remaining > 0 ? remaining : 0;
 }
 
-bool CheckLotteryEntryUnlocked(int client)
+bool CheckLotteryTicketCooldownElapsed(int client, const char[] action)
 {
-    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
-    GetCurrencyColorTag(colorTag, sizeof(colorTag));
-
-    if (g_LotteryDrawInProgress)
-    {
-        CPrintToChat(client, "%s[Lottery]{default} A lottery draw is in progress. Entries are locked.", colorTag);
-        return false;
-    }
-
-    if (g_LotteryCallTimer != null)
-    {
-        CPrintToChat(client, "%s[Lottery]{default} A lottery draw is being called. Entries are locked.", colorTag);
-        return false;
-    }
-
-    int secondsUntilDraw = 0;
-    if (!IsLotteryEntryLocked(secondsUntilDraw))
+    int remaining = GetClientLotteryTicketCooldownRemaining(client);
+    if (remaining <= 0)
     {
         return true;
     }
 
-    int minutesUntilLottery = (secondsUntilDraw + 59) / 60;
-    char minuteLabel[16];
-    strcopy(minuteLabel, sizeof(minuteLabel), minutesUntilLottery == 1 ? "minute" : "minutes");
-    CPrintToChat(client, "%s[Lottery]{default} Entries are locked. Time until the lottery: {gold}%d %s", colorTag, minutesUntilLottery, minuteLabel);
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    CPrintToChat(client, "%s[Lottery]{default} You can %s your ticket in {gold}%d seconds{default}.", colorTag, action, remaining);
     return false;
 }
 
@@ -1105,6 +1094,7 @@ void ClearClientLotteryTicketCache(int client)
     g_ClientLotteryHasTicket[client] = false;
     g_ClientLotteryId[client] = 0;
     g_ClientLotteryTicketValue[client] = 0;
+    g_ClientLotteryTicketCreatedAt[client] = 0;
     g_ClientLotteryTicket[client][0] = '\0';
 }
 
@@ -1176,7 +1166,7 @@ void LoadClientLotteryTicket(int client)
 
     char query[384];
     Format(query, sizeof(query),
-        "SELECT ticket, ticket_value FROM %s WHERE lottery_id = %d AND steamid64 = '%s' LIMIT 1",
+        "SELECT ticket, ticket_value, created_at FROM %s WHERE lottery_id = %d AND steamid64 = '%s' LIMIT 1",
         LOTTO_TICKET_TABLE,
         g_CurrentLotteryId,
         escapedSteamId);
@@ -1216,12 +1206,14 @@ public void SQL_OnClientLotteryTicketLoaded(Database db, DBResultSet results, co
     g_ClientLotteryHasTicket[client] = false;
     g_ClientLotteryId[client] = expectedLotteryId;
     g_ClientLotteryTicketValue[client] = 0;
+    g_ClientLotteryTicketCreatedAt[client] = 0;
     g_ClientLotteryTicket[client][0] = '\0';
 
     if (results != null && results.FetchRow())
     {
         results.FetchString(0, g_ClientLotteryTicket[client], sizeof(g_ClientLotteryTicket[]));
         g_ClientLotteryTicketValue[client] = results.FetchInt(1);
+        g_ClientLotteryTicketCreatedAt[client] = results.FetchInt(2);
         g_ClientLotteryHasTicket[client] = g_ClientLotteryTicket[client][0] != '\0' && g_ClientLotteryTicketValue[client] > 0;
     }
 }
@@ -1337,23 +1329,6 @@ void PrintLotteryTime(int client, bool includePrefix)
         CPrintToChat(client, "{default}Time until the lottery: {gold}%d %s", minutesUntilLottery, minuteLabel);
     }
 
-    int lockSeconds = GetLotteryLockSeconds();
-    int lockedSecondsUntilDraw = 0;
-    if (IsLotteryEntryLocked(lockedSecondsUntilDraw))
-    {
-        CPrintToChat(client, "{default}Entries are {gold}locked{default}.");
-    }
-    else if (lockSeconds > 0)
-    {
-        int secondsUntilLock = secondsUntilLottery - lockSeconds;
-        if (secondsUntilLock > 0)
-        {
-            int minutesUntilLock = (secondsUntilLock + 59) / 60;
-            char lockMinuteLabel[16];
-            strcopy(lockMinuteLabel, sizeof(lockMinuteLabel), minutesUntilLock == 1 ? "minute" : "minutes");
-            CPrintToChat(client, "{default}Entries lock in: {gold}%d %s", minutesUntilLock, lockMinuteLabel);
-        }
-    }
 }
 
 int SecondsUntilNextLotteryDraw(int timestamp)
@@ -1564,11 +1539,6 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
         return Plugin_Handled;
     }
 
-    if (!CheckLotteryEntryUnlocked(client))
-    {
-        return Plugin_Handled;
-    }
-
     if (StrEqual(text, "all", false))
     {
         AttemptLotteryAllTicketPurchase(client);
@@ -1750,11 +1720,6 @@ public int MenuHandler_LotteryOwned(Menu menu, MenuAction action, int client, in
 
 void PromptLotteryCustomAmount(int client)
 {
-    if (!CheckLotteryEntryUnlocked(client))
-    {
-        return;
-    }
-
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
     g_LotteryWaitingCustom[client] = true;
@@ -1795,11 +1760,6 @@ void AttemptLotteryAllTicketPurchase(int client)
         return;
     }
 
-    if (!CheckLotteryEntryUnlocked(client))
-    {
-        return;
-    }
-
     if (g_ClientLotteryHasTicket[client])
     {
         ShowOwnedLotteryTicketMenu(client);
@@ -1824,11 +1784,6 @@ void AttemptLotteryTicketPurchase(int client, int amount)
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
 
     if (!IsLotteryReadyForClient(client))
-    {
-        return;
-    }
-
-    if (!CheckLotteryEntryUnlocked(client))
     {
         return;
     }
@@ -1924,10 +1879,13 @@ void AttemptLotteryTicketPurchase(int client, int amount)
         return;
     }
 
+    int createdAt = GetTime();
+
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
     pack.WriteCell(g_CurrentLotteryId);
     pack.WriteCell(amount);
+    pack.WriteCell(createdAt);
     pack.WriteString(steamId);
     pack.WriteString(ticket);
     pack.WriteString(displayName);
@@ -1942,7 +1900,7 @@ void AttemptLotteryTicketPurchase(int client, int amount)
         escapedName,
         escapedTicket,
         amount,
-        GetTime());
+        createdAt);
     g_Database.Query(SQL_OnLotteryTicketInserted, query, pack);
 }
 
@@ -1954,11 +1912,6 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
 
     if (!IsLotteryReadyForClient(client))
-    {
-        return;
-    }
-
-    if (!CheckLotteryEntryUnlocked(client))
     {
         return;
     }
@@ -1992,6 +1945,11 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     if (amount == oldAmount)
     {
         CPrintToChat(client, "%s[Lottery]{default} Your current ticket is equal to {gold}%d", colorTag, amount);
+        return;
+    }
+
+    if (!CheckLotteryTicketCooldownElapsed(client, "change"))
+    {
         return;
     }
 
@@ -2048,6 +2006,7 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     pack.WriteCell(amount);
     pack.WriteCell(oldAmount);
     pack.WriteCell(balanceDelta);
+    pack.WriteCell(createdAt);
     pack.WriteString(steamId);
     pack.WriteString(g_ClientLotteryTicket[client]);
     pack.WriteString(ticket);
@@ -2118,6 +2077,7 @@ public void SQLTxn_OnLotteryTicketReplaced(Database db, any data, int numQueries
     int amount = pack.ReadCell();
     int oldAmount = pack.ReadCell();
     int balanceDelta = pack.ReadCell();
+    int createdAt = pack.ReadCell();
     char steamId[32];
     char oldTicket[LOTTO_TICKET_MAX];
     char ticket[LOTTO_TICKET_MAX];
@@ -2162,6 +2122,7 @@ public void SQLTxn_OnLotteryTicketReplaced(Database db, any data, int numQueries
             g_ClientLotteryHasTicket[client] = true;
             g_ClientLotteryId[client] = lotteryId;
             g_ClientLotteryTicketValue[client] = amount;
+            g_ClientLotteryTicketCreatedAt[client] = createdAt;
             strcopy(g_ClientLotteryTicket[client], sizeof(g_ClientLotteryTicket[]), ticket);
 
             char currencyLong[BP_CURRENCY_LONG_MAX];
@@ -2185,6 +2146,7 @@ public void SQLTxn_OnLotteryTicketReplaceFailure(Database db, any data, int numQ
     DataPack pack = view_as<DataPack>(data);
     pack.Reset();
     int userId = pack.ReadCell();
+    pack.ReadCell();
     pack.ReadCell();
     pack.ReadCell();
     pack.ReadCell();
@@ -2213,6 +2175,7 @@ public void SQL_OnLotteryTicketInserted(Database db, DBResultSet results, const 
     int userId = pack.ReadCell();
     int lotteryId = pack.ReadCell();
     int amount = pack.ReadCell();
+    int createdAt = pack.ReadCell();
     char steamId[32];
     char ticket[LOTTO_TICKET_MAX];
     char displayName[LOTTO_NAME_MAX];
@@ -2246,6 +2209,7 @@ public void SQL_OnLotteryTicketInserted(Database db, DBResultSet results, const 
             g_ClientLotteryHasTicket[client] = true;
             g_ClientLotteryId[client] = lotteryId;
             g_ClientLotteryTicketValue[client] = amount;
+            g_ClientLotteryTicketCreatedAt[client] = createdAt;
             strcopy(g_ClientLotteryTicket[client], sizeof(g_ClientLotteryTicket[]), ticket);
 
             char colorTag[BP_CURRENCY_COLOR_MAX + 2];
@@ -2271,11 +2235,6 @@ void RefundLotteryTicket(int client)
         return;
     }
 
-    if (!CheckLotteryEntryUnlocked(client))
-    {
-        return;
-    }
-
     if (g_LotteryDrawInProgress)
     {
         CPrintToChat(client, "%s[Lottery]{default} You cannot refund while a lottery draw is in progress.", colorTag);
@@ -2285,6 +2244,11 @@ void RefundLotteryTicket(int client)
     if (!g_ClientLotteryHasTicket[client])
     {
         CPrintToChat(client, "%s[Lottery]{default} You do not have a ticket in the current lottery.", colorTag);
+        return;
+    }
+
+    if (!CheckLotteryTicketCooldownElapsed(client, "refund"))
+    {
         return;
     }
 
@@ -2480,9 +2444,10 @@ public Action Command_DoLottery(int client, int args)
     char shortHash[LOTTO_SHORT_HASH_MAX];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
     GetLotteryShortHash(g_CurrentLotteryHash, shortHash, sizeof(shortHash));
-    CPrintToChatAll("%s[Lotto]{default} Lottery %s%s{default} is being called in 60 seconds!", colorTag, g_CurrentLotteryHashColor, shortHash);
+    int callDelay = GetRandomInt(20, 80);
+    CPrintToChatAll("%s[Lotto]{default} Lottery %s%s{default} is being called in %d seconds!", colorTag, g_CurrentLotteryHashColor, shortHash, callDelay);
 
-    g_LotteryCallTimer = CreateTimer(60.0, Timer_LotteryCall, _, TIMER_FLAG_NO_MAPCHANGE);
+    g_LotteryCallTimer = CreateTimer(float(callDelay), Timer_LotteryCall, _, TIMER_FLAG_NO_MAPCHANGE);
     if (g_LotteryCallTimer == null)
     {
         g_LotteryCallRequesterUserId = 0;
