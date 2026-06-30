@@ -82,7 +82,7 @@ ConVar g_CvarSendCooldown = null;
 ConVar g_CvarEnableWelfare = null;
 ConVar g_CvarWelfareMinPlayers = null;
 ConVar g_CvarLotteryDisabled = null;
-ConVar g_CvarLotteryLockSeconds = null;
+ConVar g_CvarLotteryMaxTicketValue = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 Handle g_hDatabaseReconnectTimer = null;
@@ -115,7 +115,6 @@ bool g_ClientLotteryTicketLoaded[MAXPLAYERS + 1];
 bool g_ClientLotteryHasTicket[MAXPLAYERS + 1];
 int g_ClientLotteryId[MAXPLAYERS + 1];
 int g_ClientLotteryTicketValue[MAXPLAYERS + 1];
-int g_ClientLotteryTicketCreatedAt[MAXPLAYERS + 1];
 char g_ClientLotteryTicket[MAXPLAYERS + 1][LOTTO_TICKET_MAX];
 
 Handle g_LotteryDrawTimer = null;
@@ -235,7 +234,7 @@ public void OnPluginStart()
     g_CvarEnableWelfare = CreateConVar("sm_points_store_welfare", "1", "Enable welfare?", _, true, 0.0, true, 1.0);
     g_CvarWelfareMinPlayers = CreateConVar("sm_points_store_welfare_min_players", "3", "Minimum GetClientCount(false) value required to collect welfare. 0 disables the requirement.", _, true, 0.0, true, 64.0);
     g_CvarLotteryDisabled = CreateConVar("sm_points_store_lottery_disabled", "0", "Disable lottery ticket commands and lottery draws on this server.", _, true, 0.0, true, 1.0);
-    g_CvarLotteryLockSeconds = CreateConVar("sm_points_store_lottery_lock_seconds", "60", "Seconds after a lottery ticket is bought or changed before it can be changed or refunded. 0 disables the cooldown.", _, true, 0.0, true, 900.0);
+    g_CvarLotteryMaxTicketValue = CreateConVar("sm_points_store_lottery_max_ticket_value", "1000", "Maximum lottery ticket value. Bets above this are capped. 0 disables the cap.", _, true, 0.0);
     g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
@@ -848,45 +847,30 @@ bool IsLotteryEnabled()
     return g_CvarLotteryDisabled == null || !g_CvarLotteryDisabled.BoolValue;
 }
 
-int GetLotteryLockSeconds()
+int GetLotteryMaxTicketValue()
 {
-    if (g_CvarLotteryLockSeconds == null)
+    if (g_CvarLotteryMaxTicketValue == null)
     {
-        return 60;
+        return 1000;
     }
 
-    return g_CvarLotteryLockSeconds.IntValue;
+    return g_CvarLotteryMaxTicketValue.IntValue;
 }
 
-int GetClientLotteryTicketCooldownRemaining(int client)
+int ClampLotteryTicketValue(int client, int amount)
 {
-    if (client <= 0 || client > MaxClients || !g_ClientLotteryHasTicket[client])
+    int maxTicketValue = GetLotteryMaxTicketValue();
+    if (maxTicketValue <= 0 || amount <= maxTicketValue)
     {
-        return 0;
-    }
-
-    int lockSeconds = GetLotteryLockSeconds();
-    if (lockSeconds <= 0)
-    {
-        return 0;
-    }
-
-    int remaining = (g_ClientLotteryTicketCreatedAt[client] + lockSeconds) - GetTime();
-    return remaining > 0 ? remaining : 0;
-}
-
-bool CheckLotteryTicketCooldownElapsed(int client, const char[] action)
-{
-    int remaining = GetClientLotteryTicketCooldownRemaining(client);
-    if (remaining <= 0)
-    {
-        return true;
+        return amount;
     }
 
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
-    CPrintToChat(client, "%s[Lottery]{default} You can %s your ticket in {gold}%d seconds{default}.", colorTag, action, remaining);
-    return false;
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+    CPrintToChat(client, "%s[Lottery]{default} Ticket value capped at %s%d %s{default}.", colorTag, colorTag, maxTicketValue, currencyLong);
+    return maxTicketValue;
 }
 
 void ClearLocalLotteryState()
@@ -1094,7 +1078,6 @@ void ClearClientLotteryTicketCache(int client)
     g_ClientLotteryHasTicket[client] = false;
     g_ClientLotteryId[client] = 0;
     g_ClientLotteryTicketValue[client] = 0;
-    g_ClientLotteryTicketCreatedAt[client] = 0;
     g_ClientLotteryTicket[client][0] = '\0';
 }
 
@@ -1166,7 +1149,7 @@ void LoadClientLotteryTicket(int client)
 
     char query[384];
     Format(query, sizeof(query),
-        "SELECT ticket, ticket_value, created_at FROM %s WHERE lottery_id = %d AND steamid64 = '%s' LIMIT 1",
+        "SELECT ticket, ticket_value FROM %s WHERE lottery_id = %d AND steamid64 = '%s' LIMIT 1",
         LOTTO_TICKET_TABLE,
         g_CurrentLotteryId,
         escapedSteamId);
@@ -1206,14 +1189,12 @@ public void SQL_OnClientLotteryTicketLoaded(Database db, DBResultSet results, co
     g_ClientLotteryHasTicket[client] = false;
     g_ClientLotteryId[client] = expectedLotteryId;
     g_ClientLotteryTicketValue[client] = 0;
-    g_ClientLotteryTicketCreatedAt[client] = 0;
     g_ClientLotteryTicket[client][0] = '\0';
 
     if (results != null && results.FetchRow())
     {
         results.FetchString(0, g_ClientLotteryTicket[client], sizeof(g_ClientLotteryTicket[]));
         g_ClientLotteryTicketValue[client] = results.FetchInt(1);
-        g_ClientLotteryTicketCreatedAt[client] = results.FetchInt(2);
         g_ClientLotteryHasTicket[client] = g_ClientLotteryTicket[client][0] != '\0' && g_ClientLotteryTicketValue[client] > 0;
     }
 }
@@ -1800,6 +1781,8 @@ void AttemptLotteryTicketPurchase(int client, int amount)
         return;
     }
 
+    amount = ClampLotteryTicketValue(client, amount);
+
     int roundedAmount = RoundLotteryTicketValue(amount);
     if (roundedAmount <= 0)
     {
@@ -1885,7 +1868,6 @@ void AttemptLotteryTicketPurchase(int client, int amount)
     pack.WriteCell(GetClientUserId(client));
     pack.WriteCell(g_CurrentLotteryId);
     pack.WriteCell(amount);
-    pack.WriteCell(createdAt);
     pack.WriteString(steamId);
     pack.WriteString(ticket);
     pack.WriteString(displayName);
@@ -1945,11 +1927,6 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     if (amount == oldAmount)
     {
         CPrintToChat(client, "%s[Lottery]{default} Your current ticket is equal to {gold}%d", colorTag, amount);
-        return;
-    }
-
-    if (!CheckLotteryTicketCooldownElapsed(client, "change"))
-    {
         return;
     }
 
@@ -2077,7 +2054,6 @@ public void SQLTxn_OnLotteryTicketReplaced(Database db, any data, int numQueries
     int amount = pack.ReadCell();
     int oldAmount = pack.ReadCell();
     int balanceDelta = pack.ReadCell();
-    int createdAt = pack.ReadCell();
     char steamId[32];
     char oldTicket[LOTTO_TICKET_MAX];
     char ticket[LOTTO_TICKET_MAX];
@@ -2122,7 +2098,6 @@ public void SQLTxn_OnLotteryTicketReplaced(Database db, any data, int numQueries
             g_ClientLotteryHasTicket[client] = true;
             g_ClientLotteryId[client] = lotteryId;
             g_ClientLotteryTicketValue[client] = amount;
-            g_ClientLotteryTicketCreatedAt[client] = createdAt;
             strcopy(g_ClientLotteryTicket[client], sizeof(g_ClientLotteryTicket[]), ticket);
 
             char currencyLong[BP_CURRENCY_LONG_MAX];
@@ -2146,7 +2121,6 @@ public void SQLTxn_OnLotteryTicketReplaceFailure(Database db, any data, int numQ
     DataPack pack = view_as<DataPack>(data);
     pack.Reset();
     int userId = pack.ReadCell();
-    pack.ReadCell();
     pack.ReadCell();
     pack.ReadCell();
     pack.ReadCell();
@@ -2175,7 +2149,6 @@ public void SQL_OnLotteryTicketInserted(Database db, DBResultSet results, const 
     int userId = pack.ReadCell();
     int lotteryId = pack.ReadCell();
     int amount = pack.ReadCell();
-    int createdAt = pack.ReadCell();
     char steamId[32];
     char ticket[LOTTO_TICKET_MAX];
     char displayName[LOTTO_NAME_MAX];
@@ -2209,7 +2182,6 @@ public void SQL_OnLotteryTicketInserted(Database db, DBResultSet results, const 
             g_ClientLotteryHasTicket[client] = true;
             g_ClientLotteryId[client] = lotteryId;
             g_ClientLotteryTicketValue[client] = amount;
-            g_ClientLotteryTicketCreatedAt[client] = createdAt;
             strcopy(g_ClientLotteryTicket[client], sizeof(g_ClientLotteryTicket[]), ticket);
 
             char colorTag[BP_CURRENCY_COLOR_MAX + 2];
@@ -2244,11 +2216,6 @@ void RefundLotteryTicket(int client)
     if (!g_ClientLotteryHasTicket[client])
     {
         CPrintToChat(client, "%s[Lottery]{default} You do not have a ticket in the current lottery.", colorTag);
-        return;
-    }
-
-    if (!CheckLotteryTicketCooldownElapsed(client, "refund"))
-    {
         return;
     }
 
