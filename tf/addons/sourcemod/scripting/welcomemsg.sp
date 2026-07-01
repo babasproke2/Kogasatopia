@@ -13,7 +13,6 @@ ConVar g_hNewsMode;
 ConVar g_hNewsText;
 ConVar g_hNewsGitFormat;
 ConVar g_hWelcome[2];
-ConVar g_hWelcomeGit[2];
 ConVar g_hInfo[5];
 ConVar g_hRules[5];
 ConVar g_hGitRepoName;
@@ -202,8 +201,6 @@ public void OnPluginStart()
     g_hNewsGitFormat = CreateConVar("sm_wsmg_news_git", "{green}Git info: {default}%s, %s, %s, %s, %s{default}", "Git news format used by !news and git welcome mode.");
     g_hWelcome[0] = CreateConVar("sm_welcomemsg_welcome1", "{peachpuff}Welcome to {unique}Kogasatopia{peachpuff} %N!", "First normal welcome line. Supports SourceMod format tokens such as %N for the client.");
     g_hWelcome[1] = CreateConVar("sm_welcomemsg_welcome2", "{peachpuff}This server has new weapons and other cool stuff; use {lightskyblue}!info", "Second normal welcome line.");
-    g_hWelcomeGit[0] = CreateConVar("sm_welcomemsg_gitwelcome1", "{peachpuff}Welcome to {unique}Kogasatopia{peachpuff} %N!", "First git-mode welcome line. Supports SourceMod format tokens such as %N for the client.");
-    g_hWelcomeGit[1] = CreateConVar("sm_welcomemsg_gitwelcome2", "{peachpuff}This server has new weapons and stuff like that; use {lightskyblue}!info{default} or {gold}!steam", "Second git-mode welcome line.");
     g_hInfo[0] = CreateConVar("sm_welcomemsg_info1", "", "First optional info line printed by !info.");
     g_hInfo[1] = CreateConVar("sm_welcomemsg_info2", "", "Second optional info line printed by !info.");
     g_hInfo[2] = CreateConVar("sm_welcomemsg_info3", "", "Third optional info line printed by !info.");
@@ -407,7 +404,7 @@ static void PrintGitWelcomeMessage(int client)
 {
     char buffer[512];
 
-    PrintConfiguredWelcomeLines(client, g_hWelcomeGit, sizeof(g_hWelcomeGit));
+    PrintConfiguredWelcomeLines(client, g_hWelcome, sizeof(g_hWelcome));
 
     FormatConfiguredGitNewsLine(buffer, sizeof(buffer));
     CPrintToChat(client, "%s", buffer);
