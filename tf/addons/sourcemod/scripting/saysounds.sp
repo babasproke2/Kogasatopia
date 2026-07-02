@@ -11,13 +11,18 @@
 
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
+#include <dgm_api>
 #define REQUIRE_PLUGIN
+
+#include "include/kogasa_steam_identity.inc"
+#include "include/plugin_statistics.inc"
 
 #define CONFIG_FILE "configs/saysounds.cfg"
 #define MAX_COMMAND_NAME 64
 #define MAX_GROUP_NAME 32
 #define MAX_GROUP_PREF_VALUE 512
 #define DEFAULT_GROUP "all"
+#define SAYSOUNDS_STATS_TABLE "saysounds_statistics_events"
 #define ADMIN_ONLY_GROUPS_SECTION "adminonlygroups"
 #define PAID_SAYSOUND_GROUPS_SECTION "paidsaysoundgroups"
 #define GROUP_ALIASES_SECTION "groupaliases"
@@ -71,6 +76,9 @@ const int MAX_SOUND_OPTIONS = 16;
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 {
     MarkNativeAsOptional(POINTS_STORE_HAS_PURCHASE_NATIVE);
+    MarkNativeAsOptional("DGM_CurrentNormalizedMap");
+    MarkNativeAsOptional("DGM_NormalizeMapName");
+    MarkNativeAsOptional("DGM_GetGameModeKey");
     RegPluginLibrary("saysounds");
     CreateNative("SaySounds_ShouldPlay", Native_ShouldPlay);
     CreateNative("SaySounds_PlaySoundToOptedIn", Native_PlaySoundToOptedIn);
@@ -103,6 +111,7 @@ public void OnPluginStart()
     g_hDeathCookie = RegClientCookie("saysounds_death", "Preferred saysound on death", CookieAccess_Public);
     g_hKillCookie = RegClientCookie("saysounds_kill", "Preferred saysound on kill", CookieAccess_Public);
     g_hDisabledGroupsCookie = RegClientCookie("saysounds_disabled_groups", "Disabled saysound groups", CookieAccess_Public);
+    PluginStats_Init(SAYSOUNDS_STATS_TABLE);
 
     RegConsoleCmd("sm_opt", Command_ToggleSoundOpt);
     RegConsoleCmd("sm_opts", Command_ShowGroupOptions);
@@ -146,6 +155,8 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
+    PluginStats_Shutdown();
+
     if (gSoundMap != null)
     {
         delete gSoundMap;
@@ -251,6 +262,7 @@ public void OnConfigsExecuted()
 
 public void OnMapStart()
 {
+    PluginStats_OnMapStart();
     PrecacheConfiguredSounds();
 }
 
@@ -309,9 +321,12 @@ Action ChatCommandListener(int client, const char[] command, int argc)
     int initiator = (client > 0 && client <= MaxClients) ? client : -1;
     char soundPath[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
+    char selectedCommand[MAX_COMMAND_NAME];
+    char sourceGroup[MAX_GROUP_NAME];
+    bool fromGroup = false;
     bool restricted = false;
     bool paidRestricted = false;
-    if (!GetCommandSoundDataForClient(initiator, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted))
+    if (!GetCommandSoundDataForClientEx(initiator, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup)))
     {
         if (restricted)
         {
@@ -346,7 +361,10 @@ Action ChatCommandListener(int client, const char[] command, int argc)
         
     }
 
-    PlaySaySound(soundPath, groupName);
+    if (PlaySaySound(soundPath, groupName))
+    {
+        LogSaySoundUsage("saysound_used", initiator, 0, selectedCommand, soundPath, groupName, fromGroup, sourceGroup, false, "chat");
+    }
 
     return Plugin_Continue;
 }
@@ -1392,6 +1410,82 @@ enum SaySoundPreferenceType
     SaySoundPreference_Kill
 };
 
+static void CopyStatsField(const char[] input, char[] output, int maxlen)
+{
+    int pos = 0;
+    for (int i = 0; input[i] != '\0' && pos < maxlen - 1; i++)
+    {
+        char c = input[i];
+        if (c == '|' || c == '\n' || c == '\r' || c == '\t')
+        {
+            c = ' ';
+        }
+        output[pos++] = c;
+    }
+    output[pos] = '\0';
+    TrimString(output);
+}
+
+static void LogSaySoundUsage(const char[] eventName, int sourceClient, int targetClient, const char[] selectedCommand, const char[] soundPath, const char[] groupName, bool fromGroup, const char[] sourceGroup, bool fromApi, const char[] source)
+{
+    char steamId[KOGASA_STEAMID_MAX];
+    if (!Kogasa_GetClientSteamId64(sourceClient, steamId, sizeof(steamId), false))
+    {
+        steamId[0] = '\0';
+    }
+
+    char safeCommand[MAX_COMMAND_NAME];
+    char safePath[PLATFORM_MAX_PATH];
+    char safeGroup[MAX_GROUP_NAME];
+    char safeSourceGroup[MAX_GROUP_NAME];
+    char safeSource[32];
+    CopyStatsField(selectedCommand, safeCommand, sizeof(safeCommand));
+    CopyStatsField(soundPath, safePath, sizeof(safePath));
+    CopyStatsField(groupName, safeGroup, sizeof(safeGroup));
+    CopyStatsField(sourceGroup, safeSourceGroup, sizeof(safeSourceGroup));
+    CopyStatsField(source, safeSource, sizeof(safeSource));
+
+    char message[512];
+    Format(message, sizeof(message),
+        "event=%s|steamid64=%s|client=%d|userid=%d|target_client=%d|sound=%s|path=%s|group=%s|from_group=%d|source_group=%s|from_api=%d|source=%s",
+        eventName,
+        steamId,
+        sourceClient,
+        (sourceClient > 0 && sourceClient <= MaxClients) ? GetClientUserId(sourceClient) : 0,
+        targetClient,
+        safeCommand,
+        safePath,
+        safeGroup,
+        fromGroup ? 1 : 0,
+        safeSourceGroup,
+        fromApi ? 1 : 0,
+        safeSource);
+    PluginStats_LogMessage(message);
+}
+
+static void LogSoundPreferenceChange(int client, SaySoundPreferenceType type, const char[] value)
+{
+    char steamId[KOGASA_STEAMID_MAX];
+    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), false))
+    {
+        steamId[0] = '\0';
+    }
+
+    char safeValue[MAX_COMMAND_NAME * 4];
+    CopyStatsField(value, safeValue, sizeof(safeValue));
+
+    char message[384];
+    Format(message, sizeof(message),
+        "event=%s|steamid64=%s|client=%d|userid=%d|value=%s|cleared=%d",
+        type == SaySoundPreference_Death ? "diesound_preference_changed" : "killsound_preference_changed",
+        steamId,
+        client,
+        GetClientUserId(client),
+        safeValue,
+        safeValue[0] ? 0 : 1);
+    PluginStats_LogMessage(message);
+}
+
 static void GetClientSoundPreferenceValue(int client, SaySoundPreferenceType type, char[] value, int valueLen)
 {
     if (type == SaySoundPreference_Death)
@@ -1859,6 +1953,7 @@ static int HandleSoundPreferenceMenu(Menu menu, MenuAction action, int client, i
             PrintToChat(client, "[SaySounds] %s sound list updated: %s",
                 type == SaySoundPreference_Death ? "Death" : "Kill",
                 updatedValue[0] ? updatedValue : "none");
+            LogSoundPreferenceChange(client, type, updatedValue);
         }
 
         ShowSoundPreferenceMenu(client, type);
@@ -2041,7 +2136,10 @@ public int Native_PlaySoundToOptedIn(Handle plugin, int numParams)
     }
 
     PrecacheSound(soundPath, true);
-    PlaySaySound(soundPath, groupName);
+    if (PlaySaySound(soundPath, groupName))
+    {
+        LogSaySoundUsage("saysound_used", 0, 0, "", soundPath, groupName, false, "", true, "api_sound");
+    }
     return 0;
 }
 
@@ -2077,15 +2175,23 @@ public int Native_PlayCommand(Handle plugin, int numParams)
 
     char soundPath[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
+    char selectedCommand[MAX_COMMAND_NAME];
+    char sourceGroup[MAX_GROUP_NAME];
+    bool fromGroup = false;
     bool restricted = false;
     bool paidRestricted = false;
-    if (!GetCommandSoundDataForClient(client, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, bypassAdminOnly))
+    if (!GetCommandSoundDataForClientEx(client, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly))
     {
         return 0;
     }
 
     PrecacheSound(soundPath, true);
-    return PlaySaySoundToTarget(client, soundPath, groupName, forcePlayback);
+    bool played = PlaySaySoundToTarget(client, soundPath, groupName, forcePlayback);
+    if (played)
+    {
+        LogSaySoundUsage("saysound_used", client, client, selectedCommand, soundPath, groupName, fromGroup, sourceGroup, true, "api_command");
+    }
+    return played ? 1 : 0;
 }
 
 public int Native_PlayCommandAs(Handle plugin, int numParams)
@@ -2125,15 +2231,23 @@ public int Native_PlayCommandAs(Handle plugin, int numParams)
 
     char soundPath[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
+    char selectedCommand[MAX_COMMAND_NAME];
+    char sourceGroup[MAX_GROUP_NAME];
+    bool fromGroup = false;
     bool restricted = false;
     bool paidRestricted = false;
-    if (!GetCommandSoundDataForClient(sourceClient, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, bypassAdminOnly))
+    if (!GetCommandSoundDataForClientEx(sourceClient, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly))
     {
         return 0;
     }
 
     PrecacheSound(soundPath, true);
-    return PlaySaySoundToTarget(targetClient, soundPath, groupName, forcePlayback);
+    bool played = PlaySaySoundToTarget(targetClient, soundPath, groupName, forcePlayback);
+    if (played)
+    {
+        LogSaySoundUsage("saysound_used", sourceClient, targetClient, selectedCommand, soundPath, groupName, fromGroup, sourceGroup, true, "api_command_as");
+    }
+    return played ? 1 : 0;
 }
 
 public int Native_CanClientUseCommand(Handle plugin, int numParams)
@@ -2392,6 +2506,7 @@ public Action Command_SetDeathSound(int client, int args)
         g_szDeathSound[client][0] = '\0';
         SaveDeathSoundPreference(client);
         PrintToChat(client, "[SaySounds] Death sound cleared.");
+        LogSoundPreferenceChange(client, SaySoundPreference_Death, "");
         return Plugin_Handled;
     }
 
@@ -2406,6 +2521,7 @@ public Action Command_SetDeathSound(int client, int args)
     strcopy(g_szDeathSound[client], 256, aggregated);
     SaveDeathSoundPreference(client);
     PrintToChat(client, "[SaySounds] Death sound set to %s.", aggregated);
+    LogSoundPreferenceChange(client, SaySoundPreference_Death, aggregated);
     if (anyInvalid)
     {
         PrintToChat(client, "[SaySounds] Some sounds were unknown and ignored.");
@@ -2440,6 +2556,7 @@ public Action Command_SetKillSound(int client, int args)
         g_szKillSound[client][0] = '\0';
         SaveKillSoundPreference(client);
         PrintToChat(client, "[SaySounds] Kill sound cleared.");
+        LogSoundPreferenceChange(client, SaySoundPreference_Kill, "");
         return Plugin_Handled;
     }
 
@@ -2454,6 +2571,7 @@ public Action Command_SetKillSound(int client, int args)
     strcopy(g_szKillSound[client], 256, aggregated);  // FIXED: Changed from g_szDeathSound to g_szKillSound
     SaveKillSoundPreference(client);
     PrintToChat(client, "[SaySounds] Kill sound set to %s.", aggregated);
+    LogSoundPreferenceChange(client, SaySoundPreference_Kill, aggregated);
     if (anyInvalid)
     {
         PrintToChat(client, "[SaySounds] Some sounds were unknown and ignored.");
@@ -2492,9 +2610,12 @@ public Action Command_PlaySpecificSound(int client, int args)
 
     char path[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
+    char selectedCommand[MAX_COMMAND_NAME];
+    char sourceGroup[MAX_GROUP_NAME];
+    bool fromGroup = false;
     bool restricted = false;
     bool paidRestricted = false;
-    if (!GetCommandSoundDataForClient(client, arg, path, sizeof(path), groupName, sizeof(groupName), restricted, paidRestricted))
+    if (!GetCommandSoundDataForClientEx(client, arg, path, sizeof(path), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup)))
     {
         if (restricted)
         {
@@ -2520,7 +2641,10 @@ public Action Command_PlaySpecificSound(int client, int args)
         return Plugin_Handled;
     }
 
-    PlaySaySoundToTarget(0, path, groupName);
+    if (PlaySaySoundToTarget(0, path, groupName))
+    {
+        LogSaySoundUsage("saysound_used", client, 0, selectedCommand, path, groupName, fromGroup, sourceGroup, false, "command");
+    }
     g_fNextAllowedSound[client] = GetGameTime() + DEFAULT_COOLDOWN;
     return Plugin_Handled;
 }
@@ -2823,9 +2947,21 @@ static bool GetRandomCommandInGroupForClient(int client, const char[] groupName,
 
 static bool GetCommandOptionForClient(int client, const char[] inputName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool bypassAdminOnly = false)
 {
+    bool fromGroup = false;
+    char sourceGroup[MAX_GROUP_NAME];
+    return GetCommandOptionForClientEx(client, inputName, commandName, commandLen, restricted, paidRestricted, fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly);
+}
+
+static bool GetCommandOptionForClientEx(int client, const char[] inputName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool &fromGroup, char[] sourceGroup, int sourceGroupLen, bool bypassAdminOnly = false)
+{
     if (commandLen > 0)
     {
         commandName[0] = '\0';
+    }
+    fromGroup = false;
+    if (sourceGroupLen > 0)
+    {
+        sourceGroup[0] = '\0';
     }
 
     char normalizedName[MAX_COMMAND_NAME];
@@ -2863,13 +2999,43 @@ static bool GetCommandOptionForClient(int client, const char[] inputName, char[]
         return true;
     }
 
-    return GetRandomCommandInGroupForClient(client, normalizedName, commandName, commandLen, restricted, paidRestricted, bypassAdminOnly);
+    char normalizedGroup[MAX_GROUP_NAME];
+    if (!ResolveKnownGroupName(normalizedName, normalizedGroup, sizeof(normalizedGroup)))
+    {
+        return false;
+    }
+
+    if (!GetRandomCommandInGroupForClient(client, normalizedGroup, commandName, commandLen, restricted, paidRestricted, bypassAdminOnly))
+    {
+        return false;
+    }
+
+    fromGroup = true;
+    strcopy(sourceGroup, sourceGroupLen, normalizedGroup);
+    return true;
 }
 
-static bool GetCommandSoundDataForClient(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted, bool &paidRestricted, bool bypassAdminOnly = false)
+stock bool GetCommandSoundDataForClient(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted, bool &paidRestricted, bool bypassAdminOnly = false)
+{
+    char selectedCommand[MAX_COMMAND_NAME];
+    char sourceGroup[MAX_GROUP_NAME];
+    bool fromGroup = false;
+    return GetCommandSoundDataForClientEx(client, commandNames, soundPath, soundLen, groupName, groupLen, restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly);
+}
+
+static bool GetCommandSoundDataForClientEx(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted, bool &paidRestricted, char[] selectedCommand, int selectedCommandLen, bool &fromGroup, char[] sourceGroup, int sourceGroupLen, bool bypassAdminOnly = false)
 {
     restricted = false;
     paidRestricted = false;
+    fromGroup = false;
+    if (selectedCommandLen > 0)
+    {
+        selectedCommand[0] = '\0';
+    }
+    if (sourceGroupLen > 0)
+    {
+        sourceGroup[0] = '\0';
+    }
 
     if (!gConfigLoaded)
     {
@@ -2889,15 +3055,23 @@ static bool GetCommandSoundDataForClient(int client, const char[] commandNames, 
     if (StrContains(working, ",", false) == -1)
     {
         char chosen[MAX_COMMAND_NAME];
-        if (!GetCommandOptionForClient(client, working, chosen, sizeof(chosen), restricted, paidRestricted, bypassAdminOnly))
+        if (!GetCommandOptionForClientEx(client, working, chosen, sizeof(chosen), restricted, paidRestricted, fromGroup, sourceGroup, sourceGroupLen, bypassAdminOnly))
         {
             return false;
         }
 
-        return GetCommandSoundData(chosen, soundPath, soundLen, groupName, groupLen);
+        if (!GetCommandSoundData(chosen, soundPath, soundLen, groupName, groupLen))
+        {
+            return false;
+        }
+
+        strcopy(selectedCommand, selectedCommandLen, chosen);
+        return true;
     }
 
     char options[MAX_SOUND_OPTIONS][MAX_COMMAND_NAME];
+    bool optionFromGroup[MAX_SOUND_OPTIONS];
+    char optionSourceGroups[MAX_SOUND_OPTIONS][MAX_GROUP_NAME];
     int optionCount = 0;
     char token[MAX_COMMAND_NAME];
     int start = 0;
@@ -2932,9 +3106,13 @@ static bool GetCommandSoundDataForClient(int client, const char[] commandNames, 
             if (token[0])
             {
                 char chosen[MAX_COMMAND_NAME];
-                if (GetCommandOptionForClient(client, token, chosen, sizeof(chosen), restricted, paidRestricted, bypassAdminOnly))
+                bool currentFromGroup = false;
+                char currentSourceGroup[MAX_GROUP_NAME];
+                if (GetCommandOptionForClientEx(client, token, chosen, sizeof(chosen), restricted, paidRestricted, currentFromGroup, currentSourceGroup, sizeof(currentSourceGroup), bypassAdminOnly))
                 {
                     strcopy(options[optionCount], sizeof(options[]), chosen);
+                    optionFromGroup[optionCount] = currentFromGroup;
+                    strcopy(optionSourceGroups[optionCount], sizeof(optionSourceGroups[]), currentSourceGroup);
                     optionCount++;
                 }
             }
@@ -2953,7 +3131,15 @@ static bool GetCommandSoundDataForClient(int client, const char[] commandNames, 
     }
 
     int pick = GetRandomInt(0, optionCount - 1);
-    return GetCommandSoundData(options[pick], soundPath, soundLen, groupName, groupLen);
+    if (!GetCommandSoundData(options[pick], soundPath, soundLen, groupName, groupLen))
+    {
+        return false;
+    }
+
+    strcopy(selectedCommand, selectedCommandLen, options[pick]);
+    fromGroup = optionFromGroup[pick];
+    strcopy(sourceGroup, sourceGroupLen, optionSourceGroups[pick]);
+    return true;
 }
 
 static bool CanClientHearSaySoundGroup(int client, const char[] groupName)
@@ -3031,9 +3217,9 @@ static bool PlaySaySoundToTarget(int client, const char[] soundPath, const char[
     return EmitSaySoundToClient(client, soundPath, emitVolume);
 }
 
-static void PlaySaySound(const char[] soundPath, const char[] groupName)
+static bool PlaySaySound(const char[] soundPath, const char[] groupName)
 {
-    PlaySaySoundToTarget(0, soundPath, groupName);
+    return PlaySaySoundToTarget(0, soundPath, groupName);
 }
 
 void LoadDeathSoundPreference(int client)
@@ -3110,6 +3296,12 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
     char attackerPath[PLATFORM_MAX_PATH];
     char victimGroup[MAX_GROUP_NAME];
     char attackerGroup[MAX_GROUP_NAME];
+    char victimCommand[MAX_COMMAND_NAME];
+    char attackerCommand[MAX_COMMAND_NAME];
+    char victimSourceGroup[MAX_GROUP_NAME];
+    char attackerSourceGroup[MAX_GROUP_NAME];
+    bool victimFromGroup = false;
+    bool attackerFromGroup = false;
     bool haveVictim = false;
     bool haveAttacker = false;
     bool restricted = false;
@@ -3117,14 +3309,14 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
 
     if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker) && attacker != victim && g_szKillSound[attacker][0])
     {
-        haveAttacker = GetCommandSoundDataForClient(attacker, g_szKillSound[attacker], attackerPath, sizeof(attackerPath), attackerGroup, sizeof(attackerGroup), restricted, paidRestricted);
+        haveAttacker = GetCommandSoundDataForClientEx(attacker, g_szKillSound[attacker], attackerPath, sizeof(attackerPath), attackerGroup, sizeof(attackerGroup), restricted, paidRestricted, attackerCommand, sizeof(attackerCommand), attackerFromGroup, attackerSourceGroup, sizeof(attackerSourceGroup));
     }
 
     if (victim > 0 && victim <= MaxClients && IsClientInGame(victim))
     {
         if (g_szDeathSound[victim][0])
         {
-            haveVictim = GetCommandSoundDataForClient(victim, g_szDeathSound[victim], victimPath, sizeof(victimPath), victimGroup, sizeof(victimGroup), restricted, paidRestricted);
+            haveVictim = GetCommandSoundDataForClientEx(victim, g_szDeathSound[victim], victimPath, sizeof(victimPath), victimGroup, sizeof(victimGroup), restricted, paidRestricted, victimCommand, sizeof(victimCommand), victimFromGroup, victimSourceGroup, sizeof(victimSourceGroup));
         }
         else if (!haveAttacker)
         {
@@ -3132,7 +3324,7 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
             GetDefaultDeathSound(defaultDeathCommand, sizeof(defaultDeathCommand));
             if (defaultDeathCommand[0])
             {
-                haveVictim = GetCommandSoundDataForClient(victim, defaultDeathCommand, victimPath, sizeof(victimPath), victimGroup, sizeof(victimGroup), restricted, paidRestricted);
+                haveVictim = GetCommandSoundDataForClientEx(victim, defaultDeathCommand, victimPath, sizeof(victimPath), victimGroup, sizeof(victimGroup), restricted, paidRestricted, victimCommand, sizeof(victimCommand), victimFromGroup, victimSourceGroup, sizeof(victimSourceGroup));
             }
         }
     }
@@ -3141,22 +3333,34 @@ public void Event_PlayerDeathPost(Event event, const char[] name, bool dontBroad
     {
         if (GetRandomInt(0, 1) == 0)
         {
-            PlaySaySound(victimPath, victimGroup);
+            if (PlaySaySound(victimPath, victimGroup))
+            {
+                LogSaySoundUsage("diesound_used", victim, 0, victimCommand, victimPath, victimGroup, victimFromGroup, victimSourceGroup, false, "diesound");
+            }
         }
         else
         {
-            PlaySaySound(attackerPath, attackerGroup);
+            if (PlaySaySound(attackerPath, attackerGroup))
+            {
+                LogSaySoundUsage("killsound_used", attacker, 0, attackerCommand, attackerPath, attackerGroup, attackerFromGroup, attackerSourceGroup, false, "killsound");
+            }
         }
         return;
     }
 
     if (haveVictim)
     {
-        PlaySaySound(victimPath, victimGroup);
+        if (PlaySaySound(victimPath, victimGroup))
+        {
+            LogSaySoundUsage("diesound_used", victim, 0, victimCommand, victimPath, victimGroup, victimFromGroup, victimSourceGroup, false, "diesound");
+        }
     }
     else if (haveAttacker)
     {
-        PlaySaySound(attackerPath, attackerGroup);
+        if (PlaySaySound(attackerPath, attackerGroup))
+        {
+            LogSaySoundUsage("killsound_used", attacker, 0, attackerCommand, attackerPath, attackerGroup, attackerFromGroup, attackerSourceGroup, false, "killsound");
+        }
     }
 }
 
@@ -3205,14 +3409,22 @@ static bool PlayWeaponKillSaySound(int attacker)
 
     char soundPath[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
+    char selectedCommand[MAX_COMMAND_NAME];
+    char sourceGroup[MAX_GROUP_NAME];
+    bool fromGroup = false;
     bool restricted = false;
     bool paidRestricted = false;
-    if (!GetCommandSoundDataForClient(attacker, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted))
+    if (!GetCommandSoundDataForClientEx(attacker, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup)))
     {
         return false;
     }
 
     PrecacheSound(soundPath, true);
-    PlaySaySoundToTarget(0, soundPath, groupName);
+    if (!PlaySaySoundToTarget(0, soundPath, groupName))
+    {
+        return false;
+    }
+
+    LogSaySoundUsage("weapon_killsound_used", attacker, 0, selectedCommand, soundPath, groupName, fromGroup, sourceGroup, false, "weapon_killsound");
     return true;
 }

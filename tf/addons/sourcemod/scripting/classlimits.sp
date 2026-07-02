@@ -14,7 +14,12 @@
 #include <dgm_api>
 #define REQUIRE_PLUGIN
 
+#include "include/kogasa_steam_identity.inc"
+#include "include/plugin_statistics.inc"
+
 #define PL_VERSION "1.0.2"
+#define CLASSLIMITS_STATS_TABLE "classlimits_statistics_events"
+#define CLASSLIMITS_STATS_INTERVAL 60.0
 
 #define TF_CLASS_DEMOMAN        4
 #define TF_CLASS_ENGINEER       9
@@ -52,6 +57,7 @@ ConVar g_hDisplayUnlim;
 ConVar g_hRestrictHeaviesPcount;
 ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[64] = "this map";
+Handle g_hClassStatsTimer = null;
 
 static const char g_ClassNames[TF_CLASS_ENGINEER + 1][16] = {
     "Unknown", "Scout", "Sniper", "Soldier", "Demoman",
@@ -98,17 +104,24 @@ public void OnPluginStart()
     HookEvent("player_say",         Event_PlayerSay, EventHookMode_Post);
     RegConsoleCmd("sm_classlimits", Command_ShowClassLimits, "Show current class limits.");
     RegConsoleCmd("sm_cl",          Command_ShowClassLimits, "Show current class limits.");
+
+    PluginStats_Init(CLASSLIMITS_STATS_TABLE);
+    g_hClassStatsTimer = CreateTimer(CLASSLIMITS_STATS_INTERVAL, Timer_RecordClassStats, _, TIMER_REPEAT);
 }
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 {
     MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_RealPlayerCount");
+    MarkNativeAsOptional("DGM_CurrentNormalizedMap");
+    MarkNativeAsOptional("DGM_NormalizeMapName");
     return APLRes_Success;
 }
 
 public void OnMapStart()
 {
+    PluginStats_OnMapStart();
+
     char sSound[32];
     for (int i = 1; i < sizeof(g_sSounds); i++)
     {
@@ -118,11 +131,62 @@ public void OnMapStart()
     }
 }
 
+public void OnPluginEnd()
+{
+    if (g_hClassStatsTimer != null)
+    {
+        KillTimer(g_hClassStatsTimer);
+        g_hClassStatsTimer = null;
+    }
+
+    PluginStats_Shutdown();
+}
+
 public void OnClientPutInServer(int client)
 {
     g_iClass[client]                 = TF_CLASS_UNKNOWN;
     g_bForcedRespawn[client]         = false;
     g_iForcedRespawnAttempts[client] = 0;
+}
+
+public Action Timer_RecordClassStats(Handle timer, any data)
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client) || IsFakeClient(client))
+        {
+            continue;
+        }
+
+        char steamId[KOGASA_STEAMID_MAX];
+        if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId)))
+        {
+            continue;
+        }
+
+        int team = GetClientTeam(client);
+        TFClassType tfClassType = TF2_GetPlayerClass(client);
+        int classId = view_as<int>(tfClassType);
+        bool spectator = (team != TF_TEAM_RED && team != TF_TEAM_BLU) || tfClassType == TFClass_Unknown;
+
+        char className[16];
+        GetClassName(classId, className, sizeof(className));
+
+        char message[256];
+        Format(message, sizeof(message),
+            "event=class_snapshot|steamid64=%s|client=%d|userid=%d|class=%d|class_name=%s|team=%d|alive=%d|is_spectator=%d",
+            steamId,
+            client,
+            GetClientUserId(client),
+            classId,
+            className,
+            team,
+            IsPlayerAlive(client) ? 1 : 0,
+            spectator ? 1 : 0);
+        PluginStats_LogMessage(message);
+    }
+
+    return Plugin_Continue;
 }
 
 public void Event_PlayerSay(Event event, const char[] name, bool dontBroadcast)
