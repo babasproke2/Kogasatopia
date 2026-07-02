@@ -77,12 +77,14 @@ Handle g_hAmplifierTimer = INVALID_HANDLE;
 bool AmplifierOn[ME];
 bool AmplifierMini[ME];
 bool AmplifierSapped[ME];
+bool AmplifierCarried[ME];
 bool ConditionApplied[ME][MP];
 float AmplifierDistance[ME];
 TFCond AmplifierCondition[ME];
 int BuildingRef[ME];
 float AmplifierFill[ME];
 int g_ActiveAmplifiers[ME];
+bool g_bAmplifierExplosionActive = false;
 
 // ConVars
 ConVar cvarMetal;
@@ -165,6 +167,7 @@ static void ResetAmplifierBuildingState(int ent)
     AmplifierOn[ent] = false;
     AmplifierMini[ent] = false;
     AmplifierSapped[ent] = false;
+    AmplifierCarried[ent] = false;
     AmplifierDistance[ent] = 0.0;
     AmplifierCondition[ent] = DefaultCondition;
     AmplifierFill[ent] = 0.0;
@@ -223,6 +226,8 @@ public void OnPluginStart()
 	cvarEnableZap = CreateConVar("amplifier_zap", "0.0", "Should Amplifier pulses harm the enemy team? 0 to disable, >0 for damage.", FCVAR_PLUGIN, true, 0.0, true, 50.0);
 
 	HookEvent("player_builtobject", Event_Build);
+	HookEventEx("player_carryobject", Event_ObjectCarried);
+	HookEventEx("player_dropobject", Event_ObjectDropped);
 	HookEvent("object_destroyed", Event_ObjectDestroyed);
 	HookEvent("player_death", event_player_death);
 
@@ -766,13 +771,45 @@ bool IsAmplifierModel(int ent)
 	return StrContains(modelname, "plifier") != -1;
 }
 
+bool GetObjectBoolProp(int ent, const char[] propName)
+{
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent) || !HasEntProp(ent, Prop_Send, propName))
+		return false;
+
+	return view_as<bool>(GetEntProp(ent, Prop_Send, propName));
+}
+
+bool IsAmplifierBeingCarried(int ent)
+{
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent))
+		return false;
+
+	return AmplifierCarried[ent]
+		|| GetObjectBoolProp(ent, "m_bCarried")
+		|| GetObjectBoolProp(ent, "m_bPlacing")
+		|| GetObjectBoolProp(ent, "m_bCarryDeploy");
+}
+
+void SetAmplifierCarriedState(int ent, bool carried)
+{
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent) || (!AmplifierOn[ent] && !IsAmplifierModel(ent)))
+		return;
+
+	AmplifierCarried[ent] = carried;
+	if (carried)
+	{
+		ClearAmplifierConditionForBuilding(ent);
+		AmplifierFill[ent] = 0.0;
+	}
+}
+
 bool IsActiveAmplifier(int ent)
 {
 	// AmplifierOn is the authoritative plugin state.  Do not gate this on
 	// IsAmplifierModel(): TF2 can overwrite the model during late construction
 	// or native upgrade handling, and requiring the model here prevents the
 	// plugin from ever repairing that overwritten state.
-	return IsTrackedEntityIndex(ent) && IsValidEntity(ent) && AmplifierOn[ent] && !AmplifierSapped[ent];
+	return IsTrackedEntityIndex(ent) && IsValidEntity(ent) && AmplifierOn[ent] && !AmplifierSapped[ent] && !IsAmplifierBeingCarried(ent);
 }
 
 void SetAmplifierBuildModel(int ent)
@@ -814,6 +851,8 @@ void ClampAmplifierHealthToMax(int ent)
 void ReassertAmplifierRuntimeState(int ent)
 {
 	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent) || !AmplifierOn[ent])
+		return;
+	if (IsAmplifierBeingCarried(ent))
 		return;
 
 	char buildingClass[64];
@@ -1001,6 +1040,11 @@ int CollectActiveAmplifiers(int maxEntities, int activeAmps[ME])
 		{
 			BuildingRef[slot] = 0;
 			ClearAmplifierConditionForBuilding(slot);
+			continue;
+		}
+		if (IsAmplifierBeingCarried(ent))
+		{
+			ClearAmplifierConditionForBuilding(ent);
 			continue;
 		}
 
@@ -1244,24 +1288,53 @@ public Action Event_Build(Event event, const char[] name, bool dontBroadcast)
 	return Plugin_Continue;
 }
 
+public void Event_ObjectCarried(Event event, const char[] name, bool dontBroadcast)
+{
+	int ent = event.GetInt("index");
+	SetAmplifierCarriedState(ent, true);
+}
+
+public void Event_ObjectDropped(Event event, const char[] name, bool dontBroadcast)
+{
+	int ent = event.GetInt("index");
+	if (!IsTrackedEntityIndex(ent) || !IsValidEntity(ent))
+		return;
+
+	AmplifierCarried[ent] = false;
+	if (AmplifierOn[ent])
+	{
+		CreateTimer(0.1, Timer_ReassertAmplifierAfterDrop, EntIndexToEntRef(ent), TIMER_NO_MAPCHANGE);
+	}
+}
+
+public Action Timer_ReassertAmplifierAfterDrop(Handle timer, any ref)
+{
+	int ent = EntRefToEntIndex(ref);
+	if (IsActiveAmplifier(ent))
+	{
+		ReassertAmplifierRuntimeState(ent);
+	}
+
+	return Plugin_Stop;
+}
+
 public Action Event_ObjectDestroyed(Event event, const char[] name, bool dontBroadcast)
 {
     int entindex = event.GetInt("index"); // the destroyed entity
     if (!IsTrackedEntityIndex(entindex) || !IsValidEntity(entindex))
         return Plugin_Continue;
-    char modelname[PLATFORM_MAX_PATH];
-    GetEntPropString(entindex, Prop_Data, "m_ModelName", modelname, sizeof(modelname));
-	if (StrContains(modelname, "plifier") == -1)
+	if (!AmplifierOn[entindex] && !AmplifierCarried[entindex] && !IsAmplifierModel(entindex))
 		return Plugin_Continue;
 
 	bool wasMini = AmplifierMini[entindex];
 	float amplifierDistance = GetAmplifierEffectiveRadius(entindex);
 	int attacker = GetClientOfUserId(GetEventInt(event, "attacker"));
 	bool entwasbuilding = event.GetBool("was_building"); // building in progress
+	bool wasCarried = IsAmplifierBeingCarried(entindex);
 	float position[3];
 	GetEntPropVector(entindex, Prop_Send, "m_vecOrigin", position);
 	int explosionDamage = GetConVarInt(cvarEnableExplosion);
-	if (explosionDamage > 0)
+	if (explosionDamage > 0 && !wasCarried && !g_bAmplifierExplosionActive)
 	{
 		if (wasMini)
 			explosionDamage = RoundToFloor(float(explosionDamage) * AMPLIFIER_MINI_MODIFIER);
@@ -1784,7 +1857,9 @@ void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbu
     }
 
     DispatchSpawn(explosion);
+    g_bAmplifierExplosionActive = true;
     AcceptEntityInput(explosion, "Explode");
+    CreateTimer(0.2, Timer_ClearAmplifierExplosionActive, _, TIMER_NO_MAPCHANGE);
 
 	// Create visual explosion effect
 	TE_SetupExplosion(position, 0, 10.0, 1, 0, radius, 5000);
@@ -1811,6 +1886,12 @@ void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbu
 
 	// Clean up explosion entity
 	CreateTimer(0.1, Timer_RemoveEntity, EntIndexToEntRef(explosion), TIMER_NO_MAPCHANGE);
+}
+
+public Action Timer_ClearAmplifierExplosionActive(Handle timer)
+{
+	g_bAmplifierExplosionActive = false;
+	return Plugin_Stop;
 }
 
 public Action Timer_RemoveEntity(Handle timer, int ref)
