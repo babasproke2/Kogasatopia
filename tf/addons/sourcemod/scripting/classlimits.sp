@@ -164,25 +164,14 @@ public Action Timer_RecordClassStats(Handle timer, any data)
             continue;
         }
 
-        int team = GetClientTeam(client);
         TFClassType tfClassType = TF2_GetPlayerClass(client);
         int classId = view_as<int>(tfClassType);
-        bool spectator = (team != TF_TEAM_RED && team != TF_TEAM_BLU) || tfClassType == TFClass_Unknown;
-
-        char className[16];
-        GetClassName(classId, className, sizeof(className));
 
         char message[256];
         Format(message, sizeof(message),
-            "event=class_snapshot|steamid64=%s|client=%d|userid=%d|class=%d|class_name=%s|team=%d|alive=%d|is_spectator=%d",
+            "event=class_snapshot|steamid64=%s|class=%d",
             steamId,
-            client,
-            GetClientUserId(client),
-            classId,
-            className,
-            team,
-            IsPlayerAlive(client) ? 1 : 0,
-            spectator ? 1 : 0);
+            classId);
         PluginStats_LogMessage(message);
     }
 
