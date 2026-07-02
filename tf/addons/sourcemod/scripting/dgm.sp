@@ -27,6 +27,7 @@
 #define DGM_SETUP_START_CHECK_INTERVAL 0.25
 #define DGM_SETUP_START_CHECK_MAX 80
 #define DGM_SETUP_FALSE_CONFIRM_MAX 3
+#define DGM_NO_ENGINEER_SETUP_CHECK_DELAY 5.0
 #define DGM_RT_STATE_SETUP 0
 #define DGM_RESPAWN_DISABLED_TIME 30.0
 #define DGM_RESPAWN_LOW_POP_RESTORE_TIME 5.0
@@ -58,6 +59,7 @@ ConVar g_cvGameMode;
 Handle g_cvMpDisableRespawnTimes = INVALID_HANDLE;
 Handle g_hSetupStateTimer = INVALID_HANDLE;
 Handle g_hSetupStartTimer = INVALID_HANDLE;
+Handle g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
 bool g_bSetupActive = false;
 bool g_bNoEngineerSetupReduced = false;
 bool g_bSetupUberUnavailableLogged = false;
@@ -1316,18 +1318,32 @@ void DGM_CheckNoEngineerSetupReduction()
 
 public Action Timer_CheckNoEngineerSetupReduction(Handle timer)
 {
+    g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
     DGM_CheckNoEngineerSetupReduction();
     return Plugin_Stop;
+}
+
+void DGM_ClearNoEngineerSetupReductionTimer()
+{
+    if (g_hNoEngineerSetupReductionTimer == INVALID_HANDLE)
+    {
+        return;
+    }
+
+    KillTimer(g_hNoEngineerSetupReductionTimer);
+    g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
 }
 
 void DGM_QueueNoEngineerSetupReductionCheck()
 {
     if (g_bNoEngineerSetupReduced || !DGM_IsRealSetupActive())
     {
+        DGM_ClearNoEngineerSetupReductionTimer();
         return;
     }
 
-    CreateTimer(1.0, Timer_CheckNoEngineerSetupReduction, _, TIMER_FLAG_NO_MAPCHANGE);
+    DGM_ClearNoEngineerSetupReductionTimer();
+    g_hNoEngineerSetupReductionTimer = CreateTimer(DGM_NO_ENGINEER_SETUP_CHECK_DELAY, Timer_CheckNoEngineerSetupReduction, _, TIMER_FLAG_NO_MAPCHANGE);
 }
 
 void DGM_ClearSetupStartTimer()
@@ -1488,6 +1504,7 @@ void DGM_SetSetupActive(bool setupActive)
     if (setupActive)
     {
         g_bNoEngineerSetupReduced = false;
+        DGM_ClearNoEngineerSetupReductionTimer();
         DGM_ClearSetupStartTimer();
         PrintToChatAll("Setup detected, bhop enabled");
         ServerCommand("exec d_setup.cfg");
@@ -1507,6 +1524,7 @@ void DGM_SetSetupActive(bool setupActive)
     }
     else
     {
+        DGM_ClearNoEngineerSetupReductionTimer();
         ServerCommand("exec d_endsetup.cfg");
         ServerExecute();
 
