@@ -393,7 +393,7 @@ public void Updater_OnPluginUpdated()
 public Action Command_RTD(const int client, const int args)
 {
 	if (client != 0)
-		RollPerkForClient(client);
+		StartRollRequest(client);
 
 	return Plugin_Handled;
 }
@@ -651,7 +651,7 @@ public Action Listener_Say(int client, const char[] sCommand, int args)
 	if (!IsArgumentTrigger(sText))
 		return Plugin_Continue;
 
-	RollPerkForClient(client);
+	StartRollRequest(client);
 	return g_bCvarShowTriggers ? Plugin_Continue : Plugin_Stop;
 }
 
@@ -661,6 +661,54 @@ public Action Listener_Voice(int client, const char[] sCommand, int args)
 		Events.Voice(client);
 
 	return Plugin_Continue;
+}
+
+void StartRollRequest(int client)
+{
+	if (g_iCvarRollCost > 0)
+	{
+		ShowRollCostMenu(client);
+		return;
+	}
+
+	RollPerkForClient(client);
+}
+
+void ShowRollCostMenu(int client)
+{
+	if (!IsValidClient(client))
+		return;
+
+	char currencyName[64];
+	GetRollCurrencyName(currencyName, sizeof(currencyName));
+
+	Menu menu = new Menu(ManagerRollCostMenu);
+	menu.SetTitle("Spend %d %s?", g_iCvarRollCost, currencyName);
+	menu.AddItem("yes", "Yes");
+	menu.AddItem("no", "No");
+	menu.ExitButton = true;
+	menu.Display(client, 15);
+}
+
+public int ManagerRollCostMenu(Menu menu, MenuAction action, int client, int item)
+{
+	if (action == MenuAction_End)
+	{
+		delete menu;
+		return 0;
+	}
+
+	if (action != MenuAction_Select || !IsValidClient(client))
+		return 0;
+
+	char info[8];
+	menu.GetItem(item, info, sizeof(info));
+	if (StrEqual(info, "yes"))
+	{
+		RollPerkForClient(client);
+	}
+
+	return 0;
 }
 
 public Action Listener_Sound(int clients[MAXPLAYERS], int& iLen, char sSample[PLATFORM_MAX_PATH], int& iEnt, int& iChannel, float& fVol, int& iLevel, int& iPitch, int& iFlags, char sEntry[PLATFORM_MAX_PATH], int& iSeed)
@@ -733,8 +781,9 @@ public Action Timer_ClassChangePost(Handle hTimer, DataPack hData)
 
 public Action Event_RoundActive(Handle hEvent, const char[] sEventName, bool dontBroadcast)
 {
-	if (g_bCvarPluginEnabled && (g_iCvarChat & view_as<int>(ChatFlag_Ad)) && IsRTDInRound())
-		RTDPrintAll("%t", "RTD2_Ad", 0x03, 0x01);
+	// Disabled: [RTD] Type rtd to roll for random effects.
+	// if (g_bCvarPluginEnabled && (g_iCvarChat & view_as<int>(ChatFlag_Ad)) && IsRTDInRound())
+	// 	RTDPrintAll("%t", "RTD2_Ad", 0x03, 0x01);
 
 	return Plugin_Continue;
 }
