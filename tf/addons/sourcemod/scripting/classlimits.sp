@@ -19,7 +19,7 @@
 
 #define PL_VERSION "1.0.2"
 #define CLASSLIMITS_STATS_TABLE "classlimits_statistics_events"
-#define CLASSLIMITS_STATS_INTERVAL 60.0
+#define CLASSLIMITS_STATS_INTERVAL 180.0
 
 #define TF_CLASS_DEMOMAN        4
 #define TF_CLASS_ENGINEER       9

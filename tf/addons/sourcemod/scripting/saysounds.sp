@@ -29,6 +29,7 @@
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define SAYSOUND_ON_KILL_ATTR "saysound on kill"
 #define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
+#define SAYSOUNDS_STATS_SAMPLE_RATE 3
 
 public Plugin myinfo =
 {
@@ -66,6 +67,7 @@ Handle g_hDisabledGroupsCookie = INVALID_HANDLE;
 ConVar g_hForce;
 ConVar g_hDefaultDeathSound;
 ConVar g_hDefaultVolume;
+int g_iSaySoundStatsCounter = 0;
 
 const float MIN_VOLUME = 0.0;
 const float MAX_VOLUME = 1.0;
@@ -1428,6 +1430,11 @@ static void CopyStatsField(const char[] input, char[] output, int maxlen)
 
 static void LogSaySoundUsage(const char[] eventName, int sourceClient, int targetClient, const char[] selectedCommand, const char[] soundPath, const char[] groupName, bool fromGroup, const char[] sourceGroup, bool fromApi, const char[] source)
 {
+    if (!ShouldLogSaySoundUsage())
+    {
+        return;
+    }
+
     char steamId[KOGASA_STEAMID_MAX];
     if (!Kogasa_GetClientSteamId64(sourceClient, steamId, sizeof(steamId), false))
     {
@@ -1461,6 +1468,18 @@ static void LogSaySoundUsage(const char[] eventName, int sourceClient, int targe
         fromApi ? 1 : 0,
         safeSource);
     PluginStats_LogMessage(message);
+}
+
+static bool ShouldLogSaySoundUsage()
+{
+    g_iSaySoundStatsCounter++;
+    if (g_iSaySoundStatsCounter >= SAYSOUNDS_STATS_SAMPLE_RATE)
+    {
+        g_iSaySoundStatsCounter = 0;
+        return true;
+    }
+
+    return false;
 }
 
 static void LogSoundPreferenceChange(int client, SaySoundPreferenceType type, const char[] value)
