@@ -123,6 +123,7 @@ bool g_bDuelDetectionAvailable = false;
 #define SCRAMBLE_AUTO_RESPAWN_SWEEP_REPEAT_DELAY  1.10
 #define SCRAMBLE_AUTO_RESPAWN_SWEEP_COUNT  3
 #define POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM "scramImmunity24h"
+#define WHALESCRAMBLE_STATS_DETAIL_MAX 384
 public Plugin myinfo =
 {
     name = "whalescramble",
@@ -362,6 +363,12 @@ public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
         g_bVoteRunning ? 1 : 0,
         g_eActiveVoteKind,
         g_iActiveSurrenderTeam);
+    LogWhaleStat("round_context", "full_round=%d|winning_team=%d|vote_running=%d|active_kind=%d|active_team=%d",
+        fullRound ? 1 : 0,
+        event.GetInt("team"),
+        g_bVoteRunning ? 1 : 0,
+        g_eActiveVoteKind,
+        g_iActiveSurrenderTeam);
     ResetSurrenderVotes("round_win");
 
     if (fullRound)
@@ -413,6 +420,7 @@ public Action Timer_CheckShortRoundAutoScramble(Handle timer)
     if (GetFeatureStatus(FeatureType_Native, "DGM_GetLastRoundDurationSeconds") != FeatureStatus_Available)
     {
         LogWhale("Short-round auto scramble skipped: DGM_GetLastRoundDurationSeconds unavailable.");
+        LogWhaleStat("auto_scramble_decision", "trigger=short_round|result=skipped|reason=native_unavailable|threshold=%d", threshold);
         return Plugin_Stop;
     }
 
@@ -420,6 +428,7 @@ public Action Timer_CheckShortRoundAutoScramble(Handle timer)
     if (duration <= 0 || duration >= threshold)
     {
         LogWhale("Short-round auto scramble skipped: duration=%d threshold=%d.", duration, threshold);
+        LogWhaleStat("auto_scramble_decision", "trigger=short_round|result=skipped|reason=duration|duration=%d|threshold=%d", duration, threshold);
         return Plugin_Stop;
     }
 
@@ -454,6 +463,7 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
     if (!started)
     {
         LogWhale("Pending auto scramble could not start on round start.");
+        LogWhaleStat("auto_scramble_decision", "trigger=pending_round_start|result=failed|reason=start_failed");
     }
 }
 
@@ -783,6 +793,7 @@ static void NotifySwapCountFailure(int issuer, bool broadcastFailures, int total
     {
         NotifyFailure(issuer, broadcastFailures, "Need at least %d RED/BLU players (current: %d).", MIN_SCRAMBLE_PLAYERS, totalPlayers);
         LogWhale("%s scramble aborted: not enough players (total=%d min=%d).", modeName, totalPlayers, MIN_SCRAMBLE_PLAYERS);
+        LogWhaleStat("scramble_result", "mode=%s|result=aborted|reason=not_enough_players|total=%d|min=%d|red=%d|blu=%d|eligible_red=%d|eligible_blu=%d", modeName, totalPlayers, MIN_SCRAMBLE_PLAYERS, redCount, bluCount, redEligible, bluEligible);
         return;
     }
 
@@ -790,11 +801,13 @@ static void NotifySwapCountFailure(int issuer, bool broadcastFailures, int total
     {
         NotifyFailure(issuer, broadcastFailures, "Each team needs at least 1 player (RED=%d BLU=%d).", redCount, bluCount);
         LogWhale("%s scramble aborted: one team empty (red=%d blu=%d).", modeName, redCount, bluCount);
+        LogWhaleStat("scramble_result", "mode=%s|result=aborted|reason=empty_team|total=%d|red=%d|blu=%d|eligible_red=%d|eligible_blu=%d", modeName, totalPlayers, redCount, bluCount, redEligible, bluEligible);
         return;
     }
 
     NotifyFailure(issuer, broadcastFailures, "Not enough eligible players to swap (RED=%d BLU=%d).", redEligible, bluEligible);
     LogWhale("%s scramble aborted: not enough eligible players (red=%d blu=%d).", modeName, redEligible, bluEligible);
+    LogWhaleStat("scramble_result", "mode=%s|result=aborted|reason=not_enough_eligible|total=%d|red=%d|blu=%d|eligible_red=%d|eligible_blu=%d", modeName, totalPlayers, redCount, bluCount, redEligible, bluEligible);
 }
 
 static bool ShouldIgnoreScrambleImmunity(int totalPlayers, bool randomMode)
@@ -918,6 +931,7 @@ static void HandleVoteRequest(int client, WhaleVoteKind kind)
     {
         CPrintToChat(client, "{gold}[WhaleScramble] {default}Only teams {red}RED {default}and {blue}BLU{default} can surrender!");
         LogWhale("Surrender request rejected: invalid team (client %N team=%d).", client, GetClientTeam(client));
+        LogWhaleStat("vote_request", "kind=surrender|result=rejected|reason=invalid_team|team=%d", GetClientTeam(client));
         return;
     }
 
@@ -928,6 +942,7 @@ static void HandleVoteRequest(int client, WhaleVoteKind kind)
     {
         CPrintToChat(client, "{blue}[WhaleScramble]{default} %s is on cooldown.", actionName);
         LogWhale("Vote request rejected: %s cooldown active (client %N).", actionName, client);
+        LogWhaleStat("vote_request", "kind=%s|result=rejected|reason=cooldown", actionName);
         return;
     }
 
@@ -935,6 +950,7 @@ static void HandleVoteRequest(int client, WhaleVoteKind kind)
     {
         CPrintToChat(client, "{blue}[WhaleScramble]{default} A vote is already running.");
         LogWhale("Vote request rejected: vote already running (client %N kind=%s).", client, actionName);
+        LogWhaleStat("vote_request", "kind=%s|result=rejected|reason=vote_running", actionName);
         return;
     }
 
@@ -942,6 +958,7 @@ static void HandleVoteRequest(int client, WhaleVoteKind kind)
     {
         CPrintToChat(client, "{blue}[WhaleScramble]{default} You already requested a %s vote.", actionName);
         LogWhale("Vote request rejected: already requested (client %N kind=%s).", client, actionName);
+        LogWhaleStat("vote_request", "kind=%s|result=rejected|reason=already_requested", actionName);
         return;
     }
 
@@ -969,6 +986,7 @@ static void HandleVoteRequest(int client, WhaleVoteKind kind)
     }
     CPrintToChatAll("{blue}[WhaleScramble]{default} %N requested a %s vote (%d/4).", client, actionName, requestCount);
     LogWhale("Vote request counted: %N kind=%s (%d/%d).", client, actionName, requestCount, 4);
+    LogWhaleStat("vote_request", "kind=%s|result=counted|count=%d|threshold=4|team=%d", actionName, requestCount, GetClientTeam(client));
 
     if (requestCount >= 4)
     {
@@ -995,6 +1013,7 @@ static bool StartVote(int client, bool suppressFeedback, bool allowLowPop, Whale
                 CPrintToChat(client, "{gold}[WhaleScramble] {default}Only teams {red}RED {default}and {blue}BLU{default} can surrender!");
             }
             LogWhale("Vote start failed: surrender caller invalid team (client=%d team=%d).", client, (client > 0 && IsClientInGame(client)) ? GetClientTeam(client) : 0);
+            LogWhaleStat("vote_result", "kind=surrender|phase=start|result=failed|reason=invalid_team|team=%d", (client > 0 && IsClientInGame(client)) ? GetClientTeam(client) : 0);
             return false;
         }
 
@@ -1014,6 +1033,7 @@ static bool StartVote(int client, bool suppressFeedback, bool allowLowPop, Whale
             CPrintToChat(client, "{blue}[WhaleScramble]{default} %s is on cooldown.", actionName);
         }
         LogWhale("Vote start failed: %s cooldown active.", actionName);
+        LogWhaleStat("vote_result", "kind=%s|phase=start|result=failed|reason=cooldown", actionName);
         return false;
     }
 
@@ -1024,6 +1044,7 @@ static bool StartVote(int client, bool suppressFeedback, bool allowLowPop, Whale
             CPrintToChat(client, "{blue}[WhaleScramble]{default} NativeVotes is unavailable.");
         }
         LogWhale("Vote start failed: NativeVotes unavailable.");
+        LogWhaleStat("vote_result", "kind=%s|phase=start|result=failed|reason=nativevotes_unavailable", actionName);
         return false;
     }
 
@@ -1034,6 +1055,7 @@ static bool StartVote(int client, bool suppressFeedback, bool allowLowPop, Whale
             CPrintToChat(client, "{blue}[WhaleScramble]{default} A vote is already running.");
         }
         LogWhale("Vote start failed: vote already running.");
+        LogWhaleStat("vote_result", "kind=%s|phase=start|result=failed|reason=vote_running", actionName);
         return false;
     }
 
@@ -1045,6 +1067,7 @@ static bool StartVote(int client, bool suppressFeedback, bool allowLowPop, Whale
             NativeVotes_DisplayCallVoteFail(client, NativeVotesCallFail_Recent, delay);
         }
         LogWhale("Vote start failed: vote delay %d.", delay);
+        LogWhaleStat("vote_result", "kind=%s|phase=start|result=failed|reason=vote_delay|delay=%d", actionName, delay);
         return false;
     }
 
@@ -1055,6 +1078,7 @@ static bool StartVote(int client, bool suppressFeedback, bool allowLowPop, Whale
             CPrintToChat(client, "{blue}[WhaleScramble]{default} A vote is not allowed right now.");
         }
         LogWhale("Vote start failed: new vote not allowed.");
+        LogWhaleStat("vote_result", "kind=%s|phase=start|result=failed|reason=new_vote_not_allowed", actionName);
         return false;
     }
 
@@ -1092,6 +1116,7 @@ static bool StartVote(int client, bool suppressFeedback, bool allowLowPop, Whale
         g_bVoteAllowLowPop = false;
         g_eActiveVoteKind = WhaleVote_None;
         LogWhale("Vote start failed: display to all returned false.");
+        LogWhaleStat("vote_result", "kind=%s|phase=start|result=failed|reason=display_failed", actionName);
         return false;
     }
 
@@ -1106,6 +1131,7 @@ static bool StartVote(int client, bool suppressFeedback, bool allowLowPop, Whale
         g_iActiveSurrenderTeam = 0;
     }
     LogWhale("%s vote started: duration=%d allowLowPop=%d activeSurrenderTeam=%d.", actionName, voteTime, allowLowPop ? 1 : 0, g_iActiveSurrenderTeam);
+    LogWhaleStat("vote_result", "kind=%s|phase=start|result=started|duration=%d|allow_low_pop=%d|active_team=%d", actionName, voteTime, allowLowPop ? 1 : 0, g_iActiveSurrenderTeam);
     if (kind == WhaleVote_Surrender)
     {
         LogSurrenderState("vote_started");
@@ -1123,6 +1149,7 @@ static bool StartAutoScramble(bool suppressFeedback)
     if (scrambleCooldown)
     {
         LogWhale("Auto scramble aborted: scramble cooldown active.");
+        LogWhaleStat("auto_scramble_decision", "trigger=auto|result=blocked|reason=cooldown");
         return false;
     }
 
@@ -1132,6 +1159,7 @@ static bool StartAutoScramble(bool suppressFeedback)
     }
 
     LogWhale("Auto scramble triggered.");
+    LogWhaleStat("auto_scramble_decision", "trigger=auto|result=triggered");
     return StartConfiguredWhaleScramble(0, !suppressFeedback, false, false);
 }
 
@@ -1155,12 +1183,15 @@ static bool StartConfiguredWhaleScramble(int issuer, bool broadcastFailures, boo
 
     NotifyFailure(issuer, broadcastFailures, "No scramble mode is enabled. Set sm_ws_topswap or sm_ws_random to 1.");
     LogWhale("Configured scramble aborted: no enabled modes.");
+    LogWhaleStat("scramble_result", "mode=configured|result=aborted|reason=no_enabled_modes|forced=%d", forced ? 1 : 0);
     return false;
 }
 
 public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, int param2)
 {
     WhaleVoteKind voteKind = g_eActiveVoteKind;
+    char voteKindName[16];
+    GetVoteKindName(voteKind, voteKindName, sizeof(voteKindName));
     if (voteKind == WhaleVote_Surrender)
     {
         LogWhale("Surrender vote action: action=%d param1=%d param2=%d activeTeam=%d voteRunning=%d.", action, param1, param2, g_iActiveSurrenderTeam, g_bVoteRunning ? 1 : 0);
@@ -1205,6 +1236,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
                 ResetScrambleVotes();
             }
             LogWhale("Vote cancelled: %d.", param1);
+            LogWhaleStat("vote_result", "kind=%s|phase=end|result=cancelled|reason=%d", voteKindName, param1);
             if (voteKind == WhaleVote_Surrender)
             {
                 LogSurrenderState("vote_cancel");
@@ -1218,6 +1250,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
                 NativeVotes_DisplayFail(vote, NativeVotesFail_Generic);
                 g_bVoteAllowLowPop = false;
                 LogWhale("Vote end failed closed: active vote kind missing.");
+                LogWhaleStat("vote_result", "kind=none|phase=end|result=failed|reason=missing_kind");
                 return 0;
             }
 
@@ -1229,6 +1262,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
             {
                 NativeVotes_DisplayFail(vote, NativeVotesFail_NotEnoughVotes);
                 LogWhale("Vote failed: no votes.");
+                LogWhaleStat("vote_result", "kind=%s|phase=end|result=failed|reason=no_votes", voteKindName);
                 return 0;
             }
 
@@ -1241,6 +1275,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
                 CPrintToChatAll("Vote failed (Yes %.0f%%).", yesPercent * 100.0);
                 g_bVoteAllowLowPop = false;
                 LogWhale("Vote failed: yes=%d total=%d (%.1f%%).", yesVotes, totalVotes, yesPercent * 100.0);
+                LogWhaleStat("vote_result", "kind=%s|phase=end|result=failed|reason=lost|yes=%d|total=%d|yes_percent=%.1f", voteKindName, yesVotes, totalVotes, yesPercent * 100.0);
                 if (voteKind == WhaleVote_Surrender)
                 {
                     LogSurrenderState("vote_fail");
@@ -1257,6 +1292,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
                         NativeVotes_DisplayFail(vote, NativeVotesFail_Generic);
                         g_bVoteAllowLowPop = false;
                         LogWhale("Surrender vote failed closed: invalid active surrender team=%d.", g_iActiveSurrenderTeam);
+                        LogWhaleStat("vote_result", "kind=surrender|phase=end|result=failed|reason=invalid_active_team|active_team=%d", g_iActiveSurrenderTeam);
                         return 0;
                     }
                     LogWhale("Surrender vote passed: issuing mp_scrambleteams surrenderTeam=%d winningTeam=%d yes=%d total=%d.",
@@ -1285,12 +1321,14 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
                         GetColoredTeamName(GetOpposingTeam(g_iActiveSurrenderTeam), winningTeam, sizeof(winningTeam));
                         CPrintToChatAll("Team %s surrendered to %s!", surrenderTeam, winningTeam);
                         LogWhale("Surrender vote passed: yes=%d total=%d (%.1f%%).", yesVotes, totalVotes, yesPercent * 100.0);
+                        LogWhaleStat("vote_result", "kind=surrender|phase=end|result=passed|success=1|yes=%d|total=%d|yes_percent=%.1f|surrender_team=%d|winning_team=%d", yesVotes, totalVotes, yesPercent * 100.0, g_iActiveSurrenderTeam, GetOpposingTeam(g_iActiveSurrenderTeam));
                         LogSurrenderState("vote_pass");
                     }
                     else
                     {
                         NativeVotes_DisplayPassCustom(vote, "Vote passed. Whale scrambling teams...");
                         LogWhale("Vote passed: yes=%d total=%d (%.1f%%).", yesVotes, totalVotes, yesPercent * 100.0);
+                        LogWhaleStat("vote_result", "kind=scramble|phase=end|result=passed|success=1|yes=%d|total=%d|yes_percent=%.1f", yesVotes, totalVotes, yesPercent * 100.0);
                     }
                 }
                 else
@@ -1299,11 +1337,13 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
                     {
                         NativeVotes_DisplayPassCustom(vote, "Vote passed. Unable to surrender right now.");
                         LogWhale("Surrender vote passed but command could not be issued.");
+                        LogWhaleStat("vote_result", "kind=surrender|phase=end|result=passed|success=0|reason=command_failed|yes=%d|total=%d|yes_percent=%.1f", yesVotes, totalVotes, yesPercent * 100.0);
                     }
                     else
                     {
                         NativeVotes_DisplayPassCustom(vote, "Vote passed. Scramble conditions not met.");
                         LogWhale("Vote passed but scramble conditions not met.");
+                        LogWhaleStat("vote_result", "kind=scramble|phase=end|result=passed|success=0|reason=scramble_conditions|yes=%d|total=%d|yes_percent=%.1f", yesVotes, totalVotes, yesPercent * 100.0);
                     }
                 }
                 g_bVoteAllowLowPop = false;
@@ -1390,6 +1430,7 @@ static bool TryArmAutoScrambleForNextRound(const char[] reason)
     if (g_bAutoScramblePendingRoundStart)
     {
         LogWhale("Auto scramble already pending; reason=%s.", reason);
+        LogWhaleStat("auto_scramble_decision", "trigger=%s|result=blocked|reason=already_pending", reason);
         return false;
     }
 
@@ -1398,17 +1439,20 @@ static bool TryArmAutoScrambleForNextRound(const char[] reason)
         if (g_bScrambledThisRound)
         {
             LogWhale("Auto scramble blocked by no-sequential guard: already scrambled this round; reason=%s.", reason);
+            LogWhaleStat("auto_scramble_decision", "trigger=%s|result=blocked|reason=scrambled_this_round", reason);
             return false;
         }
 
         if (g_bLastRoundHadScramble)
         {
             LogWhale("Auto scramble blocked by no-sequential guard: previous round scrambled; reason=%s.", reason);
+            LogWhaleStat("auto_scramble_decision", "trigger=%s|result=blocked|reason=previous_round_scrambled", reason);
             return false;
         }
     }
 
     LogWhale("Auto scramble arming accepted: reason=%s.", reason);
+    LogWhaleStat("auto_scramble_decision", "trigger=%s|result=armed", reason);
     ArmAutoScrambleForNextRound();
     return true;
 }
@@ -1424,6 +1468,7 @@ static bool ConsumeAutoScramblePending()
     {
         ClearAutoScramblePending();
         LogWhale("Auto scramble pending state expired before round start.");
+        LogWhaleStat("auto_scramble_decision", "trigger=pending_round_start|result=expired");
         return false;
     }
 
@@ -1542,6 +1587,20 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
         swapCount = LimitSwapCountToEligibility(desiredSwapCount, redEligible, bluEligible);
     }
 
+    LogWhaleStat("scramble_attempt", "mode=topswap|issuer=%d|allow_low_pop=%d|forced=%d|total=%d|red=%d|blu=%d|eligible_red=%d|eligible_blu=%d|desired_swap=%d|swap=%d|ignore_immunity=%d|fallback=%d",
+        issuer,
+        allowLowPop ? 1 : 0,
+        forced ? 1 : 0,
+        totalPlayers,
+        redCount,
+        bluCount,
+        redEligible,
+        bluEligible,
+        desiredSwapCount,
+        swapCount,
+        ignoreImmunity ? 1 : 0,
+        needsFallback ? 1 : 0);
+
     if (swapCount == 0)
     {
         NotifySwapCountFailure(issuer, broadcastFailures, totalPlayers, redCount, bluCount, redEligible, bluEligible, "Topswap");
@@ -1552,6 +1611,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
     {
         NotifyFailure(issuer, broadcastFailures, "Each team needs at least %d players (RED=%d BLU=%d).", swapCount, redCount, bluCount);
         LogWhale("Scramble aborted: team size too small (swap=%d red=%d blu=%d).", swapCount, redCount, bluCount);
+        LogWhaleStat("scramble_result", "mode=topswap|result=aborted|reason=team_size|swap=%d|red=%d|blu=%d", swapCount, redCount, bluCount);
         return false;
     }
 
@@ -1559,6 +1619,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
     {
         NotifyFailure(issuer, broadcastFailures, "Each team needs at least %d eligible players (RED=%d BLU=%d).", swapCount, redEligible, bluEligible);
         LogWhale("Scramble aborted: eligible too small (swap=%d red=%d blu=%d).", swapCount, redEligible, bluEligible);
+        LogWhaleStat("scramble_result", "mode=topswap|result=aborted|reason=eligible_size|swap=%d|eligible_red=%d|eligible_blu=%d", swapCount, redEligible, bluEligible);
         return false;
     }
 
@@ -1566,6 +1627,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
     pack.WriteCell(issuer > 0 ? GetClientUserId(issuer) : 0);
     pack.WriteCell(swapCount);
     pack.WriteCell(ignoreImmunity ? 1 : 0);
+    pack.WriteString("topswap");
     for (int i = 0; i < swapCount; i++)
     {
         pack.WriteCell(GetClientUserId(topRed[i]));
@@ -1695,6 +1757,22 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
         swapCount = LimitSwapCountToEligibility(desiredSwapCount, redEligible, bluEligible);
     }
 
+    LogWhaleStat("scramble_attempt", "mode=random|issuer=%d|allow_low_pop=%d|forced=%d|total=%d|red=%d|blu=%d|eligible_red=%d|eligible_blu=%d|candidate_red=%d|candidate_blu=%d|desired_swap=%d|swap=%d|ignore_immunity=%d|fallback=%d",
+        issuer,
+        allowLowPop ? 1 : 0,
+        forced ? 1 : 0,
+        totalPlayers,
+        redCount,
+        bluCount,
+        redEligible,
+        bluEligible,
+        redCandidateCount,
+        bluCandidateCount,
+        desiredSwapCount,
+        swapCount,
+        ignoreImmunity ? 1 : 0,
+        needsFallback ? 1 : 0);
+
     if (swapCount == 0)
     {
         NotifySwapCountFailure(issuer, broadcastFailures, totalPlayers, redCount, bluCount, redEligible, bluEligible, "Random");
@@ -1705,6 +1783,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
     {
         NotifyFailure(issuer, broadcastFailures, "Each team needs at least %d players (RED=%d BLU=%d).", swapCount, redCount, bluCount);
         LogWhale("Random scramble aborted: team size too small (swap=%d red=%d blu=%d).", swapCount, redCount, bluCount);
+        LogWhaleStat("scramble_result", "mode=random|result=aborted|reason=team_size|swap=%d|red=%d|blu=%d", swapCount, redCount, bluCount);
         return false;
     }
 
@@ -1712,6 +1791,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
     {
         NotifyFailure(issuer, broadcastFailures, "Each team needs at least %d eligible players (RED=%d BLU=%d).", swapCount, redEligible, bluEligible);
         LogWhale("Random scramble aborted: eligible too small (swap=%d red=%d blu=%d).", swapCount, redEligible, bluEligible);
+        LogWhaleStat("scramble_result", "mode=random|result=aborted|reason=eligible_size|swap=%d|eligible_red=%d|eligible_blu=%d", swapCount, redEligible, bluEligible);
         return false;
     }
 
@@ -1720,6 +1800,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
     {
         NotifyFailure(issuer, broadcastFailures, "Failed to select random swap targets.");
         LogWhale("Random scramble aborted: random selection failed (swap=%d redCandidates=%d bluCandidates=%d).", swapCount, redCandidateCount, bluCandidateCount);
+        LogWhaleStat("scramble_result", "mode=random|result=aborted|reason=selection_failed|swap=%d|candidate_red=%d|candidate_blu=%d", swapCount, redCandidateCount, bluCandidateCount);
         return false;
     }
 
@@ -1727,6 +1808,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
     pack.WriteCell(issuer > 0 ? GetClientUserId(issuer) : 0);
     pack.WriteCell(swapCount);
     pack.WriteCell(ignoreImmunity ? 1 : 0);
+    pack.WriteString("random");
     for (int i = 0; i < swapCount; i++)
     {
         pack.WriteCell(GetClientUserId(topRed[i]));
@@ -1894,6 +1976,24 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
         swapCount = LimitSwapCountToEligibility(desiredSwapCount, redEligible, bluEligible);
     }
 
+    LogWhaleStat("scramble_attempt", "mode=frag_balance|issuer=%d|allow_low_pop=%d|forced=%d|total=%d|red=%d|blu=%d|eligible_red=%d|eligible_blu=%d|candidate_red=%d|candidate_blu=%d|desired_swap=%d|swap=%d|ignore_immunity=%d|fallback=%d|red_frags=%d|blu_frags=%d",
+        issuer,
+        allowLowPop ? 1 : 0,
+        forced ? 1 : 0,
+        totalPlayers,
+        redCount,
+        bluCount,
+        redEligible,
+        bluEligible,
+        redCandidateCount,
+        bluCandidateCount,
+        desiredSwapCount,
+        swapCount,
+        ignoreImmunity ? 1 : 0,
+        needsFallback ? 1 : 0,
+        redFragTotal,
+        bluFragTotal);
+
     if (swapCount == 0)
     {
         NotifySwapCountFailure(issuer, broadcastFailures, totalPlayers, redCount, bluCount, redEligible, bluEligible, "Frag balance");
@@ -1904,6 +2004,7 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
     {
         NotifyFailure(issuer, broadcastFailures, "Each team needs at least %d players (RED=%d BLU=%d).", swapCount, redCount, bluCount);
         LogWhale("Frag balance scramble aborted: team size too small (swap=%d red=%d blu=%d).", swapCount, redCount, bluCount);
+        LogWhaleStat("scramble_result", "mode=frag_balance|result=aborted|reason=team_size|swap=%d|red=%d|blu=%d", swapCount, redCount, bluCount);
         return false;
     }
 
@@ -1911,6 +2012,7 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
     {
         NotifyFailure(issuer, broadcastFailures, "Each team needs at least %d eligible players (RED=%d BLU=%d).", swapCount, redEligible, bluEligible);
         LogWhale("Frag balance scramble aborted: eligible too small (swap=%d red=%d blu=%d).", swapCount, redEligible, bluEligible);
+        LogWhaleStat("scramble_result", "mode=frag_balance|result=aborted|reason=eligible_size|swap=%d|eligible_red=%d|eligible_blu=%d", swapCount, redEligible, bluEligible);
         return false;
     }
 
@@ -1918,6 +2020,7 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
     {
         NotifyFailure(issuer, broadcastFailures, "Failed to select frag-balanced swap targets.");
         LogWhale("Frag balance scramble aborted: selection failed (swap=%d redCandidates=%d bluCandidates=%d redFrags=%d bluFrags=%d).", swapCount, redCandidateCount, bluCandidateCount, redFragTotal, bluFragTotal);
+        LogWhaleStat("scramble_result", "mode=frag_balance|result=aborted|reason=selection_failed|swap=%d|candidate_red=%d|candidate_blu=%d|red_frags=%d|blu_frags=%d", swapCount, redCandidateCount, bluCandidateCount, redFragTotal, bluFragTotal);
         return false;
     }
 
@@ -1940,11 +2043,20 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
         selectedBluFrags,
         beforeDiff,
         afterDiff);
+    LogWhaleStat("scramble_result", "mode=frag_balance|result=selected|swap=%d|red_frags=%d|blu_frags=%d|selected_red_frags=%d|selected_blu_frags=%d|before_diff=%d|after_diff=%d",
+        swapCount,
+        redFragTotal,
+        bluFragTotal,
+        selectedRedFrags,
+        selectedBluFrags,
+        beforeDiff,
+        afterDiff);
 
     DataPack pack = new DataPack();
     pack.WriteCell(issuer > 0 ? GetClientUserId(issuer) : 0);
     pack.WriteCell(swapCount);
     pack.WriteCell(ignoreImmunity ? 1 : 0);
+    pack.WriteString("frag_balance");
     for (int i = 0; i < swapCount; i++)
     {
         pack.WriteCell(GetClientUserId(topRed[i]));
@@ -2188,6 +2300,8 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
     int issuerUserId = pack.ReadCell();
     int swapCount = pack.ReadCell();
     bool ignoreImmunity = view_as<bool>(pack.ReadCell());
+    char scrambleMode[32];
+    pack.ReadString(scrambleMode, sizeof(scrambleMode));
 
     int redIds[MAX_SWAP_BUFFER];
     int bluIds[MAX_SWAP_BUFFER];
@@ -2225,6 +2339,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         if (IsClientInDuel(r) || IsClientInDuel(b))
         {
             LogWhale("Skipping scramble pair: duel active before immunity pass (red=%N blu=%N).", r, b);
+            LogWhaleStat("immunity_skip", "type=duel|phase=before_immunity|mode=%s", scrambleMode);
             continue;
         }
         if (!ResolveScramblePurchaseImmunity(r, TEAM_RED, redIds, bluIds, swapCount, i, ignoreImmunity)) continue;
@@ -2233,6 +2348,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         if (IsClientInDuel(r) || IsClientInDuel(b))
         {
             LogWhale("Skipping scramble pair: duel active after immunity pass (red=%N blu=%N).", r, b);
+            LogWhaleStat("immunity_skip", "type=duel|phase=after_immunity|mode=%s", scrambleMode);
             continue;
         }
 
@@ -2272,6 +2388,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         CPrintToChatAll("{tomato}[{purple}Gap{tomato}]{default} {gold}Whalescrambling{default} %d players!", moved);
         PlayTeamMoveSaySound();
         LogWhale("Scramble executed: moved=%d pairs=%d suppressRespawn=%d.", moved, pairCount, suppressRespawn ? 1 : 0);
+        LogWhaleStat("scramble_result", "mode=%s|result=executed|moved=%d|pairs=%d|suppress_respawn=%d|setup=%d|ignore_immunity=%d", scrambleMode, moved, pairCount, suppressRespawn ? 1 : 0, setupScramble ? 1 : 0, ignoreImmunity ? 1 : 0);
         if (suppressRespawn)
         {
             QueuePostAutoScrambleRespawnSweep();
@@ -2345,6 +2462,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
             ReplyToCommand(issuer, "[whalescramble] No eligible players to swap.");
         }
         LogWhale("Scramble executed: no eligible pairs.");
+        LogWhaleStat("scramble_result", "mode=%s|result=aborted|reason=no_eligible_pairs|swap=%d|ignore_immunity=%d", scrambleMode, swapCount, ignoreImmunity ? 1 : 0);
     }
     return Plugin_Stop;
 }
@@ -2490,6 +2608,7 @@ public Action Timer_VerifyScrambleRespawn(Handle timer, any userid)
         if (g_iScrambleRespawnAttempts[client] <= 0)
         {
             LogWhale("Scramble respawn failed: %N settled on team=%d while expectedTeam=%d.", client, team, expectedTeam);
+            LogWhaleStat("respawn_recovery", "result=failed|reason=wrong_team|team=%d|expected_team=%d", team, expectedTeam);
             ClearScrambleRespawnState(client);
             return Plugin_Stop;
         }
@@ -2513,6 +2632,7 @@ public Action Timer_VerifyScrambleRespawn(Handle timer, any userid)
         if (!IsPlayerAlive(client))
         {
             LogWhale("Scramble respawn failed: %N team=%d expectedTeam=%d attempts exhausted.", client, team, expectedTeam);
+            LogWhaleStat("respawn_recovery", "result=failed|reason=attempts_exhausted|team=%d|expected_team=%d", team, expectedTeam);
         }
 
         ClearScrambleRespawnState(client);
@@ -2539,6 +2659,7 @@ static void ApplySetupScramblePolish()
     RestoreSetupTimerAfterScramble();
     CreateTimer(SCRAMBLE_SETUP_POLISH_DELAY, Timer_ApplySetupScramblePolish, 0, TIMER_FLAG_NO_MAPCHANGE);
     LogWhale("Setup scramble polish: queued delayed respawn verification.");
+    LogWhaleStat("respawn_recovery", "context=setup_polish|result=queued");
 }
 
 public Action Timer_ApplySetupScramblePolish(Handle timer, any data)
@@ -2552,6 +2673,7 @@ static void QueuePostAutoScrambleRespawnSweep()
 {
     CreateTimer(SCRAMBLE_AUTO_RESPAWN_SWEEP_DELAY, Timer_PostAutoScrambleRespawnSweep, SCRAMBLE_AUTO_RESPAWN_SWEEP_COUNT, TIMER_FLAG_NO_MAPCHANGE);
     LogWhale("Post-auto scramble respawn sweep queued.");
+    LogWhaleStat("respawn_recovery", "context=post_auto_sweep|result=queued|sweeps=%d", SCRAMBLE_AUTO_RESPAWN_SWEEP_COUNT);
 }
 
 public Action Timer_PostAutoScrambleRespawnSweep(Handle timer, any remainingSweeps)
@@ -2585,6 +2707,7 @@ static void RestoreSetupTimerAfterScramble()
     AcceptEntityInput(timerEnt, "AddTime");
     g_iRoundStartTimestamp = GetTime();
     LogWhale("Setup scramble polish: restored %d seconds to setup timer.", elapsed);
+    LogWhaleStat("respawn_recovery", "context=setup_timer|result=restored|seconds=%d", elapsed);
 }
 
 static void QueueScrambleRespawnsForActiveTeams(const char[] context)
@@ -2610,6 +2733,7 @@ static void QueueScrambleRespawnsForActiveTeams(const char[] context)
     }
 
     LogWhale("%s: queued respawn verification for %d active team client(s).", context, queued);
+    LogWhaleStat("respawn_recovery", "context=%s|result=queued|queued=%d", context, queued);
 }
 
 public Action Timer_FillSetupMedicUbers(Handle timer, any data)
@@ -2760,6 +2884,7 @@ static bool ResolveScramblePurchaseImmunity(int &client, int team, int redIds[MA
     if (replacement <= 0)
     {
         LogWhale("Skipping scramble target %N: paid immunity available and no replacement found.", client);
+        LogWhaleStat("immunity_skip", "type=paid|result=blocked|team=%d|pair_index=%d", team, pairIndex);
         return false;
     }
 
@@ -2771,6 +2896,7 @@ static bool ResolveScramblePurchaseImmunity(int &client, int team, int redIds[MA
 
     CPrintToChat(client, "{magenta}[Store]{default} You were protected by your {gold}Scramble Immunity (8 times){default}! Uses remaining: {lightgreen}%d", usesRemaining);
     LogWhale("Paid scramble immunity protected %N; replacement=%N usesRemaining=%d.", client, replacement, usesRemaining);
+    LogWhaleStat("immunity_skip", "type=paid|result=replaced|team=%d|uses_remaining=%d|pair_index=%d", team, usesRemaining, pairIndex);
 
     client = replacement;
     if (team == TEAM_RED)
@@ -2935,7 +3061,41 @@ static void LogWhale(const char[] fmt, any ...)
 
     char buffer[512];
     VFormat(buffer, sizeof(buffer), fmt, 2);
-    PluginStats_LogMessage(buffer);
+    LogMessage("[whalescramble] %s", buffer);
+}
+
+static void LogWhaleStat(const char[] eventName, const char[] fmt, any ...)
+{
+    char detail[WHALESCRAMBLE_STATS_DETAIL_MAX];
+    detail[0] = '\0';
+    if (fmt[0] != '\0')
+    {
+        VFormat(detail, sizeof(detail), fmt, 3);
+        SanitizeWhaleStatField(detail, sizeof(detail));
+    }
+
+    char message[512];
+    if (detail[0] != '\0')
+    {
+        Format(message, sizeof(message), "event=%s|%s", eventName, detail);
+    }
+    else
+    {
+        Format(message, sizeof(message), "event=%s", eventName);
+    }
+
+    PluginStats_LogMessage(message);
+}
+
+static void SanitizeWhaleStatField(char[] value, int maxlen)
+{
+    for (int i = 0; i < maxlen && value[i] != '\0'; i++)
+    {
+        if (value[i] == '\n' || value[i] == '\r' || value[i] == '\t')
+        {
+            value[i] = ' ';
+        }
+    }
 }
 
 static bool GetFiltersNameOrEmpty(int client, char[] buffer, int maxlen)
