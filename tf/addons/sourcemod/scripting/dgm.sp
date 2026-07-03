@@ -1798,6 +1798,8 @@ public void OnPluginEnd()
 
 public void OnMapStart()
 {
+    // NO_MAPCHANGE timers are closed by SourceMod during transitions; clear local handles.
+    g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
     PluginStats_OnMapStart();
     DGM_ClearSetupStartTimer();
     g_hSetupStateTimer = INVALID_HANDLE;
@@ -1808,6 +1810,14 @@ public void OnMapStart()
     g_iSetupFalseChecks = 0;
     DGM_RefreshRespawnVisualState();
     DGM_UpdateSetupState();
+}
+
+public void OnMapEnd()
+{
+    // NO_MAPCHANGE timers are closed by SourceMod during transitions; clear local handles.
+    g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
+    DGM_ClearSetupStartTimer();
+    g_hSetupStateTimer = INVALID_HANDLE;
 }
 
 public void ConVarChange_RespawnSetting(ConVar convar, const char[] oldValue, const char[] newValue)
