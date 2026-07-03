@@ -55,7 +55,6 @@ public void OnPluginStart()
 	RegServerCmd("sm_adverts_reload", Command_ReloadAds, "Reload the advertisements");
 
 	LoadAdvertisements();
-	RestartTimer();
 }
 
 public void OnConfigsExecuted()
@@ -64,9 +63,22 @@ public void OnConfigsExecuted()
 	RestartTimer();
 }
 
+public void OnMapStart()
+{
+	// NO_MAPCHANGE timers are closed by SourceMod during transitions; forget stale handles before recreating.
+	g_Timer = null;
+	LoadAdvertisements();
+	RestartTimer();
+}
+
+public void OnMapEnd()
+{
+	ClearTimer();
+}
+
 public void OnPluginEnd()
 {
-	delete g_Timer;
+	ClearTimer();
 	delete g_Ads;
 }
 
@@ -262,11 +274,17 @@ bool ExtractQuotedString(const char[] line, char[] buffer, int maxlen)
 
 void RestartTimer()
 {
-	delete g_Timer;
+	ClearTimer();
 	int interval = g_CvarInterval.IntValue;
 	if (interval > 0) {
 		g_Timer = CreateTimer(float(interval), Timer_DisplayAd, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 	}
+}
+
+void ClearTimer()
+{
+	delete g_Timer;
+	g_Timer = null;
 }
 
 void FormatChatMessage(const char[] prefix, const char[] msg, char[] out, int maxlen)
