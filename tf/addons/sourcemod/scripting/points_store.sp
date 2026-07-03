@@ -110,6 +110,7 @@ bool g_LotteryDrawInProgress = false;
 int g_CurrentLotteryId = 0;
 char g_CurrentLotteryHash[LOTTO_HASH_MAX];
 char g_CurrentLotteryHashColor[BP_CURRENCY_COLOR_MAX + 2];
+bool g_CurrentLotterySuper = false;
 
 bool g_LotteryWaitingCustom[MAXPLAYERS + 1];
 bool g_ClientLotteryTicketLoaded[MAXPLAYERS + 1];
@@ -376,6 +377,7 @@ void ConnectDatabase()
     g_CurrentLotteryId = 0;
     g_CurrentLotteryHash[0] = '\0';
     g_CurrentLotteryHashColor[0] = '\0';
+    g_CurrentLotterySuper = false;
     CancelPendingLotteryCall();
 
     char dbConfig[64];
@@ -598,6 +600,7 @@ void EnsureLotterySchema()
             ... "hash VARCHAR(32) NOT NULL, "
             ... "hash_color VARCHAR(32) NOT NULL, "
             ... "created_at INT NOT NULL, "
+            ... "super_lottery TINYINT NOT NULL DEFAULT 0, "
             ... "finished TINYINT NOT NULL DEFAULT 0, "
             ... "finished_at INT NOT NULL DEFAULT 0, "
             ... "winner_steamid64 VARCHAR(32) NOT NULL DEFAULT '', "
@@ -616,6 +619,7 @@ void EnsureLotterySchema()
             ... "hash VARCHAR(32) NOT NULL UNIQUE, "
             ... "hash_color VARCHAR(32) NOT NULL, "
             ... "created_at INTEGER NOT NULL, "
+            ... "super_lottery INTEGER NOT NULL DEFAULT 0, "
             ... "finished INTEGER NOT NULL DEFAULT 0, "
             ... "finished_at INTEGER NOT NULL DEFAULT 0, "
             ... "winner_steamid64 VARCHAR(32) NOT NULL DEFAULT '', "
@@ -632,6 +636,42 @@ public void SQL_OnLotterySchemaReady(Database db, DBResultSet results, const cha
     if (error[0] != '\0')
     {
         LogError("[points_store] Lottery schema creation failed: %s", error);
+        return;
+    }
+
+    char query[256];
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN IF NOT EXISTS super_lottery TINYINT NOT NULL DEFAULT 0 AFTER created_at",
+            LOTTO_TABLE);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN super_lottery INTEGER NOT NULL DEFAULT 0",
+            LOTTO_TABLE);
+    }
+
+    g_Database.Query(SQL_OnLotterySuperColumnReady, query);
+}
+
+public void SQL_OnLotterySuperColumnReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0'
+        && StrContains(error, "Duplicate column", false) == -1
+        && StrContains(error, "duplicate column", false) == -1)
+    {
+        LogError("[points_store] Lottery super_lottery migration failed: %s", error);
+    }
+
+    EnsureLotteryTicketsSchema();
+}
+
+void EnsureLotteryTicketsSchema()
+{
+    if (g_Database == null)
+    {
         return;
     }
 
@@ -860,6 +900,11 @@ int GetLotteryMaxTicketValue()
 
 int ClampLotteryTicketValue(int client, int amount)
 {
+    if (g_CurrentLotterySuper)
+    {
+        return amount;
+    }
+
     int maxTicketValue = GetLotteryMaxTicketValue();
     if (maxTicketValue <= 0 || amount <= maxTicketValue)
     {
@@ -890,6 +935,7 @@ void ClearLocalLotteryState()
     g_CurrentLotteryId = 0;
     g_CurrentLotteryHash[0] = '\0';
     g_CurrentLotteryHashColor[0] = '\0';
+    g_CurrentLotterySuper = false;
     ClearAllClientLotteryCaches();
     ResetLotteryDrawState();
 }
@@ -914,7 +960,7 @@ void EnsureActiveLottery()
 
     char query[256];
     Format(query, sizeof(query),
-        "SELECT id, hash, hash_color, created_at FROM %s WHERE finished = 0 ORDER BY id DESC LIMIT 1",
+        "SELECT id, hash, hash_color, super_lottery FROM %s WHERE finished = 0 ORDER BY id DESC LIMIT 1",
         LOTTO_TABLE);
     g_Database.Query(SQL_OnActiveLotterySelected, query);
 }
@@ -939,7 +985,8 @@ public void SQL_OnActiveLotterySelected(Database db, DBResultSet results, const 
         char hashColor[BP_CURRENCY_COLOR_MAX + 2];
         results.FetchString(1, hash, sizeof(hash));
         results.FetchString(2, hashColor, sizeof(hashColor));
-        SetActiveLottery(lotteryId, hash, hashColor);
+        bool superLottery = results.FetchInt(3) != 0;
+        SetActiveLottery(lotteryId, hash, hashColor, superLottery);
         return;
     }
 
@@ -1049,14 +1096,15 @@ public void SQL_OnActiveLotteryInsertedSelected(Database db, DBResultSet results
         return;
     }
 
-    SetActiveLottery(results.FetchInt(0), hash, hashColor);
+    SetActiveLottery(results.FetchInt(0), hash, hashColor, false);
 }
 
-void SetActiveLottery(int lotteryId, const char[] hash, const char[] hashColor)
+void SetActiveLottery(int lotteryId, const char[] hash, const char[] hashColor, bool superLottery)
 {
     g_CurrentLotteryId = lotteryId;
     strcopy(g_CurrentLotteryHash, sizeof(g_CurrentLotteryHash), hash);
     strcopy(g_CurrentLotteryHashColor, sizeof(g_CurrentLotteryHashColor), hashColor);
+    g_CurrentLotterySuper = superLottery;
     g_LotteryReady = true;
 
     for (int i = 1; i <= MaxClients; i++)
@@ -1066,6 +1114,23 @@ void SetActiveLottery(int lotteryId, const char[] hash, const char[] hashColor)
             LoadClientLotteryTicket(i);
         }
     }
+}
+
+void SetCurrentLotterySuper(bool superLottery)
+{
+    g_CurrentLotterySuper = superLottery;
+
+    if (!superLottery || !g_DatabaseReady || g_Database == null || g_CurrentLotteryId <= 0)
+    {
+        return;
+    }
+
+    char query[192];
+    Format(query, sizeof(query),
+        "UPDATE %s SET super_lottery = 1 WHERE id = %d AND finished = 0",
+        LOTTO_TABLE,
+        g_CurrentLotteryId);
+    g_Database.Query(SQL_OnIgnoredResult, query);
 }
 
 void ClearClientLotteryTicketCache(int client)
@@ -2431,7 +2496,6 @@ public Action Command_DoLottery(int client, int args)
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
     int callDelay = GetRandomInt(20, 80);
-    CPrintToChatAll("%s[Lotto]{default} A lottery is being called soon, {gold}!bet{default} now!", colorTag);
 
     g_LotteryCallTimer = CreateTimer(float(callDelay), Timer_LotteryCall, _, TIMER_FLAG_NO_MAPCHANGE);
     if (g_LotteryCallTimer == null)
@@ -2439,6 +2503,17 @@ public Action Command_DoLottery(int client, int args)
         g_LotteryCallRequesterUserId = 0;
         g_LotteryCallLotteryId = 0;
         ReplyToCommand(client, "[Lotto] Could not schedule the lottery draw.");
+        return Plugin_Handled;
+    }
+
+    if (g_CurrentLotterySuper || GetRandomInt(1, 100) <= 35)
+    {
+        SetCurrentLotterySuper(true);
+        CPrintToChatAll("%s[Lotto]{default} A {gold}SUPER LOTTERY{default} is being called soon, {gold}!bet{default} no longer has a size limit!", colorTag);
+    }
+    else
+    {
+        CPrintToChatAll("%s[Lotto]{default} A lottery is being called soon, {gold}!bet{default} now!", colorTag);
     }
     return Plugin_Handled;
 }
@@ -2925,6 +3000,7 @@ public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[]
         g_CurrentLotteryId = 0;
         g_CurrentLotteryHash[0] = '\0';
         g_CurrentLotteryHashColor[0] = '\0';
+        g_CurrentLotterySuper = false;
         ClearAllClientLotteryCaches();
         ResetLotteryDrawState();
         EnsureActiveLottery();
@@ -2960,6 +3036,7 @@ public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[]
     g_CurrentLotteryId = 0;
     g_CurrentLotteryHash[0] = '\0';
     g_CurrentLotteryHashColor[0] = '\0';
+    g_CurrentLotterySuper = false;
     ClearAllClientLotteryCaches();
     ResetLotteryDrawState();
     EnsureActiveLottery();
