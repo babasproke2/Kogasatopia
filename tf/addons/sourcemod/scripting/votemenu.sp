@@ -46,9 +46,11 @@ ConVar g_CvarAdmins = null;
 ConVar g_CvarAdminsFree = null;
 ConVar g_CvarDatabase = null;
 ConVar g_CvarVoteDuration = null;
+ConVar g_CvarFailedVoteCooldown = null;
 Database g_Database = null;
 bool g_DatabaseReady = false;
 Handle g_hDatabaseReconnectTimer = null;
+StringMap g_FailedVoteCooldowns = null;
 bool g_PendingVoteCharge = false;
 int g_PendingChargeUserId = 0;
 int g_PendingChargeCost = 0;
@@ -90,8 +92,10 @@ public void OnPluginStart()
     g_CvarAdminsFree = CreateConVar("sm_votemenu_admins_free", "0", "Let admins use votemenu without points_store currency integration.", _, true, 0.0, true, 1.0);
     g_CvarDatabase = CreateConVar("sm_votemenu_database", VOTEMENU_DB_CONFIG_DEFAULT, "Database config used for offline paid-vote charges.");
     g_CvarVoteDuration = CreateConVar("sm_votemenu_duration", "7.0", "Vote menu vote duration in seconds.", _, true, 1.0, true, 30.0);
+    g_CvarFailedVoteCooldown = CreateConVar("sm_votemenu_failed_vote_cooldown", "120", "Seconds a failed votemenu selection must wait before it can be started again. 0 disables this cooldown.", _, true, 0.0);
     g_CvarDatabase.AddChangeHook(OnVoteMenuDatabaseChanged);
     g_VoteOptions = new ArrayList(sizeof(VoteOption));
+    g_FailedVoteCooldowns = new StringMap();
     g_MapStartedAt = GetTime();
     PluginStats_Init(VOTEMENU_STATISTICS_TABLE);
     LoadVoteMenuConfig();
@@ -161,8 +165,19 @@ public Action Command_VoteMenu(int client, int args)
             strcopy(display, sizeof(display), opt.id);
         }
 
-        Format(label, sizeof(label), "%s", display);
-        menu.AddItem(opt.id, label);
+        int cooldownRemaining = GetFailedVoteCooldownRemaining(opt.id);
+        int drawStyle = ITEMDRAW_DEFAULT;
+        if (cooldownRemaining > 0)
+        {
+            Format(label, sizeof(label), "%s (%ds cooldown)", display, cooldownRemaining);
+            drawStyle = ITEMDRAW_DISABLED;
+        }
+        else
+        {
+            Format(label, sizeof(label), "%s", display);
+        }
+
+        menu.AddItem(opt.id, label, drawStyle);
     }
     menu.ExitButton = true;
     menu.Display(client, MENU_TIME_FOREVER);
@@ -183,6 +198,13 @@ public int VoteMenuHandler(Menu menu, MenuAction action, int param1, int param2)
         if (index == -1)
         {
             CPrintToChat(param1, "{red}[Vote]{default} Invalid vote option.");
+            return 0;
+        }
+
+        int cooldownRemaining = GetFailedVoteCooldownRemaining(itemId);
+        if (cooldownRemaining > 0)
+        {
+            CPrintToChat(param1, "{red}[Vote]{default} That vote selection can be called again in {gold}%d seconds{default}.", cooldownRemaining);
             return 0;
         }
 
@@ -335,6 +357,51 @@ static bool IsVoteMenuShopEnabled(int client)
     return g_CvarShop != null && g_CvarShop.BoolValue && GetVoteMenuCost() > 0 && IsPointsStoreAvailable();
 }
 
+static int GetFailedVoteCooldownSeconds()
+{
+    if (g_CvarFailedVoteCooldown == null)
+    {
+        return 0;
+    }
+
+    int seconds = RoundToFloor(g_CvarFailedVoteCooldown.FloatValue);
+    return seconds > 0 ? seconds : 0;
+}
+
+static int GetFailedVoteCooldownRemaining(const char[] optionId)
+{
+    if (g_FailedVoteCooldowns == null || optionId[0] == '\0')
+    {
+        return 0;
+    }
+
+    int expiresAt = 0;
+    if (!g_FailedVoteCooldowns.GetValue(optionId, expiresAt))
+    {
+        return 0;
+    }
+
+    int remaining = expiresAt - GetTime();
+    if (remaining <= 0)
+    {
+        g_FailedVoteCooldowns.Remove(optionId);
+        return 0;
+    }
+
+    return remaining;
+}
+
+static void SetFailedVoteCooldown(const char[] optionId)
+{
+    int seconds = GetFailedVoteCooldownSeconds();
+    if (seconds <= 0 || g_FailedVoteCooldowns == null || optionId[0] == '\0')
+    {
+        return;
+    }
+
+    g_FailedVoteCooldowns.SetValue(optionId, GetTime() + seconds);
+}
+
 static void FormatVoteMenuTitle(int client, char[] title, int maxlen)
 {
     if (!IsVoteMenuShopEnabled(client))
@@ -404,6 +471,13 @@ static bool StartYesNoVote(int initiator)
     if (IsVoteMenuBusy() || !IsNewVoteAllowed())
     {
         CPrintToChat(initiator, "{red}[Vote]{default} A vote is already running or cooling down.");
+        return false;
+    }
+
+    int cooldownRemaining = GetFailedVoteCooldownRemaining(g_CurrentVote.id);
+    if (cooldownRemaining > 0)
+    {
+        CPrintToChat(initiator, "{red}[Vote]{default} That vote selection can be called again in {gold}%d seconds{default}.", cooldownRemaining);
         return false;
     }
 
@@ -497,6 +571,7 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
         }
         else
         {
+            SetFailedVoteCooldown(g_CurrentVote.id);
             ClearPendingVoteCharge();
             ExecuteVoteOutcome(false);
         }
@@ -509,6 +584,7 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
         int reason = param1;
         if (reason == VoteCancel_NoVotes)
         {
+            SetFailedVoteCooldown(g_CurrentVote.id);
             CPrintToChatAll("{red}[Vote]{default} Vote failed: no votes received.");
         }
         else
