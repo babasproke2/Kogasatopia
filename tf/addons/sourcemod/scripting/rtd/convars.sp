@@ -56,7 +56,7 @@ int g_iCvarRollInterval = 60;
 
 #define DESC_ROLL_COST "Currency cost to roll RTD. 0 disables points-store charging."
 Handle g_hCvarRollCost;
-int g_iCvarRollCost = 100;
+int g_iCvarRollCost = 50;
 
 #define DESC_DISABLED_PERKS "Enter the effects you'd like to disable, separated by commas. You can use IDs, tokens or tags which occur in a single perk (ex. \"0, toxic, sandvich\" disables first 3)."
 Handle g_hCvarDisabledPerks;
@@ -153,7 +153,7 @@ void SetupConVars()
 
 	g_hCvarPerkDuration			= CreateConVar("sm_rtd2_duration",		"25",		DESC_PERK_DURATION,			FLAGS_CVARS);
 	g_hCvarRollInterval			= CreateConVar("sm_rtd2_interval",		"60",		DESC_ROLL_INTERVAL,			FLAGS_CVARS);
-	g_hCvarRollCost				= CreateConVar("sm_rtd2_roll_cost",	"100",		DESC_ROLL_COST,				FLAGS_CVARS, true, 0.0);
+	g_hCvarRollCost				= CreateConVar("sm_rtd2_roll_cost",	"50",		DESC_ROLL_COST,				FLAGS_CVARS, true, 0.0);
 	g_hCvarDisabledPerks		= CreateConVar("sm_rtd2_disabled",		"",			DESC_DISABLED_PERKS,		FLAGS_CVARS);
 	g_hCvarEmitSound			= CreateConVar("sm_rtd2_emit_sound",	"1",		DESC_EMIT_SOUND,			FLAGS_CVARS);
 

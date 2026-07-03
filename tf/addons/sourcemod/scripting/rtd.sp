@@ -26,6 +26,7 @@
 
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
+#include <filters_api>
 #tryinclude <updater>
 #tryinclude <friendly>
 #tryinclude <friendlysimple>
@@ -125,6 +126,7 @@ public APLRes AskPluginLoad2(Handle hMyself, bool bLate, char[] sError, int iErr
 	MarkNativeAsOptional("PointsStore_AreBonusPointsLoaded");
 	MarkNativeAsOptional("PointsStore_GetBonusPoints");
 	MarkNativeAsOptional("PointsStore_SpendBonusPoints");
+	MarkNativeAsOptional("Filters_GetChatName");
 
 	return APLRes_Success;
 }
@@ -402,12 +404,10 @@ public Action Command_RTD(const int client, const int args)
 
 public Action Command_RTDHelp(const int client, const int args)
 {
-	char currencyColor[34];
 	char currencyName[64];
-	GetRollCurrencyColor(currencyColor, sizeof(currencyColor));
 	GetRollCurrencyName(currencyName, sizeof(currencyName));
 
-	CPrintToChat(client, CHAT_PREFIX ... " Use !rtd or type 'rtd' to roll for an epic effect, results can be good or bad, lasts %d seconds, cooldown is %d seconds. Costs %s%d %s{default}, the server currency", g_iCvarPerkDuration, g_iCvarRollInterval, currencyColor, g_iCvarRollCost, currencyName);
+	CPrintToChat(client, CHAT_PREFIX ... " Use !rtd or type 'rtd' to roll for an epic effect, results can be good or bad, lasts %d seconds, cooldown is %d seconds. Costs %d %s, the server currency. {gold}!votemenu{default} can make rtd free!", g_iCvarPerkDuration, g_iCvarRollInterval, g_iCvarRollCost, currencyName);
 	return Plugin_Handled;
 }
 
@@ -1780,29 +1780,62 @@ void PrintToNonRollers(int client, Perk perk, int iDuration)
 	if (!(g_iCvarChat & view_as<int>(ChatFlag_AppOther)))
 		return;
 
-	char sRollerName[MAX_NAME_LENGTH], sPerkName[RTD2_MAX_PERK_NAME_LENGTH];
-	GetClientName(client, sRollerName, sizeof(sRollerName));
+	char sRollerName[192], sPerkName[RTD2_MAX_PERK_NAME_LENGTH];
+	BuildRTDDisplayName(client, sRollerName, sizeof(sRollerName));
 	perk.GetName(sPerkName, sizeof(sPerkName));
 
-	if (!g_bCvarShowTime || perk.Time == -1)
+	for (int target = 1; target <= MaxClients; target++)
 	{
-		RTDPrintAllExcept(client, "%t",
-			"RTD2_Rolled_Perk_Others",
-			g_sTeamColors[GetClientTeam(client)],
-			sRollerName,
-			0x01,
-			perk.Good ? PERK_COLOR_GOOD : PERK_COLOR_BAD,
-			sPerkName, 0x01);
+		if (target == client || !IsClientInGame(target))
+			continue;
+
+		if (!g_bCvarShowTime || perk.Time == -1)
+		{
+			CPrintToChatEx(target, client, CHAT_PREFIX ... " %s rolled %s%s{default}!", sRollerName, perk.Good ? PERK_COLOR_GOOD : PERK_COLOR_BAD, sPerkName);
+		}
+		else
+		{
+			CPrintToChatEx(target, client, CHAT_PREFIX ... " %s rolled %s%s{default} for {teamcolor}%d{default} seconds!", sRollerName, perk.Good ? PERK_COLOR_GOOD : PERK_COLOR_BAD, sPerkName, GetPerkTimeEx(perk, iDuration));
+		}
 	}
-	else
+}
+
+void BuildRTDDisplayName(int client, char[] buffer, int maxlen)
+{
+	buffer[0] = '\0';
+
+	if (GetFeatureStatus(FeatureType_Native, "Filters_GetChatName") == FeatureStatus_Available
+		&& Filters_GetChatName(client, buffer, maxlen)
+		&& buffer[0] != '\0')
 	{
-		RTDPrintAllExcept(client, "%t",
-			"RTD2_Rolled_Perk_Others_Time",
-			g_sTeamColors[GetClientTeam(client)],
-			sRollerName,
-			0x01,
-			perk.Good ? PERK_COLOR_GOOD : PERK_COLOR_BAD,
-			sPerkName, 0x01, 0x03, GetPerkTimeEx(perk, iDuration), 0x01);
+		ResolveRTDTeamColorTag(client, buffer, maxlen);
+		return;
+	}
+
+	char colorTag[16];
+	BuildRTDTeamColorTag(client, colorTag, sizeof(colorTag));
+	Format(buffer, maxlen, "%s%N{default}", colorTag, client);
+}
+
+void ResolveRTDTeamColorTag(int client, char[] buffer, int maxlen)
+{
+	if (StrContains(buffer, "{teamcolor}", false) == -1)
+	{
+		return;
+	}
+
+	char colorTag[16];
+	BuildRTDTeamColorTag(client, colorTag, sizeof(colorTag));
+	ReplaceString(buffer, maxlen, "{teamcolor}", colorTag, false);
+}
+
+void BuildRTDTeamColorTag(int client, char[] colorTag, int length)
+{
+	switch (GetClientTeam(client))
+	{
+		case 2: strcopy(colorTag, length, "{red}");
+		case 3: strcopy(colorTag, length, "{blue}");
+		default: strcopy(colorTag, length, "{default}");
 	}
 }
 
