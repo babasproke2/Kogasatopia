@@ -162,6 +162,8 @@ public void OnPluginStart()
 
 	// Commands
 	RegAdminCmd("sm_rtd", Command_RTD, 0, "Roll a perk.");
+	RegConsoleCmd("sm_rtdhelp", Command_RTDHelp, "Show RTD help.");
+	RegConsoleCmd("sm_rtdh", Command_RTDHelp, "Show RTD help.");
 	RegAdminCmd("sm_perks", Command_DescMenu, 0, "Display a description menu of RTD perks.");
 
 	RegAdminCmd("sm_forcertd", Command_ForceRTD, ADMFLAG_SLAY, "Applies perk to selected player(s).");
@@ -395,6 +397,17 @@ public Action Command_RTD(const int client, const int args)
 	if (client != 0)
 		StartRollRequest(client);
 
+	return Plugin_Handled;
+}
+
+public Action Command_RTDHelp(const int client, const int args)
+{
+	char currencyColor[34];
+	char currencyName[64];
+	GetRollCurrencyColor(currencyColor, sizeof(currencyColor));
+	GetRollCurrencyName(currencyName, sizeof(currencyName));
+
+	CPrintToChat(client, CHAT_PREFIX ... " Use !rtd or type 'rtd' to roll for an epic effect, results can be good or bad, lasts %d seconds, cooldown is %d seconds. Costs %s%d %s{default}, the server currency", g_iCvarPerkDuration, g_iCvarRollInterval, currencyColor, g_iCvarRollCost, currencyName);
 	return Plugin_Handled;
 }
 
