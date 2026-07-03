@@ -801,7 +801,6 @@ public void Filters_SchemaQueryCallback(Database db, DBResultSet results, const 
         }
         if (!g_PrenameRulesLoaded)
         {
-            g_PrenameRulesLoaded = true;
             Filters_PrenameLoadRules();
         }
     }
@@ -4053,6 +4052,7 @@ static void Filters_PrenameLoadRules()
         return;
     }
 
+    g_PrenameRulesLoaded = false;
     g_hFiltersDb.Query(Filters_PrenameLoadRulesCallback, "SELECT pattern, newname FROM prename_rules");
 }
 
@@ -4061,6 +4061,7 @@ public void Filters_PrenameLoadRulesCallback(Database db, DBResultSet results, c
     if (error[0] != '\0')
     {
         LogError("[Filters/Prename] Failed to load rules: %s", error);
+        g_PrenameRulesLoaded = false;
         return;
     }
 
@@ -4075,6 +4076,8 @@ public void Filters_PrenameLoadRulesCallback(Database db, DBResultSet results, c
 
     if (results == null)
     {
+        g_PrenameRulesLoaded = true;
+        Filters_ApplyPrenameToConnectedClients();
         return;
     }
 
@@ -4088,6 +4091,20 @@ public void Filters_PrenameLoadRulesCallback(Database db, DBResultSet results, c
         if (Prename_IsIdString(pattern))
         {
             g_PrenameIdRules.SetString(pattern, newname);
+        }
+    }
+
+    g_PrenameRulesLoaded = true;
+    Filters_ApplyPrenameToConnectedClients();
+}
+
+static void Filters_ApplyPrenameToConnectedClients()
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (Filters_IsRealClientInGame(client))
+        {
+            Prename_Apply(client);
         }
     }
 }
