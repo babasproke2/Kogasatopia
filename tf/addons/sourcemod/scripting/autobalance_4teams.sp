@@ -708,7 +708,9 @@ static bool HasClanTeammateProtection(int client, int team, bool clanProtectionA
     }
 
     int count = Clans_GetSameTeamClanMemberCount(client, team);
-    return (count < 0 || count > 1);
+    // Clans returns -1 while its cache/client state is unavailable. Fail open
+    // here; treating unknown as protected can block every autobalance candidate.
+    return count > 1;
 }
 
 static int GetSimpleSelectionPriority(int client)
