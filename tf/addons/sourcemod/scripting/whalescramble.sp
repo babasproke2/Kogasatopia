@@ -3033,7 +3033,9 @@ static bool HasClanTeammateProtection(int client)
     }
 
     int count = Clans_GetSameTeamClanMemberCount(client);
-    return (count < 0 || count > 1);
+    // Clans returns -1 while its cache/client state is unavailable. Fail open
+    // so a transient clan lookup issue cannot make every scramble candidate invalid.
+    return count > 1;
 }
 
 static void MarkScrambleImmune(int client)
