@@ -22,12 +22,11 @@ native bool Clans_GetTags(int client, char[] buffer, int maxlen);
  * Returns how many connected players on a team share the caller's clan_id.
  *
  * Return values:
- *  > 0  count of same-clan players on the team, including the caller
- *  0    caller is not in a clan or is not a valid in-game human
- *  -1   clan cache is not ready yet
+ *  > 0  count of known same-clan players on the team, including the caller
+ *  0    caller is not in a clan, is invalid, or clan state is temporarily unavailable
  *
  * @param client        Client index whose clan_id is used.
  * @param team          Team to inspect. 0 = client's current team.
- * @return              Same-team same-clan count, 0, or -1.
+ * @return              Same-team same-clan count, or 0.
  */
 native int Clans_GetSameTeamClanMemberCount(int client, int team = 0);

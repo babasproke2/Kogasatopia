@@ -29,7 +29,8 @@
 #define INVITE_EXPIRE_SECONDS     604800
 #define CLAN_WAR_EXPIRE_SECONDS   604800
 #define CLAN_WAR_FLUSH_INTERVAL   3.0
-#define CLAN_DB_RECONNECT_INTERVAL 5.0
+#define CLAN_DB_RECONNECT_INITIAL_INTERVAL 5.0
+#define CLAN_DB_RECONNECT_MAX_INTERVAL 60.0
 #define CLAN_DB_KEEPALIVE_INTERVAL 300.0
 #define CLAN_WAR_POINT_GOAL       50
 #define CLAN_NAME_MAXLEN          48
@@ -226,6 +227,7 @@ ArrayList g_hActiveWars = null;
 bool g_bActiveWarCacheReady = false;
 ArrayList g_hPendingClanWarKillDeltas = null;
 bool g_bClanWarKillFlushInFlight = false;
+float g_flDbReconnectDelay = CLAN_DB_RECONNECT_INITIAL_INTERVAL;
 
 PromptState g_PromptState[MAXPLAYERS + 1];
 int g_PendingAdminClanDescId[MAXPLAYERS + 1];
@@ -418,6 +420,7 @@ public void SQL_OnDatabaseConnected(Database db, const char[] error, any data)
     g_Database.Driver.GetIdentifier(g_sDbDriver, sizeof(g_sDbDriver));
     g_bDatabaseReady = false;
     g_bClanIdCacheReady = false;
+    g_flDbReconnectDelay = CLAN_DB_RECONNECT_INITIAL_INTERVAL;
     ResetActiveWarCache();
 
     if (!g_Database.SetCharset("utf8mb4"))
@@ -589,14 +592,30 @@ bool HasUsableResultSet(DBResultSet results)
     return (results != null && SQL_HasResultSet(results));
 }
 
-void ScheduleDatabaseReconnect(float delay = CLAN_DB_RECONNECT_INTERVAL)
+void ScheduleDatabaseReconnect(float delay = -1.0)
 {
     if (g_hDbReconnectTimer != null)
     {
         return;
     }
 
+    if (delay < 0.0)
+    {
+        delay = g_flDbReconnectDelay;
+    }
+
+    if (delay < CLAN_DB_RECONNECT_INITIAL_INTERVAL)
+    {
+        delay = CLAN_DB_RECONNECT_INITIAL_INTERVAL;
+    }
+
     g_hDbReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase);
+
+    g_flDbReconnectDelay *= 2.0;
+    if (g_flDbReconnectDelay > CLAN_DB_RECONNECT_MAX_INTERVAL)
+    {
+        g_flDbReconnectDelay = CLAN_DB_RECONNECT_MAX_INTERVAL;
+    }
 }
 
 public Action Timer_ReconnectDatabase(Handle timer, any data)
@@ -1866,15 +1885,10 @@ int GetSameTeamClanMemberCount(int client, int team = 0)
         return 0;
     }
 
-    if (!g_bClanIdCacheReady)
-    {
-        return -1;
-    }
-
     int clanId = 0;
-    if (!GetLoadedClientClanId(client, clanId))
+    if (!ResolveClientClanIdForTeamGuard(client, clanId))
     {
-        return -1;
+        return 0;
     }
 
     if (clanId <= 0)
@@ -1883,7 +1897,6 @@ int GetSameTeamClanMemberCount(int client, int team = 0)
     }
 
     int count = 0;
-    bool hasUnloadedTeammate = false;
     for (int i = 1; i <= MaxClients; i++)
     {
         if (!IsPlayableClient(i) || GetClientTeam(i) != team)
@@ -1892,9 +1905,8 @@ int GetSameTeamClanMemberCount(int client, int team = 0)
         }
 
         int currentClanId = 0;
-        if (!GetLoadedClientClanId(i, currentClanId))
+        if (!ResolveClientClanIdForTeamGuard(i, currentClanId))
         {
-            hasUnloadedTeammate = true;
             continue;
         }
 
@@ -1904,12 +1916,45 @@ int GetSameTeamClanMemberCount(int client, int team = 0)
         }
     }
 
-    if (count <= 1 && hasUnloadedTeammate)
+    return count;
+}
+
+bool ResolveClientClanIdForTeamGuard(int client, int &clanId)
+{
+    clanId = 0;
+
+    if (!IsPlayableClient(client))
     {
-        return -1;
+        return false;
     }
 
-    return count;
+    if (GetLoadedClientClanId(client, clanId))
+    {
+        return true;
+    }
+
+    char steamid64[STEAMID64_MAXLEN];
+    if (!GetClientSteam64(client, steamid64, sizeof(steamid64)))
+    {
+        return false;
+    }
+
+    if (GetCachedClanIdForSteam64(steamid64, clanId))
+    {
+        return true;
+    }
+
+    if (g_bClanIdCacheReady)
+    {
+        return true;
+    }
+
+    if (!g_bClientClanLoadPending[client])
+    {
+        RequestClientClanIdLoad(client);
+    }
+
+    return false;
 }
 
 void RequestClientClanIdLoad(int client)
