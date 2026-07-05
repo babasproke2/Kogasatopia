@@ -30,6 +30,7 @@ targets=(
     "addons/sourcemod/configs/weapons.cfg|tf/addons/sourcemod/configs/weapons.cfg|raw"
     "cfg/bots.cfg|tf/cfg/bots.cfg|scrub_rcon"
     "cfg/cronjobs.txt|tf/cfg/cronjobs.txt|scrub_rcon"
+    "cfg/mapcycle.txt|tf/cfg/mapcycle.txt|raw"
     "cfg/nobots.cfg|tf/cfg/nobots.cfg|scrub_rcon"
     "cfg/server.cfg|tf/cfg/server.cfg|scrub_rcon"
     "cfg/mapsdb/5cp.cfg|tf/cfg/mapsdb/5cp.cfg|scrub_rcon"
