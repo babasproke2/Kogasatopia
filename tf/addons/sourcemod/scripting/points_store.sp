@@ -2766,8 +2766,18 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
 
     selectedWinners[mainWinnerIndex] = true;
 
-    g_LotteryDrawExtraWinnerCount = 0;
-    int extraPrize = 0;
+    g_LotteryDrawExtraWinnerCount = validTicketCount / LOTTO_EXTRA_WINNER_PARTICIPANTS;
+    if (g_LotteryDrawExtraWinnerCount > validTicketCount - 1)
+    {
+        g_LotteryDrawExtraWinnerCount = validTicketCount - 1;
+    }
+
+    int extraPrize = (prizePool * LOTTO_EXTRA_WINNER_PERCENT) / 100;
+    if (extraPrize <= 0)
+    {
+        g_LotteryDrawExtraWinnerCount = 0;
+    }
+
     int welfarePoolPrize = 0;
 
     char mainSteamId[32];
