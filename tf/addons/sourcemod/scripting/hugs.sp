@@ -125,7 +125,9 @@ enum HugsLeaderboardKind
 		AddCommandListener(Hugs_SayListener, "say_team");
 
 		RegConsoleCmd("sm_hl", Command_Leaderboard, "Show hugs leaderboard");
+		RegConsoleCmd("sm_hl2", Command_Leaderboard, "Show hugs received leaderboard");
 		RegConsoleCmd("sm_rl", Command_Leaderboard, "Show rapes leaderboard");
+		RegConsoleCmd("sm_rl2", Command_Leaderboard, "Show rapes received leaderboard");
 		RegConsoleCmd("sm_leaderboard", Command_Leaderboard, "Show rapes leaderboard");
 		RegConsoleCmd("sm_rapesleaderboard", Command_Leaderboard, "Show rapes leaderboard");
 		RegConsoleCmd("sm_hugsleaderboard", Command_Leaderboard, "Show hugs leaderboard");
@@ -518,12 +520,19 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 		char command[64];
 		GetCmdArg(0, command, sizeof(command));
 
-		if (StrEqual(command, "sm_hl", false) || StrEqual(command, "sm_hugsleaderboard", false))
+		if (StrEqual(command, "sm_hl", false) || StrEqual(command, "sm_hl2", false) || StrEqual(command, "sm_hugsleaderboard", false))
 		{
 			return HugsLeaderboard_Hugs;
 		}
 
 		return HugsLeaderboard_Rapes;
+	}
+
+	bool IsLeaderboardReceivedFirstCommand()
+	{
+		char command[64];
+		GetCmdArg(0, command, sizeof(command));
+		return StrEqual(command, "sm_hl2", false) || StrEqual(command, "sm_rl2", false);
 	}
 
 	public Action Command_Leaderboard(int client, int args)
@@ -540,6 +549,7 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 		}
 
 		HugsLeaderboardKind kind = GetLeaderboardKindFromCommand();
+		bool receivedFirst = IsLeaderboardReceivedFirstCommand();
 		char givenColumn[32];
 		char receivedColumn[32];
 		if (kind == HugsLeaderboard_Hugs)
@@ -552,6 +562,11 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 			strcopy(givenColumn, sizeof(givenColumn), "h.rapes_given");
 			strcopy(receivedColumn, sizeof(receivedColumn), "h.rapes_received");
 		}
+
+		char primaryColumn[32];
+		char secondaryColumn[32];
+		strcopy(primaryColumn, sizeof(primaryColumn), receivedFirst ? receivedColumn : givenColumn);
+		strcopy(secondaryColumn, sizeof(secondaryColumn), receivedFirst ? givenColumn : receivedColumn);
 
 		char query[1400];
 		Format(query, sizeof(query),
@@ -570,8 +585,8 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 			HUGS_DB_TABLE,
 			givenColumn,
 			receivedColumn,
-			givenColumn,
-			receivedColumn);
+			primaryColumn,
+			secondaryColumn);
 
 		DataPack pack = new DataPack();
 		pack.WriteCell(GetClientUserId(client));
