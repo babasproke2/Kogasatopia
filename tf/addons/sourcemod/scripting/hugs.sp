@@ -62,6 +62,12 @@ Handle g_hStatsRetryTimer[MAXPLAYERS + 1];
 int g_iSchemaOpsPending = 0;
 Handle g_hRedlistCookie = INVALID_HANDLE;
 
+enum HugsLeaderboardKind
+{
+	HugsLeaderboard_Hugs = 0,
+	HugsLeaderboard_Rapes
+};
+
 	public any Native_Hugs_GetRapesGiven(Handle plugin, int numParams)
 	{
 		int client = GetNativeCell(1);
@@ -118,11 +124,11 @@ Handle g_hRedlistCookie = INVALID_HANDLE;
 		AddCommandListener(Hugs_SayListener, "say");
 		AddCommandListener(Hugs_SayListener, "say_team");
 
-		RegConsoleCmd("sm_hl", Command_Leaderboard, "Show hugs/rapes leaderboard");
-		RegConsoleCmd("sm_rl", Command_Leaderboard, "Show hugs/rapes leaderboard");
-		RegConsoleCmd("sm_leaderboard", Command_Leaderboard, "Show hugs/rapes leaderboard");
-		RegConsoleCmd("sm_rapesleaderboard", Command_Leaderboard, "Show hugs/rapes leaderboard");
-		RegConsoleCmd("sm_hugsleaderboard", Command_Leaderboard, "Show hugs/rapes leaderboard");
+		RegConsoleCmd("sm_hl", Command_Leaderboard, "Show hugs leaderboard");
+		RegConsoleCmd("sm_rl", Command_Leaderboard, "Show rapes leaderboard");
+		RegConsoleCmd("sm_leaderboard", Command_Leaderboard, "Show rapes leaderboard");
+		RegConsoleCmd("sm_rapesleaderboard", Command_Leaderboard, "Show rapes leaderboard");
+		RegConsoleCmd("sm_hugsleaderboard", Command_Leaderboard, "Show hugs leaderboard");
 
 		// Set default values for cookies if they don't exist
 		SetCookieMenuItem(StatsCookieMenuHandler, 0, "Hug/Rape Stats");
@@ -507,6 +513,19 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 		}
 	}
 
+	HugsLeaderboardKind GetLeaderboardKindFromCommand()
+	{
+		char command[64];
+		GetCmdArg(0, command, sizeof(command));
+
+		if (StrEqual(command, "sm_hl", false) || StrEqual(command, "sm_hugsleaderboard", false))
+		{
+			return HugsLeaderboard_Hugs;
+		}
+
+		return HugsLeaderboard_Rapes;
+	}
+
 	public Action Command_Leaderboard(int client, int args)
 	{
 		if (!IsClientIndexValid(client) || !IsClientInGame(client))
@@ -520,24 +539,55 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 			return Plugin_Handled;
 		}
 
+		HugsLeaderboardKind kind = GetLeaderboardKindFromCommand();
+		char givenColumn[32];
+		char receivedColumn[32];
+		if (kind == HugsLeaderboard_Hugs)
+		{
+			strcopy(givenColumn, sizeof(givenColumn), "h.hugs_given");
+			strcopy(receivedColumn, sizeof(receivedColumn), "h.hugs_received");
+		}
+		else
+		{
+			strcopy(givenColumn, sizeof(givenColumn), "h.rapes_given");
+			strcopy(receivedColumn, sizeof(receivedColumn), "h.rapes_received");
+		}
+
 		char query[1400];
 		Format(query, sizeof(query),
-			"SELECT h.name, h.rapes_given, h.rapes_received, h.hugs_given, h.hugs_received, h.steamid, "
+			"SELECT h.name, %s AS given_count, %s AS received_count, h.steamid, "
 			... "(SELECT COALESCE(NULLIF(pr.newname, ''), NULLIF(fs.last_name, ''), NULLIF(w.cached_personaname, '')) "
 			... "FROM (SELECT CAST(76561197960265728 + (SUBSTRING_INDEX(h.steamid, ':', -1) * 2) + SUBSTRING_INDEX(SUBSTRING_INDEX(h.steamid, ':', 2), ':', -1) AS CHAR) AS steamid64) sid "
 			... "LEFT JOIN prename_rules pr ON pr.pattern = sid.steamid64 COLLATE utf8mb4_general_ci "
 			... "LEFT JOIN filters_steam_names fs ON fs.steamid64 = sid.steamid64 COLLATE utf8mb4_uca1400_ai_ci "
 			... "LEFT JOIN whaletracker w ON w.steamid = sid.steamid64 COLLATE utf8mb4_uca1400_ai_ci "
 			... "LIMIT 1) AS wt_name "
-			... "FROM %s h ORDER BY h.rapes_given DESC LIMIT 10",
-			HUGS_DB_TABLE);
-		SQL_TQuery(g_hDatabase, SQL_OnLeaderboardLoaded, query, GetClientUserId(client));
+			... "FROM %s h "
+			... "WHERE %s > 0 OR %s > 0 "
+			... "ORDER BY %s DESC, %s DESC, h.name ASC LIMIT 10",
+			givenColumn,
+			receivedColumn,
+			HUGS_DB_TABLE,
+			givenColumn,
+			receivedColumn,
+			givenColumn,
+			receivedColumn);
+
+		DataPack pack = new DataPack();
+		pack.WriteCell(GetClientUserId(client));
+		pack.WriteCell(view_as<int>(kind));
+		SQL_TQuery(g_hDatabase, SQL_OnLeaderboardLoaded, query, pack);
 		return Plugin_Handled;
 	}
 
 	public void SQL_OnLeaderboardLoaded(Database db, DBResultSet results, const char[] error, any data)
 	{
-		int client = GetClientOfUserId(data);
+		DataPack pack = view_as<DataPack>(data);
+		pack.Reset();
+		int client = GetClientOfUserId(pack.ReadCell());
+		HugsLeaderboardKind kind = view_as<HugsLeaderboardKind>(pack.ReadCell());
+		delete pack;
+
 		if (!IsClientIndexValid(client) || !IsClientInGame(client))
 		{
 			return;
@@ -550,20 +600,20 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 			return;
 		}
 
-		CPrintToChat(client, "{green}[Hugs Leaderboard]");
+		CPrintToChat(client, (kind == HugsLeaderboard_Hugs) ? "{green}[Hugs Leaderboard]" : "{green}[Rapes Leaderboard]");
 		int rank = 1;
 		while (results.FetchRow())
 		{
 			char name[MAX_NAME_LENGTH];
 			results.FetchString(0, name, sizeof(name));
-			int rapesGiven = results.FetchInt(1);
-			int rapesReceived = results.FetchInt(2);
+			int given = results.FetchInt(1);
+			int received = results.FetchInt(2);
 			
 			char steamid[64];
-			results.FetchString(5, steamid, sizeof(steamid));
+			results.FetchString(3, steamid, sizeof(steamid));
 			
 			char wt_name[MAX_NAME_LENGTH];
-			results.FetchString(6, wt_name, sizeof(wt_name));
+			results.FetchString(4, wt_name, sizeof(wt_name));
 
 			if (name[0] == '\0' || StrEqual(name, "Unknown"))
 			{
@@ -577,11 +627,22 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 				}
 			}
 
-			char rankStr[64];
-			GetRapeRank(rapesGiven, rankStr, sizeof(rankStr));
-
-			CPrintToChat(client, "{default}#%d: {gold}%s {default} Rapes: {gold}%d | Received: {crimson} %d {default}| {olive}%s", rank, name, rapesGiven, rapesReceived, rankStr);
+			if (kind == HugsLeaderboard_Hugs)
+			{
+				CPrintToChat(client, "{default}#%d: {gold}%s {default} Hugs: {gold}%d | Received: {crimson}%d", rank, name, given, received);
+			}
+			else
+			{
+				char rankStr[64];
+				GetRapeRank(given, rankStr, sizeof(rankStr));
+				CPrintToChat(client, "{default}#%d: {gold}%s {default} Rapes: {gold}%d | Received: {crimson}%d {default}| {olive}%s", rank, name, given, received, rankStr);
+			}
 			rank++;
+		}
+
+		if (rank == 1)
+		{
+			CPrintToChat(client, "{default}No leaderboard entries yet.");
 		}
 	}
 
