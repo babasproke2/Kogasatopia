@@ -186,6 +186,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("PointsStore_ApplyBonusPoints", Native_PointsStore_ApplyBonusPoints);
     CreateNative("PointsStore_ApplyBonusPointsSteamId", Native_PointsStore_ApplyBonusPointsSteamId);
     CreateNative("PointsStore_SpendBonusPoints", Native_PointsStore_SpendBonusPoints);
+    CreateNative("PointsStore_StealBonusPoints", Native_PointsStore_StealBonusPoints);
     CreateNative("PointsStore_HasPurchase", Native_PointsStore_HasPurchase);
     CreateNative("PointsStore_GetPurchasePrice", Native_PointsStore_GetPurchasePrice);
     CreateNative("PointsStore_GetPurchaseExpiresAt", Native_PointsStore_GetPurchaseExpiresAt);
@@ -5276,6 +5277,66 @@ bool SpendBonusPointsWithContext(int client, int points, const char[] type, int 
     return ApplyBonusPoints(client, -points, false, false, 1.0, type, target, 0.0);
 }
 
+int StealBonusPointsWithContext(int victim, int recipient, int points, const char[] type)
+{
+    if (points <= 0 || victim == recipient || !g_DatabaseReady || g_Database == null)
+    {
+        return 0;
+    }
+
+    if (!IsClientInGameHuman(victim) || !IsClientInGameHuman(recipient))
+    {
+        return 0;
+    }
+
+    if (!AreBonusPointsReady(victim))
+    {
+        LoadClientBonusPoints(victim);
+        return 0;
+    }
+
+    if (!AreBonusPointsReady(recipient))
+    {
+        LoadClientBonusPoints(recipient);
+        return 0;
+    }
+
+    int actual = points;
+    if (g_ClientBonusPoints[victim] < actual)
+    {
+        actual = g_ClientBonusPoints[victim];
+    }
+
+    if (actual <= 0)
+    {
+        return 0;
+    }
+
+    int victimBefore = g_ClientBonusPoints[victim];
+    int recipientBefore = g_ClientBonusPoints[recipient];
+
+    g_ClientBonusPoints[victim] -= actual;
+    if (g_ClientBonusPoints[victim] < 0)
+    {
+        g_ClientBonusPoints[victim] = 0;
+    }
+    g_ClientBonusPoints[recipient] += actual;
+
+    bool victimSaveQueued = QueueBonusPointsDeltaSave(victim, -actual);
+    bool recipientSaveQueued = QueueBonusPointsDeltaSave(recipient, actual);
+
+    LogBonusPointsDelta(victim, -actual, victimBefore, g_ClientBonusPoints[victim], type, recipient, false, false, 1.0, victimSaveQueued);
+    LogBonusPointsDelta(recipient, actual, recipientBefore, g_ClientBonusPoints[recipient], type, victim, false, false, 1.0, recipientSaveQueued);
+
+    if (!victimSaveQueued || !recipientSaveQueued)
+    {
+        LogBonusPointsRejected("steal_save_not_queued", victim, -actual, type, recipient, g_ClientBonusPoints[victim], 1.0, 0.0);
+        LogBonusPointsRejected("steal_save_not_queued", recipient, actual, type, victim, g_ClientBonusPoints[recipient], 1.0, 0.0);
+    }
+
+    return actual;
+}
+
 void BuildCallerSpendType(Handle plugin, char[] type, int maxlen)
 {
     char filename[PLATFORM_MAX_PATH];
@@ -6412,6 +6473,27 @@ public any Native_PointsStore_SpendBonusPoints(Handle plugin, int numParams)
     char type[64];
     BuildCallerSpendType(plugin, type, sizeof(type));
     return SpendBonusPointsWithContext(client, points, type);
+}
+
+public any Native_PointsStore_StealBonusPoints(Handle plugin, int numParams)
+{
+    int victim = GetNativeCell(1);
+    int recipient = GetNativeCell(2);
+    int points = GetNativeCell(3);
+
+    char type[64];
+    type[0] = '\0';
+    if (numParams >= 4)
+    {
+        GetNativeString(4, type, sizeof(type));
+        TrimString(type);
+    }
+    if (type[0] == '\0')
+    {
+        strcopy(type, sizeof(type), "api_steal");
+    }
+
+    return StealBonusPointsWithContext(victim, recipient, points, type);
 }
 
 public any Native_PointsStore_HasPurchase(Handle plugin, int numParams)

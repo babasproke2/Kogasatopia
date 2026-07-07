@@ -33,6 +33,7 @@
 #define CLAN_DB_RECONNECT_MAX_INTERVAL 60.0
 #define CLAN_DB_KEEPALIVE_INTERVAL 300.0
 #define CLAN_WAR_POINT_GOAL       50
+#define CLAN_WAR_GEMS_STOLEN_PER_KILL 3
 #define CLAN_NAME_MAXLEN          48
 #define CLAN_DESC_MAXLEN          128
 #define CLAN_TAG_MAXLEN           64
@@ -156,6 +157,7 @@ enum struct PendingClanWarKillDelta
     int warInstanceId;
     int clanId;
     int kills;
+    int currencyStolen;
     char steamid64[STEAMID64_MAXLEN];
 }
 
@@ -179,6 +181,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional("Filters_GetLastRecordedSteamName");
     MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
+    MarkNativeAsOptional("PointsStore_StealBonusPoints");
     MarkNativeAsOptional("DGM_IsRoundRunning");
     MarkNativeAsOptional("Tags_GetTag");
     MarkNativeAsOptional("Tags_SetSelectedTag");
@@ -209,6 +212,21 @@ bool SpendClanGems(int client, int gems)
     }
 
     return PointsStore_SpendBonusPoints(client, gems);
+}
+
+bool IsClanGemStealAvailable()
+{
+    return GetFeatureStatus(FeatureType_Native, "PointsStore_StealBonusPoints") == FeatureStatus_Available;
+}
+
+int StealClanWarGems(int attacker, int victim, int gems)
+{
+    if (!IsClanGemStealAvailable())
+    {
+        return 0;
+    }
+
+    return PointsStore_StealBonusPoints(victim, attacker, gems, "clan_war_steal");
 }
 
 Database g_Database = null;
@@ -461,6 +479,7 @@ void FinishDatabaseInitialization()
     }
 
     g_bDatabaseReady = true;
+    EnsureClanWarMemberKillsSchema();
 
     if (!g_bActiveWarCacheReady || g_hActiveWars == null)
     {
@@ -520,6 +539,19 @@ void FinishDatabaseInitialization()
 bool IsMySql()
 {
     return StrEqual(g_sDbDriver, "mysql", false);
+}
+
+void EnsureClanWarMemberKillsSchema()
+{
+    if (g_Database == null)
+    {
+        return;
+    }
+
+    if (IsMySql())
+    {
+        SQL_FastQuery(g_Database, "ALTER TABLE clan_war_member_kills ADD COLUMN IF NOT EXISTS currency_stolen INT NOT NULL DEFAULT 0");
+    }
 }
 
 bool IsDatabaseConnectionLostError(const char[] error)
@@ -1075,7 +1107,7 @@ void UpdateClanWarInstanceFinalState(int instanceId, int scoreA, int scoreB, int
     g_Database.Query(SQL_GenericQueryCallback, query);
 }
 
-void QueueClanWarKillDelta(int warInstanceId, int clanId, const char[] steamid64, int kills = 1)
+void QueueClanWarKillDelta(int warInstanceId, int clanId, const char[] steamid64, int kills = 1, int currencyStolen = 0)
 {
     if (warInstanceId <= 0 || clanId <= 0 || !steamid64[0] || kills <= 0)
     {
@@ -1097,6 +1129,7 @@ void QueueClanWarKillDelta(int warInstanceId, int clanId, const char[] steamid64
         }
 
         delta.kills += kills;
+        delta.currencyStolen += currencyStolen;
         g_hPendingClanWarKillDeltas.SetArray(i, delta);
         return;
     }
@@ -1104,13 +1137,14 @@ void QueueClanWarKillDelta(int warInstanceId, int clanId, const char[] steamid64
     delta.warInstanceId = warInstanceId;
     delta.clanId = clanId;
     delta.kills = kills;
+    delta.currencyStolen = currencyStolen;
     strcopy(delta.steamid64, sizeof(delta.steamid64), steamid64);
     g_hPendingClanWarKillDeltas.PushArray(delta);
 }
 
-void RecordClanWarKill(int warInstanceId, int clanId, const char[] steamid64)
+void RecordClanWarKill(int warInstanceId, int clanId, const char[] steamid64, int currencyStolen = 0)
 {
-    QueueClanWarKillDelta(warInstanceId, clanId, steamid64);
+    QueueClanWarKillDelta(warInstanceId, clanId, steamid64, 1, currencyStolen);
 }
 
 bool FlushPendingClanWarKillWritesSync()
@@ -1143,7 +1177,7 @@ void RequeueClanWarKillBatch(ArrayList batch, int startIndex)
     for (int i = startIndex; i < batch.Length; i++)
     {
         batch.GetArray(i, delta);
-        QueueClanWarKillDelta(delta.warInstanceId, delta.clanId, delta.steamid64, delta.kills);
+        QueueClanWarKillDelta(delta.warInstanceId, delta.clanId, delta.steamid64, delta.kills, delta.currencyStolen);
     }
 }
 
@@ -1180,26 +1214,30 @@ void FlushNextClanWarKillDelta(ArrayList batch, int index)
     if (IsMySql())
     {
         FormatEx(query, sizeof(query),
-            "INSERT INTO clan_war_member_kills (war_instance_id, clan_id, steamid64, kills) "
-            ... "VALUES (%d, %d, '%s', %d) "
-            ... "ON DUPLICATE KEY UPDATE kills = kills + %d, clan_id = VALUES(clan_id)",
+            "INSERT INTO clan_war_member_kills (war_instance_id, clan_id, steamid64, kills, currency_stolen) "
+            ... "VALUES (%d, %d, '%s', %d, %d) "
+            ... "ON DUPLICATE KEY UPDATE kills = kills + %d, currency_stolen = currency_stolen + %d, clan_id = VALUES(clan_id)",
             delta.warInstanceId,
             delta.clanId,
             escapedSteam,
             delta.kills,
-            delta.kills);
+            delta.currencyStolen,
+            delta.kills,
+            delta.currencyStolen);
     }
     else
     {
         FormatEx(query, sizeof(query),
-            "INSERT INTO clan_war_member_kills (war_instance_id, clan_id, steamid64, kills) "
-            ... "VALUES (%d, %d, '%s', %d) "
-            ... "ON CONFLICT(war_instance_id, steamid64) DO UPDATE SET kills = clan_war_member_kills.kills + %d, clan_id = excluded.clan_id",
+            "INSERT INTO clan_war_member_kills (war_instance_id, clan_id, steamid64, kills, currency_stolen) "
+            ... "VALUES (%d, %d, '%s', %d, %d) "
+            ... "ON CONFLICT(war_instance_id, steamid64) DO UPDATE SET kills = clan_war_member_kills.kills + %d, currency_stolen = clan_war_member_kills.currency_stolen + %d, clan_id = excluded.clan_id",
             delta.warInstanceId,
             delta.clanId,
             escapedSteam,
             delta.kills,
-            delta.kills);
+            delta.currencyStolen,
+            delta.kills,
+            delta.currencyStolen);
     }
 
     DataPack pack = new DataPack();
@@ -3531,7 +3569,7 @@ void ShowClanWarHistoryDetailsMenu(int client, int clanId, const char[] clanName
     menu.AddItem("top5", "Top 5 Kills", ITEMDRAW_DISABLED);
 
     FormatEx(query, sizeof(query),
-        "SELECT wk.steamid64, wk.clan_id, wk.kills, COALESCE(c.name, ''), COALESCE(c.tag, '') "
+        "SELECT wk.steamid64, wk.clan_id, wk.kills, COALESCE(wk.currency_stolen, 0), COALESCE(c.name, ''), COALESCE(c.tag, '') "
         ... "FROM clan_war_member_kills wk "
         ... "LEFT JOIN clans c ON c.id = wk.clan_id "
         ... "WHERE wk.war_instance_id = %d "
@@ -3561,18 +3599,18 @@ void ShowClanWarHistoryDetailsMenu(int client, int clanId, const char[] clanName
             char playerName[MAX_NAME_LENGTH * 2];
 
             results.FetchString(0, steamid64, sizeof(steamid64));
-            results.FetchString(3, leaderClanName, sizeof(leaderClanName));
-            results.FetchString(4, leaderClanTag, sizeof(leaderClanTag));
+            results.FetchString(4, leaderClanName, sizeof(leaderClanName));
+            results.FetchString(5, leaderClanTag, sizeof(leaderClanTag));
             BuildClanHistoryTagLabel(leaderClanTag, leaderClanName, clanLabel, sizeof(clanLabel));
             ResolvePlayerDisplayName(steamid64, playerName, sizeof(playerName));
 
             if (clanLabel[0])
             {
-                FormatEx(line, sizeof(line), "%d. %s %s - %d", place, clanLabel, playerName, results.FetchInt(2));
+                FormatEx(line, sizeof(line), "%d. %s %s - %d kills, %d Gems stolen", place, clanLabel, playerName, results.FetchInt(2), results.FetchInt(3));
             }
             else
             {
-                FormatEx(line, sizeof(line), "%d. %s - %d", place, playerName, results.FetchInt(2));
+                FormatEx(line, sizeof(line), "%d. %s - %d kills, %d Gems stolen", place, playerName, results.FetchInt(2), results.FetchInt(3));
             }
 
             menu.AddItem("leader", line, ITEMDRAW_DISABLED);
@@ -3926,6 +3964,59 @@ bool GetActiveClanWarForClanSync(int clanId, int &warId, int &clanIdA, int &clan
     return (warId > 0);
 }
 
+int GetPendingClanWarStolenTotal(int warInstanceId, int clanId)
+{
+    if (g_hPendingClanWarKillDeltas == null || warInstanceId <= 0 || clanId <= 0)
+    {
+        return 0;
+    }
+
+    int total = 0;
+    PendingClanWarKillDelta delta;
+    for (int i = 0; i < g_hPendingClanWarKillDeltas.Length; i++)
+    {
+        g_hPendingClanWarKillDeltas.GetArray(i, delta);
+        if (delta.warInstanceId == warInstanceId && delta.clanId == clanId)
+        {
+            total += delta.currencyStolen;
+        }
+    }
+
+    return total;
+}
+
+int GetClanWarStolenTotalSync(int warInstanceId, int clanId)
+{
+    int total = GetPendingClanWarStolenTotal(warInstanceId, clanId);
+    if (!EnsureDatabaseReady() || warInstanceId <= 0 || clanId <= 0)
+    {
+        return total;
+    }
+
+    char query[192];
+    FormatEx(query, sizeof(query),
+        "SELECT COALESCE(SUM(currency_stolen), 0) FROM clan_war_member_kills WHERE war_instance_id = %d AND clan_id = %d",
+        warInstanceId,
+        clanId);
+
+    DBResultSet results = SQL_Query(g_Database, query);
+    if (!HasUsableResultSet(results))
+    {
+        char error[256];
+        SQL_GetError(g_Database, error, sizeof(error));
+        LogError("[Clans] Failed to fetch clan war stolen total: %s", error);
+        delete results;
+        return total;
+    }
+
+    if (results.FetchRow())
+    {
+        total += results.FetchInt(0);
+    }
+    delete results;
+    return total;
+}
+
 void AddClanHistoryEntry(int clanId, const char[] fmt, any ...)
 {
     if (clanId <= 0 || !EnsureDatabaseReady())
@@ -4017,6 +4108,9 @@ bool FinalizeClanWarSync(int warId, int clanIdA, int clanIdB, int scoreA, int sc
     war.finalizeFinishedAt = GetTime();
     g_hActiveWars.SetArray(warIndex, war);
 
+    int stolenA = (war.instanceId > 0) ? GetClanWarStolenTotalSync(war.instanceId, clanIdA) : 0;
+    int stolenB = (war.instanceId > 0) ? GetClanWarStolenTotalSync(war.instanceId, clanIdB) : 0;
+
     if (status == ClanWarStatus_Expired)
     {
         AddClanHistoryEntry(clanIdA, "War with %s expired at %d-%d", historyLabelB, scoreA, scoreB);
@@ -4024,13 +4118,13 @@ bool FinalizeClanWarSync(int warId, int clanIdA, int clanIdB, int scoreA, int sc
     }
     else if (winnerClanId == clanIdA)
     {
-        AddClanHistoryEntry(clanIdA, "Won war vs %s (%d-%d)", historyLabelB, scoreA, scoreB);
-        AddClanHistoryEntry(clanIdB, "Lost war vs %s (%d-%d)", historyLabelA, scoreB, scoreA);
+        AddClanHistoryEntry(clanIdA, "Won war vs %s (%d-%d, %d Gems stolen)", historyLabelB, scoreA, scoreB, stolenA);
+        AddClanHistoryEntry(clanIdB, "Lost war vs %s (%d-%d, %d Gems stolen)", historyLabelA, scoreB, scoreA, stolenB);
     }
     else if (winnerClanId == clanIdB)
     {
-        AddClanHistoryEntry(clanIdA, "Lost war vs %s (%d-%d)", historyLabelB, scoreA, scoreB);
-        AddClanHistoryEntry(clanIdB, "Won war vs %s (%d-%d)", historyLabelA, scoreB, scoreA);
+        AddClanHistoryEntry(clanIdA, "Lost war vs %s (%d-%d, %d Gems stolen)", historyLabelB, scoreA, scoreB, stolenA);
+        AddClanHistoryEntry(clanIdB, "Won war vs %s (%d-%d, %d Gems stolen)", historyLabelA, scoreB, scoreA, stolenB);
     }
 
     if (status == ClanWarStatus_Expired)
@@ -4039,11 +4133,11 @@ bool FinalizeClanWarSync(int warId, int clanIdA, int clanIdB, int scoreA, int sc
     }
     else if (winnerClanId == clanIdA)
     {
-        CPrintToChatAll("{gold}[Clans]{default} %s won the war against %s! Final score: %d-%d", announceLabelA, announceLabelB, scoreA, scoreB);
+        CPrintToChatAll("{gold}[Clans]{default} %s won the war against %s! Final score: %d-%d. %s stole {lightgreen}%d Gems{default}!", announceLabelA, announceLabelB, scoreA, scoreB, announceLabelA, stolenA);
     }
     else if (winnerClanId == clanIdB)
     {
-        CPrintToChatAll("{gold}[Clans]{default} %s won the war against %s! Final score: %d-%d", announceLabelB, announceLabelA, scoreB, scoreA);
+        CPrintToChatAll("{gold}[Clans]{default} %s won the war against %s! Final score: %d-%d. %s stole {lightgreen}%d Gems{default}!", announceLabelB, announceLabelA, scoreB, scoreA, announceLabelB, stolenB);
     }
 
     if (war.instanceId > 0)
@@ -4059,14 +4153,28 @@ bool FinalizeClanWarSync(int warId, int clanIdA, int clanIdB, int scoreA, int sc
     return true;
 }
 
-void BroadcastClanWarScoreUpdate(const char[] scoringLabel, const char[] otherLabel, int scoringClanId, int otherClanId, int scoringScore, int otherScore, int attacker, int victim)
+void BroadcastClanWarScoreUpdate(const char[] scoringLabel, const char[] otherLabel, int scoringClanId, int otherClanId, int scoringScore, int otherScore, int scoringClanStolen, int otherClanStolen, int attacker, int victim)
 {
+    if ((scoringScore % 5) != 0)
+    {
+        return;
+    }
+
     char attackerLabel[512];
     char victimLabel[512];
     BuildWarPlayerLabel(attacker, attackerLabel, sizeof(attackerLabel));
     BuildWarPlayerLabel(victim, victimLabel, sizeof(victimLabel));
 
-    bool broadcastOutsiders = ((scoringScore % 10) == 0);
+    bool stolenAlert = ((scoringScore % 10) == 0);
+    bool broadcastOutsiders = stolenAlert;
+
+    int leaderScore = (scoringScore >= otherScore) ? scoringScore : otherScore;
+    int trailingScore = (scoringScore >= otherScore) ? otherScore : scoringScore;
+    int leaderStolen = (scoringScore >= otherScore) ? scoringClanStolen : otherClanStolen;
+    char leaderLabel[96];
+    char trailingLabel[96];
+    strcopy(leaderLabel, sizeof(leaderLabel), (scoringScore >= otherScore) ? scoringLabel : otherLabel);
+    strcopy(trailingLabel, sizeof(trailingLabel), (scoringScore >= otherScore) ? otherLabel : scoringLabel);
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -4082,7 +4190,14 @@ void BroadcastClanWarScoreUpdate(const char[] scoringLabel, const char[] otherLa
         }
 
         ClansCPrintToChatExWrapped(i, attacker, "%s killed %s!", attackerLabel, victimLabel);
-        CPrintToChat(i, "{gold}[Clans]{default} %s's score: %d | %s's score: %d", scoringLabel, scoringScore, otherLabel, otherScore);
+        if (stolenAlert)
+        {
+            CPrintToChat(i, "{gold}[Clans]{default} %s leads %s %d-%d and has stolen {lightgreen}%d Gems{default} so far.", leaderLabel, trailingLabel, leaderScore, trailingScore, leaderStolen);
+        }
+        else
+        {
+            CPrintToChat(i, "{gold}[Clans]{default} %s's score: %d | %s's score: %d", scoringLabel, scoringScore, otherLabel, otherScore);
+        }
     }
 }
 
@@ -5586,6 +5701,22 @@ public int MenuHandler_ClanWarHistoryDetails(Menu menu, MenuAction action, int p
     return 0;
 }
 
+void PrintClanWarGemStealMessages(int attacker, int victim, int stolen)
+{
+    if (stolen <= 0)
+    {
+        return;
+    }
+
+    char attackerName[384];
+    char victimName[384];
+    BuildClanChatSenderName(attacker, attackerName, sizeof(attackerName));
+    BuildClanChatSenderName(victim, victimName, sizeof(victimName));
+
+    CPrintToChatEx(victim, attacker, "{lightgreen}[Gems]{default} %s stole {red}%d {lightgreen}Gems{default} from you!", attackerName, stolen);
+    CPrintToChatEx(attacker, victim, "{lightgreen}[Gems]{default} You stole {green}+%d {lightgreen}Gems {default}from %s!", stolen, victimName);
+}
+
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
     int victim = GetClientOfUserId(event.GetInt("userid"));
@@ -5652,10 +5783,16 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
     g_hActiveWars.SetArray(warIndex, war);
 
+    int stolen = StealClanWarGems(attacker, victim, CLAN_WAR_GEMS_STOLEN_PER_KILL);
+    if (stolen > 0)
+    {
+        PrintClanWarGemStealMessages(attacker, victim, stolen);
+    }
+
     char attackerSteam[STEAMID64_MAXLEN];
     if (war.instanceId > 0 && GetClientSteam64(attacker, attackerSteam, sizeof(attackerSteam)))
     {
-        RecordClanWarKill(war.instanceId, attackerClanId, attackerSteam);
+        RecordClanWarKill(war.instanceId, attackerClanId, attackerSteam, stolen);
     }
 
     int attackerScore = attackerIsClanA ? war.scoreA : war.scoreB;
@@ -5668,6 +5805,8 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
         victimClanId,
         attackerScore,
         victimScore,
+        war.instanceId > 0 ? GetClanWarStolenTotalSync(war.instanceId, attackerClanId) : 0,
+        war.instanceId > 0 ? GetClanWarStolenTotalSync(war.instanceId, victimClanId) : 0,
         attacker,
         victim);
 

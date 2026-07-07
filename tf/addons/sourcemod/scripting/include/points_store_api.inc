@@ -60,6 +60,17 @@ native bool PointsStore_ApplyBonusPointsSteamId(const char[] steamId64, int poin
 native bool PointsStore_SpendBonusPoints(int client, int points);
 
 /**
+ * Transfers currency from one loaded client balance to another.
+ *
+ * @param victim        Client index to debit.
+ * @param recipient     Client index to credit.
+ * @param points        Requested positive transfer amount.
+ * @param type          Message type key for statistics/logging.
+ * @return              Actual amount transferred, or 0 if unavailable.
+ */
+native int PointsStore_StealBonusPoints(int victim, int recipient, int points, const char[] type = "api_steal");
+
+/**
  * Returns whether a client owns a configured points-store shop item.
  *
  * This native only checks the in-memory client cache.
