@@ -2,6 +2,14 @@
 // Sorted from most to least popular. One playable map per line.
 // Included 394 maps; skipped 103 mapsdb rows without an installed .bsp or known workshop mapcycle entry.
 
+
+workshop/ctf_topsoil.ugc2969642453
+cp_mojave
+koth_shorelight
+cp_premuda
+koth_camp_saxton
+pl_redwood
+koth_dryfield
 workshop/cp_toiletbowl_a2.ugc2753864371
 workshop/dom_cliffhanger_b11.ugc691700493
 workshop/hightower_sdm_a3.ugc2745235852
@@ -95,7 +103,6 @@ cp_nagae_b3
 koth_eivent_final
 ctf_doublecross_snowy
 cp_freight_final1
-workshop/cp_mojave_b2.ugc460544858
 workshop/koth_rocktop_rc2.ugc454207393
 cp_yukon_final
 koth_sawmill
@@ -175,7 +182,6 @@ cp_kogasaville_a2
 pl_halfacre
 htf_sm64whompsfortress
 koth_gachimuchi
-koth_shorelight_rc9
 workshop/mario_kart.ugc3278880637
 cp_granary_snowy_v2
 workshop/ctf_masadamaze_b2.ugc2919313730
