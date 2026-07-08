@@ -28,6 +28,7 @@
 #define CLAN_CREATE_GEM_COST      650
 #define INVITE_EXPIRE_SECONDS     604800
 #define CLAN_WAR_EXPIRE_SECONDS   604800
+#define CLAN_WAR_REDECLARE_COOLDOWN_SECONDS 3600
 #define CLAN_WAR_FLUSH_INTERVAL   3.0
 #define CLAN_DB_RECONNECT_INITIAL_INTERVAL 5.0
 #define CLAN_DB_RECONNECT_MAX_INTERVAL 60.0
@@ -4017,6 +4018,100 @@ int GetClanWarStolenTotalSync(int warInstanceId, int clanId)
     return total;
 }
 
+bool GetClanWarRedeclareCooldownSync(int declaringClanId, int targetClanId, int &secondsLeft)
+{
+    secondsLeft = 0;
+    if (!EnsureDatabaseReady() || declaringClanId <= 0 || targetClanId <= 0 || declaringClanId == targetClanId)
+    {
+        return false;
+    }
+
+    int clanIdA = 0;
+    int clanIdB = 0;
+    NormalizeClanWarPair(declaringClanId, targetClanId, clanIdA, clanIdB);
+
+    char query[256];
+    FormatEx(query, sizeof(query),
+        "SELECT COALESCE(finished_at, 0) FROM clan_wars WHERE clan_id_a = %d AND clan_id_b = %d LIMIT 1",
+        clanIdA,
+        clanIdB);
+
+    DBResultSet results = SQL_Query(g_Database, query);
+    if (!HasUsableResultSet(results))
+    {
+        char error[256];
+        SQL_GetError(g_Database, error, sizeof(error));
+        LogError("[Clans] Failed to fetch clan war redeclare cooldown for pair %d/%d: %s", clanIdA, clanIdB, error);
+        HandleDatabaseConnectionLoss(error);
+        delete results;
+        return false;
+    }
+
+    if (!results.FetchRow())
+    {
+        delete results;
+        return false;
+    }
+
+    int finishedAt = results.FetchInt(0);
+    delete results;
+
+    if (finishedAt <= 0)
+    {
+        return false;
+    }
+
+    secondsLeft = (finishedAt + CLAN_WAR_REDECLARE_COOLDOWN_SECONDS) - GetTime();
+    return secondsLeft > 0;
+}
+
+void GetClanWarTargetCooldownLabel(int targetClanId, char[] buffer, int maxlen)
+{
+    if (targetClanId <= 0 || maxlen <= 0)
+    {
+        return;
+    }
+
+    buffer[0] = '\0';
+
+    char clanName[CLAN_NAME_MAXLEN + 1];
+    char clanTag[CLAN_TAG_STORE_MAXLEN];
+    char representativeName[MAX_NAME_LENGTH * 2];
+    int onlineCount = 0;
+    if (GetCachedOnlineClanSummary(targetClanId, clanName, sizeof(clanName), clanTag, sizeof(clanTag), representativeName, sizeof(representativeName), onlineCount))
+    {
+        BuildClanDisplayTag(clanTag, buffer, maxlen);
+        if (!buffer[0])
+        {
+            strcopy(buffer, maxlen, clanName);
+        }
+        return;
+    }
+
+    FormatEx(clanName, sizeof(clanName), "%d", targetClanId);
+    clanTag[0] = '\0';
+
+    if (EnsureDatabaseReady())
+    {
+        char query[128];
+        FormatEx(query, sizeof(query), "SELECT name, COALESCE(tag, '') FROM clans WHERE id = %d LIMIT 1", targetClanId);
+
+        DBResultSet results = SQL_Query(g_Database, query);
+        if (HasUsableResultSet(results) && results.FetchRow())
+        {
+            results.FetchString(0, clanName, sizeof(clanName));
+            results.FetchString(1, clanTag, sizeof(clanTag));
+        }
+        delete results;
+    }
+
+    BuildClanDisplayTag(clanTag, buffer, maxlen);
+    if (!buffer[0])
+    {
+        strcopy(buffer, maxlen, clanName);
+    }
+}
+
 void AddClanHistoryEntry(int clanId, const char[] fmt, any ...)
 {
     if (clanId <= 0 || !EnsureDatabaseReady())
@@ -5578,6 +5673,16 @@ void HandleClanWarDeclare(int client, int targetClanId)
     if (GetActiveClanWarForClanCached(targetClanId, warId, clanIdA, clanIdB, scoreA, scoreB))
     {
         PrintToChat(client, "[Clans] That clan is already at war.");
+        return;
+    }
+
+    int cooldownSeconds = 0;
+    if (GetClanWarRedeclareCooldownSync(actorClanId, targetClanId, cooldownSeconds))
+    {
+        char targetLabel[96];
+        GetClanWarTargetCooldownLabel(targetClanId, targetLabel, sizeof(targetLabel));
+        int cooldownMinutes = (cooldownSeconds + 59) / 60;
+        CPrintToChat(client, "{green}[Clans]{default} You can't declare war on %s until %d minutes from now.", targetLabel, cooldownMinutes);
         return;
     }
 
