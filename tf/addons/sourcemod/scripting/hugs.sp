@@ -568,8 +568,8 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 		strcopy(primaryColumn, sizeof(primaryColumn), receivedFirst ? receivedColumn : givenColumn);
 		strcopy(secondaryColumn, sizeof(secondaryColumn), receivedFirst ? givenColumn : receivedColumn);
 
-		char steam64Expr[256];
-		strcopy(steam64Expr, sizeof(steam64Expr), "CAST(76561197960265728 + (SUBSTRING_INDEX(h.steamid, ':', -1) * 2) + SUBSTRING_INDEX(SUBSTRING_INDEX(h.steamid, ':', 2), ':', -1) AS CHAR)");
+		char steam64Expr[288];
+		strcopy(steam64Expr, sizeof(steam64Expr), "CONVERT(CAST(76561197960265728 + (SUBSTRING_INDEX(h.steamid, ':', -1) * 2) + SUBSTRING_INDEX(SUBSTRING_INDEX(h.steamid, ':', 2), ':', -1) AS CHAR) USING utf8mb4)");
 
 		char query[2048];
 		Format(query, sizeof(query),
