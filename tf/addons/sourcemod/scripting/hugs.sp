@@ -568,21 +568,25 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 		strcopy(primaryColumn, sizeof(primaryColumn), receivedFirst ? receivedColumn : givenColumn);
 		strcopy(secondaryColumn, sizeof(secondaryColumn), receivedFirst ? givenColumn : receivedColumn);
 
-		char query[1400];
+		char steam64Expr[256];
+		strcopy(steam64Expr, sizeof(steam64Expr), "CAST(76561197960265728 + (SUBSTRING_INDEX(h.steamid, ':', -1) * 2) + SUBSTRING_INDEX(SUBSTRING_INDEX(h.steamid, ':', 2), ':', -1) AS CHAR)");
+
+		char query[2048];
 		Format(query, sizeof(query),
 			"SELECT h.name, %s AS given_count, %s AS received_count, h.steamid, "
-			... "(SELECT COALESCE(NULLIF(pr.newname, ''), NULLIF(fs.last_name, ''), NULLIF(w.cached_personaname, '')) "
-			... "FROM (SELECT CAST(76561197960265728 + (SUBSTRING_INDEX(h.steamid, ':', -1) * 2) + SUBSTRING_INDEX(SUBSTRING_INDEX(h.steamid, ':', 2), ':', -1) AS CHAR) AS steamid64) sid "
-			... "LEFT JOIN prename_rules pr ON pr.pattern = sid.steamid64 COLLATE utf8mb4_general_ci "
-			... "LEFT JOIN filters_steam_names fs ON fs.steamid64 = sid.steamid64 COLLATE utf8mb4_uca1400_ai_ci "
-			... "LEFT JOIN whaletracker w ON w.steamid = sid.steamid64 COLLATE utf8mb4_uca1400_ai_ci "
-			... "LIMIT 1) AS wt_name "
+			... "COALESCE(NULLIF(pr.newname, ''), NULLIF(fs.last_name, ''), NULLIF(w.cached_personaname, '')) AS wt_name "
 			... "FROM %s h "
+			... "LEFT JOIN prename_rules pr ON pr.pattern = %s COLLATE utf8mb4_general_ci "
+			... "LEFT JOIN filters_steam_names fs ON fs.steamid64 = %s COLLATE utf8mb4_uca1400_ai_ci "
+			... "LEFT JOIN whaletracker w ON w.steamid = %s COLLATE utf8mb4_uca1400_ai_ci "
 			... "WHERE %s > 0 OR %s > 0 "
 			... "ORDER BY %s DESC, %s DESC, h.name ASC LIMIT 10",
 			givenColumn,
 			receivedColumn,
 			HUGS_DB_TABLE,
+			steam64Expr,
+			steam64Expr,
+			steam64Expr,
 			givenColumn,
 			receivedColumn,
 			primaryColumn,
