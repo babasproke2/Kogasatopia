@@ -4197,7 +4197,7 @@ void BroadcastClanWarScoreUpdate(const char[] scoringLabel, const char[] otherLa
         ClansCPrintToChatExWrapped(i, attacker, "%s killed %s!", attackerLabel, victimLabel);
         if (stolenAlert)
         {
-            CPrintToChat(i, "{gold}[Clans]{default} %s leads %s %d-%d and has stolen {lightgreen}%d Gems{default} so far.", leaderLabel, trailingLabel, leaderScore, trailingScore, leaderStolen);
+            CPrintToChat(i, "{gold}[Clans]{default} %s is beating %s %d-%d and has stolen {lightgreen}%d Gems{default} so far!!!", leaderLabel, trailingLabel, leaderScore, trailingScore, leaderStolen);
         }
         else
         {
