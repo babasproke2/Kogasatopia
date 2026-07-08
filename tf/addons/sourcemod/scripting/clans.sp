@@ -4153,7 +4153,7 @@ bool FinalizeClanWarSync(int warId, int clanIdA, int clanIdB, int scoreA, int sc
     return true;
 }
 
-void BroadcastClanWarScoreUpdate(const char[] scoringLabel, const char[] otherLabel, int scoringClanId, int otherClanId, int scoringScore, int otherScore, int scoringClanStolen, int otherClanStolen, int attacker, int victim)
+void BroadcastClanWarScoreUpdate(const char[] scoringLabel, const char[] otherLabel, int scoringClanId, int otherClanId, int scoringScore, int otherScore, int warInstanceId, int attacker, int victim)
 {
     if ((scoringScore % 5) != 0)
     {
@@ -4170,7 +4170,12 @@ void BroadcastClanWarScoreUpdate(const char[] scoringLabel, const char[] otherLa
 
     int leaderScore = (scoringScore >= otherScore) ? scoringScore : otherScore;
     int trailingScore = (scoringScore >= otherScore) ? otherScore : scoringScore;
-    int leaderStolen = (scoringScore >= otherScore) ? scoringClanStolen : otherClanStolen;
+    int leaderClanId = (scoringScore >= otherScore) ? scoringClanId : otherClanId;
+    int leaderStolen = 0;
+    if (stolenAlert && warInstanceId > 0)
+    {
+        leaderStolen = GetClanWarStolenTotalSync(warInstanceId, leaderClanId);
+    }
     char leaderLabel[96];
     char trailingLabel[96];
     strcopy(leaderLabel, sizeof(leaderLabel), (scoringScore >= otherScore) ? scoringLabel : otherLabel);
@@ -4260,7 +4265,7 @@ bool StartClanWarAsync(int client, int declaringClanId, int targetClanId, const 
         FormatEx(query, sizeof(query),
             "INSERT INTO clan_wars (clan_id_a, clan_id_b, declared_by, score_a, score_b, winner_clan_id, status, created_at, expires_at, finished_at) "
             ... "VALUES (%d, %d, '%s', 0, 0, NULL, %d, %d, %d, NULL) "
-            ... "ON DUPLICATE KEY UPDATE declared_by = IF(status = %d, declared_by, VALUES(declared_by)), score_a = IF(status = %d, score_a, 0), score_b = IF(status = %d, score_b, 0), winner_clan_id = IF(status = %d, winner_clan_id, NULL), status = IF(status = %d, status, VALUES(status)), created_at = IF(status = %d, created_at, VALUES(created_at)), expires_at = IF(status = %d, expires_at, VALUES(expires_at)), finished_at = IF(status = %d, finished_at, NULL)",
+            ... "ON DUPLICATE KEY UPDATE declared_by = IF(status = %d, declared_by, VALUES(declared_by)), score_a = IF(status = %d, score_a, 0), score_b = IF(status = %d, score_b, 0), winner_clan_id = IF(status = %d, winner_clan_id, NULL), created_at = IF(status = %d, created_at, VALUES(created_at)), expires_at = IF(status = %d, expires_at, VALUES(expires_at)), finished_at = IF(status = %d, finished_at, NULL), status = IF(status = %d, status, VALUES(status))",
             clanIdA,
             clanIdB,
             escapedDeclarer,
@@ -4281,7 +4286,7 @@ bool StartClanWarAsync(int client, int declaringClanId, int targetClanId, const 
         FormatEx(query, sizeof(query),
             "INSERT INTO clan_wars (clan_id_a, clan_id_b, declared_by, score_a, score_b, winner_clan_id, status, created_at, expires_at, finished_at) "
             ... "VALUES (%d, %d, '%s', 0, 0, NULL, %d, %d, %d, NULL) "
-            ... "ON CONFLICT(clan_id_a, clan_id_b) DO UPDATE SET declared_by = CASE WHEN status = %d THEN declared_by ELSE excluded.declared_by END, score_a = CASE WHEN status = %d THEN score_a ELSE 0 END, score_b = CASE WHEN status = %d THEN score_b ELSE 0 END, winner_clan_id = CASE WHEN status = %d THEN winner_clan_id ELSE NULL END, status = CASE WHEN status = %d THEN status ELSE excluded.status END, created_at = CASE WHEN status = %d THEN created_at ELSE excluded.created_at END, expires_at = CASE WHEN status = %d THEN expires_at ELSE excluded.expires_at END, finished_at = CASE WHEN status = %d THEN finished_at ELSE NULL END",
+            ... "ON CONFLICT(clan_id_a, clan_id_b) DO UPDATE SET declared_by = CASE WHEN status = %d THEN declared_by ELSE excluded.declared_by END, score_a = CASE WHEN status = %d THEN score_a ELSE 0 END, score_b = CASE WHEN status = %d THEN score_b ELSE 0 END, winner_clan_id = CASE WHEN status = %d THEN winner_clan_id ELSE NULL END, created_at = CASE WHEN status = %d THEN created_at ELSE excluded.created_at END, expires_at = CASE WHEN status = %d THEN expires_at ELSE excluded.expires_at END, finished_at = CASE WHEN status = %d THEN finished_at ELSE NULL END, status = CASE WHEN status = %d THEN status ELSE excluded.status END",
             clanIdA,
             clanIdB,
             escapedDeclarer,
@@ -5456,6 +5461,73 @@ void ShowClanWarDecisionMenu(int client, int targetClanId, bool surrender)
     menu.Display(client, CLAN_MENU_TIME);
 }
 
+void ShowClanWarSurrenderConfirmMenu(int client, int targetClanId)
+{
+    if (!EnsureClanWarsAvailable(client))
+    {
+        return;
+    }
+
+    char actorSteam[STEAMID64_MAXLEN];
+    char actorClanName[CLAN_NAME_MAXLEN + 1];
+    char actorClanTag[CLAN_TAG_STORE_MAXLEN];
+    int actorClanId = 0;
+    ClanRank actorRank = ClanRank_Member;
+    if (!GetLoadedClientClanContext(client, actorSteam, sizeof(actorSteam), actorClanId, actorRank, actorClanName, sizeof(actorClanName), actorClanTag, sizeof(actorClanTag)) || actorClanId <= 0)
+    {
+        PrintToChat(client, "[Clans] You are not in a clan.");
+        return;
+    }
+
+    if (actorRank < ClanRank_Officer)
+    {
+        PrintToChat(client, "[Clans] Only officers and owners can surrender a war.");
+        return;
+    }
+
+    int warId = 0;
+    int clanIdA = 0;
+    int clanIdB = 0;
+    int scoreA = 0;
+    int scoreB = 0;
+    if (!GetActiveClanWarByPairCached(actorClanId, targetClanId, warId, clanIdA, clanIdB, scoreA, scoreB))
+    {
+        PrintToChat(client, "[Clans] You are not currently at war with that clan.");
+        return;
+    }
+
+    int actorScore = (actorClanId == clanIdA) ? scoreA : scoreB;
+    int targetScore = (targetClanId == clanIdA) ? scoreA : scoreB;
+
+    char targetLabel[96];
+    targetLabel[0] = '\0';
+    int warIndex = FindActiveWarIndexByPair(actorClanId, targetClanId);
+    if (warIndex != -1)
+    {
+        ActiveClanWar war;
+        g_hActiveWars.GetArray(warIndex, war);
+        strcopy(targetLabel, sizeof(targetLabel), (targetClanId == war.clanIdA) ? war.announceLabelA : war.announceLabelB);
+    }
+    if (!targetLabel[0])
+    {
+        FormatEx(targetLabel, sizeof(targetLabel), "%d", targetClanId);
+    }
+    CRemoveTags(targetLabel, sizeof(targetLabel));
+    TrimString(targetLabel);
+
+    Menu menu = new Menu(MenuHandler_ClanWarSurrenderConfirm);
+    char title[512];
+    FormatEx(title, sizeof(title), "Confirm Surrender\nOpponent: %s\nCurrent score: %d - %d\nThis will end the war.", targetLabel, actorScore, targetScore);
+    menu.SetTitle(title);
+    menu.ExitBackButton = true;
+
+    char info[16];
+    IntToString(targetClanId, info, sizeof(info));
+    menu.AddItem("cancel", "Cancel");
+    menu.AddItem(info, "Confirm surrender");
+    menu.Display(client, CLAN_MENU_TIME);
+}
+
 void HandleClanWarDeclare(int client, int targetClanId)
 {
     if (!EnsureClanWarsAvailable(client))
@@ -5639,6 +5711,40 @@ public int MenuHandler_ClanWarDecision(Menu menu, MenuAction action, int param1,
         }
         else if (StrEqual(pieces[0], "surrender", false))
         {
+            ShowClanWarSurrenderConfirmMenu(param1, targetClanId);
+        }
+    }
+
+    return 0;
+}
+
+public int MenuHandler_ClanWarSurrenderConfirm(Menu menu, MenuAction action, int param1, int param2)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+    }
+    else if (action == MenuAction_Cancel)
+    {
+        if (param2 == MenuCancel_ExitBack)
+        {
+            Command_ClanWar(param1, 0);
+        }
+    }
+    else if (action == MenuAction_Select)
+    {
+        char info[16];
+        menu.GetItem(param2, info, sizeof(info));
+
+        if (StrEqual(info, "cancel", false))
+        {
+            Command_ClanWar(param1, 0);
+            return 0;
+        }
+
+        int targetClanId = StringToInt(info);
+        if (targetClanId > 0)
+        {
             HandleClanWarSurrender(param1, targetClanId);
         }
     }
@@ -5805,8 +5911,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
         victimClanId,
         attackerScore,
         victimScore,
-        war.instanceId > 0 ? GetClanWarStolenTotalSync(war.instanceId, attackerClanId) : 0,
-        war.instanceId > 0 ? GetClanWarStolenTotalSync(war.instanceId, victimClanId) : 0,
+        war.instanceId,
         attacker,
         victim);
 

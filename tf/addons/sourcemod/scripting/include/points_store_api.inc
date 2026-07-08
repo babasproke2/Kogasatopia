@@ -139,6 +139,7 @@ public void __pl_points_store_SetNTVOptional()
     MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
     MarkNativeAsOptional("PointsStore_ApplyBonusPointsSteamId");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
+    MarkNativeAsOptional("PointsStore_StealBonusPoints");
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("PointsStore_GetPurchasePrice");
     MarkNativeAsOptional("PointsStore_GetPurchaseExpiresAt");
