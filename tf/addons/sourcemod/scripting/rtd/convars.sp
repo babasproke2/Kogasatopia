@@ -58,6 +58,10 @@ int g_iCvarRollInterval = 60;
 Handle g_hCvarRollCost;
 int g_iCvarRollCost = 50;
 
+#define DESC_TARGET_ROLL "0/1 - Allow clients to pay the RTD cost to roll for another client with !rtd <target>. Requires sm_rtd2_roll_cost above 0."
+Handle g_hCvarTargetRoll;
+bool g_bCvarTargetRoll = true;
+
 #define DESC_DISABLED_PERKS "Enter the effects you'd like to disable, separated by commas. You can use IDs, tokens or tags which occur in a single perk (ex. \"0, toxic, sandvich\" disables first 3)."
 Handle g_hCvarDisabledPerks;
 
@@ -154,6 +158,7 @@ void SetupConVars()
 	g_hCvarPerkDuration			= CreateConVar("sm_rtd2_duration",		"25",		DESC_PERK_DURATION,			FLAGS_CVARS);
 	g_hCvarRollInterval			= CreateConVar("sm_rtd2_interval",		"60",		DESC_ROLL_INTERVAL,			FLAGS_CVARS);
 	g_hCvarRollCost				= CreateConVar("sm_rtd2_roll_cost",	"50",		DESC_ROLL_COST,				FLAGS_CVARS, true, 0.0);
+	g_hCvarTargetRoll			= CreateConVar("sm_rtd2_target_roll",	"1",		DESC_TARGET_ROLL,			FLAGS_CVARS, true, 0.0, true, 1.0);
 	g_hCvarDisabledPerks		= CreateConVar("sm_rtd2_disabled",		"",			DESC_DISABLED_PERKS,		FLAGS_CVARS);
 	g_hCvarEmitSound			= CreateConVar("sm_rtd2_emit_sound",	"1",		DESC_EMIT_SOUND,			FLAGS_CVARS);
 
@@ -197,6 +202,7 @@ void SetupConVars()
 	HookConVarChange(g_hCvarPerkDuration,		ConVarChange_Perks	);	g_iCvarPerkDuration			= GetConVarInt(g_hCvarPerkDuration);
 	HookConVarChange(g_hCvarRollInterval,		ConVarChange_Perks	);	g_iCvarRollInterval			= GetConVarInt(g_hCvarRollInterval);
 	HookConVarChange(g_hCvarRollCost,			ConVarChange_Rtd	);	g_iCvarRollCost				= GetConVarInt(g_hCvarRollCost);
+	HookConVarChange(g_hCvarTargetRoll,			ConVarChange_Rtd	);	g_bCvarTargetRoll			= GetConVarInt(g_hCvarTargetRoll) > 0;
 	HookConVarChange(g_hCvarDisabledPerks,		ConVarChange_Perks	);
 
 	HookConVarChange(g_hCvarAllowed,			ConVarChange_Usage	);	g_iCvarAllowed				= ReadFlagFromConVar(g_hCvarAllowed);
@@ -329,6 +335,10 @@ public void ConVarChange_Rtd(Handle hCvar, const char[] sOld, const char[] sNew)
 	else if (hCvar == g_hCvarRollCost)
 	{
 		g_iCvarRollCost = StringToInt(sNew);
+	}
+	else if (hCvar == g_hCvarTargetRoll)
+	{
+		g_bCvarTargetRoll = StringToInt(sNew) > 0;
 	}
 }
 

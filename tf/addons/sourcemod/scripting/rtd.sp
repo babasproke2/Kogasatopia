@@ -397,7 +397,20 @@ public void Updater_OnPluginUpdated()
 public Action Command_RTD(const int client, const int args)
 {
 	if (client != 0)
-		StartRollRequest(client);
+	{
+		if (args > 0)
+		{
+			char targetArg[MAX_TARGET_LENGTH];
+			GetCmdArgString(targetArg, sizeof(targetArg));
+			StripQuotes(targetArg);
+			TrimString(targetArg);
+			StartTargetRollRequest(client, targetArg);
+		}
+		else
+		{
+			StartRollRequest(client);
+		}
+	}
 
 	return Plugin_Handled;
 }
@@ -659,12 +672,35 @@ public Action Listener_Say(int client, const char[] sCommand, int args)
 	if (!IsValidClient(client))
 		return Plugin_Continue;
 
-	char sText[16];
-	GetCmdArg(1, sText, sizeof(sText));
-	if (!IsArgumentTrigger(sText))
+	char sText[192];
+	GetCmdArgString(sText, sizeof(sText));
+	StripQuotes(sText);
+	TrimString(sText);
+
+	if (sText[0] == '!' || sText[0] == '/')
 		return Plugin_Continue;
 
-	StartRollRequest(client);
+	char sTrigger[16];
+	strcopy(sTrigger, sizeof(sTrigger), sText);
+	int iSpace = FindCharInString(sTrigger, ' ');
+	if (iSpace != -1)
+		sTrigger[iSpace] = '\0';
+
+	if (!IsArgumentTrigger(sTrigger))
+		return Plugin_Continue;
+
+	if (iSpace == -1)
+	{
+		StartRollRequest(client);
+	}
+	else
+	{
+		char sTarget[MAX_TARGET_LENGTH];
+		strcopy(sTarget, sizeof(sTarget), sText[iSpace + 1]);
+		TrimString(sTarget);
+		StartTargetRollRequest(client, sTarget);
+	}
+
 	return g_bCvarShowTriggers ? Plugin_Continue : Plugin_Stop;
 }
 
@@ -676,28 +712,92 @@ public Action Listener_Voice(int client, const char[] sCommand, int args)
 	return Plugin_Continue;
 }
 
-void StartRollRequest(int client)
+void StartRollRequest(int client, int target = 0)
 {
-	if (g_iCvarRollCost > 0)
+	if (target <= 0)
+		target = client;
+
+	if (target != client && g_iCvarRollCost <= 0)
 	{
-		ShowRollCostMenu(client);
+		RTDPrint(client, "Targeted RTD requires a roll cost.");
 		return;
 	}
 
-	RollPerkForClient(client);
+	if (g_iCvarRollCost > 0)
+	{
+		ShowRollCostMenu(client, target);
+		return;
+	}
+
+	RollPerkForClient(target, client);
 }
 
-void ShowRollCostMenu(int client)
+void StartTargetRollRequest(int client, const char[] targetArg)
 {
 	if (!IsValidClient(client))
+		return;
+
+	if (!g_bCvarTargetRoll)
+	{
+		RTDPrint(client, "Targeted RTD is disabled.");
+		return;
+	}
+
+	if (g_iCvarRollCost <= 0)
+	{
+		RTDPrint(client, "Targeted RTD requires a roll cost.");
+		return;
+	}
+
+	char sTargetArg[MAX_TARGET_LENGTH];
+	strcopy(sTargetArg, sizeof(sTargetArg), targetArg);
+	TrimString(sTargetArg);
+	if (!sTargetArg[0])
+	{
+		StartRollRequest(client);
+		return;
+	}
+
+	char sTargetName[MAX_TARGET_LENGTH];
+	int targets[MAXPLAYERS];
+	bool bNameMultiLang = false;
+	int count = ProcessTargetString(sTargetArg, client, targets, sizeof(targets), COMMAND_FILTER_ALIVE, sTargetName, sizeof(sTargetName), bNameMultiLang);
+	if (count <= 0)
+	{
+		ReplyToTargetError(client, count);
+		return;
+	}
+
+	if (count > 1)
+	{
+		RTDPrint(client, "Target matched multiple clients.");
+		return;
+	}
+
+	StartRollRequest(client, targets[0]);
+}
+
+void ShowRollCostMenu(int client, int target)
+{
+	if (!IsValidClient(client) || !IsValidClient(target))
 		return;
 
 	char currencyName[64];
 	GetRollCurrencyName(currencyName, sizeof(currencyName));
 
 	Menu menu = new Menu(ManagerRollCostMenu);
-	menu.SetTitle("Spend %d %s?", g_iCvarRollCost, currencyName);
-	menu.AddItem("yes", "Yes");
+	if (target == client)
+	{
+		menu.SetTitle("Spend %d %s?", g_iCvarRollCost, currencyName);
+	}
+	else
+	{
+		menu.SetTitle("Spend %d %s to roll for %N?", g_iCvarRollCost, currencyName, target);
+	}
+
+	char info[16];
+	IntToString(GetClientUserId(target), info, sizeof(info));
+	menu.AddItem(info, "Yes");
 	menu.AddItem("no", "No");
 	menu.ExitButton = true;
 	menu.Display(client, 15);
@@ -714,11 +814,24 @@ public int ManagerRollCostMenu(Menu menu, MenuAction action, int client, int ite
 	if (action != MenuAction_Select || !IsValidClient(client))
 		return 0;
 
-	char info[8];
+	char info[16];
 	menu.GetItem(item, info, sizeof(info));
-	if (StrEqual(info, "yes"))
+	if (!StrEqual(info, "no"))
 	{
-		RollPerkForClient(client);
+		int target = GetClientOfUserId(StringToInt(info));
+		if (!IsValidClient(target))
+		{
+			RTDPrint(client, "Target is no longer available.");
+			return 0;
+		}
+
+		if (target != client && (!g_bCvarTargetRoll || g_iCvarRollCost <= 0))
+		{
+			RTDPrint(client, "Targeted RTD is not currently available.");
+			return 0;
+		}
+
+		RollPerkForClient(target, client);
 	}
 
 	return 0;
@@ -1092,12 +1205,22 @@ void ParseDisabledPerks()
 	delete hDisabledPerks;
 }
 
-void RollPerkForClient(int client)
+void RollPerkForClient(int client, int payer = 0)
 {
+	if (!IsValidClient(client))
+	{
+		if (IsValidClient(payer))
+			RTDPrint(payer, "Target is no longer available.");
+
+		return;
+	}
+
+	int replyClient = IsValidClient(payer) ? payer : client;
+
 	if (!g_bCvarPluginEnabled)
 	{
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
-			RTDPrint(client, "%t", "RTD2_Cant_Roll_Disabled");
+			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Disabled");
 
 		return;
 	}
@@ -1105,7 +1228,7 @@ void RollPerkForClient(int client)
 	if (!IsRollerAllowed(client))
 	{
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
-			RTDPrint(client, "%t", "RTD2_Cant_Roll_No_Access");
+			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_No_Access");
 
 		return;
 	}
@@ -1113,7 +1236,7 @@ void RollPerkForClient(int client)
 	if (!IsRTDInRound())
 	{
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
-			RTDPrint(client, "%t", "RTD2_Not_In_Round");
+			RTDPrint(replyClient, "%t", "RTD2_Not_In_Round");
 
 		return;
 	}
@@ -1121,7 +1244,7 @@ void RollPerkForClient(int client)
 	if (g_iCvarRtdTeam > 0 && g_iCvarRtdTeam == GetClientTeam(client) - 1)
 	{
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
-			RTDPrint(client, "%t", "RTD2_Cant_Roll_Team");
+			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Team");
 
 		return;
 	}
@@ -1141,7 +1264,7 @@ void RollPerkForClient(int client)
 	if (!IsPlayerAlive(client))
 	{
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
-			RTDPrint(client, "%t", "RTD2_Cant_Roll_Alive");
+			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Alive");
 
 		return;
 	}
@@ -1149,7 +1272,12 @@ void RollPerkForClient(int client)
 	if (g_hRollers.GetInRoll(client))
 	{
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
-			RTDPrint(client, "%t", "RTD2_Cant_Roll_Using");
+		{
+			if (replyClient == client)
+				RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Using");
+			else
+				RTDPrint(replyClient, "%N is already using RTD.", client);
+		}
 
 		return;
 	}
@@ -1158,7 +1286,7 @@ void RollPerkForClient(int client)
 	if (GetTime() < iTimeLeft)
 	{
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
-			RTDPrint(client, "%t", "RTD2_Cant_Roll_Wait", 0x04, iTimeLeft - GetTime(), 0x01);
+			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Wait", 0x04, iTimeLeft - GetTime(), 0x01);
 
 		return;
 	}
@@ -1175,7 +1303,7 @@ void RollPerkForClient(int client)
 			if (iCount >= g_iCvarClientLimit)
 			{
 				if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
-					RTDPrint(client, "%t", "RTD2_Cant_Roll_Mode1");
+					RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Mode1");
 
 				return;
 			}
@@ -1191,7 +1319,7 @@ void RollPerkForClient(int client)
 			if (iCount >= g_iCvarTeamLimit)
 			{
 				if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
-					RTDPrint(client, "%t", "RTD2_Cant_Roll_Mode2");
+					RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Mode2");
 
 				return;
 			}
@@ -1205,12 +1333,12 @@ void RollPerkForClient(int client)
 		LogMessage("WARNING: Perk not found for player when they attempted a roll");
 
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
-			RTDPrint(client, "%t", "RTD2_Cant_Roll_No_Access");
+			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_No_Access");
 
 		return;
 	}
 
-	if (!SpendRollCost(client))
+	if (!SpendRollCost(replyClient))
 		return;
 
 	ApplyPerk(client, perk);
@@ -1219,7 +1347,10 @@ void RollPerkForClient(int client)
 	{
 		char sBuffer[64];
 		perk.Format(sBuffer, 64, "$Name$ ($Token$)");
-		LogMessage("%L rolled %s", client, sBuffer);
+		if (replyClient == client)
+			LogMessage("%L rolled %s", client, sBuffer);
+		else
+			LogMessage("%L paid for %L to roll %s", replyClient, client, sBuffer);
 	}
 }
 
