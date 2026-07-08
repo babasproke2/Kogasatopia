@@ -5344,20 +5344,20 @@ void ShowClanWarTargetMenu(int client, int actorClanId)
             seenClanIds[seenCount++] = targetClanId;
 
             char displayTag[CLAN_TAG_STORE_MAXLEN];
-            char roleLabel[16];
+            char targetName[MAX_NAME_LENGTH];
             char display[192];
             char info[16];
             BuildClanDisplayTag(targetClanTag, displayTag, sizeof(displayTag));
-            GetClanRankLabel(targetRank, roleLabel, sizeof(roleLabel));
+            GetClientName(target, targetName, sizeof(targetName));
             IntToString(targetClanId, info, sizeof(info));
 
             if (displayTag[0])
             {
-                FormatEx(display, sizeof(display), "%s %s - %s", displayTag, targetClanName, roleLabel);
+                FormatEx(display, sizeof(display), "%s %s - %s", displayTag, targetClanName, targetName);
             }
             else
             {
-                FormatEx(display, sizeof(display), "%s - %s", targetClanName, roleLabel);
+                FormatEx(display, sizeof(display), "%s - %s", targetClanName, targetName);
             }
 
             CRemoveTags(display, sizeof(display));
