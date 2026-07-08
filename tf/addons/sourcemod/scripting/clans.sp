@@ -5713,8 +5713,8 @@ void PrintClanWarGemStealMessages(int attacker, int victim, int stolen)
     BuildClanChatSenderName(attacker, attackerName, sizeof(attackerName));
     BuildClanChatSenderName(victim, victimName, sizeof(victimName));
 
-    CPrintToChatEx(victim, attacker, "{lightgreen}[Gems]{default} %s stole {red}%d {lightgreen}Gems{default} from you!", attackerName, stolen);
-    CPrintToChatEx(attacker, victim, "{lightgreen}[Gems]{default} You stole {green}+%d {lightgreen}Gems {default}from %s!", stolen, victimName);
+    CPrintToChatEx(victim, attacker, "{cyan}[Gems]{default} %s stole {red}%d {cyan}Gems{default} from you!", attackerName, stolen);
+    CPrintToChatEx(attacker, victim, "{cyan}[Gems]{default} You stole {green}+%d {cyan}Gems {default}from %s!", stolen, victimName);
 }
 
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
