@@ -104,6 +104,7 @@ public void OnPluginStart()
     HookEvent("player_say",         Event_PlayerSay, EventHookMode_Post);
     RegConsoleCmd("sm_classlimits", Command_ShowClassLimits, "Show current class limits.");
     RegConsoleCmd("sm_cl",          Command_ShowClassLimits, "Show current class limits.");
+    RegAdminCmd("sm_classlimits_historical", Command_RecordClassPopularityHistorical, ADMFLAG_GENERIC, "Record a daily class popularity snapshot.");
 
     PluginStats_Init(CLASSLIMITS_STATS_TABLE);
     g_hClassStatsTimer = CreateTimer(CLASSLIMITS_STATS_INTERVAL, Timer_RecordClassStats, _, TIMER_REPEAT);
@@ -176,6 +177,55 @@ public Action Timer_RecordClassStats(Handle timer, any data)
     }
 
     return Plugin_Continue;
+}
+
+public Action Command_RecordClassPopularityHistorical(int client, int args)
+{
+    int counts[TF_CLASS_ENGINEER + 1];
+    int total = 0;
+
+    for (int player = 1; player <= MaxClients; player++)
+    {
+        if (!IsClientInGame(player) || IsFakeClient(player) || GetClientTeam(player) < TF_TEAM_RED)
+        {
+            continue;
+        }
+
+        int classId = view_as<int>(TF2_GetPlayerClass(player));
+        if (classId < TF_CLASS_SCOUT || classId > TF_CLASS_ENGINEER)
+        {
+            continue;
+        }
+
+        counts[classId]++;
+        total++;
+    }
+
+    char message[512];
+    FormatEx(message, sizeof(message),
+        "event=class_popularity_daily_snapshot|clients=%d|scout=%d|soldier=%d|pyro=%d|demoman=%d|heavy=%d|engineer=%d|medic=%d|sniper=%d|spy=%d",
+        total,
+        counts[TF_CLASS_SCOUT],
+        counts[TF_CLASS_SOLDIER],
+        counts[TF_CLASS_PYRO],
+        counts[TF_CLASS_DEMOMAN],
+        counts[TF_CLASS_HEAVY],
+        counts[TF_CLASS_ENGINEER],
+        counts[TF_CLASS_MEDIC],
+        counts[TF_CLASS_SNIPER],
+        counts[TF_CLASS_SPY]);
+    PluginStats_LogMessage(message);
+
+    if (client > 0 && IsClientInGame(client))
+    {
+        CPrintToChat(client, "{olive}[Class Limits]{default} Daily class popularity snapshot queued for {gold}%d{default} players.", total);
+    }
+    else
+    {
+        PrintToServer("[Class Limits] Daily class popularity snapshot queued for %d players.", total);
+    }
+
+    return Plugin_Handled;
 }
 
 public void Event_PlayerSay(Event event, const char[] name, bool dontBroadcast)

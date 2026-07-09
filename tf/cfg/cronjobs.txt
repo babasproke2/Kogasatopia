@@ -58,6 +58,8 @@
 //50 20 * * * console exec nightmode.cfg
 
 */15 * * * * console sm_dolotto
+0 5 * * * console sm_whaletracker_historical
+0 5 * * * console sm_classlimits_historical
 
 //0 0 * * * console mapcyclefile funny_mapcycle.txt
 
