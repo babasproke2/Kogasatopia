@@ -269,6 +269,10 @@ public void OnPluginStart()
     RegConsoleCmd("sm_handout", Command_Welfare, "Collect once-per-map welfare currency.");
     RegConsoleCmd("sm_gibs", Command_Welfare, "Collect once-per-map welfare currency.");
     RegConsoleCmd("sm_welfarecheck", Command_Welfare, "Collect once-per-map welfare currency.");
+    AddCommandListener(CommandListener_WelfareAlias, "gibs");
+    AddCommandListener(CommandListener_WelfareAlias, "welfare");
+    AddCommandListener(CommandListener_WelfareChatAlias, "say");
+    AddCommandListener(CommandListener_WelfareChatAlias, "say_team");
     RegConsoleCmd("sm_lottery", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_gamble", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_bet", Command_Lottery, "Open the currency lottery.");
@@ -5830,6 +5834,32 @@ public Action Command_SendBonusPoints(int client, int args)
         CPrintToChatEx(i, client, "%s %s sent %s %i %s%s{default}!", prefix, senderDisplay, targetDisplay, amount, colorTag, sentCurrencyShort);
     }
     return Plugin_Handled;
+}
+
+public Action CommandListener_WelfareAlias(int client, const char[] command, int argc)
+{
+    return Command_Welfare(client, argc);
+}
+
+public Action CommandListener_WelfareChatAlias(int client, const char[] command, int argc)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return Plugin_Continue;
+    }
+
+    char text[32];
+    GetCmdArgString(text, sizeof(text));
+    TrimString(text);
+    StripQuotes(text);
+    TrimString(text);
+
+    if (StrEqual(text, "gibs", false) || StrEqual(text, "welfare", false))
+    {
+        return Command_Welfare(client, 0);
+    }
+
+    return Plugin_Continue;
 }
 
 public Action Command_Welfare(int client, int args)
