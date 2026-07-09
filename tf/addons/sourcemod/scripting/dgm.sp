@@ -492,6 +492,29 @@ bool DGM_CountObjectiveResourcePoints(
     return false;
 }
 
+int DGM_GetCurrentControlPointCount()
+{
+    int objRes = FindEntityByClassname(-1, "tf_objective_resource");
+
+    if (objRes != -1 && IsValidEntity(objRes) && HasEntProp(objRes, Prop_Send, "m_iNumControlPoints"))
+    {
+        int cpCount = GetEntProp(objRes, Prop_Send, "m_iNumControlPoints");
+        if (cpCount > DGM_MAX_CONTROL_POINTS)
+        {
+            cpCount = DGM_MAX_CONTROL_POINTS;
+        }
+
+        if (cpCount > 0)
+        {
+            return cpCount;
+        }
+    }
+
+    int redOwned, blueOwned, neutralOwned, total;
+    DGM_CountTeamControlPointEntities(redOwned, blueOwned, neutralOwned, total);
+    return total;
+}
+
 void DGM_CountTeamControlPointEntities(
     int &redOwned,
     int &blueOwned,
@@ -975,6 +998,11 @@ public any Native_DGM_GetRoundDurationSeconds(Handle plugin, int numParams)
     return DGM_CalculateRoundDurationSeconds(firstTimestamp, secondTimestamp);
 }
 
+public any Native_DGM_GetRecentControlPointCaptureIntervalSeconds(Handle plugin, int numParams)
+{
+    return DGM_GetRecentCaptureIntervalSeconds();
+}
+
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
 {
     MarkNativeAsOptional("TF2SetupUber_SetMultiplier");
@@ -997,6 +1025,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     CreateNative("DGM_IsSetupActive", Native_DGM_IsSetupActive);
     CreateNative("DGM_GetLastRoundDurationSeconds", Native_DGM_GetLastRoundDurationSeconds);
     CreateNative("DGM_GetRoundDurationSeconds", Native_DGM_GetRoundDurationSeconds);
+    CreateNative("DGM_GetRecentControlPointCaptureIntervalSeconds", Native_DGM_GetRecentControlPointCaptureIntervalSeconds);
     CreateNative("DGM_GetObjectiveLeader", Native_DGM_GetObjectiveLeader);
     CreateNative("DGM_GetObjectiveLeaderTeam", Native_DGM_GetObjectiveLeaderTeam);
     return APLRes_Success;
@@ -1396,6 +1425,16 @@ void DGM_ResetCaptureIntervalStats(int startTimestamp)
 {
     g_iLastCaptureTimestamp = startTimestamp;
     g_iCaptureIntervalCount = 0;
+}
+
+int DGM_GetRecentCaptureIntervalSeconds()
+{
+    if (DGM_GetCurrentControlPointCount() <= 2 || g_iCaptureIntervalCount <= 0)
+    {
+        return 0;
+    }
+
+    return g_iCaptureIntervalSeconds[g_iCaptureIntervalCount - 1];
 }
 
 void DGM_RecordCaptureInterval(Event event)

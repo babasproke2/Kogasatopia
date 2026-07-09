@@ -29,5 +29,6 @@ native bool DGM_IsRoundRunning();
 native bool DGM_IsSetupActive();
 native int DGM_GetLastRoundDurationSeconds();
 native int DGM_GetRoundDurationSeconds(int firstTimestamp, int secondTimestamp);
+native int DGM_GetRecentControlPointCaptureIntervalSeconds();
 native DGMObjectiveLeader DGM_GetObjectiveLeader(int &redOwned, int &blueOwned, int &neutralOwned, int &total);
 native int DGM_GetObjectiveLeaderTeam();

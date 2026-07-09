@@ -81,6 +81,7 @@ ConVar g_hFragBalance = null;
 ConVar g_hDisableTfAuto = null;
 ConVar g_hShortRoundAutoSeconds = null;
 ConVar g_hKothNoCapAuto = null;
+ConVar g_hPayloadStompFirstCapSeconds = null;
 ConVar g_hWinStreakAuto = null;
 ConVar g_hNoSequentialAuto = null;
 ConVar g_hMpScrambleTeamsAuto = null;
@@ -92,6 +93,8 @@ bool g_bExecuteSwapImmediately = false;
 bool g_bSuppressSwapRespawn = false;
 bool g_bKothRedCapped = false;
 bool g_bKothBluCapped = false;
+bool g_bPayloadStompCheckedThisRound = false;
+int g_iRoundCaptureCount = 0;
 int g_iLastFullRoundWinner = 0;
 int g_iWinStreak = 0;
 bool g_bPendingFullRoundWin = false;
@@ -146,6 +149,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     MarkNativeAsOptional("DGM_GetLastRoundDurationSeconds");
+    MarkNativeAsOptional("DGM_GetRecentControlPointCaptureIntervalSeconds");
     MarkNativeAsOptional("DGM_IsSetupActive");
     MarkNativeAsOptional("SaySounds_PlayCommand");
     return APLRes_Success;
@@ -167,6 +171,7 @@ public void OnPluginStart()
     g_hDisableTfAuto = CreateConVar("sm_whalescramble_disable_tf_auto", "1", "Disable TF2's built-in mp_scrambleteams_auto while WhaleScramble owns auto scrambles.", _, true, 0.0, true, 1.0);
     g_hShortRoundAutoSeconds = CreateConVar("sm_whalescramble_short_round_seconds", "60", "Automatically whale scramble when the previous round duration is under this many seconds. 0 disables.", _, true, 0.0, true, 600.0);
     g_hKothNoCapAuto = CreateConVar("sm_whalescramble_koth_no_cap", "1", "Automatically whale scramble when a full KOTH round ends with either team never capturing the point.", _, true, 0.0, true, 1.0);
+    g_hPayloadStompFirstCapSeconds = CreateConVar("sm_whalescramble_payload_stomp_first_cap_seconds", "100", "Immediately whale scramble when BLU captures the first payload control point within this many seconds. 0 disables.", _, true, 0.0, true, 600.0);
     g_hWinStreakAuto = CreateConVar("sm_whalescramble_win_streak", "2", "Automatically whale scramble after one team wins this many full rounds in a row. 0 disables.", _, true, 0.0, true, 20.0);
     g_hNoSequentialAuto = CreateConVar("sm_whalescramble_no_sequential", "1", "Block auto scrambles from happening in consecutive rounds or more than once in one round.", _, true, 0.0, true, 1.0);
     g_hMpScrambleTeamsAuto = FindConVar("mp_scrambleteams_auto");
@@ -444,6 +449,8 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
     g_bKothRedCapped = false;
     g_bKothBluCapped = false;
+    g_bPayloadStompCheckedThisRound = false;
+    g_iRoundCaptureCount = 0;
     g_bScrambledThisRound = false;
     g_iRoundStartTimestamp = GetTime();
 
@@ -470,6 +477,8 @@ public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 public void Event_PointCaptured(Event event, const char[] name, bool dontBroadcast)
 {
     int team = event.GetInt("team");
+    g_iRoundCaptureCount++;
+
     if (team == TEAM_RED)
     {
         g_bKothRedCapped = true;
@@ -478,6 +487,61 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
     {
         g_bKothBluCapped = true;
     }
+
+    if (team == TEAM_BLU && g_iRoundCaptureCount == 1 && !g_bPayloadStompCheckedThisRound)
+    {
+        g_bPayloadStompCheckedThisRound = true;
+        CreateTimer(0.1, Timer_CheckPayloadStompFirstCapture, _, TIMER_FLAG_NO_MAPCHANGE);
+    }
+}
+
+public Action Timer_CheckPayloadStompFirstCapture(Handle timer)
+{
+    if (g_hPayloadStompFirstCapSeconds == null)
+    {
+        return Plugin_Stop;
+    }
+
+    int threshold = g_hPayloadStompFirstCapSeconds.IntValue;
+    if (threshold <= 0)
+    {
+        return Plugin_Stop;
+    }
+
+    if (!IsCurrentPayloadGamemode())
+    {
+        LogWhaleStat("auto_scramble_decision", "trigger=payload_first_cap|result=skipped|reason=gamemode|threshold=%d", threshold);
+        return Plugin_Stop;
+    }
+
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetRecentControlPointCaptureIntervalSeconds") != FeatureStatus_Available)
+    {
+        LogWhale("Payload first-cap auto scramble skipped: DGM_GetRecentControlPointCaptureIntervalSeconds unavailable.");
+        LogWhaleStat("auto_scramble_decision", "trigger=payload_first_cap|result=skipped|reason=native_unavailable|threshold=%d", threshold);
+        return Plugin_Stop;
+    }
+
+    int interval = DGM_GetRecentControlPointCaptureIntervalSeconds();
+    if (interval <= 0 || interval > threshold)
+    {
+        LogWhale("Payload first-cap auto scramble skipped: interval=%d threshold=%d.", interval, threshold);
+        LogWhaleStat("auto_scramble_decision", "trigger=payload_first_cap|result=skipped|reason=interval|interval=%d|threshold=%d", interval, threshold);
+        return Plugin_Stop;
+    }
+
+    if (StartAutoScramble(true))
+    {
+        CPrintToChatAll("{blue}[WhaleScramble]{default} Payload stomp detected: first point captured in {lightgreen}%d{default} seconds, scrambling!", interval);
+        LogWhale("Payload first-cap auto scramble triggered: interval=%d threshold=%d.", interval, threshold);
+        LogWhaleStat("auto_scramble_decision", "trigger=payload_first_cap|result=triggered|interval=%d|threshold=%d", interval, threshold);
+    }
+    else
+    {
+        LogWhale("Payload first-cap auto scramble failed to start: interval=%d threshold=%d.", interval, threshold);
+        LogWhaleStat("auto_scramble_decision", "trigger=payload_first_cap|result=failed|interval=%d|threshold=%d", interval, threshold);
+    }
+
+    return Plugin_Stop;
 }
 
 static void CheckKothNoCapAutoScramble()
@@ -518,6 +582,22 @@ static bool IsCurrentKothGamemode()
     }
 
     return StrEqual(gamemodeKey, "koth", false);
+}
+
+static bool IsCurrentPayloadGamemode()
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    char gamemodeKey[32];
+    if (!DGM_GetGameModeKey(gamemodeKey, sizeof(gamemodeKey)))
+    {
+        return false;
+    }
+
+    return StrEqual(gamemodeKey, "pl", false);
 }
 
 static void ClearPendingFullRoundWin()
