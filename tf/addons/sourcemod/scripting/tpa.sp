@@ -151,8 +151,7 @@ public Action Command_AcceptRequest(int client, int args)
     TpaRequestType requestType = g_RequestType[client];
     if (sender <= 0 || requestType == TpaRequest_None)
     {
-        PrintToChat(client, "[TPA] You do not have a pending teleport request.");
-        return Plugin_Handled;
+        return Plugin_Continue;
     }
 
     if (GetGameTime() > g_RequestExpiresAt[client])

@@ -727,16 +727,8 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 		if (!IsClientIndexValid(client) || !IsClientInGame(client))
 			return Plugin_Handled;
 
-		if (!g_bDuelRequested || g_bDuelActive)
-		{
-			PrintToChat(client, "There is no pending duel for you to accept.");
-			return Plugin_Handled;
-		}
-		if (client != g_iTarget)
-		{
-			PrintToChat(client, "You were not challenged.");
-			return Plugin_Handled;
-		}
+		if (!g_bDuelRequested || g_bDuelActive || client != g_iTarget)
+			return Plugin_Continue;
 
 		CancelRequestTimer();
 

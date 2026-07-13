@@ -10038,7 +10038,6 @@ public void SQL_OnPendingInvitesForAccept(Database db, DBResultSet results, cons
 
     if (results == null || !results.FetchRow())
     {
-        PrintToChat(client, "[Clans] You have no pending clan invites.");
         return;
     }
 
