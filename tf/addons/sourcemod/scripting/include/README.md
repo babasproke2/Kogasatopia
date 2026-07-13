@@ -73,6 +73,9 @@ scripting/include/
 
 Only plugin-facing natives and forwards are listed here; internal stock helper files are not part of this API list.
 
+## autobalance_4teams_api.inc
+- `Autobalance_HasPendingTeamSwap` - Returns whether a client has an incoming team-swap request.
+
 ## amplifier.inc
 - `Amplifier_WouldReplaceBuilding` - Returns whether a build request would become an amplifier instead of the requested object.
 

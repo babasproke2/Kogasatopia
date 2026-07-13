@@ -13,6 +13,7 @@
 #undef REQUIRE_PLUGIN
 #include <dgm_api>
 #include <clans_api>
+#include <filters_api>
 #include <points_store_api>
 #include <saysounds>
 #include <whaletracker_api>
@@ -34,6 +35,9 @@ native int FilterAlerts_MarkAutobalance(int client);
 #define MEDIC_AUTOBALANCE_UBER_FLOOR 0.05
 #define POINTS_STORE_AB_IMMUNITY_ITEM "abImmunity24h"
 #define TEAM_MOVE_SAYSOUND "tp-enderman"
+#define TEAM_SWAP_COST 25
+#define TEAM_SWAP_REWARD 10
+#define TEAM_SWAP_TIMEOUT 60.0
 
 StringMap g_hMapImmunity = null;            // SteamID64 set for map-long immunity.
 StringMap g_hPersistentImmunity = null;     // SteamID64 set for persistent admin immunity.
@@ -60,6 +64,11 @@ float   g_fImbalanceDetectedAt = 0.0;
 Handle  g_hDuelGameConf = null;
 Handle  g_hIsInDuel = null;
 bool    g_bDuelDetectionAvailable = false;
+int     g_iSwapRequestSenderUserId[MAXPLAYERS + 1];
+int     g_iSwapRequestSenderTeam[MAXPLAYERS + 1];
+int     g_iSwapRequestTargetTeam[MAXPLAYERS + 1];
+Handle  g_hSwapRequestTimer[MAXPLAYERS + 1];
+bool    g_bSwapRequestFinalizing[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
@@ -72,9 +81,14 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
+    RegPluginLibrary("autobalance_4teams");
+    CreateNative("Autobalance_HasPendingTeamSwap", Native_HasPendingTeamSwap);
     MarkNativeAsOptional("FilterAlerts_MarkAutobalance");
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
+    MarkNativeAsOptional("PointsStore_AreBonusPointsLoaded");
+    MarkNativeAsOptional("PointsStore_GetBonusPoints");
+    MarkNativeAsOptional("PointsStore_SpendBonusPoints");
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("PointsStore_ConsumePurchaseUse");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
@@ -83,7 +97,14 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     MarkNativeAsOptional("SaySounds_PlayCommand");
+    MarkNativeAsOptional("Filters_GetChatName");
     return APLRes_Success;
+}
+
+public any Native_HasPendingTeamSwap(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    return HasPendingTeamSwap(client);
 }
 
 // ---------------------------------------------------------------------------
@@ -107,10 +128,15 @@ public void OnPluginStart()
     PluginStats_Init("autobalance_statistics_events", dbConfig);
     RegAdminCmd("sm_immune", Command_Immune, ADMFLAG_GENERIC, "sm_immune <name> - Toggle persistent autobalance immunity for a player.");
     RegConsoleCmd("sm_volunteer", Command_Volunteer, "sm_volunteer [name] - Toggle autobalance volunteer status.");
+    RegConsoleCmd("sm_swap", Command_RequestTeamSwap, "sm_swap [name] - Request a team swap with an enemy player.");
+    RegConsoleCmd("sm_requestswap", Command_RequestTeamSwap, "sm_requestswap [name] - Request a team swap with an enemy player.");
+    RegConsoleCmd("sm_sw", Command_RequestTeamSwap, "sm_sw [name] - Request a team swap with an enemy player.");
+    RegConsoleCmd("sm_yes", Command_AcceptTeamSwap, "Accept a pending team-swap request.");
     LogBalance("[autobalance_4teams] Plugin started.");
     g_hMapImmunity = new StringMap();
     g_hPersistentImmunity = new StringMap();
     g_hVolunteers = new StringMap();
+    ClearAllTeamSwapRequests();
 
     ApplyServerBalanceCvars(true);
     ConnectImmunityDatabase();
@@ -119,6 +145,7 @@ public void OnPluginStart()
 public void OnMapStart()
 {
     PluginStats_OnMapStart();
+    ClearAllTeamSwapRequests();
     if (g_hAutoBalanceTimer != INVALID_HANDLE)
     {
         KillTimer(g_hAutoBalanceTimer);
@@ -133,10 +160,21 @@ public void OnMapStart()
     }
 }
 
+public void OnMapEnd()
+{
+    ClearAllTeamSwapRequests();
+}
+
+public void OnClientDisconnect(int client)
+{
+    ClearTeamSwapRequestsForClient(client);
+}
+
 public void OnPluginEnd()
 {
     ApplyServerBalanceCvars(false);
     CloseDuelDetection();
+    ClearAllTeamSwapRequests();
 
     if (g_hAutoBalanceTimer != INVALID_HANDLE)
     {
@@ -173,6 +211,378 @@ public void OnPluginEnd()
     }
 
     PluginStats_Shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Voluntary team swaps
+// ---------------------------------------------------------------------------
+
+public Action Command_RequestTeamSwap(int client, int args)
+{
+    if (!IsTeamSwapClient(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (args < 1)
+    {
+        ShowTeamSwapMenu(client);
+        return Plugin_Handled;
+    }
+
+    char targetArg[MAX_TARGET_LENGTH];
+    GetCmdArgString(targetArg, sizeof(targetArg));
+    StripQuotes(targetArg);
+    TrimString(targetArg);
+
+    int target = FindTarget(client, targetArg, true, false);
+    if (target > 0)
+    {
+        SendTeamSwapRequest(client, target);
+    }
+
+    return Plugin_Handled;
+}
+
+public Action Command_AcceptTeamSwap(int client, int args)
+{
+    if (!IsTeamSwapClient(client) || !HasPendingTeamSwap(client))
+    {
+        return Plugin_Continue;
+    }
+
+    if (g_bSwapRequestFinalizing[client])
+    {
+        return Plugin_Handled;
+    }
+
+    int sender = GetClientOfUserId(g_iSwapRequestSenderUserId[client]);
+    int senderTeam = g_iSwapRequestSenderTeam[client];
+    int targetTeam = g_iSwapRequestTargetTeam[client];
+    BeginTeamSwapRequestFinalization(client);
+
+    if (!IsTeamSwapClient(sender))
+    {
+        CPrintToChat(client, "[Team Swap] The requester is no longer available.");
+        return Plugin_Handled;
+    }
+
+    if (GetClientTeam(sender) != senderTeam || GetClientTeam(client) != targetTeam
+        || senderTeam == targetTeam || !IsGameTeam(senderTeam) || !IsGameTeam(targetTeam))
+    {
+        CPrintToChat(client, "[Team Swap] The request is no longer valid because someone changed teams.");
+        CPrintToChat(sender, "[Team Swap] Your request is no longer valid because someone changed teams.");
+        return Plugin_Handled;
+    }
+
+    if (IsClientInDuel(sender) || IsClientInDuel(client))
+    {
+        CPrintToChat(client, "[Team Swap] Players in a duel cannot swap teams.");
+        CPrintToChat(sender, "[Team Swap] Players in a duel cannot swap teams.");
+        return Plugin_Handled;
+    }
+
+    if (!CanUseTeamSwapStore(sender, true) || !CanUseTeamSwapStore(client, false))
+    {
+        CPrintToChat(client, "[Team Swap] The Gems store is not ready for both players.");
+        CPrintToChat(sender, "[Team Swap] The Gems store is not ready for both players.");
+        return Plugin_Handled;
+    }
+
+    if (PointsStore_GetBonusPoints(sender) < TEAM_SWAP_COST)
+    {
+        CPrintToChat(sender, "[Team Swap] You need {gold}%d Gems{default} to swap teams.", TEAM_SWAP_COST);
+        CPrintToChat(client, "[Team Swap] The requester can no longer afford the team swap.");
+        return Plugin_Handled;
+    }
+
+    if (!PointsStore_SpendBonusPoints(sender, TEAM_SWAP_COST))
+    {
+        CPrintToChat(sender, "[Team Swap] The {gold}%d Gem{default} payment failed.", TEAM_SWAP_COST);
+        CPrintToChat(client, "[Team Swap] The requester's payment failed.");
+        return Plugin_Handled;
+    }
+
+    if (!PointsStore_ApplyBonusPoints(client, TEAM_SWAP_REWARD, true, true, 1.0, "team_swap_receiver", sender, 0.0, 0))
+    {
+        PointsStore_ApplyBonusPoints(sender, TEAM_SWAP_COST, false, false, 1.0, "team_swap_refund", client, 0.0, 0);
+        CPrintToChat(sender, "[Team Swap] The receiver reward failed; your Gems were refunded.");
+        CPrintToChat(client, "[Team Swap] Your reward could not be applied, so the swap was cancelled.");
+        return Plugin_Handled;
+    }
+
+    bool senderWasAlive = IsPlayerAlive(sender);
+    bool targetWasAlive = IsPlayerAlive(client);
+    ChangeClientTeam(sender, targetTeam);
+    ChangeClientTeam(client, senderTeam);
+    if (senderWasAlive)
+    {
+        TF2_RespawnPlayer(sender);
+    }
+    if (targetWasAlive)
+    {
+        TF2_RespawnPlayer(client);
+    }
+
+    char senderName[256];
+    char targetName[256];
+    BuildTeamSwapDisplayName(sender, senderName, sizeof(senderName));
+    BuildTeamSwapDisplayName(client, targetName, sizeof(targetName));
+    CPrintToChatEx(sender, client, "[Team Swap] You swapped teams with %s{default} for {gold}%d Gems{default}.", targetName, TEAM_SWAP_COST);
+    CPrintToChatEx(client, sender, "[Team Swap] You swapped teams with %s{default} and received {green}+%d Gems{default}.", senderName, TEAM_SWAP_REWARD);
+    return Plugin_Handled;
+}
+
+static void ShowTeamSwapMenu(int client)
+{
+    int clientTeam = GetClientTeam(client);
+    if (!IsGameTeam(clientTeam))
+    {
+        CPrintToChat(client, "[Team Swap] Join a playing team before requesting a swap.");
+        return;
+    }
+
+    Menu menu = new Menu(MenuHandler_TeamSwap);
+    menu.SetTitle("Swap teams with an enemy - %d Gems", TEAM_SWAP_COST);
+
+    int targetCount = 0;
+    for (int target = 1; target <= MaxClients; target++)
+    {
+        if (!IsTeamSwapClient(target) || target == client || !IsGameTeam(GetClientTeam(target))
+            || GetClientTeam(target) == clientTeam || IsClientInDuel(target))
+        {
+            continue;
+        }
+
+        char userId[16];
+        char name[MAX_NAME_LENGTH];
+        IntToString(GetClientUserId(target), userId, sizeof(userId));
+        GetClientName(target, name, sizeof(name));
+        menu.AddItem(userId, name);
+        targetCount++;
+    }
+
+    if (targetCount == 0)
+    {
+        delete menu;
+        CPrintToChat(client, "[Team Swap] No enemy players are available.");
+        return;
+    }
+
+    menu.ExitButton = true;
+    menu.Display(client, 30);
+}
+
+public int MenuHandler_TeamSwap(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_Select)
+    {
+        char info[16];
+        menu.GetItem(item, info, sizeof(info));
+        int target = GetClientOfUserId(StringToInt(info));
+        SendTeamSwapRequest(client, target);
+    }
+    else if (action == MenuAction_End)
+    {
+        delete menu;
+    }
+
+    return 0;
+}
+
+static bool SendTeamSwapRequest(int sender, int target)
+{
+    if (!IsTeamSwapClient(sender) || !IsTeamSwapClient(target))
+    {
+        return false;
+    }
+
+    int senderTeam = GetClientTeam(sender);
+    int targetTeam = GetClientTeam(target);
+    if (sender == target || !IsGameTeam(senderTeam) || !IsGameTeam(targetTeam) || senderTeam == targetTeam)
+    {
+        CPrintToChat(sender, "[Team Swap] Select a player on an enemy team.");
+        return false;
+    }
+
+    if (IsClientInDuel(sender) || IsClientInDuel(target))
+    {
+        CPrintToChat(sender, "[Team Swap] Players in a duel cannot swap teams.");
+        return false;
+    }
+
+    if (!CanUseTeamSwapStore(sender, true))
+    {
+        return false;
+    }
+
+    if (PointsStore_GetBonusPoints(sender) < TEAM_SWAP_COST)
+    {
+        CPrintToChat(sender, "[Team Swap] You need {gold}%d Gems{default} to swap teams.", TEAM_SWAP_COST);
+        return false;
+    }
+
+    if (FindOutgoingTeamSwapRequest(sender) > 0)
+    {
+        CPrintToChat(sender, "[Team Swap] You already have a pending request.");
+        return false;
+    }
+
+    if (HasPendingTeamSwap(target))
+    {
+        CPrintToChat(sender, "[Team Swap] That player already has a pending request.");
+        return false;
+    }
+
+    g_iSwapRequestSenderUserId[target] = GetClientUserId(sender);
+    g_iSwapRequestSenderTeam[target] = senderTeam;
+    g_iSwapRequestTargetTeam[target] = targetTeam;
+    g_bSwapRequestFinalizing[target] = false;
+    g_hSwapRequestTimer[target] = CreateTimer(TEAM_SWAP_TIMEOUT, Timer_ExpireTeamSwapRequest, GetClientUserId(target), TIMER_FLAG_NO_MAPCHANGE);
+
+    char senderName[256];
+    BuildTeamSwapDisplayName(sender, senderName, sizeof(senderName));
+    CPrintToChat(sender, "[Team Swap] Request sent to %N. You will be charged {gold}%d Gems{default} if accepted.", target, TEAM_SWAP_COST);
+    CPrintToChatEx(target, sender, "[Team Swap] %s{default} wants to swap teams with you! Use {gold}!yes{default} to accept.", senderName);
+    return true;
+}
+
+public Action Timer_ExpireTeamSwapRequest(Handle timer, any targetUserId)
+{
+    int target = GetClientOfUserId(targetUserId);
+    if (!IsTeamSwapClient(target))
+    {
+        return Plugin_Stop;
+    }
+
+    g_hSwapRequestTimer[target] = null;
+    int sender = GetClientOfUserId(g_iSwapRequestSenderUserId[target]);
+    if (IsTeamSwapClient(sender))
+    {
+        CPrintToChat(sender, "[Team Swap] Your request to %N expired.", target);
+    }
+    CPrintToChat(target, "[Team Swap] The pending team-swap request expired.");
+    ClearTeamSwapRequest(target);
+    return Plugin_Stop;
+}
+
+static void BeginTeamSwapRequestFinalization(int target)
+{
+    g_bSwapRequestFinalizing[target] = true;
+    if (g_hSwapRequestTimer[target] != null)
+    {
+        delete g_hSwapRequestTimer[target];
+        g_hSwapRequestTimer[target] = null;
+    }
+    RequestFrame(Frame_ClearFinalizedTeamSwap, target);
+}
+
+public void Frame_ClearFinalizedTeamSwap(any target)
+{
+    if (target > 0 && target <= MaxClients && g_bSwapRequestFinalizing[target])
+    {
+        ClearTeamSwapRequest(target);
+    }
+}
+
+static bool HasPendingTeamSwap(int target)
+{
+    return target > 0 && target <= MaxClients && g_iSwapRequestSenderUserId[target] > 0;
+}
+
+static int FindOutgoingTeamSwapRequest(int sender)
+{
+    int senderUserId = GetClientUserId(sender);
+    for (int target = 1; target <= MaxClients; target++)
+    {
+        if (g_iSwapRequestSenderUserId[target] == senderUserId)
+        {
+            return target;
+        }
+    }
+    return 0;
+}
+
+static void ClearTeamSwapRequest(int target)
+{
+    if (target <= 0 || target > MaxClients)
+    {
+        return;
+    }
+
+    if (g_hSwapRequestTimer[target] != null)
+    {
+        delete g_hSwapRequestTimer[target];
+        g_hSwapRequestTimer[target] = null;
+    }
+    g_iSwapRequestSenderUserId[target] = 0;
+    g_iSwapRequestSenderTeam[target] = 0;
+    g_iSwapRequestTargetTeam[target] = 0;
+    g_bSwapRequestFinalizing[target] = false;
+}
+
+static void ClearTeamSwapRequestsForClient(int client)
+{
+    int userId = GetClientUserId(client);
+    ClearTeamSwapRequest(client);
+    for (int target = 1; target <= MaxClients; target++)
+    {
+        if (g_iSwapRequestSenderUserId[target] == userId)
+        {
+            ClearTeamSwapRequest(target);
+        }
+    }
+}
+
+static void ClearAllTeamSwapRequests()
+{
+    for (int target = 1; target <= MaxClients; target++)
+    {
+        ClearTeamSwapRequest(target);
+    }
+}
+
+static bool IsTeamSwapClient(int client)
+{
+    return client > 0 && client <= MaxClients && IsClientInGame(client) && !IsFakeClient(client);
+}
+
+static bool CanUseTeamSwapStore(int client, bool printFailure)
+{
+    bool available = GetFeatureStatus(FeatureType_Native, "PointsStore_AreBonusPointsLoaded") == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_GetBonusPoints") == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_SpendBonusPoints") == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available;
+    if (!available)
+    {
+        if (printFailure)
+        {
+            CPrintToChat(client, "[Team Swap] The Gems store is unavailable.");
+        }
+        return false;
+    }
+
+    if (!PointsStore_AreBonusPointsLoaded(client))
+    {
+        if (printFailure)
+        {
+            CPrintToChat(client, "[Team Swap] Your Gems are still loading.");
+        }
+        return false;
+    }
+    return true;
+}
+
+static void BuildTeamSwapDisplayName(int client, char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+    if (GetFeatureStatus(FeatureType_Native, "Filters_GetChatName") == FeatureStatus_Available
+        && Filters_GetChatName(client, buffer, maxlen) && buffer[0] != '\0')
+    {
+        return;
+    }
+
+    Format(buffer, maxlen, "{teamcolor}%N", client);
 }
 
 // ---------------------------------------------------------------------------

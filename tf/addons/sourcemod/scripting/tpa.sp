@@ -9,6 +9,7 @@
 #include <morecolors>
 
 #undef REQUIRE_PLUGIN
+#include <autobalance_4teams_api>
 #include <filters_api>
 #include <points_store_api>
 #include <saysounds>
@@ -45,6 +46,7 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 {
+    MarkNativeAsOptional("Autobalance_HasPendingTeamSwap");
     MarkNativeAsOptional("PointsStore_AreBonusPointsLoaded");
     MarkNativeAsOptional("PointsStore_GetBonusPoints");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
@@ -135,6 +137,14 @@ public Action Command_AcceptRequest(int client, int args)
     if (!IsUsableClient(client))
     {
         return Plugin_Handled;
+    }
+
+    // !yes is shared with consensual team swaps. Leave a pending swap to
+    // autobalance_4teams so one command cannot accept both request types.
+    if (GetFeatureStatus(FeatureType_Native, "Autobalance_HasPendingTeamSwap") == FeatureStatus_Available
+        && Autobalance_HasPendingTeamSwap(client))
+    {
+        return Plugin_Continue;
     }
 
     int sender = g_RequestSender[client];
