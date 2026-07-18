@@ -2,8 +2,6 @@
 // Sorted from most to least popular. One playable map per line.
 // Included 394 maps; skipped 103 mapsdb rows without an installed .bsp or known workshop mapcycle entry.
 
-
-workshop/ctf_topsoil.ugc2969642453
 cp_mojave
 koth_shorelight
 cp_premuda
