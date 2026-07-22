@@ -2,6 +2,7 @@
 // Sorted from most to least popular. One playable map per line.
 // Included 394 maps; skipped 103 mapsdb rows without an installed .bsp or known workshop mapcycle entry.
 
+cp_balloon_race_v2b_fix
 cp_mojave
 koth_shorelight
 cp_premuda
@@ -32,7 +33,6 @@ workshop/koth_brine_rc3a.ugc2965195337
 workshop/pl_boatload_b3.ugc2957819472
 workshop/pl_simpson_house_b3.ugc3321996537
 workshop/wacky_races_v2.ugc1222527799
-cp_balloon_race_v2b_fix
 workshop/koth_swerve_b2a.ugc3717177136
 workshop/rd_uplink_c3.ugc3698548391
 workshop/cp_rafters_b4.ugc3713887895
