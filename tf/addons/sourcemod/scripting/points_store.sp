@@ -3478,6 +3478,18 @@ public void SQL_OnLotteryDirectCredit(Database db, DBResultSet results, const ch
         balanceAfter = g_ClientBonusPoints[client];
     }
 
+    if (IsClientInGameHuman(client))
+    {
+        if (StrEqual(reason, "lottery_main_payout", false))
+        {
+            PlayLevelUpSound(client);
+        }
+        else if (StrEqual(reason, "lottery_extra_payout", false))
+        {
+            PlayBonusPointsSound(client, true);
+        }
+    }
+
     LogLotteryCreditEvent(reason, steamId, amount, lotteryId, client, balanceAfter);
 }
 
