@@ -28,6 +28,8 @@
 #define BP_TRANS_ITEM_NAME_MAX 128
 #define BP_TRANS_ITEM_DESCRIPTION_MAX 256
 #define BP_SOUND_COMMAND "xp_gain"
+#define BP_LEVEL_UP_SOUND_COMMAND "xp_levelup"
+#define BP_BALANCE_MILESTONE 500
 #define BP_EVENT_LOG_LINE_MAX 1024
 #define BP_CURRENCY_SHORT_MAX 32
 #define BP_CURRENCY_LONG_MAX 64
@@ -5045,12 +5047,38 @@ void PlayWelfareSound()
     SaySounds_PlayCommand(0, BP_WELFARE_SOUND_COMMAND, false);
 }
 
-void PlayCompletionBonusSound(int client)
+void PlayLevelUpSound(int client)
 {
     if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") == FeatureStatus_Available)
     {
-        SaySounds_PlayCommand(client, "xp_level_up", true);
+        SaySounds_PlayCommand(client, BP_LEVEL_UP_SOUND_COMMAND, true);
     }
+}
+
+bool CrossedBonusPointsMilestone(int balanceBefore, int balanceAfter)
+{
+    return balanceAfter > balanceBefore
+        && (balanceBefore / BP_BALANCE_MILESTONE) < (balanceAfter / BP_BALANCE_MILESTONE);
+}
+
+void AnnounceBonusPointsMilestone(int client, int balance)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return;
+    }
+
+    char prefix[96];
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    char displayName[256];
+    GetCurrencyPrefix(prefix, sizeof(prefix));
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+    BuildPurchaseDisplayName(client, displayName, sizeof(displayName));
+
+    CPrintToChatAllEx(client, "%s %s{default} now has %s%d %s{default}!", prefix, displayName, colorTag, balance, currencyLong);
+    PlayLevelUpSound(client);
 }
 
 
@@ -5167,7 +5195,7 @@ int GetEffectivePerMapAwardLimit(const char[] type, int perMap)
     return perMap;
 }
 
-bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, int perMap = 0, const char[] targetNameSnapshot = "")
+bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, int perMap = 0, const char[] targetNameSnapshot = "", bool announceMilestone = false)
 {
     perMap = GetEffectivePerMapAwardLimit(type, perMap);
 
@@ -5238,6 +5266,11 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
         RecordCurrencySpend(client, -points, type, target);
     }
 
+    if (saveQueued && announceMilestone && points > 0 && CrossedBonusPointsMilestone(balanceBefore, g_ClientBonusPoints[client]))
+    {
+        AnnounceBonusPointsMilestone(client, g_ClientBonusPoints[client]);
+    }
+
     if (saveQueued && points > 0 && perMap > 0 && perMapUsed == perMap)
     {
         CreateTimer(3.0, Timer_CompletionBonus, GetClientUserId(client));
@@ -5262,12 +5295,12 @@ public Action Timer_CompletionBonus(Handle timer, any userId)
     int client = GetClientOfUserId(userId);
     if (ApplyBonusPointsNow(client, 2, false, true, 1.0, "completion_bonus"))
     {
-        PlayCompletionBonusSound(client);
+        PlayLevelUpSound(client);
     }
     return Plugin_Stop;
 }
 
-bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0, int perMap = 0)
+bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0, int perMap = 0, bool announceMilestone = false)
 {
     perMap = GetEffectivePerMapAwardLimit(type, perMap);
 
@@ -5278,7 +5311,7 @@ bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool ch
 
     if (delay == 0.0)
     {
-        return ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target, perMap);
+        return ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target, perMap, "", announceMilestone);
     }
 
     if (!IsClientInGameHuman(client) || points == 0)
@@ -5312,12 +5345,13 @@ bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool ch
         pack.WriteCell(IsClientInGameHuman(target) ? GetClientUserId(target) : 0);
     }
     pack.WriteString(targetNameSnapshot);
+    pack.WriteCell(announceMilestone ? 1 : 0);
 
     CreateTimer(delay, Timer_DeferredApplyBonusPoints, pack, TIMER_FLAG_NO_MAPCHANGE | TIMER_DATA_HNDL_CLOSE);
     return true;
 }
 
-bool ApplyBonusPointsSteamId(const char[] steamId, int points, bool playSound = true, bool chatAlert = true, const char[] type = "", int perMap = 0)
+bool ApplyBonusPointsSteamId(const char[] steamId, int points, bool playSound = true, bool chatAlert = true, const char[] type = "", int perMap = 0, bool announceMilestone = false)
 {
     if (steamId[0] == '\0' || points == 0 || !g_DatabaseReady || g_Database == null)
     {
@@ -5327,7 +5361,7 @@ bool ApplyBonusPointsSteamId(const char[] steamId, int points, bool playSound = 
     int client = FindClientBySteamId64(steamId);
     if (client > 0 && AreBonusPointsReady(client))
     {
-        return ApplyBonusPointsNow(client, points, playSound, chatAlert, 1.0, type, 0, perMap);
+        return ApplyBonusPointsNow(client, points, playSound, chatAlert, 1.0, type, 0, perMap, "", announceMilestone);
     }
 
     perMap = GetEffectivePerMapAwardLimit(type, perMap);
@@ -5453,9 +5487,10 @@ public Action Timer_DeferredApplyBonusPoints(Handle timer, any data)
     int targetValue = pack.ReadCell();
     char targetNameSnapshot[256];
     pack.ReadString(targetNameSnapshot, sizeof(targetNameSnapshot));
+    bool announceMilestone = pack.ReadCell() != 0;
     int target = (StrEqual(type, "killstreak", false) || StrEqual(type, "multikill", false)) ? targetValue : GetClientOfUserId(targetValue);
 
-    ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target, perMap, targetNameSnapshot);
+    ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target, perMap, targetNameSnapshot, announceMilestone);
     return Plugin_Stop;
 }
 
@@ -6551,7 +6586,7 @@ public any Native_PointsStore_ApplyBonusPoints(Handle plugin, int numParams)
     int target = (numParams >= 7) ? GetNativeCell(7) : 0;
     float delay = (numParams >= 8) ? view_as<float>(GetNativeCell(8)) : 3.0;
     int perMap = (numParams >= 9) ? GetNativeCell(9) : 0;
-    return ApplyBonusPoints(client, points, playSound, chatAlert, randomChance, type, target, delay, perMap);
+    return ApplyBonusPoints(client, points, playSound, chatAlert, randomChance, type, target, delay, perMap, true);
 }
 
 public any Native_PointsStore_ApplyBonusPointsSteamId(Handle plugin, int numParams)
@@ -6573,7 +6608,7 @@ public any Native_PointsStore_ApplyBonusPointsSteamId(Handle plugin, int numPara
     }
 
     int perMap = (numParams >= 6) ? GetNativeCell(6) : 0;
-    return ApplyBonusPointsSteamId(steamId, points, playSound, chatAlert, type, perMap);
+    return ApplyBonusPointsSteamId(steamId, points, playSound, chatAlert, type, perMap, true);
 }
 
 public any Native_PointsStore_SpendBonusPoints(Handle plugin, int numParams)
