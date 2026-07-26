@@ -5045,6 +5045,14 @@ void PlayWelfareSound()
     SaySounds_PlayCommand(0, BP_WELFARE_SOUND_COMMAND, false);
 }
 
+void PlayCompletionBonusSound(int client)
+{
+    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") == FeatureStatus_Available)
+    {
+        SaySounds_PlayCommand(client, "xp_level_up", true);
+    }
+}
+
 
 bool BuildPerMapAwardKeyForSteamId(const char[] steamId, const char[] type, char[] key, int maxlen)
 {
@@ -5230,6 +5238,11 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
         RecordCurrencySpend(client, -points, type, target);
     }
 
+    if (saveQueued && points > 0 && perMap > 0 && perMapUsed == perMap)
+    {
+        CreateTimer(3.0, Timer_CompletionBonus, GetClientUserId(client));
+    }
+
     if (playSound)
     {
         PlayBonusPointsSound(client, true);
@@ -5242,6 +5255,16 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
 
     PrintBonusPointsDelta(client, points, type, target, perMapUsed, perMap, targetNameSnapshot);
     return true;
+}
+
+public Action Timer_CompletionBonus(Handle timer, any userId)
+{
+    int client = GetClientOfUserId(userId);
+    if (ApplyBonusPointsNow(client, 2, false, true, 1.0, "completion_bonus"))
+    {
+        PlayCompletionBonusSound(client);
+    }
+    return Plugin_Stop;
 }
 
 bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0, int perMap = 0)

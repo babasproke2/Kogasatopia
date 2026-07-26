@@ -95,6 +95,10 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     {
         strcopy(label, maxlen, "Autobalance volunteer");
     }
+    else if (StrEqual(type, "completion_bonus", false))
+    {
+        strcopy(label, maxlen, "Completion bonus");
+    }
 }
 
 void GetMultikillBonusPointsLabel(int kills, char[] label, int maxlen)
