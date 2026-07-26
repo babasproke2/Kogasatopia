@@ -25,7 +25,7 @@
 #define SOUND_AIRSHOT_DOWNLOAD "sound/misc/taps_02.wav"
 #define SAYSOUND_AIRSHOT_COMMAND "airshot"
 #define DROPSHOT_KILL_BONUS_TYPE "dropshot_kill"
-#define DROPSHOT_KILL_BONUS_PER_MAP 5
+#define DROPSHOT_KILL_BONUS_PER_MAP 3
 
 bool g_bSaySoundsAvailable = false;
 int g_iPendingAirshotAttacker[MAXPLAYERS + 1];
@@ -236,7 +236,7 @@ public Action Timer_BroadcastAirshot(Handle timer, any userid)
 	{
 		if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 		{
-			PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "airshot_kill", 0, 3.0, 10);
+			PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "airshot_kill", 0, 3.0, 5);
 		}
 		if (g_bSaySoundsAvailable)
 		{

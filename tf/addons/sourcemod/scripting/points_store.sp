@@ -4477,7 +4477,16 @@ void GetClientLogClass(int client, char[] className, int maxlen)
 
 bool IsBonusPointsNumericTargetType(const char[] type)
 {
-    return StrEqual(type, "killstreak", false) || StrEqual(type, "multikill", false);
+    return StrEqual(type, "killstreak", false)
+        || StrEqual(type, "killstreak_5_10", false)
+        || StrEqual(type, "killstreak_above_10", false)
+        || StrEqual(type, "killstreak_end", false)
+        || StrEqual(type, "killstreak_end_7_14", false)
+        || StrEqual(type, "killstreak_end_15_19", false)
+        || StrEqual(type, "killstreak_end_20_plus", false)
+        || StrEqual(type, "multikill", false)
+        || StrEqual(type, "multikill_3_4", false)
+        || StrEqual(type, "multikill_5_plus", false);
 }
 
 bool IsPointsEventLoggingEnabled()
@@ -5103,7 +5112,18 @@ bool BuildPerMapAwardKeyForSteamId(const char[] steamId, const char[] type, char
         return false;
     }
 
-    Format(key, maxlen, "%s:%s", steamId, type);
+    char counterType[64];
+    strcopy(counterType, sizeof(counterType), type);
+    if (StrContains(type, "Assists: ", false) == 0)
+    {
+        strcopy(counterType, sizeof(counterType), "medic_assists");
+    }
+    else if (StrContains(type, "Medic high Übercharge kill (", false) == 0)
+    {
+        strcopy(counterType, sizeof(counterType), "medic_high_uber_kill");
+    }
+
+    Format(key, maxlen, "%s:%s", steamId, counterType);
     return true;
 }
 
@@ -5344,7 +5364,7 @@ bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool ch
     pack.WriteCell(perMap);
     char targetNameSnapshot[256];
     targetNameSnapshot[0] = '\0';
-    if (StrEqual(type, "killstreak", false) || StrEqual(type, "multikill", false))
+    if (IsBonusPointsNumericTargetType(type))
     {
         pack.WriteCell(target);
     }
@@ -5500,7 +5520,7 @@ public Action Timer_DeferredApplyBonusPoints(Handle timer, any data)
     char targetNameSnapshot[256];
     pack.ReadString(targetNameSnapshot, sizeof(targetNameSnapshot));
     bool announceMilestone = pack.ReadCell() != 0;
-    int target = (StrEqual(type, "killstreak", false) || StrEqual(type, "multikill", false)) ? targetValue : GetClientOfUserId(targetValue);
+    int target = IsBonusPointsNumericTargetType(type) ? targetValue : GetClientOfUserId(targetValue);
 
     ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target, perMap, targetNameSnapshot, announceMilestone);
     return Plugin_Stop;
@@ -5567,13 +5587,17 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
         return;
     }
 
-    if (StrEqual(type, "killstreak", false))
+    if (StrEqual(type, "killstreak", false)
+        || StrEqual(type, "killstreak_5_10", false)
+        || StrEqual(type, "killstreak_above_10", false))
     {
         CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Killstreak: %d{default}%s", prefix, sign, points, target, perMapSuffix);
         return;
     }
 
-    if (StrEqual(type, "multikill", false))
+    if (StrEqual(type, "multikill", false)
+        || StrEqual(type, "multikill_3_4", false)
+        || StrEqual(type, "multikill_5_plus", false))
     {
         char multikillLabel[32];
         GetMultikillBonusPointsLabel(target, multikillLabel, sizeof(multikillLabel));

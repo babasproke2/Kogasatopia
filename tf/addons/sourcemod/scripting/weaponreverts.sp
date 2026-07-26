@@ -578,7 +578,7 @@ static void TryAwardAmbassadorHeadshotKill(Event event, int attacker, int victim
 
 	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 	{
-		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, AMBASSADOR_HEADSHOT_KILL_BONUS_TYPE, 0, 3.0, 0);
+		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, AMBASSADOR_HEADSHOT_KILL_BONUS_TYPE, 0, 3.0, 5);
 	}
 }
 
@@ -593,7 +593,7 @@ static void TryAwardSandmanCleaverCombo(int attacker, int victim)
 
 	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 	{
-		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, SANDMAN_CLEAVER_COMBO_BONUS_TYPE, 0, 3.0, 0);
+		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, SANDMAN_CLEAVER_COMBO_BONUS_TYPE, 0, 3.0, 4);
 	}
 }
 
@@ -986,7 +986,7 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 
 	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 	{
-		bool awarded = PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, MEATSHOT_KILL_BONUS_TYPE, 0, 3.0, 10);
+		bool awarded = PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, MEATSHOT_KILL_BONUS_TYPE, 0, 3.0, 8);
 		ScatterPellets_Debug("points_store award result: %d", awarded ? 1 : 0);
 	}
 	else
@@ -1070,7 +1070,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 		&& GetGameTime() - g_fEnvironmentalKillTime[client] <= 0.5
 		&& GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 	{
-		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "Environmental kill", client, 3.0, 0);
+		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "Environmental kill", client, 3.0, 3);
 	}
 	g_iEnvironmentalKillAttacker[client] = 0;
 	g_fEnvironmentalKillTime[client] = 0.0;
@@ -1688,7 +1688,7 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 			&& attacker != victim && GetClientTeam(attacker) != GetClientTeam(victim)
 			&& GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 		{
-			PointsStore_ApplyBonusPoints(attacker, 3, true, true, 1.0, "Sandman moonshot", victim, 3.0, 3);
+			PointsStore_ApplyBonusPoints(attacker, 3, true, true, 1.0, "Sandman moonshot", victim, 3.0, 1);
 		}
 	}
 

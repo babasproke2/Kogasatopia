@@ -744,7 +744,10 @@ void AwardMultikillBonusPoints(int client, int kills)
         return;
     }
 
-    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "multikill", kills, 1.0, 5);
+    int perMap = points == 2 ? 3 : 4;
+    char type[32];
+    strcopy(type, sizeof(type), points == 2 ? "multikill_3_4" : "multikill_5_plus");
+    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, type, kills, 1.0, perMap);
 }
 
 void AwardKillstreakBonusPoints(int client, int killstreak)
@@ -760,7 +763,10 @@ void AwardKillstreakBonusPoints(int client, int killstreak)
     }
 
     int points = killstreak > 10 ? 2 : 1;
-    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "killstreak", killstreak, 3.0, 5);
+    int perMap = points == 1 ? 3 : 4;
+    char type[32];
+    strcopy(type, sizeof(type), points == 1 ? "killstreak_5_10" : "killstreak_above_10");
+    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, type, killstreak, 3.0, perMap);
 }
 
 void AwardKillstreakEndBonusPoints(int client, int killstreak)
@@ -794,7 +800,21 @@ void AwardKillstreakEndBonusPoints(int client, int killstreak)
         return;
     }
 
-    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, "killstreak_end", killstreak, 3.0, 5);
+    int perMap = 4 - points;
+    char type[32];
+    if (points == 1)
+    {
+        strcopy(type, sizeof(type), "killstreak_end_7_14");
+    }
+    else if (points == 2)
+    {
+        strcopy(type, sizeof(type), "killstreak_end_15_19");
+    }
+    else
+    {
+        strcopy(type, sizeof(type), "killstreak_end_20_plus");
+    }
+    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, type, killstreak, 3.0, perMap);
 }
 
 float GetMultikillRollupWindow()
