@@ -268,9 +268,11 @@ public void OnPluginStart()
     RegConsoleCmd("sm_collectwelfare", Command_Welfare, "Collect once-per-map welfare currency.");
     RegConsoleCmd("sm_handout", Command_Welfare, "Collect once-per-map welfare currency.");
     RegConsoleCmd("sm_gibs", Command_Welfare, "Collect once-per-map welfare currency.");
+    RegConsoleCmd("sm_ebt", Command_Welfare, "Collect once-per-map welfare currency.");
     RegConsoleCmd("sm_welfarecheck", Command_Welfare, "Collect once-per-map welfare currency.");
     AddCommandListener(CommandListener_WelfareAlias, "gibs");
     AddCommandListener(CommandListener_WelfareAlias, "welfare");
+    AddCommandListener(CommandListener_WelfareAlias, "ebt");
     AddCommandListener(CommandListener_WelfareChatAlias, "say");
     AddCommandListener(CommandListener_WelfareChatAlias, "say_team");
     RegConsoleCmd("sm_lottery", Command_Lottery, "Open the currency lottery.");
@@ -5870,7 +5872,7 @@ public Action CommandListener_WelfareChatAlias(int client, const char[] command,
     StripQuotes(text);
     TrimString(text);
 
-    if (StrEqual(text, "gibs", false) || StrEqual(text, "welfare", false))
+    if (StrEqual(text, "gibs", false) || StrEqual(text, "welfare", false) || StrEqual(text, "ebt", false))
     {
         return Command_Welfare(client, 0);
     }
