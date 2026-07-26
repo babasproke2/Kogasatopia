@@ -129,6 +129,7 @@ public APLRes AskPluginLoad2(Handle hMyself, bool bLate, char[] sError, int iErr
 	MarkNativeAsOptional("PointsStore_AreBonusPointsLoaded");
 	MarkNativeAsOptional("PointsStore_GetBonusPoints");
 	MarkNativeAsOptional("PointsStore_SpendBonusPoints");
+	MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
 	MarkNativeAsOptional("Filters_GetChatName");
 
 	return APLRes_Success;
@@ -1023,6 +1024,15 @@ public Action Event_PlayerDeath(Event hEvent, const char[] sEventName, bool dont
 
 	if (hEvent.GetInt("death_flags") & TF_DEATHFLAG_DEADRINGER)
 		return Plugin_Continue;
+
+	int attacker = GetClientOfUserId(hEvent.GetInt("attacker"));
+	Perk activePerk = g_hRollers.GetPerk(client);
+	if (activePerk != null && activePerk.Good && IsValidClient(attacker) && attacker != client
+		&& !IsFakeClient(attacker) && !IsFakeClient(client)
+		&& GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+	{
+		PointsStore_ApplyBonusPoints(attacker, 2, true, true, 1.0, "Killed positive RTD player", client, 3.0, 0);
+	}
 
 	Events.PlayerDied(client);
 
