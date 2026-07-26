@@ -1455,10 +1455,11 @@ public Action Command_LotteryHistory(int client, int args)
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
 
-    char query[256];
+    char query[512];
     Format(query, sizeof(query),
-        "SELECT id, hash, finished_at, winner_name, prize_pool FROM %s WHERE finished = 1 ORDER BY finished_at DESC, id DESC LIMIT 25",
-        LOTTO_TABLE);
+        "SELECT l.id, l.hash, l.finished_at, l.winner_name, l.prize_pool, COALESCE(t.ticket_value, 0) FROM %s l LEFT JOIN %s t ON t.lottery_id = l.id AND t.steamid64 = l.winner_steamid64 WHERE l.finished = 1 ORDER BY l.finished_at DESC, l.id DESC LIMIT 25",
+        LOTTO_TABLE,
+        LOTTO_TICKET_TABLE);
     g_Database.Query(SQL_OnLotteryHistoryLoaded, query, pack);
     return Plugin_Handled;
 }
@@ -1509,6 +1510,9 @@ public void SQL_OnLotteryHistoryLoaded(Database db, DBResultSet results, const c
             int finishedTimestamp = results.FetchInt(2);
             results.FetchString(3, winnerName, sizeof(winnerName));
             int prizePool = results.FetchInt(4);
+            int investment = results.FetchInt(5);
+            char profit[24];
+            FormatLotteryHistoryProfit(profit, sizeof(profit), prizePool, investment);
 
             GetLotteryShortHash(hash, shortHash, sizeof(shortHash));
             StripMenuColorTags(winnerName, cleanWinnerName, sizeof(cleanWinnerName));
@@ -1518,7 +1522,7 @@ public void SQL_OnLotteryHistoryLoaded(Database db, DBResultSet results, const c
             }
             FormatTime(finishedAt, sizeof(finishedAt), "%m/%d %H:%M", finishedTimestamp);
             IntToString(lotteryId, info, sizeof(info));
-            Format(display, sizeof(display), "#%d %s %s - %s - %d %s", lotteryId, shortHash, finishedAt, cleanWinnerName, prizePool, currencyLong);
+            Format(display, sizeof(display), "#%d %s %s - %s - %d %s%s", lotteryId, shortHash, finishedAt, cleanWinnerName, prizePool, currencyLong, profit);
             menu.AddItem(info, display, ITEMDRAW_DISABLED);
             count++;
         }
@@ -1531,6 +1535,18 @@ public void SQL_OnLotteryHistoryLoaded(Database db, DBResultSet results, const c
 
     menu.ExitButton = true;
     menu.Display(client, MENU_TIME_FOREVER);
+}
+
+void FormatLotteryHistoryProfit(char[] buffer, int maxlen, int payout, int investment)
+{
+    buffer[0] = '\0';
+    if (investment <= 0)
+    {
+        return;
+    }
+
+    int percent = RoundToNearest((float(payout - investment) / float(investment)) * 100.0);
+    Format(buffer, maxlen, percent >= 0 ? " +%d%%" : " %d%%", percent);
 }
 
 public int MenuHandler_LotteryHistory(Menu menu, MenuAction action, int client, int item)
