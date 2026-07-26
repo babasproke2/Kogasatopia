@@ -22,6 +22,7 @@
 		CreateNative("Hugs_GetRapesGiven", Native_Hugs_GetRapesGiven);
 		CreateNative("Hugs_AreStatsLoaded", Native_Hugs_AreStatsLoaded);
 		MarkNativeAsOptional("Filters_IsRedlisted");
+		MarkNativeAsOptional("Filters_GetChatName");
 		return APLRes_Success;
 	}
 
@@ -105,6 +106,11 @@ enum HugsLeaderboardKind
 	// --- ConVars ---
 	ConVar g_hTargetScore;
 	ConVar g_hRequestTimeout;
+	ConVar g_hRapeProtectionDuration;
+	Handle g_hRapeProtectionTimer[MAXPLAYERS + 1];
+	int g_iRapeProtectorUserId[MAXPLAYERS + 1];
+	char g_szRapeProtectorName[MAXPLAYERS + 1][MAX_NAME_LENGTH + 32];
+	char g_szRapeProtectedName[MAXPLAYERS + 1][MAX_NAME_LENGTH + 32];
 
 	public void OnPluginStart()
 	{
@@ -143,6 +149,12 @@ enum HugsLeaderboardKind
 		RegConsoleCmd("sm_duelhistory", Command_DuelHistory, "Show recent duel victories");
 		RegConsoleCmd("sm_rapeduelhistory", Command_DuelHistory, "Show recent duel victories");
 		RegConsoleCmd("sm_accept", Command_Accept, "Accept a pending duel");
+		RegConsoleCmd("sm_protect", Command_RapeProtect, "Protect a player from rape");
+		RegConsoleCmd("sm_guard", Command_RapeProtect, "Protect a player from rape");
+		RegConsoleCmd("sm_rapeprotect", Command_RapeProtect, "Protect a player from rape");
+		RegConsoleCmd("sm_rapeshield", Command_RapeProtect, "Protect a player from rape");
+		RegConsoleCmd("sm_shield", Command_RapeProtect, "Protect a player from rape");
+		RegConsoleCmd("sm_defend", Command_RapeProtect, "Protect a player from rape");
 
 		HookEvent("player_death",            Event_PlayerDeath, EventHookMode_Post);
 		HookEvent("teamplay_round_win",      Event_RoundEnd,    EventHookMode_Post);
@@ -150,6 +162,7 @@ enum HugsLeaderboardKind
 
 		g_hTargetScore    = CreateConVar("sm_rapeduel_targetscore", "5",  "rapes needed to win a duel", _, true, 1.0);
 		g_hRequestTimeout = CreateConVar("sm_rapeduel_requesttime", "30", "Seconds before a duel request expires", _, true, 5.0);
+		g_hRapeProtectionDuration = CreateConVar("sm_rapeprotection_duration", "60", "Seconds that rape protection lasts.", _, true, 1.0);
 
 		AutoExecConfig(true, "rapeduel");
 
@@ -160,6 +173,10 @@ enum HugsLeaderboardKind
 			g_fLastRapeTime[i] = 0.0;
 			g_hReminderTimer[i] = null;
 			g_hStatsRetryTimer[i] = null;
+			g_hRapeProtectionTimer[i] = null;
+			g_iRapeProtectorUserId[i] = 0;
+			g_szRapeProtectorName[i][0] = '\0';
+			g_szRapeProtectedName[i][0] = '\0';
 		}
 
 		g_hMultiplierCvar = CreateConVar("sm_hugs_multiplier", "1", "Multiplier for hug/rape stats (0 or 1 disable).", FCVAR_NOTIFY);
@@ -172,6 +189,10 @@ enum HugsLeaderboardKind
 
 	public void OnPluginEnd()
 	{
+		for (int i = 1; i <= MaxClients; i++)
+		{
+			ClearRapeProtection(i, true);
+		}
 		KogasaSql_CancelTimer(g_hDbReconnectTimer);
 		KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
 	}
@@ -307,6 +328,7 @@ enum HugsLeaderboardKind
 
 	public void OnClientPutInServer(int client)
 	{
+		ClearRapeProtection(client, true);
 		ResetClientStats(client);
 		g_fLastHugTime[client] = 0.0;
 		g_fLastRapeTime[client] = 0.0;
@@ -336,6 +358,7 @@ enum HugsLeaderboardKind
 
 	public void OnClientDisconnect(int client)
 	{
+		ClearRapeProtection(client, true);
 		SaveClientStats(client);
 		ResetClientStats(client);
 		CancelReminderTimer(client);
@@ -674,6 +697,106 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 	}
 
 	/* ---------------- Commands ---------------- */
+
+	public Action Command_RapeProtect(int client, int args)
+	{
+		if (!IsHumanClientInGame(client))
+		{
+			return Plugin_Handled;
+		}
+
+		if (args < 1)
+		{
+			CPrintToChat(client, "{green}[Hugs]{default} Usage: !protect <player>");
+			return Plugin_Handled;
+		}
+
+		char targetArg[MAX_TARGET_LENGTH];
+		GetCmdArg(1, targetArg, sizeof(targetArg));
+		int target = FindTarget(client, targetArg, true, false);
+		if (target <= 0)
+		{
+			return Plugin_Handled;
+		}
+
+		if (target == client)
+		{
+			CPrintToChat(client, "{green}[Hugs]{default} You cannot protect yourself.");
+			return Plugin_Handled;
+		}
+
+		if (IsRapeProtected(target))
+		{
+			CPrintToChat(client, "{green}[Hugs]{default} %N is already protected.", target);
+			return Plugin_Handled;
+		}
+
+		BuildHugsChatName(client, g_szRapeProtectorName[target], sizeof(g_szRapeProtectorName[]));
+		BuildHugsChatName(target, g_szRapeProtectedName[target], sizeof(g_szRapeProtectedName[]));
+		g_iRapeProtectorUserId[target] = GetClientUserId(client);
+		float duration = g_hRapeProtectionDuration.FloatValue;
+		g_hRapeProtectionTimer[target] = CreateTimer(duration, Timer_RapeProtectionExpired, GetClientSerial(target));
+
+		CPrintToChatAllEx(client, "{green}[Hugs]{default} %s{default} is now protecting %s{default} from rape!", g_szRapeProtectorName[target], g_szRapeProtectedName[target]);
+		return Plugin_Handled;
+	}
+
+	public Action Timer_RapeProtectionExpired(Handle timer, any targetSerial)
+	{
+		int target = GetClientFromSerial(targetSerial);
+		if (!IsClientIndexValid(target) || g_hRapeProtectionTimer[target] != timer)
+		{
+			return Plugin_Stop;
+		}
+
+		g_hRapeProtectionTimer[target] = null;
+		if (IsHumanClientInGame(target))
+		{
+			CPrintToChatAllEx(target, "{green}[Hugs]{default} %s{default}'s rape protection of %s{default} has now expired!", g_szRapeProtectorName[target], g_szRapeProtectedName[target]);
+		}
+		g_iRapeProtectorUserId[target] = 0;
+		g_szRapeProtectorName[target][0] = '\0';
+		g_szRapeProtectedName[target][0] = '\0';
+		return Plugin_Stop;
+	}
+
+	bool IsRapeProtected(int target)
+	{
+		return IsClientIndexValid(target)
+			&& g_hRapeProtectionTimer[target] != null
+			&& g_iRapeProtectorUserId[target] > 0;
+	}
+
+	void ClearRapeProtection(int target, bool killTimer)
+	{
+		if (!IsClientIndexValid(target))
+		{
+			return;
+		}
+
+		if (killTimer && g_hRapeProtectionTimer[target] != null)
+		{
+			KillTimer(g_hRapeProtectionTimer[target]);
+		}
+		g_hRapeProtectionTimer[target] = null;
+		g_iRapeProtectorUserId[target] = 0;
+		g_szRapeProtectorName[target][0] = '\0';
+		g_szRapeProtectedName[target][0] = '\0';
+	}
+
+	void BuildHugsChatName(int client, char[] buffer, int maxlen)
+	{
+		if (GetFeatureStatus(FeatureType_Native, "Filters_GetChatName") == FeatureStatus_Available
+			&& Filters_GetChatName(client, buffer, maxlen)
+			&& buffer[0])
+		{
+			return;
+		}
+
+		char name[MAX_NAME_LENGTH];
+		GetClientName(client, name, sizeof(name));
+		Format(buffer, maxlen, "{default}%s", name);
+	}
 
 	public Action Command_DuelHistory(int client, int args)
 	{
@@ -1327,6 +1450,12 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 		{
 			int target = target_list[i];
 			if (target == client) continue;
+
+			if (IsRapeProtected(target))
+			{
+				CPrintToChat(client, "{green}[Hugs]{default} %N is currently protected from rape.", target);
+				continue;
+			}
 
 			if (!EnsureStatsReady(target, false))
 			{
