@@ -1552,12 +1552,6 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 			int target = target_list[i];
 			if (target == client) continue;
 
-			if (IsRapeProtected(target))
-			{
-				CPrintToChat(client, "{green}[Hugs]{default} %N is currently protected from rape.", target);
-				continue;
-			}
-
 			if (!EnsureStatsReady(target, false))
 			{
 				continue;
@@ -1658,6 +1652,12 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 		{
 			int target = target_list[i];
 			if (target == client) continue;
+
+			if (IsRapeProtected(target))
+			{
+				CPrintToChat(client, "{green}[Hugs]{default} %N is currently protected from rape.", target);
+				continue;
+			}
 
 			if (!EnsureStatsReady(target, false))
 			{
