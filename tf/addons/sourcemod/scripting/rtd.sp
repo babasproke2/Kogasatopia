@@ -89,6 +89,7 @@ int g_iLastPerkTime = -1;
 Rollers g_hRollers = null;
 int g_iActiveEntitySpawnedSubscribers = 0;
 int g_iLastEntitySpawnTime = 0;
+bool g_bFreeRtdNoticeScheduled[MAXPLAYERS + 1];
 
 Handle g_hFwdCanRoll;
 Handle g_hFwdCanForce;
@@ -244,6 +245,7 @@ public void OnMapStart()
 	HookEvent("post_inventory_application", Event_Resupply);
 	HookEvent("player_hurt", Event_PlayerHurt);
 	HookEvent("player_chargedeployed", Event_UberchargeDeployed);
+	HookEvent("player_team", Event_PlayerTeam);
 
 	HookEvent("teamplay_round_start", Event_RoundStart);
 	HookEvent("arena_round_start", Event_RoundStart);
@@ -275,6 +277,7 @@ public void OnMapEnd()
 	UnhookEvent("post_inventory_application", Event_Resupply);
 	UnhookEvent("player_hurt", Event_PlayerHurt);
 	UnhookEvent("player_chargedeployed", Event_UberchargeDeployed);
+	UnhookEvent("player_team", Event_PlayerTeam);
 
 	UnhookEvent("teamplay_round_start", Event_RoundStart);
 	UnhookEvent("arena_round_start", Event_RoundStart);
@@ -283,6 +286,7 @@ public void OnMapEnd()
 
 public void OnClientPutInServer(int client)
 {
+	g_bFreeRtdNoticeScheduled[client] = false;
 	g_hRollers.Reset(client);
 
 	if (g_hRollers.GetHud(client) == null)
@@ -293,6 +297,7 @@ public void OnClientPutInServer(int client)
 
 public void OnClientDisconnect(int client)
 {
+	g_bFreeRtdNoticeScheduled[client] = false;
 	Events.PlayerDisconnected(client);
 
 	if (g_hRollers.GetInRoll(client))
@@ -300,6 +305,28 @@ public void OnClientDisconnect(int client)
 
 	g_hRollers.Reset(client);
 	SDKUnhook(client, SDKHook_GetMaxHealth, OnGetMaxHealth);
+}
+
+public Action Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	int team = event.GetInt("team");
+	if (IsValidClient(client) && (team == 2 || team == 3) && !g_bFreeRtdNoticeScheduled[client])
+	{
+		g_bFreeRtdNoticeScheduled[client] = true;
+		CreateTimer(10.0, Timer_NotifyFreeRtd, GetClientUserId(client));
+	}
+	return Plugin_Continue;
+}
+
+public Action Timer_NotifyFreeRtd(Handle timer, any userId)
+{
+	int client = GetClientOfUserId(userId);
+	if (IsValidClient(client) && (GetClientTeam(client) == 2 || GetClientTeam(client) == 3) && g_iCvarRollCost == 0)
+	{
+		CPrintToChat(client, CHAT_PREFIX ... " {gold}!rtd{default} is currently free!");
+	}
+	return Plugin_Stop;
 }
 
 public Action OnGetMaxHealth(int client, int& iMaxHealh)
