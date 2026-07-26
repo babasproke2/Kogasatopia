@@ -99,6 +99,8 @@ float g_flProjectileSpawnTime[MAX_TRACKED_ENTITIES];
 bool g_bProjectileSandmanPreJI[MAX_TRACKED_ENTITIES];
 int g_iSandmanStunFrame[MAXPLAYERS + 1];
 int g_iSandmanStunInflictorRef[MAXPLAYERS + 1];
+int g_iEnvironmentalKillAttacker[MAXPLAYERS + 1];
+float g_fEnvironmentalKillTime[MAXPLAYERS + 1];
 
 enum struct tf2_player
 {
@@ -225,6 +227,8 @@ stock void ResetClientArrays(int client)
 	}
 	g_iSandmanStunFrame[client] = 0;
 	g_iSandmanStunInflictorRef[client] = INVALID_ENT_REFERENCE;
+	g_iEnvironmentalKillAttacker[client] = 0;
+	g_fEnvironmentalKillTime[client] = 0.0;
 }
 
 public void OnPluginStart() {
@@ -1062,6 +1066,14 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	}
 
 	TryAwardAmbassadorHeadshotKill(event, attacker, client);
+	if (g_iEnvironmentalKillAttacker[client] == attacker
+		&& GetGameTime() - g_fEnvironmentalKillTime[client] <= 0.5
+		&& GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+	{
+		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "Environmental kill", client, 3.0, 0);
+	}
+	g_iEnvironmentalKillAttacker[client] = 0;
+	g_fEnvironmentalKillTime[client] = 0.0;
 
 	if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
 	{
@@ -1691,6 +1703,12 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 {
 	if (client < 1 || client > MaxClients || !IsClientInGame(client)) return Plugin_Continue;
 	if (attacker < 1) return Plugin_Continue;
+	if (inflictor == 0 && attacker <= MaxClients && IsClientInGame(attacker)
+		&& client != attacker && !IsFakeClient(client) && !IsFakeClient(attacker))
+	{
+		g_iEnvironmentalKillAttacker[client] = attacker;
+		g_fEnvironmentalKillTime[client] = GetGameTime();
+	}
 
 	bool attackerIsPlayer = (attacker >= 1 && attacker <= MaxClients && IsClientInGame(attacker));
 	int damageWeapon = GetDamageSourceWeapon(attacker, weapon, inflictor);
