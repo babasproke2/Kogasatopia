@@ -380,6 +380,7 @@ static void Ambassador102_CacheCritParticle()
 }
 
 public void OnMapStart() {
+	LoadWeaponRevertsConfig();
 	PreCacheWeaponSounds();
 	Ambassador102_CacheCritParticle();
 	StartHealTimer();
