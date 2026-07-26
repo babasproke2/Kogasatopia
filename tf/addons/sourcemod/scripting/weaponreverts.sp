@@ -1669,6 +1669,14 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 	{
 		stunDuration += 1.0;
 		stunFlags = TF_STUNFLAGS_BIGBONK;
+
+		int attacker = GetEntPropEnt(inflictor, Prop_Send, "m_hOwnerEntity");
+		if (WR_IsClientInGame(attacker) && !IsFakeClient(attacker) && !IsFakeClient(victim)
+			&& attacker != victim && GetClientTeam(attacker) != GetClientTeam(victim)
+			&& GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+		{
+			PointsStore_ApplyBonusPoints(attacker, 3, true, true, 1.0, "Sandman moonshot", victim, 3.0, 3);
+		}
 	}
 
 	parameters.Set(1, stunDuration);
