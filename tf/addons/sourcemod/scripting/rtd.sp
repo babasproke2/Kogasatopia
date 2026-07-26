@@ -44,6 +44,8 @@
 
 #define FREEZECAM_DELAY		2.0
 #define FREEZECAM_DURATION	5.0
+#define FIREWORK_SELF_COST 25
+#define FIREWORK_TARGET_COST 50
 
 #if defined _updater_included
 #define UPDATE_URL		"https://phil25.github.io/RTD/update.txt"
@@ -164,6 +166,7 @@ public void OnPluginStart()
 
 	// Commands
 	RegAdminCmd("sm_rtd", Command_RTD, 0, "Roll a perk.");
+	RegConsoleCmd("sm_firework", Command_Firework, "Purchase the Firework RTD effect.");
 	RegConsoleCmd("sm_rtdhelp", Command_RTDHelp, "Show RTD help.");
 	RegConsoleCmd("sm_rtdh", Command_RTDHelp, "Show RTD help.");
 	RegAdminCmd("sm_perks", Command_DescMenu, 0, "Display a description menu of RTD perks.");
@@ -422,6 +425,144 @@ public Action Command_RTDHelp(const int client, const int args)
 
 	CPrintToChat(client, CHAT_PREFIX ... " Use !rtd or type 'rtd' to roll for an epic effect, results can be good or bad, lasts %d seconds, cooldown is %d seconds. Costs %d %s, the server currency. {gold}!votemenu{default} can make rtd free!", g_iCvarPerkDuration, g_iCvarRollInterval, g_iCvarRollCost, currencyName);
 	return Plugin_Handled;
+}
+
+public Action Command_Firework(const int client, const int args)
+{
+	if (!IsValidClient(client))
+		return Plugin_Handled;
+
+	if (args < 1)
+	{
+		PurchaseFirework(client, client, FIREWORK_SELF_COST);
+		return Plugin_Handled;
+	}
+
+	char targetArg[MAX_TARGET_LENGTH];
+	GetCmdArgString(targetArg, sizeof(targetArg));
+	StripQuotes(targetArg);
+	TrimString(targetArg);
+
+	char targetName[MAX_TARGET_LENGTH];
+	int targets[MAXPLAYERS];
+	bool nameIsMl;
+	int count = ProcessTargetString(targetArg, client, targets, sizeof(targets), COMMAND_FILTER_ALIVE, targetName, sizeof(targetName), nameIsMl);
+	if (count <= 0)
+	{
+		ReplyToTargetError(client, count);
+		return Plugin_Handled;
+	}
+	if (count > 1)
+	{
+		RTDPrint(client, "Target matched multiple clients.");
+		return Plugin_Handled;
+	}
+
+	int target = targets[0];
+	if (target == client)
+	{
+		PurchaseFirework(client, client, FIREWORK_SELF_COST);
+		return Plugin_Handled;
+	}
+
+	ShowFireworkConsentMenu(client, target);
+	return Plugin_Handled;
+}
+
+void ShowFireworkConsentMenu(int payer, int target)
+{
+	if (!IsValidClient(payer) || !IsValidClient(target))
+		return;
+
+	Menu menu = new Menu(ManagerFireworkConsentMenu);
+	menu.SetTitle("Allow %N to spend %d Gems to firework you?", payer, FIREWORK_TARGET_COST);
+	char payerUserId[16];
+	IntToString(GetClientUserId(payer), payerUserId, sizeof(payerUserId));
+	menu.AddItem(payerUserId, "Yes");
+	menu.AddItem("no", "No");
+	menu.ExitButton = true;
+	menu.Display(target, 15);
+
+	RTDPrint(payer, "Asked %N for permission to apply Firework.", target);
+}
+
+public int ManagerFireworkConsentMenu(Menu menu, MenuAction action, int target, int item)
+{
+	if (action == MenuAction_End)
+	{
+		delete menu;
+		return 0;
+	}
+	if (action != MenuAction_Select || !IsValidClient(target))
+		return 0;
+
+	char info[16];
+	menu.GetItem(item, info, sizeof(info));
+	if (StrEqual(info, "no"))
+		return 0;
+
+	int payer = GetClientOfUserId(StringToInt(info));
+	if (!IsValidClient(payer))
+	{
+		RTDPrint(target, "The requester is no longer available.");
+		return 0;
+	}
+
+	PurchaseFirework(payer, target, FIREWORK_TARGET_COST);
+	return 0;
+}
+
+bool PurchaseFirework(int payer, int target, int cost)
+{
+	if (!IsValidClient(payer) || !IsValidClient(target) || !IsPlayerAlive(target))
+	{
+		if (IsValidClient(payer))
+			RTDPrint(payer, "Target is no longer available.");
+		return false;
+	}
+
+	Perk firework = g_hPerkContainer.Get("firework");
+	if (firework == null || !firework.Enabled)
+	{
+		RTDPrint(payer, "The Firework perk is unavailable.");
+		return false;
+	}
+
+	if (!SpendFireworkCost(payer, cost))
+		return false;
+
+	ApplyPerk(target, firework);
+	return true;
+}
+
+bool SpendFireworkCost(int client, int cost)
+{
+	if (!IsPointsStoreCostAvailable())
+	{
+		RTDPrint(client, "Currency payments are not ready.");
+		return false;
+	}
+	if (GetFeatureStatus(FeatureType_Native, "PointsStore_AreBonusPointsLoaded") == FeatureStatus_Available
+		&& !PointsStore_AreBonusPointsLoaded(client))
+	{
+		RTDPrint(client, "Your currency balance is still loading.");
+		return false;
+	}
+	if (PointsStore_GetBonusPoints(client) < cost)
+	{
+		char currencyColor[34];
+		char currencyName[64];
+		GetRollCurrencyColor(currencyColor, sizeof(currencyColor));
+		GetRollCurrencyName(currencyName, sizeof(currencyName));
+		CPrintToChat(client, CHAT_PREFIX ... " You need %s%d %s{default} for a firework!", currencyColor, cost, currencyName);
+		return false;
+	}
+	if (!PointsStore_SpendBonusPoints(client, cost))
+	{
+		RTDPrint(client, "Currency payment failed.");
+		return false;
+	}
+	return true;
 }
 
 public Action Command_DescMenu(const int client, const int args)
