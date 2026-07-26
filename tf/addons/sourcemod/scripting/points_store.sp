@@ -1890,12 +1890,6 @@ void AttemptLotteryAllTicketPurchase(int client)
         return;
     }
 
-    if (g_ClientLotteryHasTicket[client])
-    {
-        ShowOwnedLotteryTicketMenu(client);
-        return;
-    }
-
     if (!AreBonusPointsReady(client))
     {
         LoadClientBonusPoints(client);
@@ -1903,7 +1897,13 @@ void AttemptLotteryAllTicketPurchase(int client)
         return;
     }
 
-    AttemptLotteryTicketPurchase(client, GetCachedBonusPoints(client));
+    int available = GetCachedBonusPoints(client);
+    if (g_ClientLotteryHasTicket[client])
+    {
+        available += g_ClientLotteryTicketValue[client];
+    }
+
+    AttemptLotteryTicketPurchase(client, available);
 }
 
 void AttemptLotteryTicketPurchase(int client, int amount)
