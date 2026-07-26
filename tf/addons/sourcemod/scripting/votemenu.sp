@@ -31,6 +31,7 @@ enum struct VoteOption
     char name[128];
     char announcer[128];
     char message[256];
+    char listener[64];
     char winFile[128];
     char loseFile[128];
     float ratio;
@@ -86,6 +87,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 public void OnPluginStart()
 {
     RegConsoleCmd("sm_votemenu", Command_VoteMenu, "Open the vote menu");
+    AddCommandListener(CommandListener_VoteOption, "say");
+    AddCommandListener(CommandListener_VoteOption, "say_team");
     g_CvarShop = CreateConVar("sm_votemenu_shop", "1", "Require points_store currency to start a votemenu vote when points_store is available.", _, true, 0.0, true, 1.0);
     g_CvarShopCost = CreateConVar("sm_votemenu_shop_cost", "50", "points_store currency cost to start a votemenu vote. 0 disables currency integration.", _, true, 0.0);
     g_CvarAdmins = CreateConVar("sm_votemenu_admins_only", "0", "Restrict votemenu usage to admins.", _, true, 0.0, true, 1.0);
@@ -201,32 +204,82 @@ public int VoteMenuHandler(Menu menu, MenuAction action, int param1, int param2)
             return 0;
         }
 
-        int cooldownRemaining = GetFailedVoteCooldownRemaining(itemId);
-        if (cooldownRemaining > 0)
-        {
-            CPrintToChat(param1, "{red}[Vote]{default} That vote selection can be called again in {gold}%d seconds{default}.", cooldownRemaining);
-            return 0;
-        }
-
-        if (IsVoteMenuBusy() || !IsNewVoteAllowed())
-        {
-            CPrintToChat(param1, "{red}[Vote]{default} A vote is already running or cooling down.");
-            return 0;
-        }
-
-        if (!PrepareVoteMenuCharge(param1))
-        {
-            return 0;
-        }
-
-        g_VoteOptions.GetArray(index, g_CurrentVote);
-        if (!StartYesNoVote(param1))
-        {
-            ClearPendingVoteCharge();
-            ClearCurrentVoteInitiator();
-        }
+        TryStartVoteOption(param1, index);
     }
     return 0;
+}
+
+public Action CommandListener_VoteOption(int client, const char[] command, int argc)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return Plugin_Continue;
+    }
+
+    char text[128];
+    GetCmdArgString(text, sizeof(text));
+    StripQuotes(text);
+    TrimString(text);
+    if (text[0] == '!' || text[0] == '/')
+    {
+        strcopy(text, sizeof(text), text[1]);
+    }
+
+    VoteOption option;
+    for (int index = 0; index < g_VoteOptions.Length; index++)
+    {
+        g_VoteOptions.GetArray(index, option);
+        if (option.listener[0] && StrEqual(text, option.listener, false))
+        {
+            TryStartVoteOption(client, index);
+            return Plugin_Handled;
+        }
+    }
+
+    return Plugin_Continue;
+}
+
+static bool TryStartVoteOption(int client, int index)
+{
+    if (client <= 0 || !IsClientInGame(client) || index < 0 || index >= g_VoteOptions.Length)
+    {
+        return false;
+    }
+
+    if (AreVoteMenuAdminsRequired() && !IsVoteMenuAdmin(client))
+    {
+        CPrintToChat(client, "{red}[Vote]{default} You do not have access to the vote menu.");
+        return false;
+    }
+
+    VoteOption option;
+    g_VoteOptions.GetArray(index, option);
+    int cooldownRemaining = GetFailedVoteCooldownRemaining(option.id);
+    if (cooldownRemaining > 0)
+    {
+        CPrintToChat(client, "{red}[Vote]{default} That vote selection can be called again in {gold}%d seconds{default}.", cooldownRemaining);
+        return false;
+    }
+
+    if (IsVoteMenuBusy() || !IsNewVoteAllowed())
+    {
+        CPrintToChat(client, "{red}[Vote]{default} A vote is already running or cooling down.");
+        return false;
+    }
+
+    if (!PrepareVoteMenuCharge(client))
+    {
+        return false;
+    }
+
+    g_CurrentVote = option;
+    if (!StartYesNoVote(client))
+    {
+        ClearPendingVoteCharge();
+        ClearCurrentVoteInitiator();
+        return false;
+    }
+    return true;
 }
 
 public void OnVoteMenuDatabaseChanged(ConVar convar, const char[] oldValue, const char[] newValue)
@@ -1055,6 +1108,7 @@ static void LoadVoteMenuConfig()
         kv.GetString("name", opt.name, sizeof(opt.name), "");
         kv.GetString("announcer", opt.announcer, sizeof(opt.announcer), "");
         kv.GetString("message", opt.message, sizeof(opt.message), section);
+        kv.GetString("listener", opt.listener, sizeof(opt.listener), "");
         opt.ratio = kv.GetFloat("ratio", 0.6);
         kv.GetString("win", opt.winFile, sizeof(opt.winFile), "");
         // Accept a stray key name if the config has a typo like lose'
