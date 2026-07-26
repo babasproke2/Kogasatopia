@@ -390,6 +390,7 @@ public Action Command_Spray(int client, int args)
 	Spray spray;
 	spray.iSprayer = client;
 	spray.iOwner = client;
+	bool isBspSpray = StrEqual(arg0, "sm_bspray");
 
 	if (!IsValidClient(client))
 		return Plugin_Handled;
@@ -401,21 +402,17 @@ public Action Command_Spray(int client, int args)
 		return Plugin_Handled;
 	g_Players[client].fLastSprayed = GetGameTime();
 
-	if (StrEqual(arg0, "sm_bspray"))
+	if (isBspSpray)
 		spray.iDecalType = 1;
 
 	if (args > 0) {
-		if (!IsAdmin(client) && (args > 1 || !StringToFloatEx(arg1, g_Players[client].fScale))) {
-			ReplyToCommand(client, "Usage: %s [desired_scale]", arg0);
+		bool canTargetSpray = IsAdmin(client) || isBspSpray;
+		if ((!canTargetSpray && args > 1) || args > 2 || !StringToFloatEx(arg1, g_Players[client].fScale)) {
+			ReplyToCommand(client, "Usage: %s [desired_scale]%s", arg0, canTargetSpray ? " [user]" : "");
 			return Plugin_Handled;
 		}
 
-		if (IsAdmin(client) && (args > 2 || !StringToFloatEx(arg1, g_Players[client].fScale))) {
-			ReplyToCommand(client, "Usage: %s [desired_scale] [user]", arg0);
-			return Plugin_Handled;
-		}
-
-		if (IsAdmin(client) && args == 2) {
+		if (canTargetSpray && args == 2) {
 			spray.iOwner = FindTarget(client, arg2, true, true);
 			if (spray.iOwner == -1)
 				return Plugin_Handled;
