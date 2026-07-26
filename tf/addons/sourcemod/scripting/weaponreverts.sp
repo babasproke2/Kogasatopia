@@ -38,10 +38,8 @@
 #define SANDMAN_ITEMDEF 44
 #define SANDMAN_DAMAGE_CUSTOM TF_CUSTOM_BASEBALL
 #define SANDMAN_PRE_JI_DAMAGE 15.0
-#define SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME 4.0
 #define SANDMAN_PRE_JI_MIN_STUN_RATIO 0.1
 #define SANDMAN_PRE_JI_SLOWDOWN 0.5
-#define SANDMAN_PRE_JI_FALLBACK_BASE_DURATION 3.0
 #define MAX_TRACKED_ENTITIES 2049
 
 #define FLS_EXPLODE_DAMAGE	 50.0
@@ -139,6 +137,8 @@ ConVar g_hBisonDamageMult;
 ConVar g_hScattergunPelletsDebug;
 ConVar g_hFallingStompAllWeapons;
 ConVar g_hSandmanBaseDuration;
+ConVar g_hSandmanMaxStunFlightTime;
+ConVar g_hSandmanFallbackBaseDuration;
 KeyValues g_hWeaponRevertsConfig = null;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 Handle g_hHealTimer = INVALID_HANDLE;
@@ -234,6 +234,8 @@ public void OnPluginStart() {
 	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hScattergunPelletsDebug = CreateConVar("reverts_scattergun_pellets_debug", "0", "Log tracked shotgun/scattergun pellet forward diagnostics.");
 	g_hFallingStompAllWeapons = CreateConVar("reverts_falling_stomp_all_weapons", "1", "Enable boots falling stomp on all player weapons.", FCVAR_NONE, true, 0.0, true, 1.0);
+	g_hSandmanMaxStunFlightTime = CreateConVar("reverts_sandman_max_stun_flight_time", "1.5", "Flight time at which the reverted Sandman reaches maximum stun duration.", FCVAR_NONE, true, 0.1);
+	g_hSandmanFallbackBaseDuration = CreateConVar("reverts_sandman_fallback_base_duration", "2.0", "Fallback maximum Sandman stun duration when tf_scout_stunball_base_duration is unavailable.", FCVAR_NONE, true, 0.1);
 	g_hSandmanBaseDuration = FindConVar("tf_scout_stunball_base_duration");
 	LoadWeaponRevertsConfig();
 	RegAdminCmd("sm_scatterpellets_status", Command_ScatterPelletsStatus, ADMFLAG_GENERIC, "Print scattergun pellet integration status.");
@@ -1512,7 +1514,12 @@ static float SandmanPreJI_GetBaseStunDuration()
 		return g_hSandmanBaseDuration.FloatValue;
 	}
 
-	return SANDMAN_PRE_JI_FALLBACK_BASE_DURATION;
+	return g_hSandmanFallbackBaseDuration != null ? g_hSandmanFallbackBaseDuration.FloatValue : 2.0;
+}
+
+static float SandmanPreJI_GetMaxStunFlightTime()
+{
+	return g_hSandmanMaxStunFlightTime != null ? g_hSandmanMaxStunFlightTime.FloatValue : 1.5;
 }
 
 static bool SandmanPreJI_IsStunBall(int entity)
@@ -1642,9 +1649,10 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 	}
 
 	float spawnTime = (inflictor > 0 && inflictor < MAX_TRACKED_ENTITIES) ? g_flProjectileSpawnTime[inflictor] : 0.0;
-	float flightTime = spawnTime > 0.0 ? GetGameTime() - spawnTime : SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME;
-	float cappedFlightTime = flightTime < SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME ? flightTime : SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME;
-	float lifetimeRatio = cappedFlightTime / SANDMAN_PRE_JI_MAX_STUN_FLIGHT_TIME;
+	float maxFlightTime = SandmanPreJI_GetMaxStunFlightTime();
+	float flightTime = spawnTime > 0.0 ? GetGameTime() - spawnTime : maxFlightTime;
+	float cappedFlightTime = flightTime < maxFlightTime ? flightTime : maxFlightTime;
+	float lifetimeRatio = cappedFlightTime / maxFlightTime;
 	if (lifetimeRatio <= SANDMAN_PRE_JI_MIN_STUN_RATIO)
 	{
 		return MRES_Supercede;
