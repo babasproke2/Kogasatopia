@@ -462,7 +462,7 @@ public Action Command_Firework(const int client, const int args)
 
 	if (args < 1)
 	{
-		PurchaseFirework(client, client, FIREWORK_SELF_COST);
+		RequestFireworkPurchase(client, client, FIREWORK_SELF_COST);
 		return Plugin_Handled;
 	}
 
@@ -489,12 +489,93 @@ public Action Command_Firework(const int client, const int args)
 	int target = targets[0];
 	if (target == client)
 	{
-		PurchaseFirework(client, client, FIREWORK_SELF_COST);
+		RequestFireworkPurchase(client, client, FIREWORK_SELF_COST);
 		return Plugin_Handled;
 	}
 
-	ShowFireworkConsentMenu(client, target);
+	RequestFireworkPurchase(client, target, FIREWORK_TARGET_COST);
 	return Plugin_Handled;
+}
+
+void RequestFireworkPurchase(int payer, int target, int cost)
+{
+	if (g_iCvarRollCost > 0)
+	{
+		ShowFireworkCostMenu(payer, target, cost);
+		return;
+	}
+
+	if (payer == target)
+	{
+		PurchaseFirework(payer, target, cost);
+		return;
+	}
+
+	ShowFireworkConsentMenu(payer, target);
+}
+
+void ShowFireworkCostMenu(int payer, int target, int cost)
+{
+	if (!IsValidClient(payer) || !IsValidClient(target))
+		return;
+
+	char currencyName[64];
+	GetRollCurrencyName(currencyName, sizeof(currencyName));
+
+	Menu menu = new Menu(ManagerFireworkCostMenu);
+	if (payer == target)
+	{
+		menu.SetTitle("Spend %d %s for a firework?", cost, currencyName);
+	}
+	else
+	{
+		menu.SetTitle("Spend %d %s to firework %N?", cost, currencyName, target);
+	}
+
+	char info[32];
+	FormatEx(info, sizeof(info), "%d %d", GetClientUserId(target), cost);
+	menu.AddItem(info, "Yes");
+	menu.AddItem("no", "No");
+	menu.ExitButton = true;
+	menu.Display(payer, 15);
+}
+
+public int ManagerFireworkCostMenu(Menu menu, MenuAction action, int payer, int item)
+{
+	if (action == MenuAction_End)
+	{
+		delete menu;
+		return 0;
+	}
+	if (action != MenuAction_Select || !IsValidClient(payer))
+		return 0;
+
+	char info[32];
+	menu.GetItem(item, info, sizeof(info));
+	if (StrEqual(info, "no"))
+		return 0;
+
+	char values[2][16];
+	if (ExplodeString(info, " ", values, sizeof(values), sizeof(values[])) != 2)
+		return 0;
+
+	int target = GetClientOfUserId(StringToInt(values[0]));
+	int cost = StringToInt(values[1]);
+	if (!IsValidClient(target))
+	{
+		RTDPrint(payer, "Target is no longer available.");
+		return 0;
+	}
+
+	if (payer == target)
+	{
+		PurchaseFirework(payer, target, cost);
+	}
+	else
+	{
+		ShowFireworkConsentMenu(payer, target);
+	}
+	return 0;
 }
 
 void ShowFireworkConsentMenu(int payer, int target)

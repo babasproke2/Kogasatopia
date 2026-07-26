@@ -261,6 +261,8 @@ public void OnPluginStart()
     RegConsoleCmd("sm_bpsend", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_gem", Command_ShowBonusPoints, "Show your currency balance.");
     RegConsoleCmd("sm_gems", Command_ShowBonusPoints, "Show your currency balance.");
+    AddCommandListener(CommandListener_ShowBonusPointsAlias, "gem");
+    AddCommandListener(CommandListener_ShowBonusPointsAlias, "gems");
     RegConsoleCmd("sm_gemranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
     RegConsoleCmd("sm_gemsranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
     RegConsoleCmd("sm_gemsleaderboard", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
@@ -298,6 +300,9 @@ public void OnPluginStart()
     RegConsoleCmd("sm_lottorefund", Command_LotteryRefund, "Refund your current lottery ticket.");
     RegConsoleCmd("sm_lotteryrefund", Command_LotteryRefund, "Refund your current lottery ticket.");
     RegConsoleCmd("sm_refund", Command_LotteryRefund, "Refund your current lottery ticket.");
+    AddCommandListener(CommandListener_LotteryRefundAlias, "refund");
+    AddCommandListener(CommandListener_PointsStoreChatAlias, "say");
+    AddCommandListener(CommandListener_PointsStoreChatAlias, "say_team");
     RegAdminCmd("sm_dolottery", Command_DoLottery, ADMFLAG_GENERIC, "Draw the current currency lottery.");
     RegAdminCmd("sm_dolotto", Command_DoLottery, ADMFLAG_GENERIC, "Draw the current currency lottery.");
 
@@ -1413,6 +1418,41 @@ public Action Command_LotteryRefund(int client, int args)
 
     RefundLotteryTicket(client);
     return Plugin_Handled;
+}
+
+public Action CommandListener_ShowBonusPointsAlias(int client, const char[] command, int argc)
+{
+    return Command_ShowBonusPoints(client, 0);
+}
+
+public Action CommandListener_LotteryRefundAlias(int client, const char[] command, int argc)
+{
+    return Command_LotteryRefund(client, 0);
+}
+
+public Action CommandListener_PointsStoreChatAlias(int client, const char[] command, int argc)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return Plugin_Continue;
+    }
+
+    char text[32];
+    GetCmdArgString(text, sizeof(text));
+    StripQuotes(text);
+    TrimString(text);
+
+    if (StrEqual(text, "gem", false) || StrEqual(text, "gems", false))
+    {
+        return Command_ShowBonusPoints(client, 0);
+    }
+
+    if (StrEqual(text, "refund", false))
+    {
+        return Command_LotteryRefund(client, 0);
+    }
+
+    return Plugin_Continue;
 }
 
 public Action Command_LotteryTime(int client, int args)
