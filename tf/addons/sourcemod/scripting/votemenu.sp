@@ -48,6 +48,8 @@ ConVar g_CvarAdminsFree = null;
 ConVar g_CvarDatabase = null;
 ConVar g_CvarVoteDuration = null;
 ConVar g_CvarFailedVoteCooldown = null;
+ConVar g_CvarMapStartDelay = null;
+ConVar g_CvarClientConnectDelay = null;
 Database g_Database = null;
 bool g_DatabaseReady = false;
 Handle g_hDatabaseReconnectTimer = null;
@@ -96,6 +98,8 @@ public void OnPluginStart()
     g_CvarDatabase = CreateConVar("sm_votemenu_database", VOTEMENU_DB_CONFIG_DEFAULT, "Database config used for offline paid-vote charges.");
     g_CvarVoteDuration = CreateConVar("sm_votemenu_duration", "7.0", "Vote menu vote duration in seconds.", _, true, 1.0, true, 30.0);
     g_CvarFailedVoteCooldown = CreateConVar("sm_votemenu_failed_vote_cooldown", "120", "Seconds a failed votemenu selection must wait before it can be started again. 0 disables this cooldown.", _, true, 0.0);
+    g_CvarMapStartDelay = CreateConVar("sm_votemenu_map_start_delay", "60", "Seconds after a map starts before votemenu votes can be called. 0 disables this gate.", _, true, 0.0);
+    g_CvarClientConnectDelay = CreateConVar("sm_votemenu_connect_delay", "60", "Seconds a client must be connected before calling a votemenu vote. 0 disables this gate.", _, true, 0.0);
     g_CvarDatabase.AddChangeHook(OnVoteMenuDatabaseChanged);
     g_VoteOptions = new ArrayList(sizeof(VoteOption));
     g_FailedVoteCooldowns = new StringMap();
@@ -130,6 +134,13 @@ public Action Command_VoteMenu(int client, int args)
     if (AreVoteMenuAdminsRequired() && !IsVoteMenuAdmin(client))
     {
         CPrintToChat(client, "{red}[Vote]{default} You do not have access to the vote menu.");
+        return Plugin_Handled;
+    }
+
+    int delayRemaining = GetVoteMenuDelayRemaining(client);
+    if (delayRemaining > 0)
+    {
+        CPrintToChat(client, "{red}[Vote]{default} You can use {gold}!votemenu{default} in {gold}%d seconds!", delayRemaining);
         return Plugin_Handled;
     }
 
@@ -249,6 +260,13 @@ static bool TryStartVoteOption(int client, int index)
     if (AreVoteMenuAdminsRequired() && !IsVoteMenuAdmin(client))
     {
         CPrintToChat(client, "{red}[Vote]{default} You do not have access to the vote menu.");
+        return false;
+    }
+
+    int delayRemaining = GetVoteMenuDelayRemaining(client);
+    if (delayRemaining > 0)
+    {
+        CPrintToChat(client, "{red}[Vote]{default} You can use {gold}!votemenu{default} in {gold}%d seconds!", delayRemaining);
         return false;
     }
 
@@ -419,6 +437,25 @@ static int GetFailedVoteCooldownSeconds()
 
     int seconds = RoundToFloor(g_CvarFailedVoteCooldown.FloatValue);
     return seconds > 0 ? seconds : 0;
+}
+
+static int GetVoteMenuDelayRemaining(int client)
+{
+    int mapDelay = g_CvarMapStartDelay != null ? g_CvarMapStartDelay.IntValue : 0;
+    int mapRemaining = mapDelay - RoundToFloor(GetGameTime());
+    if (mapRemaining < 0)
+    {
+        mapRemaining = 0;
+    }
+
+    int clientDelay = g_CvarClientConnectDelay != null ? g_CvarClientConnectDelay.IntValue : 0;
+    int clientRemaining = clientDelay - RoundToFloor(GetClientTime(client));
+    if (clientRemaining < 0)
+    {
+        clientRemaining = 0;
+    }
+
+    return mapRemaining > clientRemaining ? mapRemaining : clientRemaining;
 }
 
 static int GetFailedVoteCooldownRemaining(const char[] optionId)
