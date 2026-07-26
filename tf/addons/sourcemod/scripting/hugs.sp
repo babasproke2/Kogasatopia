@@ -36,6 +36,7 @@
 
 #define HUGS_DB_CONFIG "default"
 #define HUGS_DB_TABLE  "hugs_stats"
+#define HUGS_DUEL_HISTORY_TABLE "hugs_duel_history"
 #define MAX_HISTORY_ENTRIES 5
 #define HISTORY_STRING_LEN 256
 
@@ -96,6 +97,8 @@ enum HugsLeaderboardKind
 	int  g_iTarget        = 0;
 	int  g_iScoreReq      = 0;
 	int  g_iScoreTgt      = 0;
+	char g_szDuelSteamIds[2][32];
+	char g_szDuelNames[2][MAX_NAME_LENGTH];
 
 	Handle g_hRequestTimer = null;
 
@@ -137,6 +140,8 @@ enum HugsLeaderboardKind
 		
 		RegConsoleCmd("sm_duel",   Command_Duel,   "Challenge a player: !duel <name substring>");
 		RegConsoleCmd("sm_rapeduel",   Command_Duel,   "Alias of !duel");
+		RegConsoleCmd("sm_duelhistory", Command_DuelHistory, "Show recent duel victories");
+		RegConsoleCmd("sm_rapeduelhistory", Command_DuelHistory, "Show recent duel victories");
 		RegConsoleCmd("sm_accept", Command_Accept, "Accept a pending duel");
 
 		HookEvent("player_death",            Event_PlayerDeath, EventHookMode_Post);
@@ -356,6 +361,9 @@ enum HugsLeaderboardKind
 								   g_iRequester, g_iScoreReq,
 								   g_iTarget,    g_iScoreTgt);
 				}
+				int winnerScore = (winner == g_iRequester) ? g_iScoreReq : g_iScoreTgt;
+				int loserScore = (winner == g_iRequester) ? g_iScoreTgt : g_iScoreReq;
+				RecordDuelVictory(winner, client, winnerScore, loserScore, "forfeit");
 				ResetDuel();
 		}
 	}
@@ -667,6 +675,112 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 
 	/* ---------------- Commands ---------------- */
 
+	public Action Command_DuelHistory(int client, int args)
+	{
+		if (!IsHumanClientInGame(client))
+		{
+			return Plugin_Handled;
+		}
+
+		if (!IsDatabaseReady())
+		{
+			CPrintToChat(client, "{green}[Hugs]{default} The duel history database is not ready.");
+			return Plugin_Handled;
+		}
+
+		DataPack pack = new DataPack();
+		pack.WriteCell(GetClientUserId(client));
+		char query[384];
+		Format(query, sizeof(query),
+			"SELECT id, winner_name, loser_name, winner_score, loser_score, finished_at FROM %s ORDER BY finished_at DESC, id DESC LIMIT 25",
+			HUGS_DUEL_HISTORY_TABLE);
+		SQL_TQuery(g_hDatabase, SQL_OnDuelHistoryLoaded, query, pack);
+		return Plugin_Handled;
+	}
+
+	public void SQL_OnDuelHistoryLoaded(Database db, DBResultSet results, const char[] error, any data)
+	{
+		DataPack pack = view_as<DataPack>(data);
+		pack.Reset();
+		int client = GetClientOfUserId(pack.ReadCell());
+		delete pack;
+		if (!IsHumanClientInGame(client))
+		{
+			return;
+		}
+
+		if (error[0])
+		{
+			LogError("[Hugs] Failed to load duel history: %s", error);
+			CPrintToChat(client, "{green}[Hugs]{default} Could not load duel history.");
+			return;
+		}
+
+		Menu menu = new Menu(MenuHandler_DuelHistory);
+		menu.SetTitle("Recent Rape Duels");
+		int count = 0;
+		while (results != null && results.FetchRow())
+		{
+			int duelId = results.FetchInt(0);
+			char winnerName[MAX_NAME_LENGTH], loserName[MAX_NAME_LENGTH];
+			char cleanWinner[MAX_NAME_LENGTH], cleanLoser[MAX_NAME_LENGTH];
+			char finishedAt[32], info[16], display[192];
+			results.FetchString(1, winnerName, sizeof(winnerName));
+			results.FetchString(2, loserName, sizeof(loserName));
+			int winnerScore = results.FetchInt(3);
+			int loserScore = results.FetchInt(4);
+			int finishedTimestamp = results.FetchInt(5);
+
+			StripMenuColorTags(winnerName, cleanWinner, sizeof(cleanWinner));
+			StripMenuColorTags(loserName, cleanLoser, sizeof(cleanLoser));
+			FormatTime(finishedAt, sizeof(finishedAt), "%m/%d %H:%M", finishedTimestamp);
+			IntToString(duelId, info, sizeof(info));
+			Format(display, sizeof(display), "#%d %s - %s defeated %s (%d-%d)", duelId, finishedAt, cleanWinner, cleanLoser, winnerScore, loserScore);
+			menu.AddItem(info, display, ITEMDRAW_DISABLED);
+			count++;
+		}
+
+		if (count == 0)
+		{
+			menu.AddItem("none", "No completed duels found.", ITEMDRAW_DISABLED);
+		}
+		menu.ExitButton = true;
+		menu.Display(client, MENU_TIME_FOREVER);
+	}
+
+	public int MenuHandler_DuelHistory(Menu menu, MenuAction action, int client, int item)
+	{
+		if (action == MenuAction_End)
+		{
+			delete menu;
+		}
+		return 0;
+	}
+
+	void StripMenuColorTags(const char[] input, char[] output, int maxlen)
+	{
+		int out = 0;
+		bool inTag = false;
+		for (int i = 0; input[i] != '\0' && out < maxlen - 1; i++)
+		{
+			if (input[i] == '{')
+			{
+				inTag = true;
+				continue;
+			}
+			if (inTag)
+			{
+				if (input[i] == '}')
+				{
+					inTag = false;
+				}
+				continue;
+			}
+			output[out++] = input[i];
+		}
+		output[out] = '\0';
+	}
+
 	public Action Command_Duel(int client, int args)
 	{
 		if (!IsClientIndexValid(client) || !IsClientInGame(client))
@@ -736,6 +850,7 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 		g_bDuelActive    = true;
 		g_iScoreReq      = 0;
 		g_iScoreTgt      = 0;
+		CaptureDuelParticipantSnapshots();
 
 		int targetScore = g_hTargetScore.IntValue;
 
@@ -790,6 +905,9 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 						   g_iRequester, g_iScoreReq,
 						   g_iTarget,    g_iScoreTgt);
 			UpdateRapeStatsDuel(g_iRequester, g_iTarget, g_iScoreReq, g_iScoreTgt);
+			int winnerScore = (winner == g_iRequester) ? g_iScoreReq : g_iScoreTgt;
+			int loserScore = (winner == g_iRequester) ? g_iScoreTgt : g_iScoreReq;
+			RecordDuelVictory(winner, loser, winnerScore, loserScore, "target_score");
 			ResetDuel();
 		}
 	}
@@ -825,6 +943,9 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 						   winner, loser,
 						   g_iRequester, g_iScoreReq,
 						   g_iTarget,    g_iScoreTgt);
+			int winnerScore = (winner == g_iRequester) ? g_iScoreReq : g_iScoreTgt;
+			int loserScore = (winner == g_iRequester) ? g_iScoreTgt : g_iScoreReq;
+			RecordDuelVictory(winner, loser, winnerScore, loserScore, "round_end");
 		}
 		UpdateRapeStatsDuel(g_iRequester, g_iTarget, g_iScoreReq, g_iScoreTgt);
 		ResetDuel();
@@ -1030,6 +1151,78 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 		g_iTarget        = 0;
 		g_iScoreReq      = 0;
 		g_iScoreTgt      = 0;
+		g_szDuelSteamIds[0][0] = '\0';
+		g_szDuelSteamIds[1][0] = '\0';
+		g_szDuelNames[0][0] = '\0';
+		g_szDuelNames[1][0] = '\0';
+	}
+
+	void CaptureDuelParticipantSnapshots()
+	{
+		int clients[2];
+		clients[0] = g_iRequester;
+		clients[1] = g_iTarget;
+		for (int i = 0; i < sizeof(clients); i++)
+		{
+			g_szDuelSteamIds[i][0] = '\0';
+			g_szDuelNames[i][0] = '\0';
+			if (!IsHumanClient(clients[i]))
+			{
+				continue;
+			}
+
+			Kogasa_GetClientSteamId64(clients[i], g_szDuelSteamIds[i], sizeof(g_szDuelSteamIds[]), true);
+			GetClientName(clients[i], g_szDuelNames[i], sizeof(g_szDuelNames[]));
+		}
+	}
+
+	void RecordDuelVictory(int winner, int loser, int winnerScore, int loserScore, const char[] resultType)
+	{
+		if (!IsDatabaseReady() || winnerScore < 0 || loserScore < 0)
+		{
+			return;
+		}
+
+		int winnerSlot = (winner == g_iRequester) ? 0 : 1;
+		int loserSlot = (loser == g_iRequester) ? 0 : 1;
+		if (!g_szDuelSteamIds[winnerSlot][0] || !g_szDuelSteamIds[loserSlot][0])
+		{
+			return;
+		}
+
+		char winnerSteamEsc[65], loserSteamEsc[65];
+		char winnerNameEsc[(MAX_NAME_LENGTH * 2) + 1], loserNameEsc[(MAX_NAME_LENGTH * 2) + 1];
+		char resultEsc[65];
+		if (!KogasaSql_Escape(g_hDatabase, g_szDuelSteamIds[winnerSlot], winnerSteamEsc, sizeof(winnerSteamEsc), "Hugs")
+			|| !KogasaSql_Escape(g_hDatabase, g_szDuelSteamIds[loserSlot], loserSteamEsc, sizeof(loserSteamEsc), "Hugs")
+			|| !KogasaSql_Escape(g_hDatabase, g_szDuelNames[winnerSlot], winnerNameEsc, sizeof(winnerNameEsc), "Hugs")
+			|| !KogasaSql_Escape(g_hDatabase, g_szDuelNames[loserSlot], loserNameEsc, sizeof(loserNameEsc), "Hugs")
+			|| !KogasaSql_Escape(g_hDatabase, resultType, resultEsc, sizeof(resultEsc), "Hugs"))
+		{
+			return;
+		}
+
+		char query[1024];
+		Format(query, sizeof(query),
+			"INSERT INTO %s (winner_steamid64, winner_name, loser_steamid64, loser_name, winner_score, loser_score, result_type, finished_at) VALUES ('%s', '%s', '%s', '%s', %d, %d, '%s', %d)",
+			HUGS_DUEL_HISTORY_TABLE,
+			winnerSteamEsc,
+			winnerNameEsc,
+			loserSteamEsc,
+			loserNameEsc,
+			winnerScore,
+			loserScore,
+			resultEsc,
+			GetTime());
+		SQL_TQuery(g_hDatabase, SQL_OnDuelVictorySaved, query);
+	}
+
+	public void SQL_OnDuelVictorySaved(Database db, DBResultSet results, const char[] error, any data)
+	{
+		if (error[0])
+		{
+			LogError("[Hugs] Failed to save duel victory: %s", error);
+		}
 	}
 
 	void StartRequestTimer(float seconds)
@@ -2067,6 +2260,14 @@ void ResetClientStats(int client)
 		SQL_TQuery(g_hDatabase, SQL_OnSchemaOpComplete, query);
 
 		Format(query, sizeof(query), "ALTER TABLE %s ADD COLUMN IF NOT EXISTS last_rapists VARCHAR(%d) NOT NULL DEFAULT ''", HUGS_DB_TABLE, HISTORY_STRING_LEN);
+		g_iSchemaOpsPending++;
+		SQL_TQuery(g_hDatabase, SQL_OnSchemaOpComplete, query);
+
+		Format(query, sizeof(query),
+			"CREATE TABLE IF NOT EXISTS %s (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, winner_steamid64 VARCHAR(32) NOT NULL, winner_name VARCHAR(%d) NOT NULL DEFAULT '', loser_steamid64 VARCHAR(32) NOT NULL, loser_name VARCHAR(%d) NOT NULL DEFAULT '', winner_score INT NOT NULL DEFAULT 0, loser_score INT NOT NULL DEFAULT 0, result_type VARCHAR(32) NOT NULL DEFAULT '', finished_at INT NOT NULL, PRIMARY KEY (id), KEY idx_hugs_duel_finished (finished_at), KEY idx_hugs_duel_winner (winner_steamid64)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+			HUGS_DUEL_HISTORY_TABLE,
+			MAX_NAME_LENGTH,
+			MAX_NAME_LENGTH);
 		g_iSchemaOpsPending++;
 		SQL_TQuery(g_hDatabase, SQL_OnSchemaOpComplete, query);
 
