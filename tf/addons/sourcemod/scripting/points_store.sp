@@ -279,6 +279,10 @@ public void OnPluginStart()
     RegConsoleCmd("sm_gamble", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_bet", Command_Lottery, "Open the currency lottery.");
     RegConsoleCmd("sm_lotto", Command_Lottery, "Open the currency lottery.");
+    RegConsoleCmd("sm_allin", Command_LotteryAll, "Bet all available currency on the lottery.");
+    AddCommandListener(CommandListener_LotteryAllAlias, "allin");
+    AddCommandListener(CommandListener_LotteryAllChatAlias, "say");
+    AddCommandListener(CommandListener_LotteryAllChatAlias, "say_team");
     RegConsoleCmd("sm_lottos", Command_LotteryHistory, "Show recent lottery history.");
     RegConsoleCmd("sm_lottohistory", Command_LotteryHistory, "Show recent lottery history.");
     RegConsoleCmd("sm_lottowhen", Command_LotteryTime, "Show time until the next lottery draw.");
@@ -1356,6 +1360,41 @@ public Action Command_Lottery(int client, int args)
 
     ShowLotteryMenu(client);
     return Plugin_Handled;
+}
+
+public Action Command_LotteryAll(int client, int args)
+{
+    if (!IsClientInGameHuman(client) || !IsLotteryReadyForClient(client))
+    {
+        return Plugin_Handled;
+    }
+
+    AttemptLotteryAllTicketPurchase(client);
+    return Plugin_Handled;
+}
+
+public Action CommandListener_LotteryAllAlias(int client, const char[] command, int argc)
+{
+    return Command_LotteryAll(client, 0);
+}
+
+public Action CommandListener_LotteryAllChatAlias(int client, const char[] command, int argc)
+{
+    if (!IsClientInGameHuman(client))
+    {
+        return Plugin_Continue;
+    }
+
+    char text[32];
+    GetCmdArgString(text, sizeof(text));
+    StripQuotes(text);
+    TrimString(text);
+    if (!StrEqual(text, "allin", false))
+    {
+        return Plugin_Continue;
+    }
+
+    return Command_LotteryAll(client, 0);
 }
 
 public Action Command_LotteryRefund(int client, int args)
