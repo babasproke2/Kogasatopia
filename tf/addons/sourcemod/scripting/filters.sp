@@ -14,6 +14,7 @@
 #undef REQUIRE_PLUGIN
 #include <adminsdb_api>
 #include <hugs_api>
+#include <mutecheck_api>
 #include <tags_api>
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
@@ -30,6 +31,7 @@
 #define FILTERS_OUTBOX_RETENTION_SECONDS 3600
 #define FILTERS_CHAT_RETENTION_SECONDS 86400
 #define FILTERS_OUTBOX_POLL_INTERVAL 2.0
+#define FILTERS_MUTE_CHECK_INTERVAL 1.0
 #define FILTERS_CONNECT_QUEUE_DELAY 3.0
 #define FILTERS_DEFAULT_DB_CONFIG "default"
 #define FILTERS_DEFAULT_HOST_IP "0.0.0.0"
@@ -58,6 +60,7 @@ enum struct PlayerState
 
 PlayerState g_PlayerState[MAXPLAYERS + 1];
 bool g_VoiceBlocked[MAXPLAYERS + 1][MAXPLAYERS + 1];
+bool g_MuteDeafened[MAXPLAYERS + 1];
 int g_AutoRedlistKills[MAXPLAYERS + 1];
 int g_AutoRedlistRapes[MAXPLAYERS + 1];
 bool g_AutoRedlistGotKills[MAXPLAYERS + 1];
@@ -73,6 +76,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional("AdminsDB_GetClientWhitelistLevel");
     MarkNativeAsOptional("Hugs_GetRapesGiven");
     MarkNativeAsOptional("Hugs_AreStatsLoaded");
+    MarkNativeAsOptional("MuteCheck_GetMutedClientCount");
     MarkNativeAsOptional("WhaleTracker_GetCumulativeKills");
     MarkNativeAsOptional("WhaleTracker_AreStatsLoaded");
     MarkNativeAsOptional("Tags_GetSelectedTag");
@@ -99,6 +103,7 @@ ConVar g_hFiltersChristmas = null;
 ConVar g_hFiltersTeamChat = null;
 ConVar g_hRedlistEnabled = null;
 ConVar g_hPChat = null;
+ConVar g_hMuteDeafenEnabled = null;
 
 // Global arrays for word filtering
 char g_FilterWords[MAX_FILTERS][MAX_WORD_LENGTH];
@@ -130,6 +135,7 @@ StringMap g_WebNameColors = null;
 ArrayList g_ConnectQueue = null;
 Handle g_ConnectQueueTimer = null;
 Handle g_hPollOutboxTimer = null;
+Handle g_hMuteDeafenTimer = null;
 int g_iOutboxTimerGeneration = 0;
 char g_sServerName[128];
 ConVar g_hHostnameCvar = null;
@@ -169,6 +175,11 @@ bool Filters_RedlistEnabled()
 bool Filters_PChatEnabled()
 {
     return g_hPChat == null || g_hPChat.BoolValue;
+}
+
+bool Filters_MuteDeafenEnabled()
+{
+    return g_hMuteDeafenEnabled != null && g_hMuteDeafenEnabled.BoolValue;
 }
 
 static int Filters_GetFilterMode()
@@ -508,6 +519,16 @@ static void Filters_CreateConVars()
     g_hFiltersChristmas = CreateConVar("filters_christmas", "0", "If 1, red chat is {axis} and blue chat is {green}.");
     g_hFiltersTeamChat = CreateConVar("teamchat", "0", "If 1, normal chat is sent to the sender's team only.");
     g_hPChat = CreateConVar("sm_pchat", "1", "If 0, filtered/monitored chat is only printed to server console and not shown to whitelisted clients.", _, true, 0.0, true, 1.0);
+    g_hMuteDeafenEnabled = CreateConVar(
+        "sm_filters_mute_deafen",
+        "1",
+        "If 1, clients who mute another connected player cannot hear any voice chat until no connected players are muted.",
+        _,
+        true,
+        0.0,
+        true,
+        1.0
+    );
     g_hFiltersCaseSensitive = CreateConVar(
         "filters_case_sensitive",
         "1",
@@ -516,6 +537,7 @@ static void Filters_CreateConVars()
 
     HookConVarChange(g_sChatMode2, Filters_OnFilterModeChanged);
     HookConVarChange(g_hRedlistEnabled, Filters_OnRedlistChanged);
+    HookConVarChange(g_hMuteDeafenEnabled, Filters_OnMuteDeafenChanged);
 }
 
 static void Filters_RegisterCookies()
@@ -550,6 +572,11 @@ static void Filters_StartTimers()
         g_iOutboxTimerGeneration++;
         g_hPollOutboxTimer = CreateTimer(FILTERS_OUTBOX_POLL_INTERVAL, Timer_PollOutbox, g_iOutboxTimerGeneration, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
     }
+
+    if (g_hMuteDeafenTimer == null)
+    {
+        g_hMuteDeafenTimer = CreateTimer(FILTERS_MUTE_CHECK_INTERVAL, Timer_RefreshMuteDeafenState, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+    }
 }
 
 static void Filters_StopOutboxTimer()
@@ -557,6 +584,60 @@ static void Filters_StopOutboxTimer()
     // The timer handle can already be closed by SourceMod lifecycle events. Retire it by generation instead.
     g_iOutboxTimerGeneration++;
     g_hPollOutboxTimer = null;
+}
+
+static bool Filters_CanCheckMutedClients()
+{
+    return Filters_MuteDeafenEnabled()
+        && GetFeatureStatus(FeatureType_Native, "MuteCheck_GetMutedClientCount") == FeatureStatus_Available;
+}
+
+static void Filters_ClearMuteDeafenState()
+{
+    bool changed = false;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (g_MuteDeafened[client])
+        {
+            g_MuteDeafened[client] = false;
+            changed = true;
+        }
+    }
+
+    if (changed)
+    {
+        Filters_UpdateVoiceOverrides();
+    }
+}
+
+static void Filters_RefreshMuteDeafenState()
+{
+    bool canCheck = Filters_CanCheckMutedClients();
+    bool changed = false;
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        bool shouldDeafen = canCheck
+            && Filters_IsRealClientInGame(client)
+            && MuteCheck_GetMutedClientCount(client) > 0;
+
+        if (g_MuteDeafened[client] != shouldDeafen)
+        {
+            g_MuteDeafened[client] = shouldDeafen;
+            changed = true;
+        }
+    }
+
+    if (changed)
+    {
+        Filters_UpdateVoiceOverrides();
+    }
+}
+
+public Action Timer_RefreshMuteDeafenState(Handle timer)
+{
+    Filters_RefreshMuteDeafenState();
+    return Plugin_Continue;
 }
 
 static void Filters_RestoreConnectedClients()
@@ -590,6 +671,12 @@ public void OnConfigsExecuted()
 
 public void OnLibraryAdded(const char[] name)
 {
+    if (StrEqual(name, "mutecheck", false))
+    {
+        Filters_RefreshMuteDeafenState();
+        return;
+    }
+
     if (!StrEqual(name, "hugs", false) && !StrEqual(name, "whaletracker", false))
     {
         return;
@@ -606,6 +693,12 @@ public void OnLibraryAdded(const char[] name)
 
 public void OnLibraryRemoved(const char[] name)
 {
+    if (StrEqual(name, "mutecheck", false))
+    {
+        Filters_ClearMuteDeafenState();
+        return;
+    }
+
     if (!StrEqual(name, "hugs", false) && !StrEqual(name, "whaletracker", false))
     {
         return;
@@ -2481,7 +2574,11 @@ void Filters_UpdateVoiceOverrides()
             }
 
             bool shouldBlock = false;
-            if (redlistEnabled && g_PlayerState[receiver].isredlisted)
+            if (g_MuteDeafened[receiver])
+            {
+                shouldBlock = true;
+            }
+            else if (redlistEnabled && g_PlayerState[receiver].isredlisted)
             {
                 shouldBlock = !g_PlayerState[sender].isredlisted;
             }
@@ -3554,6 +3651,11 @@ public void Filters_OnRedlistChanged(ConVar convar, const char[] oldValue, const
     Filters_UpdateVoiceOverrides();
 }
 
+public void Filters_OnMuteDeafenChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    Filters_RefreshMuteDeafenState();
+}
+
 public void OnClientPutInServer(int client)
 {
     Filters_ResetExternalStats(client);
@@ -3563,6 +3665,7 @@ public void OnClientDisconnect(int client)
 {
     Filters_ClearClientState(client);
     Filters_ResetExternalStats(client);
+    g_MuteDeafened[client] = false;
     for (int i = 1; i <= MaxClients; i++)
     {
         g_VoiceBlocked[client][i] = false;
@@ -3574,6 +3677,24 @@ public void OnClientDisconnect(int client)
 public void OnPluginEnd()
 {
     Filters_StopOutboxTimer();
+    if (g_hMuteDeafenTimer != null)
+    {
+        delete g_hMuteDeafenTimer;
+        g_hMuteDeafenTimer = null;
+    }
+
+    for (int receiver = 1; receiver <= MaxClients; receiver++)
+    {
+        for (int sender = 1; sender <= MaxClients; sender++)
+        {
+            if (g_VoiceBlocked[receiver][sender])
+            {
+                SetListenOverride(receiver, sender, Listen_Default);
+                g_VoiceBlocked[receiver][sender] = false;
+            }
+        }
+    }
+
     g_ConnectQueueTimer = null;
     g_hFiltersDbReconnectTimer = null;
 

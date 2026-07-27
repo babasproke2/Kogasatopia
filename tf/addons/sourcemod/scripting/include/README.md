@@ -136,6 +136,9 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `Hugs_GetRapesGiven` - Returns how many rapes a client has given in hugs stats.
 - `Hugs_AreStatsLoaded` - Returns whether a client's hugs stats are loaded.
 
+## mutecheck_api.inc
+- `MuteCheck_GetMutedClientCount` - Returns how many connected human clients the listener has muted.
+
 ## points_store_api.inc
 - `PointsStore_AreBonusPointsLoaded` - Returns whether a client's currency cache is ready.
 - `PointsStore_GetBonusPoints` - Returns a client's current currency balance.
