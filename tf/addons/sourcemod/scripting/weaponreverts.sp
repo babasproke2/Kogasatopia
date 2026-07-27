@@ -99,7 +99,9 @@ float g_flProjectileSpawnTime[MAX_TRACKED_ENTITIES];
 bool g_bProjectileSandmanPreJI[MAX_TRACKED_ENTITIES];
 int g_iSandmanStunFrame[MAXPLAYERS + 1];
 int g_iSandmanStunInflictorRef[MAXPLAYERS + 1];
-int g_iEnvironmentalKillAttacker[MAXPLAYERS + 1];
+#define ENVIRONMENTAL_KILL_CREDIT_WINDOW 10.0
+
+int g_iEnvironmentalKillAttackerUserId[MAXPLAYERS + 1];
 float g_fEnvironmentalKillTime[MAXPLAYERS + 1];
 
 enum struct tf2_player
@@ -227,7 +229,7 @@ stock void ResetClientArrays(int client)
 	}
 	g_iSandmanStunFrame[client] = 0;
 	g_iSandmanStunInflictorRef[client] = INVALID_ENT_REFERENCE;
-	g_iEnvironmentalKillAttacker[client] = 0;
+	g_iEnvironmentalKillAttackerUserId[client] = 0;
 	g_fEnvironmentalKillTime[client] = 0.0;
 }
 
@@ -1060,20 +1062,27 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 
 	int attackerId = event.GetInt("attacker");
 	int attacker = GetClientOfUserId(attackerId);
-	if (attacker == 0 || client == 0)
+	bool worldDeath = IsWorldInflictedDeath(event);
+	int environmentalAttacker = GetClientOfUserId(g_iEnvironmentalKillAttackerUserId[client]);
+	if (worldDeath
+		&& environmentalAttacker > 0
+		&& IsClientInGame(environmentalAttacker)
+		&& !IsFakeClient(environmentalAttacker)
+		&& GetClientTeam(environmentalAttacker) != GetClientTeam(client)
+		&& GetGameTime() - g_fEnvironmentalKillTime[client] <= ENVIRONMENTAL_KILL_CREDIT_WINDOW
+		&& GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+	{
+		PointsStore_ApplyBonusPoints(environmentalAttacker, 1, true, true, 1.0, "Environmental kill", client, 3.0, 3);
+	}
+	g_iEnvironmentalKillAttackerUserId[client] = 0;
+	g_fEnvironmentalKillTime[client] = 0.0;
+
+	if (attacker == 0)
 	{
 		return Plugin_Continue;
 	}
 
 	TryAwardAmbassadorHeadshotKill(event, attacker, client);
-	if (g_iEnvironmentalKillAttacker[client] == attacker
-		&& GetGameTime() - g_fEnvironmentalKillTime[client] <= 0.5
-		&& GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
-	{
-		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "Environmental kill", client, 3.0, 3);
-	}
-	g_iEnvironmentalKillAttacker[client] = 0;
-	g_fEnvironmentalKillTime[client] = 0.0;
 
 	if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
 	{
@@ -1702,13 +1711,17 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
 {
 	if (client < 1 || client > MaxClients || !IsClientInGame(client)) return Plugin_Continue;
-	if (attacker < 1) return Plugin_Continue;
-	if (inflictor == 0 && attacker <= MaxClients && IsClientInGame(attacker)
-		&& client != attacker && !IsFakeClient(client) && !IsFakeClient(attacker))
+	if (damage > 0.0
+		&& attacker >= 1 && attacker <= MaxClients
+		&& IsClientInGame(attacker)
+		&& !IsFakeClient(client) && !IsFakeClient(attacker)
+		&& client != attacker
+		&& GetClientTeam(client) != GetClientTeam(attacker))
 	{
-		g_iEnvironmentalKillAttacker[client] = attacker;
+		g_iEnvironmentalKillAttackerUserId[client] = GetClientUserId(attacker);
 		g_fEnvironmentalKillTime[client] = GetGameTime();
 	}
+	if (attacker < 1) return Plugin_Continue;
 
 	bool attackerIsPlayer = (attacker >= 1 && attacker <= MaxClients && IsClientInGame(attacker));
 	int damageWeapon = GetDamageSourceWeapon(attacker, weapon, inflictor);
@@ -1850,6 +1863,41 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 	}
 		
 	return Plugin_Continue;
+}
+
+bool IsWorldInflictedDeath(Event event)
+{
+	char weapon[64];
+	char weaponLogClassname[64];
+	event.GetString("weapon", weapon, sizeof(weapon));
+	event.GetString("weapon_logclassname", weaponLogClassname, sizeof(weaponLogClassname));
+	if (StrEqual(weapon, "world", false) || StrEqual(weaponLogClassname, "world", false))
+	{
+		return true;
+	}
+
+	if (event.GetInt("attacker") != 0)
+	{
+		return false;
+	}
+
+	int inflictor = event.GetInt("inflictor_entindex");
+	if (inflictor == 0)
+	{
+		return true;
+	}
+
+	if (inflictor > MaxClients && IsValidEntity(inflictor))
+	{
+		char classname[64];
+		GetEntityClassname(inflictor, classname, sizeof(classname));
+		if (StrEqual(classname, "worldspawn", false) || StrEqual(classname, "trigger_hurt", false))
+		{
+			return true;
+		}
+	}
+
+	return false;
 }
 
 public Action OnTraceAttack(int victim, int &attacker, int &inflictor, float &damage, int &damagetype, int &ammotype, int hitbox, int hitgroup)
