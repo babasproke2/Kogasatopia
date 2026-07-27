@@ -79,8 +79,7 @@ void ShowChangelogMenu(int client)
         char dateKey[CHANGELOG_DATE_KEY_LENGTH];
         FormatDateKey(dates.Get(i), dateKey, sizeof(dateKey));
 
-        changelog.Rewind();
-        if (!changelog.JumpToKey(dateKey))
+        if (!MoveToDateSection(changelog, dateKey))
         {
             continue;
         }
@@ -93,8 +92,19 @@ void ShowChangelogMenu(int client)
     delete dates;
     delete changelog;
 
+    if (menu.ItemCount == 0)
+    {
+        delete menu;
+        CPrintToChat(client, "{green}[Changelog]{default} No changelog entries could be displayed.");
+        return;
+    }
+
     menu.ExitButton = true;
-    menu.Display(client, MENU_TIME_FOREVER);
+    if (!menu.Display(client, MENU_TIME_FOREVER))
+    {
+        delete menu;
+        CPrintToChat(client, "{green}[Changelog]{default} The changelog menu could not be opened.");
+    }
 }
 
 public int MenuHandler_Changelog(Menu menu, MenuAction action, int client, int item)
@@ -119,7 +129,7 @@ public int MenuHandler_Changelog(Menu menu, MenuAction action, int client, int i
 void PrintChangelogEntry(int client, const char[] dateKey)
 {
     KeyValues changelog = LoadChangelog();
-    if (changelog == null || !changelog.JumpToKey(dateKey))
+    if (changelog == null || !MoveToDateSection(changelog, dateKey))
     {
         delete changelog;
         CPrintToChat(client, "{green}[Changelog]{default} That changelog entry is unavailable.");
@@ -148,6 +158,29 @@ void PrintChangelogEntry(int client, const char[] dateKey)
     {
         CPrintToChat(client, "{green}[Changelog]{default} No changes were recorded for that date.");
     }
+}
+
+bool MoveToDateSection(KeyValues changelog, const char[] dateKey)
+{
+    changelog.Rewind();
+    if (!changelog.GotoFirstSubKey())
+    {
+        return false;
+    }
+
+    do
+    {
+        char currentDate[CHANGELOG_DATE_KEY_LENGTH];
+        changelog.GetSectionName(currentDate, sizeof(currentDate));
+        if (StrEqual(currentDate, dateKey))
+        {
+            return true;
+        }
+    }
+    while (changelog.GotoNextKey());
+
+    changelog.Rewind();
+    return false;
 }
 
 KeyValues LoadChangelog()
