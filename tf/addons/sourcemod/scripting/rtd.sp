@@ -499,19 +499,13 @@ public Action Command_Firework(const int client, const int args)
 
 void RequestFireworkPurchase(int payer, int target, int cost)
 {
-	if (g_iCvarRollCost > 0)
+	if (payer != target || g_iCvarRollCost > 0)
 	{
 		ShowFireworkCostMenu(payer, target, cost);
 		return;
 	}
 
-	if (payer == target)
-	{
-		PurchaseFirework(payer, target, cost);
-		return;
-	}
-
-	ShowFireworkConsentMenu(payer, target);
+	PurchaseFirework(payer, target, cost);
 }
 
 void ShowFireworkCostMenu(int payer, int target, int cost)
@@ -567,57 +561,7 @@ public int ManagerFireworkCostMenu(Menu menu, MenuAction action, int payer, int 
 		return 0;
 	}
 
-	if (payer == target)
-	{
-		PurchaseFirework(payer, target, cost);
-	}
-	else
-	{
-		ShowFireworkConsentMenu(payer, target);
-	}
-	return 0;
-}
-
-void ShowFireworkConsentMenu(int payer, int target)
-{
-	if (!IsValidClient(payer) || !IsValidClient(target))
-		return;
-
-	Menu menu = new Menu(ManagerFireworkConsentMenu);
-	menu.SetTitle("Allow %N to spend %d Gems to firework you?", payer, FIREWORK_TARGET_COST);
-	char payerUserId[16];
-	IntToString(GetClientUserId(payer), payerUserId, sizeof(payerUserId));
-	menu.AddItem(payerUserId, "Yes");
-	menu.AddItem("no", "No");
-	menu.ExitButton = true;
-	menu.Display(target, 15);
-
-	RTDPrint(payer, "Asked %N for permission to apply Firework.", target);
-}
-
-public int ManagerFireworkConsentMenu(Menu menu, MenuAction action, int target, int item)
-{
-	if (action == MenuAction_End)
-	{
-		delete menu;
-		return 0;
-	}
-	if (action != MenuAction_Select || !IsValidClient(target))
-		return 0;
-
-	char info[16];
-	menu.GetItem(item, info, sizeof(info));
-	if (StrEqual(info, "no"))
-		return 0;
-
-	int payer = GetClientOfUserId(StringToInt(info));
-	if (!IsValidClient(payer))
-	{
-		RTDPrint(target, "The requester is no longer available.");
-		return 0;
-	}
-
-	PurchaseFirework(payer, target, FIREWORK_TARGET_COST);
+	PurchaseFirework(payer, target, cost);
 	return 0;
 }
 
