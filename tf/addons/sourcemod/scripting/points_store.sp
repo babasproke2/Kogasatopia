@@ -5343,7 +5343,7 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
         AnnounceBonusPointsMilestone(client, g_ClientBonusPoints[client]);
     }
 
-    if (saveQueued && points > 0 && perMap > 0 && perMapUsed == perMap)
+    if (saveQueued && points > 0 && perMap > 1 && perMapUsed == perMap)
     {
         CreateTimer(3.0, Timer_CompletionBonus, GetClientUserId(client));
     }
