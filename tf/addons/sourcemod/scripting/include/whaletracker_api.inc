@@ -31,6 +31,18 @@ native bool WhaleTracker_AreStatsLoaded(int client);
 native bool WhaleTracker_HasPlaytimeHours(int client, int hours);
 
 /**
+ * Returns a ranked player's cumulative playtime in whole hours.
+ *
+ * Ranking uses WhaleTracker's configured minimum kills plus deaths and playtime.
+ * Pass a client index, or pass 0 and provide a Steam2/SteamID64 identity.
+ *
+ * @param client        Client index, or 0 to use steamId.
+ * @param steamId       Steam2 or SteamID64 identity.
+ * @return              Whole playtime hours if ranked, otherwise 0.
+ */
+native int WhaleTracker_GetRankedPlaytimeHours(int client = 0, const char[] steamId = "");
+
+/**
  * Returns a client's current Whale Points total.
  *
  * @param client        Client index.

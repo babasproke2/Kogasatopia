@@ -198,6 +198,7 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `WhaleTracker_GetCumulativeKills` - Returns a client's cumulative tracked kills.
 - `WhaleTracker_AreStatsLoaded` - Returns whether a client's WhaleTracker stats are loaded.
 - `WhaleTracker_HasPlaytimeHours` - Returns whether a client's playtime meets an hour threshold.
+- `WhaleTracker_GetRankedPlaytimeHours` - Returns whole playtime hours for a ranked client or Steam identity.
 - `WhaleTracker_GetWhalePoints` - Returns a client's current Whale Points total.
 - `WhaleTracker_ComputeWhalePoints` - Computes Whale Points from raw cumulative totals.
 - `WhaleTracker_GetLastRecordedName` - Writes the best recorded name for a SteamID64 into a buffer.
