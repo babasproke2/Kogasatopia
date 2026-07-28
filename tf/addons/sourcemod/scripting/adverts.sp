@@ -43,7 +43,7 @@ public void OnPluginStart()
 	CreateConVar("sm_adverts_version", PL_VERSION, "Display advertisements", FCVAR_NOTIFY);
 	g_CvarEnabled = CreateConVar("sm_adverts_enabled", "1", "Enable/disable displaying advertisements.");
 	g_CvarFile = CreateConVar("sm_adverts_file", "adverts.cfg", "File to read the advertisements from.");
-	g_CvarInterval = CreateConVar("sm_adverts_interval", "600", "Number of seconds between advertisements.");
+	g_CvarInterval = CreateConVar("sm_adverts_interval", "300", "Number of seconds between advertisements.");
 	g_CvarRandom = CreateConVar("sm_adverts_random", "1", "Enable/disable random advertisements.");
 	g_CvarPrefix = CreateConVar("sm_adverts_prefix", "{gold}[Server]", "Prefix added before each prefixed chat advertisement ({default} and a space are appended automatically).");
 

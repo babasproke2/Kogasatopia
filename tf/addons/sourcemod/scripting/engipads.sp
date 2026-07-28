@@ -153,7 +153,7 @@ public void OnPluginStart()
 	cvarPads[JumpHeight] = CreateConVar("pads_jump_height", "700.0", "How fast players will be launched vertically by Jump Pads.", FCVAR_NOTIFY, true, 0.0);
 	cvarPads[JumpCrouchSpeedMult] = CreateConVar("pads_jump_crouch_speed_mult", "1.0", "Multiply crouching players' speed by this much when using Jump Pads.", FCVAR_NOTIFY, true, 0.0);
 	cvarPads[JumpCrouchHeightMult] = CreateConVar("pads_jump_crouch_height_mult", "1.0", "Multiply crouching players' height by this much when using Jump Pads.", FCVAR_NOTIFY, true, 0.0);
-	cvarPads[JumpBlockSnipers] = CreateConVar("pads_jump_block_snipers", "1", "If enabled, prevents Snipers from scoping in while using Jump Pads.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
+	cvarPads[JumpBlockSnipers] = CreateConVar("pads_jump_block_snipers", "0", "If enabled, prevents Snipers from scoping in while using Jump Pads.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	cvarPads[JumpCooldown] = CreateConVar("pads_jump_cooldown", "3.0", "How long, in seconds, should Jump Pads take to recharge?", FCVAR_NOTIFY, true, 0.1);
 	cvarPads[BoostDuration] = CreateConVar("pads_boost_duration", "5.0", "How long, in seconds, should Boost Pads boost players for?", FCVAR_NOTIFY, true, 0.0);
 	cvarPads[BoostSpeed] = CreateConVar("pads_boost_speed", "520.0", "What minimum speed should players be boosted to when using Boost Pads?", FCVAR_NOTIFY, true, 0.0);

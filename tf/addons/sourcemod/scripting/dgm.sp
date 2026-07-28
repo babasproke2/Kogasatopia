@@ -1785,7 +1785,7 @@ public void OnPluginStart()
     g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 30.0);
     // See description
     g_cvThreshold = CreateConVar("sm_highpop_threshhold", "18.0", "Threshhold for executing the highpop config", _, true, 0.0, true, 100.0);
-    g_cvPopulationConfigs = CreateConVar("sm_dgm_population_configs", "1", "Enable DGM lowpop/highpop config execution.", _, true, 0.0, true, 1.0);
+    g_cvPopulationConfigs = CreateConVar("sm_dgm_population_configs", "0", "Enable DGM lowpop/highpop config execution.", _, true, 0.0, true, 1.0);
     // For micromanagement, if this convar isn't 0, it'll use the given time
     g_cvTimeOverride = CreateConVar("respawn_otime", "0", "Override respawn time with this", _, true, 0.0, true, 30.0);
     // Respawn times for individual teams (beta)
@@ -1793,7 +1793,7 @@ public void OnPluginStart()
     g_cvBluTime = CreateConVar("respawn_blutime", "3.0", "Blu respawn time length", _, true, 0.0, true, 16.0);
     // Auto add time to king of the hill timers?
     g_cvAutoAddTime = CreateConVar("sm_autoaddtime", "300", "Automatically extend koth times? > 0 for the time in seconds");
-    g_cvSetupUberMultiplier = CreateConVar("sm_tf2_setup_uber_multiplier", "3.0", "Setup-time Medigun UberCharge multiplier. Stock TF2 is 3.0.", _, true, 0.0, true, 64.0);
+    g_cvSetupUberMultiplier = CreateConVar("sm_tf2_setup_uber_multiplier", "12.0", "Setup-time Medigun UberCharge multiplier. Stock TF2 is 3.0.", _, true, 0.0, true, 64.0);
     // Always respawn red team on control point capture in asymmetrical gamemodes?
     g_cvAsymCapRespawn = CreateConVar("respawn_red_on_cap", "0", "Override respawn times", _, true, 0.0, true, 1.0);
     // Change the setup time to this in asymmetrical gamemodes

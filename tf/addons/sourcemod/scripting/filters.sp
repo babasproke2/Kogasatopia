@@ -514,14 +514,14 @@ static void Filters_CreateConVars()
     g_hChatDebug = CreateConVar("filters_chat_debug", "0", "Enable verbose debug logging for chat relay");
     g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Enable/Disable reading frontend chat from the database");
     g_hFiltersEnabled = CreateConVar("filters", "0", "If 0, blacklist word matching is disabled.");
-    g_hRedlistEnabled = CreateConVar("redlist", "1", "Enable/Disable redlist features.", _, true, 0.0, true, 1.0);
+    g_hRedlistEnabled = CreateConVar("redlist", "0", "Enable/Disable redlist features.", _, true, 0.0, true, 1.0);
     g_hBlacklistMinLen = CreateConVar("filters_blacklist_minlen", "8", "Minimum message length to check blacklist words.");
     g_hFiltersChristmas = CreateConVar("filters_christmas", "0", "If 1, red chat is {axis} and blue chat is {green}.");
     g_hFiltersTeamChat = CreateConVar("teamchat", "0", "If 1, normal chat is sent to the sender's team only.");
     g_hPChat = CreateConVar("sm_pchat", "1", "If 0, filtered/monitored chat is only printed to server console and not shown to whitelisted clients.", _, true, 0.0, true, 1.0);
     g_hMuteDeafenEnabled = CreateConVar(
         "sm_filters_mute_deafen",
-        "1",
+        "0",
         "If 1, clients who mute another connected player cannot hear any voice chat until no connected players are muted.",
         _,
         true,

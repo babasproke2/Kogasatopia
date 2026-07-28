@@ -230,11 +230,11 @@ public void OnPluginStart()
     char dbConfig[64];
     g_CvarDatabase.GetString(dbConfig, sizeof(dbConfig));
     PluginStats_Init("points_store_statistics_events", dbConfig);
-    g_CvarEventLogging = CreateConVar("sm_points_store_event_logging", "0", "Write structured currency economy events to points_store_statistics_events.", _, true, 0.0, true, 1.0);
+    g_CvarEventLogging = CreateConVar("sm_points_store_event_logging", "1", "Write structured currency economy events to points_store_statistics_events.", _, true, 0.0, true, 1.0);
     g_CvarLogRandomMisses = CreateConVar("sm_points_store_log_random_misses", "0", "Log failed random-chance currency rolls when event logging is enabled.", _, true, 0.0, true, 1.0);
-    g_CvarCurrencyShort = CreateConVar("sm_points_store_currency_short", "BP", "Short currency label used in compact messages, e.g. BP or Gem.");
-    g_CvarCurrencyLong = CreateConVar("sm_points_store_currency_long", "Bonus Points", "Long currency label used in menus and prose, e.g. Bonus Points or Gems.");
-    g_CvarCurrencyColor = CreateConVar("sm_points_store_currency_color", "magenta", "Multicolors tag name used for the currency prefix, without braces.");
+    g_CvarCurrencyShort = CreateConVar("sm_points_store_currency_short", "Gems", "Short currency label used in compact messages, e.g. BP or Gem.");
+    g_CvarCurrencyLong = CreateConVar("sm_points_store_currency_long", "Gems", "Long currency label used in menus and prose, e.g. Bonus Points or Gems.");
+    g_CvarCurrencyColor = CreateConVar("sm_points_store_currency_color", "cyan", "Multicolors tag name used for the currency prefix, without braces.");
     g_CvarSendCooldown = CreateConVar("sm_points_store_send_cooldown", "15.0", "Seconds a client must wait between successful !send currency transfers.", _, true, 0.0);
     g_CvarEnableWelfare = CreateConVar("sm_points_store_welfare", "1", "Enable welfare?", _, true, 0.0, true, 1.0);
     g_CvarWelfareMinPlayers = CreateConVar("sm_points_store_welfare_min_players", "3", "Minimum GetClientCount(false) value required to collect welfare. 0 disables the requirement.", _, true, 0.0, true, 64.0);
