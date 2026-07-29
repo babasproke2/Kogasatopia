@@ -182,6 +182,12 @@ bool Filters_MuteDeafenEnabled()
     return g_hMuteDeafenEnabled != null && g_hMuteDeafenEnabled.BoolValue;
 }
 
+bool Filters_IsClientGagged(int client)
+{
+    return BaseComm_IsClientGagged(client)
+        || (Filters_MuteDeafenEnabled() && g_MuteDeafened[client]);
+}
+
 static int Filters_GetFilterMode()
 {
     if (g_sChatMode2 == INVALID_HANDLE)
@@ -522,7 +528,7 @@ static void Filters_CreateConVars()
     g_hMuteDeafenEnabled = CreateConVar(
         "sm_filters_mute_deafen",
         "0",
-        "If 1, clients who mute another connected player cannot hear any voice chat until no connected players are muted.",
+        "If 1, clients who mute another connected player cannot hear voice chat or send chat until no connected players are muted.",
         _,
         true,
         0.0,
@@ -1645,7 +1651,7 @@ void BuildChatContext(int client, const char[] sArgs, ChatContext context)
     context.isWhitelisted = g_PlayerState[client].isWhitelisted;
     context.isFilterWhitelisted = g_PlayerState[client].isFilterWhitelisted;
     context.hasBlacklistedTerm = CheckBlacklistedTerms(sArgs);
-    context.isGagged = BaseComm_IsClientGagged(client);
+    context.isGagged = Filters_IsClientGagged(client);
 }
 
 static void LogBlacklistedMessage(int client, const char[] message, bool hasBlacklistedTerm, bool isBlacklistedClient)
@@ -2002,6 +2008,14 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
 
     char output[256];
     Format(output, sizeof(output), "%s%s%s %s%s : %s", messageColorTag, deadPrefix, tag, displayName, messageColorTag, sArgs);
+    if (Filters_IsClientGagged(client))
+    {
+        CPrintToChatEx(client, client, "%s", output);
+        PrintToServer("x: %s", output);
+        SendToWhitelistedAdmins(client, output, "x:");
+        return true;
+    }
+
     int filterMode = Filters_GetFilterMode();
     bool cordMode = filterMode != 0;
     if (cordMode)
