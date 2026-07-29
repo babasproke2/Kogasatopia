@@ -2048,7 +2048,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
                     Filters_SendChatToReceiver(i, client, output);
                 }
             }
-            else if (isWhitelisted && Filters_PChatEnabled())
+            else if (Filters_CanSeeEnemyTeamChat(i))
             {
                 if (!prefixedReady)
                 {
@@ -2080,7 +2080,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
             {
                 Filters_SendChatToReceiver(i, client, output);
             }
-            else if (g_PlayerState[i].isWhitelisted && Filters_PChatEnabled())
+            else if (Filters_CanSeeEnemyTeamChat(i))
             {
                 if (!prefixedReady)
                 {
@@ -2692,7 +2692,7 @@ bool HandleEnabledChat(int client, const char[] message, const ChatContext conte
                 {
                     Filters_SendChatToReceiver(i, client, message);
                 }
-                else if (g_PlayerState[i].isWhitelisted && Filters_PChatEnabled())
+                else if (Filters_CanSeeEnemyTeamChat(i))
                 {
                     if (!prefixedReady)
                     {
@@ -3444,6 +3444,11 @@ static int Filters_GetAdminsDbLevel(int client)
     return AdminsDB_GetClientWhitelistLevel(client);
 }
 
+static bool Filters_CanSeeEnemyTeamChat(int client)
+{
+    return Filters_PChatEnabled() && Filters_GetAdminsDbLevel(client) >= 3;
+}
+
 static void Filters_RefreshAdminDbStatus(int client)
 {
     if (!Filters_IsRealClientInGame(client))
@@ -3931,7 +3936,7 @@ void CPrintToChatTeam(int team, int sender, const char[] message)
         {
             Filters_SendChatToReceiver(client, sender, message);
         }
-        else if (g_PlayerState[client].isWhitelisted && Filters_PChatEnabled())
+        else if (Filters_CanSeeEnemyTeamChat(client))
         {
             if (!prefixedReady)
             {
