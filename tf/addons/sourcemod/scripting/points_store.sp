@@ -21,6 +21,8 @@
 #define BP_TRANS_TABLE "bonuspoints_transactions"
 #define BP_BALANCE_TABLE "points_store_balances"
 #define BP_ECONOMY_TABLE "points_store_economy"
+#define BP_IDEMPOTENT_AWARDS_TABLE "points_store_idempotent_awards"
+#define BP_IDEMPOTENT_KEY_MAX 128
 #define BP_ECONOMY_WELFARE_POOL_KEY "welfare_pool"
 #define BP_ECONOMY_CUMULATIVE_SPENT_KEY "cumulative_spent"
 #define BP_ECONOMY_KEY_MAX 64
@@ -88,7 +90,9 @@ ConVar g_CvarLotteryDisabled = null;
 ConVar g_CvarLotteryMaxTicketValue = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
+bool g_IdempotentAwardsReady = false;
 Handle g_hDatabaseReconnectTimer = null;
+GlobalForward g_IdempotentAwardForward = null;
 bool g_EconomyStateLoaded = false;
 int g_WelfarePoolBalance = 0;
 int g_CumulativeSpentBalance = 0;
@@ -187,6 +191,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("PointsStore_GetBonusPoints", Native_PointsStore_GetBonusPoints);
     CreateNative("PointsStore_ApplyBonusPoints", Native_PointsStore_ApplyBonusPoints);
     CreateNative("PointsStore_ApplyBonusPointsSteamId", Native_PointsStore_ApplyBonusPointsSteamId);
+    CreateNative("PointsStore_ApplyBonusPointsSteamIdOnce", Native_PointsStore_ApplyBonusPointsSteamIdOnce);
     CreateNative("PointsStore_SpendBonusPoints", Native_PointsStore_SpendBonusPoints);
     CreateNative("PointsStore_StealBonusPoints", Native_PointsStore_StealBonusPoints);
     CreateNative("PointsStore_HasPurchase", Native_PointsStore_HasPurchase);
@@ -194,6 +199,12 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("PointsStore_GetPurchaseExpiresAt", Native_PointsStore_GetPurchaseExpiresAt);
     CreateNative("PointsStore_GetPurchaseUsesRemaining", Native_PointsStore_GetPurchaseUsesRemaining);
     CreateNative("PointsStore_ConsumePurchaseUse", Native_PointsStore_ConsumePurchaseUse);
+    g_IdempotentAwardForward = new GlobalForward(
+        "PointsStore_OnApplyBonusPointsSteamIdOnce",
+        ET_Ignore,
+        Param_String,
+        Param_Cell,
+        Param_Cell);
     return APLRes_Success;
 }
 
@@ -256,7 +267,6 @@ public void OnPluginStart()
     RegConsoleCmd("sm_bonuspointsranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
     RegConsoleCmd("sm_bpranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
     RegConsoleCmd("sm_gl", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
-    RegConsoleCmd("sm_send", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_sendbp", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_bpsend", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_gem", Command_ShowBonusPoints, "Show your currency balance.");
@@ -314,6 +324,7 @@ public void OnPluginStart()
 public void OnPluginEnd()
 {
     PluginStats_Flush();
+    delete g_IdempotentAwardForward;
 
     delete g_ItemKeys;
     delete g_ItemNames;
@@ -390,6 +401,7 @@ void ConnectDatabase()
 {
     KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
     KogasaSql_Close(g_Database, g_DatabaseReady);
+    g_IdempotentAwardsReady = false;
     g_LotteryReady = false;
     g_LotteryCreating = false;
     g_CurrentLotteryId = 0;
@@ -437,6 +449,7 @@ public void SQL_OnDatabaseConnected(Handle owner, Handle hndl, const char[] erro
 void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
 {
     g_DatabaseReady = false;
+    g_IdempotentAwardsReady = false;
     if (g_hDatabaseReconnectTimer == null)
     {
         g_hDatabaseReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
@@ -842,6 +855,7 @@ public void SQLTxn_OnEconomyRowsFailure(Database db, any data, int numQueries, c
 void FinishSchemaReady()
 {
     g_DatabaseReady = true;
+    EnsureIdempotentAwardsSchema();
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -854,6 +868,56 @@ void FinishSchemaReady()
     }
 
     EnsureActiveLottery();
+}
+
+void EnsureIdempotentAwardsSchema()
+{
+    if (g_Database == null)
+    {
+        return;
+    }
+
+    char query[1024];
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "award_key VARCHAR(%d) NOT NULL, "
+            ... "steamid64 VARCHAR(32) NOT NULL, "
+            ... "amount INT NOT NULL, "
+            ... "reason VARCHAR(64) NOT NULL DEFAULT '', "
+            ... "created_at INT NOT NULL, "
+            ... "PRIMARY KEY (award_key)"
+            ... ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+            BP_IDEMPOTENT_AWARDS_TABLE,
+            BP_IDEMPOTENT_KEY_MAX);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "award_key VARCHAR(%d) PRIMARY KEY, "
+            ... "steamid64 VARCHAR(32) NOT NULL, "
+            ... "amount INTEGER NOT NULL, "
+            ... "reason VARCHAR(64) NOT NULL DEFAULT '', "
+            ... "created_at INTEGER NOT NULL)",
+            BP_IDEMPOTENT_AWARDS_TABLE,
+            BP_IDEMPOTENT_KEY_MAX);
+    }
+
+    g_Database.Query(SQL_OnIdempotentAwardsSchemaReady, query);
+}
+
+public void SQL_OnIdempotentAwardsSchemaReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        g_IdempotentAwardsReady = false;
+        LogError("[points_store] Idempotent award schema creation failed: %s", error);
+        return;
+    }
+
+    g_IdempotentAwardsReady = true;
 }
 
 void LoadEconomyState()
@@ -4947,6 +5011,211 @@ public void SQL_OnBonusPointsSteamIdDeltaSaved(Database db, DBResultSet results,
         balanceAfter);
 }
 
+void FireIdempotentAwardResult(const char[] awardKey, bool success, bool newlyApplied)
+{
+    if (g_IdempotentAwardForward == null)
+    {
+        return;
+    }
+
+    Call_StartForward(g_IdempotentAwardForward);
+    Call_PushString(awardKey);
+    Call_PushCell(success);
+    Call_PushCell(newlyApplied);
+    Call_Finish();
+}
+
+void ApplyIdempotentAwardToCache(const char[] steamId, int amount, const char[] type)
+{
+    int client = FindClientBySteamId64(steamId);
+    int balanceAfter = -1;
+    if (client > 0 && g_ClientBonusPointsLoaded[client])
+    {
+        g_ClientBonusPoints[client] += amount;
+        balanceAfter = g_ClientBonusPoints[client];
+    }
+
+    char safeType[64];
+    strcopy(safeType, sizeof(safeType), type);
+    SanitizeLogField(safeType, sizeof(safeType));
+    LogPointsStoreEvent(
+        "event=bp_idempotent_award|time=%d|steamid64=%s|amount=%d|type=%s|client=%d|balance_after=%d",
+        GetTime(),
+        steamId,
+        amount,
+        safeType,
+        client,
+        balanceAfter);
+}
+
+bool QueueIdempotentBonusPointsAward(const char[] steamId, int amount, const char[] awardKey, const char[] type)
+{
+    if (!g_DatabaseReady || !g_IdempotentAwardsReady || g_Database == null
+        || steamId[0] == '\0' || amount <= 0 || awardKey[0] == '\0')
+    {
+        return false;
+    }
+
+    int steamLen = strlen(steamId);
+    if (steamLen < 16 || steamLen >= 32 || strlen(awardKey) >= BP_IDEMPOTENT_KEY_MAX)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < steamLen; i++)
+    {
+        if (!IsCharNumeric(steamId[i]))
+        {
+            return false;
+        }
+    }
+
+    char escapedSteam[65];
+    char escapedKey[(BP_IDEMPOTENT_KEY_MAX * 2) + 1];
+    char escapedType[129];
+    if (!EscapeSql(steamId, escapedSteam, sizeof(escapedSteam))
+        || !EscapeSql(awardKey, escapedKey, sizeof(escapedKey))
+        || !EscapeSql(type, escapedType, sizeof(escapedType)))
+    {
+        return false;
+    }
+
+    Transaction txn = new Transaction();
+    char query[768];
+    Format(query, sizeof(query),
+        "INSERT INTO %s (award_key, steamid64, amount, reason, created_at) "
+        ... "VALUES ('%s', '%s', %d, '%s', %d)",
+        BP_IDEMPOTENT_AWARDS_TABLE,
+        escapedKey,
+        escapedSteam,
+        amount,
+        escapedType,
+        GetTime());
+    txn.AddQuery(query);
+
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "INSERT INTO %s (steamid64, balance) VALUES ('%s', %d) "
+            ... "ON DUPLICATE KEY UPDATE balance = GREATEST(0, balance + VALUES(balance))",
+            BP_BALANCE_TABLE,
+            escapedSteam,
+            amount);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "INSERT INTO %s (steamid64, balance) VALUES ('%s', %d) "
+            ... "ON CONFLICT(steamid64) DO UPDATE SET balance = MAX(0, balance + excluded.balance)",
+            BP_BALANCE_TABLE,
+            escapedSteam,
+            amount);
+    }
+    txn.AddQuery(query);
+
+    DataPack pack = new DataPack();
+    pack.WriteString(awardKey);
+    pack.WriteString(steamId);
+    pack.WriteCell(amount);
+    pack.WriteString(type);
+    g_Database.Execute(txn, SQLTxn_OnIdempotentAwardSuccess, SQLTxn_OnIdempotentAwardFailure, pack);
+    return true;
+}
+
+public void SQLTxn_OnIdempotentAwardSuccess(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+
+    char awardKey[BP_IDEMPOTENT_KEY_MAX];
+    char steamId[32];
+    char type[64];
+    pack.ReadString(awardKey, sizeof(awardKey));
+    pack.ReadString(steamId, sizeof(steamId));
+    int amount = pack.ReadCell();
+    pack.ReadString(type, sizeof(type));
+    delete pack;
+
+    ApplyIdempotentAwardToCache(steamId, amount, type);
+    FireIdempotentAwardResult(awardKey, true, true);
+}
+
+public void SQLTxn_OnIdempotentAwardFailure(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+
+    char awardKey[BP_IDEMPOTENT_KEY_MAX];
+    char steamId[32];
+    char type[64];
+    pack.ReadString(awardKey, sizeof(awardKey));
+    pack.ReadString(steamId, sizeof(steamId));
+    pack.ReadCell();
+    pack.ReadString(type, sizeof(type));
+
+    bool duplicate = StrContains(error, "Duplicate entry", false) != -1
+        || StrContains(error, "UNIQUE constraint failed", false) != -1;
+    if (!duplicate)
+    {
+        LogError("[points_store] Idempotent award '%s' failed at query %d: %s", awardKey, failIndex, error);
+        delete pack;
+        FireIdempotentAwardResult(awardKey, false, false);
+        return;
+    }
+
+    char escapedKey[(BP_IDEMPOTENT_KEY_MAX * 2) + 1];
+    if (!EscapeSql(awardKey, escapedKey, sizeof(escapedKey)))
+    {
+        delete pack;
+        FireIdempotentAwardResult(awardKey, false, false);
+        return;
+    }
+
+    char query[384];
+    Format(query, sizeof(query),
+        "SELECT steamid64, amount, reason FROM %s WHERE award_key = '%s' LIMIT 1",
+        BP_IDEMPOTENT_AWARDS_TABLE,
+        escapedKey);
+    g_Database.Query(SQL_OnIdempotentAwardVerified, query, pack);
+}
+
+public void SQL_OnIdempotentAwardVerified(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+
+    char awardKey[BP_IDEMPOTENT_KEY_MAX];
+    char expectedSteamId[32];
+    char expectedType[64];
+    pack.ReadString(awardKey, sizeof(awardKey));
+    pack.ReadString(expectedSteamId, sizeof(expectedSteamId));
+    int expectedAmount = pack.ReadCell();
+    pack.ReadString(expectedType, sizeof(expectedType));
+    delete pack;
+
+    if (error[0] != '\0' || results == null || !results.FetchRow())
+    {
+        LogError("[points_store] Could not verify existing idempotent award '%s': %s", awardKey, error);
+        FireIdempotentAwardResult(awardKey, false, false);
+        return;
+    }
+
+    char actualSteamId[32];
+    char actualType[64];
+    results.FetchString(0, actualSteamId, sizeof(actualSteamId));
+    int actualAmount = results.FetchInt(1);
+    results.FetchString(2, actualType, sizeof(actualType));
+
+    bool matches = StrEqual(actualSteamId, expectedSteamId, false)
+        && actualAmount == expectedAmount
+        && StrEqual(actualType, expectedType, false);
+    if (!matches)
+    {
+        LogError("[points_store] Idempotent award key collision for '%s'.", awardKey);
+    }
+    FireIdempotentAwardResult(awardKey, matches, false);
+}
+
 bool QueueBonusPointsDeltaSave(int client, int delta)
 {
     char steamId[32];
@@ -6685,6 +6954,26 @@ public any Native_PointsStore_ApplyBonusPointsSteamId(Handle plugin, int numPara
 
     int perMap = (numParams >= 6) ? GetNativeCell(6) : 0;
     return ApplyBonusPointsSteamId(steamId, points, playSound, chatAlert, type, perMap, true);
+}
+
+public any Native_PointsStore_ApplyBonusPointsSteamIdOnce(Handle plugin, int numParams)
+{
+    char steamId[32];
+    char awardKey[BP_IDEMPOTENT_KEY_MAX];
+    char type[64];
+    GetNativeString(1, steamId, sizeof(steamId));
+    int amount = GetNativeCell(2);
+    GetNativeString(3, awardKey, sizeof(awardKey));
+    strcopy(type, sizeof(type), "api_idempotent_award");
+    if (numParams >= 4)
+    {
+        GetNativeString(4, type, sizeof(type));
+    }
+    TrimString(steamId);
+    TrimString(awardKey);
+    TrimString(type);
+
+    return QueueIdempotentBonusPointsAward(steamId, amount, awardKey, type);
 }
 
 public any Native_PointsStore_SpendBonusPoints(Handle plugin, int numParams)

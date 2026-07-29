@@ -51,6 +51,29 @@ native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound 
 native bool PointsStore_ApplyBonusPointsSteamId(const char[] steamId64, int points, bool playSound = true, bool chatAlert = true, const char[] type = "", int perMap = 0);
 
 /**
+ * Applies an offline-safe currency award exactly once for a stable key.
+ *
+ * The award key and balance update are committed in one database transaction.
+ * Completion is reported through PointsStore_OnApplyBonusPointsSteamIdOnce.
+ *
+ * @param steamId64     Target SteamID64.
+ * @param points        Positive currency amount.
+ * @param awardKey      Globally unique idempotency key.
+ * @param type          Statistics/logging reason.
+ * @return              True if the asynchronous transaction was queued.
+ */
+native bool PointsStore_ApplyBonusPointsSteamIdOnce(const char[] steamId64, int points, const char[] awardKey, const char[] type = "api_idempotent_award");
+
+/**
+ * Fired after an idempotent currency award resolves.
+ *
+ * @param awardKey      Idempotency key supplied by the caller.
+ * @param success       True if the award exists and matches the request.
+ * @param newlyApplied  True only when this call created the award.
+ */
+forward void PointsStore_OnApplyBonusPointsSteamIdOnce(const char[] awardKey, bool success, bool newlyApplied);
+
+/**
  * Spends currency immediately without sound or chat output.
  *
  * @param client        Client index.
@@ -138,6 +161,7 @@ public void __pl_points_store_SetNTVOptional()
     MarkNativeAsOptional("PointsStore_GetBonusPoints");
     MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
     MarkNativeAsOptional("PointsStore_ApplyBonusPointsSteamId");
+    MarkNativeAsOptional("PointsStore_ApplyBonusPointsSteamIdOnce");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
     MarkNativeAsOptional("PointsStore_StealBonusPoints");
     MarkNativeAsOptional("PointsStore_HasPurchase");

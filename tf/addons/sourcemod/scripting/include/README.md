@@ -144,6 +144,8 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `PointsStore_GetBonusPoints` - Returns a client's current currency balance.
 - `PointsStore_ApplyBonusPoints` - Applies a currency delta to a connected client.
 - `PointsStore_ApplyBonusPointsSteamId` - Applies a currency delta to a SteamID64, including offline players.
+- `PointsStore_ApplyBonusPointsSteamIdOnce` - Applies an offline-safe currency award once for a stable key.
+- `PointsStore_OnApplyBonusPointsSteamIdOnce` - Reports the confirmed result of an idempotent currency award.
 - `PointsStore_SpendBonusPoints` - Spends a connected client's currency without chat or sound output.
 - `PointsStore_HasPurchase` - Returns whether a client owns a shop item.
 - `PointsStore_GetPurchasePrice` - Returns the price paid for a shop item.
@@ -159,6 +161,15 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `SaySounds_CanClientUseCommand` - Returns whether a client can use a say-sound command.
 - `SaySounds_IsCommandPaid` - Returns whether a say-sound command costs currency.
 - `SaySounds_GetCommandGroup` - Writes a say-sound command's group into a buffer.
+
+## server_mail.inc
+- `ServerMail_Send` - Sends ordinary mail between connected clients.
+- `ServerMail_SendCustom` - Sends custom-titled mail between connected clients.
+- `ServerMail_SendCurrency` - Sends currency mail between connected clients.
+- `ServerMail_SendSteamId` - Sends ordinary mail to an offline-capable SteamID64.
+- `ServerMail_SendCustomSteamId` - Sends custom-titled mail to an offline-capable SteamID64.
+- `ServerMail_SendCurrencySteamId` - Sends idempotent currency mail to an offline-capable SteamID64.
+- `ServerMail_OnMailSendResult` - Reports the confirmed result of an API mail insert.
 
 ## scattergun_pellets.inc
 - `TF2Shotgun_OnPelletShot` - Fires when shotgun pellet damage is recorded.
