@@ -24,6 +24,7 @@
 #define MAIL_SEARCH_MAX 64
 #define MAIL_LIST_MAX 50
 #define MAIL_RECONNECT_DELAY 5.0
+#define MAIL_SEND_COOLDOWN 60.0
 #define MAIL_PREFIX "{cornflowerblue}[Mail]{default}"
 
 enum MailViewMode
@@ -52,6 +53,8 @@ char g_MailPendingSearch[MAXPLAYERS + 1][MAIL_NAME_MAX];
 int g_MailPendingGems[MAXPLAYERS + 1];
 int g_MailSearchGeneration[MAXPLAYERS + 1];
 int g_MailGiftSerial = 0;
+float g_MailNextSendAllowedAt[MAXPLAYERS + 1];
+bool g_MailUserSendPending[MAXPLAYERS + 1];
 
 StringMap g_MailPendingRedemptions = null;
 StringMap g_MailRedemptionUsers = null;
@@ -143,6 +146,8 @@ public void OnPluginEnd()
 public void OnClientDisconnect(int client)
 {
     ClearClientMailState(client);
+    g_MailNextSendAllowedAt[client] = 0.0;
+    g_MailUserSendPending[client] = false;
     Stimulus_ResetClient(client);
 }
 
@@ -177,6 +182,42 @@ void ClearClientMailState(int client)
 bool IsMailClient(int client)
 {
     return client > 0 && client <= MaxClients && IsClientInGame(client) && !IsFakeClient(client);
+}
+
+bool CheckMailSendCooldown(int client)
+{
+    if (g_MailUserSendPending[client])
+    {
+        CPrintToChat(client, "%s Your mail is still being sent. Try again in a moment.", MAIL_PREFIX);
+        return false;
+    }
+
+    float remaining = g_MailNextSendAllowedAt[client] - GetEngineTime();
+    if (remaining > 0.0)
+    {
+        CPrintToChat(client,
+            "%s Wait {gold}%d{default} seconds before sending mail or gifts again.",
+            MAIL_PREFIX,
+            RoundToCeil(remaining));
+        return false;
+    }
+
+    return true;
+}
+
+void FinishUserMailSend(int senderUserId, bool success)
+{
+    int client = GetClientOfUserId(senderUserId);
+    if (!IsMailClient(client))
+    {
+        return;
+    }
+
+    g_MailUserSendPending[client] = false;
+    if (success)
+    {
+        g_MailNextSendAllowedAt[client] = GetEngineTime() + MAIL_SEND_COOLDOWN;
+    }
 }
 
 bool IsPointsStoreAwardAvailable()
@@ -496,6 +537,11 @@ public Action Command_Mail(int client, int args)
         return Plugin_Handled;
     }
 
+    if (!CheckMailSendCooldown(client))
+    {
+        return Plugin_Handled;
+    }
+
     BeginMailCommand(client);
     return Plugin_Handled;
 }
@@ -521,6 +567,11 @@ public Action Command_Gift(int client, int args)
     if (!g_MailDatabaseReady || !IsPointsStoreGiftAvailable())
     {
         CPrintToChat(client, "%s Gifting is temporarily unavailable.", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+
+    if (!CheckMailSendCooldown(client))
+    {
         return Plugin_Handled;
     }
 
@@ -906,6 +957,12 @@ public int MenuHandler_MailSearchResults(Menu menu, MenuAction action, int clien
         return 0;
     }
 
+    if (!CheckMailSendCooldown(client))
+    {
+        ClearClientMailState(client);
+        return 0;
+    }
+
     int gems = g_MailPendingGems[client];
     char requestKey[MAIL_REQUEST_KEY_MAX];
     requestKey[0] = '\0';
@@ -942,7 +999,7 @@ public int MenuHandler_MailSearchResults(Menu menu, MenuAction action, int clien
             g_MailGiftSerial);
     }
 
-    if (!QueueMailInsert(
+    bool queued = QueueMailInsert(
         senderSteamId,
         senderName,
         receiverSteamId,
@@ -952,7 +1009,9 @@ public int MenuHandler_MailSearchResults(Menu menu, MenuAction action, int clien
         gems,
         requestKey,
         GetClientUserId(client),
-        true))
+        true,
+        true);
+    if (!queued)
     {
         if (gems > 0
             && !PointsStore_ApplyBonusPointsSteamId(
@@ -965,6 +1024,10 @@ public int MenuHandler_MailSearchResults(Menu menu, MenuAction action, int clien
             LogError("[server_mail] Failed to refund rejected gift from %s.", senderSteamId);
         }
         CPrintToChat(client, "%s Failed to queue mail. Try again.", MAIL_PREFIX);
+    }
+    else
+    {
+        g_MailUserSendPending[client] = true;
     }
     g_MailPendingContents[client][0] = '\0';
     g_MailPendingGems[client] = 0;
@@ -996,7 +1059,8 @@ bool QueueMailInsert(
     int gems,
     const char[] requestKey,
     int senderUserId = 0,
-    bool notifyPlayers = false)
+    bool notifyPlayers = false,
+    bool userInitiated = false)
 {
     if (!g_MailDatabaseReady || g_MailDatabase == null
         || !IsValidSteamId64(receiverSteamId)
@@ -1093,6 +1157,7 @@ bool QueueMailInsert(
     pack.WriteString(receiverSteamId);
     pack.WriteString(receiverName);
     pack.WriteCell(gems);
+    pack.WriteCell(userInitiated ? 1 : 0);
     g_MailDatabase.Query(SQL_OnMailInserted, query, pack);
     return true;
 }
@@ -1115,10 +1180,16 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
     pack.ReadString(receiverSteamId, sizeof(receiverSteamId));
     pack.ReadString(receiverName, sizeof(receiverName));
     int gems = pack.ReadCell();
+    bool userInitiated = pack.ReadCell() != 0;
     delete pack;
 
     if (error[0] != '\0' || results == null)
     {
+        if (userInitiated)
+        {
+            FinishUserMailSend(senderUserId, false);
+        }
+
         LogError("[server_mail] Mail insert failed: %s", error);
         FireMailSendResult(requestKey, false, 0, false);
         Stimulus_OnMailInsertResult(requestKey, false, 0);
@@ -1146,6 +1217,10 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
 
     int mailId = results.InsertId;
     bool newlyCreated = results.AffectedRows == 1;
+    if (userInitiated)
+    {
+        FinishUserMailSend(senderUserId, newlyCreated);
+    }
     FireMailSendResult(requestKey, true, mailId, newlyCreated);
     Stimulus_OnMailInsertResult(requestKey, true, mailId);
 
