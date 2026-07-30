@@ -99,6 +99,16 @@ native bool ServerMail_SendCurrencySteamId(
     const char[] requestKey = "");
 
 /**
+ * Checks a participating client for pending deployed Stimulus Checks.
+ *
+ * The caller must only invoke this after WhaleTracker has recorded at least
+ * one current-map kill for the client.
+ *
+ * @return              True if the asynchronous check was queued.
+ */
+native bool ServerMail_CheckPendingStimulus(int client);
+
+/**
  * Fired after an API-created mail insert resolves.
  *
  * @param requestKey    Caller-provided request key.
@@ -123,4 +133,5 @@ public void __pl_server_mail_SetNTVOptional()
     MarkNativeAsOptional("ServerMail_SendSteamId");
     MarkNativeAsOptional("ServerMail_SendCustomSteamId");
     MarkNativeAsOptional("ServerMail_SendCurrencySteamId");
+    MarkNativeAsOptional("ServerMail_CheckPendingStimulus");
 }

@@ -76,6 +76,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     CreateNative("ServerMail_SendSteamId", Native_ServerMail_SendSteamId);
     CreateNative("ServerMail_SendCustomSteamId", Native_ServerMail_SendCustomSteamId);
     CreateNative("ServerMail_SendCurrencySteamId", Native_ServerMail_SendCurrencySteamId);
+    CreateNative("ServerMail_CheckPendingStimulus", Native_ServerMail_CheckPendingStimulus);
 
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("Filters_GetSteamIdColorTag");
@@ -98,6 +99,7 @@ public void OnPluginStart()
 {
     RegConsoleCmd("sm_mail", Command_Mail, "Open mail or send mail to a ranked player.");
     RegConsoleCmd("sm_gift", Command_Gift, "Mail Gems to a ranked player.");
+    Stimulus_OnPluginStart();
 
     g_MailPendingRedemptions = new StringMap();
     g_MailRedemptionUsers = new StringMap();
@@ -140,6 +142,12 @@ public void OnPluginEnd()
 public void OnClientDisconnect(int client)
 {
     ClearClientMailState(client);
+    Stimulus_ResetClient(client);
+}
+
+public void OnMapStart()
+{
+    Stimulus_OnMapStart();
 }
 
 public void OnLibraryRemoved(const char[] name)
@@ -256,6 +264,7 @@ void EnsureMailSchema()
             ... "contents VARCHAR(512) NOT NULL, "
             ... "gems INT NOT NULL DEFAULT 0, "
             ... "gems_redeemed TINYINT NOT NULL DEFAULT 0, "
+            ... "expires_at INT NOT NULL DEFAULT 0, "
             ... "idempotency_key VARCHAR(128) NULL, "
             ... "PRIMARY KEY (mail_id), "
             ... "UNIQUE KEY unique_mail_idempotency (idempotency_key), "
@@ -278,6 +287,7 @@ void EnsureMailSchema()
             ... "contents VARCHAR(512) NOT NULL, "
             ... "gems INTEGER NOT NULL DEFAULT 0, "
             ... "gems_redeemed INTEGER NOT NULL DEFAULT 0, "
+            ... "expires_at INTEGER NOT NULL DEFAULT 0, "
             ... "idempotency_key VARCHAR(128) UNIQUE)");
     }
 
@@ -293,7 +303,46 @@ public void SQL_OnMailSchemaReady(Database db, DBResultSet results, const char[]
         return;
     }
 
+    EnsureMailExpiryColumn();
+}
+
+void EnsureMailExpiryColumn()
+{
+    char query[256];
+    if (g_MailDatabaseIsMySql)
+    {
+        FormatEx(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN IF NOT EXISTS expires_at INT NOT NULL DEFAULT 0 AFTER gems_redeemed",
+            MAIL_TABLE);
+    }
+    else
+    {
+        FormatEx(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN expires_at INTEGER NOT NULL DEFAULT 0",
+            MAIL_TABLE);
+    }
+    g_MailDatabase.Query(SQL_OnMailExpiryColumnReady, query);
+}
+
+public void SQL_OnMailExpiryColumnReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0'
+        && StrContains(error, "duplicate column", false) == -1
+        && StrContains(error, "already exists", false) == -1)
+    {
+        LogError("[server_mail] Mail expiry schema migration failed: %s", error);
+        ScheduleMailReconnect();
+        return;
+    }
+
+    Stimulus_EnsureSchema();
+}
+
+void FinishMailSchemaReady()
+{
     g_MailDatabaseReady = true;
+    Stimulus_BackfillExistingExpiry();
+    Stimulus_CleanupExpiredMail();
 }
 
 bool EscapeMailSql(const char[] input, char[] output, int maxlen)
@@ -948,40 +997,44 @@ bool QueueMailInsert(
         Format(idempotencyValue, sizeof(idempotencyValue), "'%s'", escapedRequest);
     }
 
+    int createdAt = GetTime();
+    int expiresAt = Stimulus_GetMailExpiry(title, createdAt);
     char query[4096];
     if (g_MailDatabaseIsMySql)
     {
         FormatEx(query, sizeof(query),
             "INSERT INTO %s "
-            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, idempotency_key) "
-            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, %s) "
+            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, expires_at, idempotency_key) "
+            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, %d, %s) "
             ... "ON DUPLICATE KEY UPDATE mail_id = LAST_INSERT_ID(mail_id)",
             MAIL_TABLE,
             escapedSenderSteam,
             escapedSenderName,
             escapedReceiverSteam,
             escapedReceiverName,
-            GetTime(),
+            createdAt,
             escapedTitle,
             escapedContents,
             gems,
+            expiresAt,
             idempotencyValue);
     }
     else
     {
         FormatEx(query, sizeof(query),
             "INSERT OR IGNORE INTO %s "
-            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, idempotency_key) "
-            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, %s)",
+            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, expires_at, idempotency_key) "
+            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, %d, %s)",
             MAIL_TABLE,
             escapedSenderSteam,
             escapedSenderName,
             escapedReceiverSteam,
             escapedReceiverName,
-            GetTime(),
+            createdAt,
             escapedTitle,
             escapedContents,
             gems,
+            expiresAt,
             idempotencyValue);
     }
 
@@ -1022,6 +1075,7 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
     {
         LogError("[server_mail] Mail insert failed: %s", error);
         FireMailSendResult(requestKey, false, 0, false);
+        Stimulus_OnMailInsertResult(requestKey, false, 0);
 
         if (gems > 0
             && StrContains(requestKey, "server_mail:gift:", false) == 0
@@ -1047,6 +1101,7 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
     int mailId = results.InsertId;
     bool newlyCreated = results.AffectedRows == 1;
     FireMailSendResult(requestKey, true, mailId, newlyCreated);
+    Stimulus_OnMailInsertResult(requestKey, true, mailId);
 
     if (!newlyCreated
         && gems > 0
@@ -1200,22 +1255,29 @@ void RequestMailList(int client, MailViewMode mode)
     }
 
     char query[1024];
+    int now = GetTime();
     if (mode == MailView_Inbox)
     {
         FormatEx(query, sizeof(query),
             "SELECT mail_id, title, created_at, gems, sender_name FROM %s "
-            ... "WHERE receiver_steamid64 = '%s' ORDER BY created_at DESC, mail_id DESC LIMIT %d",
+            ... "WHERE receiver_steamid64 = '%s' "
+            ... "AND (expires_at = 0 OR expires_at > %d OR gems_redeemed != 0) "
+            ... "ORDER BY created_at DESC, mail_id DESC LIMIT %d",
             MAIL_TABLE,
             escapedSteam,
+            now,
             MAIL_LIST_MAX);
     }
     else
     {
         FormatEx(query, sizeof(query),
             "SELECT mail_id, title, created_at, gems, receiver_name FROM %s "
-            ... "WHERE sender_steamid64 = '%s' ORDER BY created_at DESC, mail_id DESC LIMIT %d",
+            ... "WHERE sender_steamid64 = '%s' "
+            ... "AND (expires_at = 0 OR expires_at > %d OR gems_redeemed != 0) "
+            ... "ORDER BY created_at DESC, mail_id DESC LIMIT %d",
             MAIL_TABLE,
             escapedSteam,
+            now,
             MAIL_LIST_MAX);
     }
 
@@ -1326,11 +1388,13 @@ void RequestMailDetails(int client, int mailId, MailViewMode mode)
     char query[1024];
     FormatEx(query, sizeof(query),
         "SELECT mail_id, sender_steamid64, sender_name, receiver_name, created_at, title, contents, gems, gems_redeemed "
-        ... "FROM %s WHERE mail_id = %d AND %s = '%s' LIMIT 1",
+        ... "FROM %s WHERE mail_id = %d AND %s = '%s' "
+        ... "AND (expires_at = 0 OR expires_at > %d OR gems_redeemed != 0) LIMIT 1",
         MAIL_TABLE,
         mailId,
         mode == MailView_Inbox ? "receiver_steamid64" : "sender_steamid64",
-        escapedSteam);
+        escapedSteam,
+        GetTime());
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
@@ -1496,10 +1560,13 @@ void BeginMailRedemption(int client, int mailId)
     char query[768];
     FormatEx(query, sizeof(query),
         "SELECT title, gems FROM %s "
-        ... "WHERE mail_id = %d AND receiver_steamid64 = '%s' AND gems > 0 AND gems_redeemed = 0 LIMIT 1",
+        ... "WHERE mail_id = %d AND receiver_steamid64 = '%s' "
+        ... "AND gems > 0 AND gems_redeemed = 0 "
+        ... "AND (expires_at = 0 OR expires_at > %d) LIMIT 1",
         MAIL_TABLE,
         mailId,
-        escapedSteam);
+        escapedSteam,
+        GetTime());
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
@@ -1597,7 +1664,7 @@ public void PointsStore_OnApplyBonusPointsSteamIdOnce(const char[] awardKey, boo
 
     char query[512];
     FormatEx(query, sizeof(query),
-        "UPDATE %s SET gems_redeemed = 1 "
+        "UPDATE %s SET gems_redeemed = 1, expires_at = 0 "
         ... "WHERE mail_id = %d AND receiver_steamid64 = '%s' AND gems_redeemed = 0",
         MAIL_TABLE,
         mailId,
@@ -1835,3 +1902,5 @@ public any Native_ServerMail_SendCurrencySteamId(Handle plugin, int numParams)
 {
     return QueueSteamNativeMail(numParams, true, true);
 }
+
+#include "server_mail/stimulus.sp"
