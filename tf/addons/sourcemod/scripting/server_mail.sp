@@ -1079,19 +1079,52 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
         return;
     }
 
+    int receiver = FindMailClientBySteamId(receiverSteamId);
+    int liveSender = FindMailClientBySteamId(senderSteamId);
+    if (gems > 0 && StrContains(requestKey, "server_mail:gift:", false) == 0)
+    {
+        char coloredSender[256];
+        char coloredReceiver[256];
+        char currencyColor[40];
+        char currencyName[64];
+        BuildColoredMailName(liveSender, senderSteamId, senderName, coloredSender, sizeof(coloredSender));
+        BuildColoredMailName(receiver, receiverSteamId, receiverName, coloredReceiver, sizeof(coloredReceiver));
+        GetCurrencyFormatting(currencyColor, sizeof(currencyColor), currencyName, sizeof(currencyName));
+
+        int author = IsMailClient(liveSender) ? liveSender : receiver;
+        if (IsMailClient(author))
+        {
+            CPrintToChatAllEx(author,
+                "{cornflowerblue}[Mail] %s{default} gifted %s{default} %s%d %s{default}!",
+                coloredSender,
+                coloredReceiver,
+                currencyColor,
+                gems,
+                currencyName);
+        }
+        else
+        {
+            CPrintToChatAll(
+                "{cornflowerblue}[Mail] %s{default} gifted %s{default} %s%d %s{default}!",
+                coloredSender,
+                coloredReceiver,
+                currencyColor,
+                gems,
+                currencyName);
+        }
+        return;
+    }
+
     int sender = GetClientOfUserId(senderUserId);
     if (IsMailClient(sender))
     {
-        int receiver = FindMailClientBySteamId(receiverSteamId);
         char coloredReceiver[256];
         BuildColoredMailName(receiver, receiverSteamId, receiverName, coloredReceiver, sizeof(coloredReceiver));
         CPrintToChatEx(sender, receiver > 0 ? receiver : sender, "%s Sent to %s{default}.", MAIL_PREFIX, coloredReceiver);
     }
 
-    int receiver = FindMailClientBySteamId(receiverSteamId);
     if (IsMailClient(receiver))
     {
-        int liveSender = FindMailClientBySteamId(senderSteamId);
         char coloredSender[256];
         BuildColoredMailName(liveSender, senderSteamId, senderName, coloredSender, sizeof(coloredSender));
         CPrintToChatEx(receiver, liveSender > 0 ? liveSender : receiver,
