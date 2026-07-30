@@ -98,6 +98,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
 public void OnPluginStart()
 {
     RegConsoleCmd("sm_mail", Command_Mail, "Open mail or send mail to a ranked player.");
+    RegConsoleCmd("sm_inbox", Command_Inbox, "Open your mail inbox.");
     RegConsoleCmd("sm_gift", Command_Gift, "Mail Gems to a ranked player.");
     Stimulus_OnPluginStart();
 
@@ -462,6 +463,17 @@ public Action Command_Mail(int client, int args)
     }
 
     BeginMailCommand(client);
+    return Plugin_Handled;
+}
+
+public Action Command_Inbox(int client, int args)
+{
+    if (!IsMailClient(client))
+    {
+        return Plugin_Handled;
+    }
+
+    RequestMailList(client, MailView_Inbox);
     return Plugin_Handled;
 }
 
