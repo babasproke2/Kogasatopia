@@ -267,6 +267,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_bonuspointsranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
     RegConsoleCmd("sm_bpranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
     RegConsoleCmd("sm_gl", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
+    RegConsoleCmd("sm_send", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_sendbp", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_bpsend", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_gem", Command_ShowBonusPoints, "Show your currency balance.");

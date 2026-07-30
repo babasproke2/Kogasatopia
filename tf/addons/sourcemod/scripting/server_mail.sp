@@ -97,7 +97,6 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
 public void OnPluginStart()
 {
     RegConsoleCmd("sm_mail", Command_Mail, "Open mail or send mail to a ranked player.");
-    RegConsoleCmd("sm_send", Command_SendMail, "Send mail to a ranked player.");
     RegConsoleCmd("sm_gift", Command_Gift, "Mail Gems to a ranked player.");
 
     g_MailPendingRedemptions = new StringMap();
@@ -417,17 +416,6 @@ public Action Command_Mail(int client, int args)
     return Plugin_Handled;
 }
 
-public Action Command_SendMail(int client, int args)
-{
-    if (!IsMailClient(client))
-    {
-        return Plugin_Handled;
-    }
-
-    BeginMailCommand(client);
-    return Plugin_Handled;
-}
-
 public Action Command_Gift(int client, int args)
 {
     if (!IsMailClient(client))
@@ -522,7 +510,7 @@ public int MenuHandler_MailMain(Menu menu, MenuAction action, int client, int it
     menu.GetItem(item, info, sizeof(info));
     if (StrEqual(info, "send"))
     {
-        CPrintToChat(client, "%s Type {gold}!send playername hey how are you?{default} to send a player mail, even an offline player!", MAIL_PREFIX);
+        CPrintToChat(client, "%s Type {gold}!mail playername hey how are you?{default} to send a player mail, even an offline player!", MAIL_PREFIX);
     }
     else if (StrEqual(info, "gift"))
     {
@@ -556,7 +544,7 @@ void BeginMailCommand(int client)
     int position = BreakString(raw, search, sizeof(search));
     if (position == -1)
     {
-        CPrintToChat(client, "%s Usage: {gold}!send playername message", MAIL_PREFIX);
+        CPrintToChat(client, "%s Usage: {gold}!mail playername message", MAIL_PREFIX);
         return;
     }
 
@@ -566,7 +554,7 @@ void BeginMailCommand(int client)
     TrimString(contents);
     if (search[0] == '\0' || contents[0] == '\0')
     {
-        CPrintToChat(client, "%s Usage: {gold}!send playername message", MAIL_PREFIX);
+        CPrintToChat(client, "%s Usage: {gold}!mail playername message", MAIL_PREFIX);
         return;
     }
 
