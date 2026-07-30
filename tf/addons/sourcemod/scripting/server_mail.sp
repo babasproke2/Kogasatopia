@@ -49,7 +49,9 @@ GlobalForward g_MailSendResultForward = null;
 ArrayList g_MailSearchResults[MAXPLAYERS + 1];
 char g_MailPendingContents[MAXPLAYERS + 1][MAIL_CONTENTS_MAX];
 char g_MailPendingSearch[MAXPLAYERS + 1][MAIL_NAME_MAX];
+int g_MailPendingGems[MAXPLAYERS + 1];
 int g_MailSearchGeneration[MAXPLAYERS + 1];
+int g_MailGiftSerial = 0;
 
 StringMap g_MailPendingRedemptions = null;
 StringMap g_MailRedemptionUsers = null;
@@ -96,6 +98,7 @@ public void OnPluginStart()
 {
     RegConsoleCmd("sm_mail", Command_Mail, "Open mail or send mail to a ranked player.");
     RegConsoleCmd("sm_send", Command_SendMail, "Send mail to a ranked player.");
+    RegConsoleCmd("sm_gift", Command_Gift, "Mail Gems to a ranked player.");
 
     g_MailPendingRedemptions = new StringMap();
     g_MailRedemptionUsers = new StringMap();
@@ -159,6 +162,7 @@ void ClearClientMailState(int client)
     g_MailSearchResults[client] = null;
     g_MailPendingContents[client][0] = '\0';
     g_MailPendingSearch[client][0] = '\0';
+    g_MailPendingGems[client] = 0;
     g_MailSearchGeneration[client]++;
 }
 
@@ -170,6 +174,15 @@ bool IsMailClient(int client)
 bool IsPointsStoreAwardAvailable()
 {
     return GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPointsSteamIdOnce") == FeatureStatus_Available;
+}
+
+bool IsPointsStoreGiftAvailable()
+{
+    return IsPointsStoreAwardAvailable()
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_AreBonusPointsLoaded") == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_GetBonusPoints") == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_SpendBonusPoints") == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPointsSteamId") == FeatureStatus_Available;
 }
 
 void ConnectMailDatabase()
@@ -415,11 +428,77 @@ public Action Command_SendMail(int client, int args)
     return Plugin_Handled;
 }
 
+public Action Command_Gift(int client, int args)
+{
+    if (!IsMailClient(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (!g_MailDatabaseReady || !IsPointsStoreGiftAvailable())
+    {
+        CPrintToChat(client, "%s Gifting is temporarily unavailable.", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+
+    if (args != 2)
+    {
+        CPrintToChat(client, "%s Usage: {gold}!gift playername amount", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+
+    char search[MAIL_NAME_MAX];
+    char amountText[32];
+    GetCmdArg(1, search, sizeof(search));
+    GetCmdArg(2, amountText, sizeof(amountText));
+    TrimString(search);
+    TrimString(amountText);
+
+    int amount;
+    if (search[0] == '\0' || StringToIntEx(amountText, amount) == 0 || amount <= 0)
+    {
+        CPrintToChat(client, "%s Usage: {gold}!gift playername amount", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+
+    if (!PointsStore_AreBonusPointsLoaded(client))
+    {
+        CPrintToChat(client, "%s Your currency balance is still loading.", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+
+    int balance = PointsStore_GetBonusPoints(client);
+    if (balance < amount)
+    {
+        char currencyColor[40];
+        char currencyName[64];
+        GetCurrencyFormatting(currencyColor, sizeof(currencyColor), currencyName, sizeof(currencyName));
+        CPrintToChat(client,
+            "%s You need %s%d %s{default} to send that gift.",
+            MAIL_PREFIX,
+            currencyColor,
+            amount,
+            currencyName);
+        return Plugin_Handled;
+    }
+
+    char currencyColor[40];
+    char currencyName[64];
+    GetCurrencyFormatting(currencyColor, sizeof(currencyColor), currencyName, sizeof(currencyName));
+    strcopy(g_MailPendingSearch[client], sizeof(g_MailPendingSearch[]), search);
+    FormatEx(g_MailPendingContents[client], sizeof(g_MailPendingContents[]),
+        "You received %d %s.", amount, currencyName);
+    g_MailPendingGems[client] = amount;
+    RequestMailPlayerSearch(client);
+    return Plugin_Handled;
+}
+
 void ShowMailMainMenu(int client)
 {
     Menu menu = new Menu(MenuHandler_MailMain);
     menu.SetTitle("Mail");
     menu.AddItem("send", "Send Mail");
+    menu.AddItem("gift", "Gift Gems");
     menu.AddItem("inbox", "Check Inbox");
     menu.AddItem("sent", "Read Sent Mail");
     menu.ExitButton = true;
@@ -444,6 +523,10 @@ public int MenuHandler_MailMain(Menu menu, MenuAction action, int client, int it
     if (StrEqual(info, "send"))
     {
         CPrintToChat(client, "%s Type {gold}!send playername hey how are you?{default} to send a player mail, even an offline player!", MAIL_PREFIX);
+    }
+    else if (StrEqual(info, "gift"))
+    {
+        CPrintToChat(client, "%s Type {gold}!gift playername amount{default} to mail a player Gems.", MAIL_PREFIX);
     }
     else if (StrEqual(info, "inbox"))
     {
@@ -489,6 +572,7 @@ void BeginMailCommand(int client)
 
     strcopy(g_MailPendingSearch[client], sizeof(g_MailPendingSearch[]), search);
     strcopy(g_MailPendingContents[client], sizeof(g_MailPendingContents[]), contents);
+    g_MailPendingGems[client] = 0;
     RequestMailPlayerSearch(client);
 }
 
@@ -669,7 +753,7 @@ void ShowMailSearchResults(int client)
     }
 
     Menu menu = new Menu(MenuHandler_MailSearchResults);
-    menu.SetTitle("Send mail to:");
+    menu.SetTitle(g_MailPendingGems[client] > 0 ? "Gift Gems to:" : "Send mail to:");
 
     MailSearchResult entry;
     char display[256];
@@ -739,21 +823,68 @@ public int MenuHandler_MailSearchResults(Menu menu, MenuAction action, int clien
         return 0;
     }
 
+    int gems = g_MailPendingGems[client];
+    char requestKey[MAIL_REQUEST_KEY_MAX];
+    requestKey[0] = '\0';
+    if (gems > 0)
+    {
+        if (StrEqual(senderSteamId, receiverSteamId, false))
+        {
+            CPrintToChat(client, "%s You cannot gift Gems to yourself.", MAIL_PREFIX);
+            ClearClientMailState(client);
+            return 0;
+        }
+
+        if (!IsPointsStoreGiftAvailable() || !PointsStore_AreBonusPointsLoaded(client))
+        {
+            CPrintToChat(client, "%s Your currency balance is unavailable.", MAIL_PREFIX);
+            ClearClientMailState(client);
+            return 0;
+        }
+
+        if (PointsStore_GetBonusPoints(client) < gems
+            || !PointsStore_SpendBonusPoints(client, gems))
+        {
+            CPrintToChat(client, "%s You no longer have enough Gems for that gift.", MAIL_PREFIX);
+            ClearClientMailState(client);
+            return 0;
+        }
+
+        g_MailGiftSerial++;
+        FormatEx(requestKey, sizeof(requestKey),
+            "server_mail:gift:%s:%s:%d:%d",
+            senderSteamId,
+            receiverSteamId,
+            GetTime(),
+            g_MailGiftSerial);
+    }
+
     if (!QueueMailInsert(
         senderSteamId,
         senderName,
         receiverSteamId,
         receiverName,
-        senderName,
+        "N/A",
         g_MailPendingContents[client],
-        0,
-        "",
+        gems,
+        requestKey,
         GetClientUserId(client),
         true))
     {
+        if (gems > 0
+            && !PointsStore_ApplyBonusPointsSteamId(
+                senderSteamId,
+                gems,
+                false,
+                false,
+                "server_mail_gift_refund"))
+        {
+            LogError("[server_mail] Failed to refund rejected gift from %s.", senderSteamId);
+        }
         CPrintToChat(client, "%s Failed to queue mail. Try again.", MAIL_PREFIX);
     }
     g_MailPendingContents[client][0] = '\0';
+    g_MailPendingGems[client] = 0;
     return 0;
 }
 
@@ -874,6 +1005,7 @@ bool QueueMailInsert(
     pack.WriteString(senderName);
     pack.WriteString(receiverSteamId);
     pack.WriteString(receiverName);
+    pack.WriteCell(gems);
     g_MailDatabase.Query(SQL_OnMailInserted, query, pack);
     return true;
 }
@@ -895,12 +1027,26 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
     pack.ReadString(senderName, sizeof(senderName));
     pack.ReadString(receiverSteamId, sizeof(receiverSteamId));
     pack.ReadString(receiverName, sizeof(receiverName));
+    int gems = pack.ReadCell();
     delete pack;
 
     if (error[0] != '\0' || results == null)
     {
         LogError("[server_mail] Mail insert failed: %s", error);
         FireMailSendResult(requestKey, false, 0, false);
+
+        if (gems > 0
+            && StrContains(requestKey, "server_mail:gift:", false) == 0
+            && (!IsPointsStoreGiftAvailable()
+                || !PointsStore_ApplyBonusPointsSteamId(
+                    senderSteamId,
+                    gems,
+                    false,
+                    false,
+                    "server_mail_gift_refund")))
+        {
+            LogError("[server_mail] Failed to refund unsuccessful gift from %s.", senderSteamId);
+        }
 
         int sender = GetClientOfUserId(senderUserId);
         if (notifyPlayers && IsMailClient(sender))
@@ -913,6 +1059,20 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
     int mailId = results.InsertId;
     bool newlyCreated = results.AffectedRows == 1;
     FireMailSendResult(requestKey, true, mailId, newlyCreated);
+
+    if (!newlyCreated
+        && gems > 0
+        && StrContains(requestKey, "server_mail:gift:", false) == 0
+        && (!IsPointsStoreGiftAvailable()
+            || !PointsStore_ApplyBonusPointsSteamId(
+                senderSteamId,
+                gems,
+                false,
+                false,
+                "server_mail_gift_refund")))
+    {
+        LogError("[server_mail] Failed to refund duplicate gift from %s.", senderSteamId);
+    }
 
     if (!notifyPlayers || !newlyCreated)
     {
@@ -944,6 +1104,12 @@ void BuildMailDisplayTitle(const char[] title, int timestamp, int gems, char[] o
 {
     char date[32];
     FormatTime(date, sizeof(date), "%m-%d-%Y", timestamp);
+    if (StrEqual(title, "N/A", false))
+    {
+        strcopy(output, maxlen, date);
+        return;
+    }
+
     if (gems > 0)
     {
         Format(output, maxlen, "%s %s (%d)", title, date, gems);
@@ -951,6 +1117,43 @@ void BuildMailDisplayTitle(const char[] title, int timestamp, int gems, char[] o
     else
     {
         Format(output, maxlen, "%s %s", title, date);
+    }
+}
+
+void BuildMailListDisplay(
+    const char[] title,
+    int timestamp,
+    int gems,
+    const char[] partyName,
+    char[] output,
+    int maxlen)
+{
+    char date[32];
+    char currencyColor[40];
+    char currencyName[64];
+    FormatTime(date, sizeof(date), "%m-%d-%Y", timestamp);
+    GetCurrencyFormatting(currencyColor, sizeof(currencyColor), currencyName, sizeof(currencyName));
+
+    if (StrEqual(title, "N/A", false))
+    {
+        if (gems > 0)
+        {
+            FormatEx(output, maxlen, "%s (%d %s) - %s", partyName, gems, currencyName, date);
+        }
+        else
+        {
+            FormatEx(output, maxlen, "%s - %s", partyName, date);
+        }
+        return;
+    }
+
+    if (gems > 0)
+    {
+        FormatEx(output, maxlen, "%s (%d %s) - %s - %s", partyName, gems, currencyName, title, date);
+    }
+    else
+    {
+        FormatEx(output, maxlen, "%s - %s - %s", partyName, title, date);
     }
 }
 
@@ -1027,7 +1230,6 @@ public void SQL_OnMailListLoaded(Database db, DBResultSet rows, const char[] err
     char info[32];
     char title[MAIL_TITLE_MAX];
     char partyName[MAIL_NAME_MAX];
-    char displayTitle[256];
     char display[384];
     int count;
     while (rows != null && rows.FetchRow())
@@ -1037,10 +1239,9 @@ public void SQL_OnMailListLoaded(Database db, DBResultSet rows, const char[] err
         int timestamp = rows.FetchInt(2);
         int gems = rows.FetchInt(3);
         rows.FetchString(4, partyName, sizeof(partyName));
-        BuildMailDisplayTitle(title, timestamp, gems, displayTitle, sizeof(displayTitle));
+        BuildMailListDisplay(title, timestamp, gems, partyName, display, sizeof(display));
 
         Format(info, sizeof(info), "%c:%d", mode == MailView_Inbox ? 'i' : 's', mailId);
-        Format(display, sizeof(display), "%s - %s", displayTitle, partyName);
         menu.AddItem(info, display);
         count++;
     }
@@ -1103,7 +1304,7 @@ void RequestMailDetails(int client, int mailId, MailViewMode mode)
     }
     char query[1024];
     FormatEx(query, sizeof(query),
-        "SELECT mail_id, sender_name, receiver_name, created_at, title, contents, gems, gems_redeemed "
+        "SELECT mail_id, sender_steamid64, sender_name, receiver_name, created_at, title, contents, gems, gems_redeemed "
         ... "FROM %s WHERE mail_id = %d AND %s = '%s' LIMIT 1",
         MAIL_TABLE,
         mailId,
@@ -1135,17 +1336,37 @@ public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] 
     }
 
     int mailId = rows.FetchInt(0);
+    char senderSteamId[MAIL_STEAMID_MAX];
     char senderName[MAIL_NAME_MAX];
     char receiverName[MAIL_NAME_MAX];
     char title[MAIL_TITLE_MAX];
     char contents[MAIL_CONTENTS_MAX];
-    rows.FetchString(1, senderName, sizeof(senderName));
-    rows.FetchString(2, receiverName, sizeof(receiverName));
-    int timestamp = rows.FetchInt(3);
-    rows.FetchString(4, title, sizeof(title));
-    rows.FetchString(5, contents, sizeof(contents));
-    int gems = rows.FetchInt(6);
-    bool redeemed = rows.FetchInt(7) != 0;
+    rows.FetchString(1, senderSteamId, sizeof(senderSteamId));
+    rows.FetchString(2, senderName, sizeof(senderName));
+    rows.FetchString(3, receiverName, sizeof(receiverName));
+    int timestamp = rows.FetchInt(4);
+    rows.FetchString(5, title, sizeof(title));
+    rows.FetchString(6, contents, sizeof(contents));
+    int gems = rows.FetchInt(7);
+    bool redeemed = rows.FetchInt(8) != 0;
+
+    if (mode == MailView_Inbox)
+    {
+        int sender = FindMailClientBySteamId(senderSteamId);
+        char coloredSender[256];
+        BuildColoredMailName(sender, senderSteamId, senderName, coloredSender, sizeof(coloredSender));
+        CPrintToChatEx(client,
+            sender > 0 ? sender : client,
+            "{cornflowerblue}[Mail] %s{default}: %s",
+            coloredSender,
+            contents);
+
+        if (gems > 0 && !redeemed)
+        {
+            BeginMailRedemption(client, mailId);
+        }
+        return;
+    }
 
     char displayTitle[256];
     char dateLong[64];
@@ -1290,6 +1511,13 @@ public void SQL_OnMailRedemptionValidated(Database db, DBResultSet rows, const c
     char title[MAIL_TITLE_MAX];
     rows.FetchString(0, title, sizeof(title));
     int gems = rows.FetchInt(1);
+    if (StrEqual(title, "N/A", false))
+    {
+        char currencyColor[40];
+        char currencyName[64];
+        GetCurrencyFormatting(currencyColor, sizeof(currencyColor), currencyName, sizeof(currencyName));
+        FormatEx(title, sizeof(title), "%d %s", gems, currencyName);
+    }
 
     char awardKey[MAIL_REQUEST_KEY_MAX];
     Format(awardKey, sizeof(awardKey), "server_mail:redeem:%d", mailId);
