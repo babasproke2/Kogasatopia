@@ -738,19 +738,22 @@ void RequestMailPlayerSearch(int client)
     char query[2048];
     FormatEx(query, sizeof(query),
         "SELECT w.steamid, "
-        ... "COALESCE(NULLIF(fs.last_name, ''), NULLIF(w.cached_personaname, ''), w.steamid), "
+        ... "COALESCE(NULLIF(pr.newname COLLATE utf8mb4_uca1400_ai_ci, ''), NULLIF(fs.last_name, ''), NULLIF(w.cached_personaname, ''), w.steamid), "
         ... "GREATEST(COALESCE(w.playtime, 0), 0) "
         ... "FROM whaletracker w "
         ... "LEFT JOIN filters_steam_names fs ON fs.steamid64 = w.steamid "
+        ... "LEFT JOIN prename_rules pr ON pr.pattern COLLATE utf8mb4_uca1400_ai_ci = w.steamid "
         ... "WHERE (GREATEST(COALESCE(w.kills, 0), 0) + GREATEST(COALESCE(w.deaths, 0), 0)) >= %d "
         ... "AND GREATEST(COALESCE(w.playtime, 0), 0) >= %d "
-        ... "AND (COALESCE(fs.last_name, '') LIKE '%%%s%%' "
+        ... "AND (COALESCE(pr.newname, '') LIKE '%%%s%%' "
+        ... "OR COALESCE(fs.last_name, '') LIKE '%%%s%%' "
         ... "OR COALESCE(w.cached_personaname, '') LIKE '%%%s%%') "
         ... "ORDER BY GREATEST(COALESCE(w.playtime, 0), 0) DESC, "
-        ... "LOWER(COALESCE(NULLIF(fs.last_name, ''), NULLIF(w.cached_personaname, ''), w.steamid)) ASC "
+        ... "LOWER(COALESCE(NULLIF(pr.newname COLLATE utf8mb4_uca1400_ai_ci, ''), NULLIF(fs.last_name, ''), NULLIF(w.cached_personaname, ''), w.steamid)) ASC "
         ... "LIMIT %d",
         GetRankMinimumKillsDeaths(),
         GetRankMinimumPlaytime(),
+        escapedSearch,
         escapedSearch,
         escapedSearch,
         MAIL_SEARCH_MAX);
