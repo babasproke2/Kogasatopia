@@ -692,10 +692,9 @@ void ShowMailSearchResults(int client)
         {
             strcopy(suffix, sizeof(suffix), entry.steamId);
         }
-        Format(display, sizeof(display), "%s%s - %dh - ...%s",
+        Format(display, sizeof(display), "%s%s - ...%s",
             entry.name,
             entry.connected ? " [online]" : "",
-            entry.playtime / 3600,
             suffix);
         menu.AddItem(entry.steamId, display);
     }
