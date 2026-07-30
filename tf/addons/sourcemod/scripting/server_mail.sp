@@ -266,6 +266,7 @@ void EnsureMailSchema()
             ... "gems INT NOT NULL DEFAULT 0, "
             ... "gems_redeemed TINYINT NOT NULL DEFAULT 0, "
             ... "expires_at INT NOT NULL DEFAULT 0, "
+            ... "read_at INT NOT NULL DEFAULT 0, "
             ... "idempotency_key VARCHAR(128) NULL, "
             ... "PRIMARY KEY (mail_id), "
             ... "UNIQUE KEY unique_mail_idempotency (idempotency_key), "
@@ -289,6 +290,7 @@ void EnsureMailSchema()
             ... "gems INTEGER NOT NULL DEFAULT 0, "
             ... "gems_redeemed INTEGER NOT NULL DEFAULT 0, "
             ... "expires_at INTEGER NOT NULL DEFAULT 0, "
+            ... "read_at INTEGER NOT NULL DEFAULT 0, "
             ... "idempotency_key VARCHAR(128) UNIQUE)");
     }
 
@@ -332,6 +334,38 @@ public void SQL_OnMailExpiryColumnReady(Database db, DBResultSet results, const 
         && StrContains(error, "already exists", false) == -1)
     {
         LogError("[server_mail] Mail expiry schema migration failed: %s", error);
+        ScheduleMailReconnect();
+        return;
+    }
+
+    EnsureMailReadColumn();
+}
+
+void EnsureMailReadColumn()
+{
+    char query[256];
+    if (g_MailDatabaseIsMySql)
+    {
+        FormatEx(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN IF NOT EXISTS read_at INT NOT NULL DEFAULT 1 AFTER expires_at",
+            MAIL_TABLE);
+    }
+    else
+    {
+        FormatEx(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN read_at INTEGER NOT NULL DEFAULT 1",
+            MAIL_TABLE);
+    }
+    g_MailDatabase.Query(SQL_OnMailReadColumnReady, query);
+}
+
+public void SQL_OnMailReadColumnReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0'
+        && StrContains(error, "duplicate column", false) == -1
+        && StrContains(error, "already exists", false) == -1)
+    {
+        LogError("[server_mail] Mail read-state schema migration failed: %s", error);
         ScheduleMailReconnect();
         return;
     }
@@ -1016,8 +1050,8 @@ bool QueueMailInsert(
     {
         FormatEx(query, sizeof(query),
             "INSERT INTO %s "
-            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, expires_at, idempotency_key) "
-            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, %d, %s) "
+            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, expires_at, read_at, idempotency_key) "
+            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, %d, 0, %s) "
             ... "ON DUPLICATE KEY UPDATE mail_id = LAST_INSERT_ID(mail_id)",
             MAIL_TABLE,
             escapedSenderSteam,
@@ -1035,8 +1069,8 @@ bool QueueMailInsert(
     {
         FormatEx(query, sizeof(query),
             "INSERT OR IGNORE INTO %s "
-            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, expires_at, idempotency_key) "
-            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, %d, %s)",
+            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, expires_at, read_at, idempotency_key) "
+            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, %d, 0, %s)",
             MAIL_TABLE,
             escapedSenderSteam,
             escapedSenderName,
@@ -1213,35 +1247,38 @@ void BuildMailListDisplay(
     int timestamp,
     int gems,
     const char[] partyName,
+    bool unread,
     char[] output,
     int maxlen)
 {
     char date[32];
     char currencyColor[40];
     char currencyName[64];
+    char markedPartyName[MAIL_NAME_MAX + 8];
     FormatTime(date, sizeof(date), "%m-%d-%Y", timestamp);
     GetCurrencyFormatting(currencyColor, sizeof(currencyColor), currencyName, sizeof(currencyName));
+    FormatEx(markedPartyName, sizeof(markedPartyName), unread ? "%s (!)" : "%s", partyName);
 
     if (StrEqual(title, "N/A", false))
     {
         if (gems > 0)
         {
-            FormatEx(output, maxlen, "%s (%d %s) - %s", partyName, gems, currencyName, date);
+            FormatEx(output, maxlen, "%s (%d %s) - %s", markedPartyName, gems, currencyName, date);
         }
         else
         {
-            FormatEx(output, maxlen, "%s - %s", partyName, date);
+            FormatEx(output, maxlen, "%s - %s", markedPartyName, date);
         }
         return;
     }
 
     if (gems > 0)
     {
-        FormatEx(output, maxlen, "%s (%d %s) - %s - %s", partyName, gems, currencyName, title, date);
+        FormatEx(output, maxlen, "%s (%d %s) - %s - %s", markedPartyName, gems, currencyName, title, date);
     }
     else
     {
-        FormatEx(output, maxlen, "%s - %s - %s", partyName, title, date);
+        FormatEx(output, maxlen, "%s - %s - %s", markedPartyName, title, date);
     }
 }
 
@@ -1271,7 +1308,7 @@ void RequestMailList(int client, MailViewMode mode)
     if (mode == MailView_Inbox)
     {
         FormatEx(query, sizeof(query),
-            "SELECT mail_id, title, created_at, gems, sender_name FROM %s "
+            "SELECT mail_id, title, created_at, gems, sender_name, read_at FROM %s "
             ... "WHERE receiver_steamid64 = '%s' "
             ... "AND (expires_at = 0 OR expires_at > %d OR gems_redeemed != 0) "
             ... "ORDER BY created_at DESC, mail_id DESC LIMIT %d",
@@ -1283,7 +1320,7 @@ void RequestMailList(int client, MailViewMode mode)
     else
     {
         FormatEx(query, sizeof(query),
-            "SELECT mail_id, title, created_at, gems, receiver_name FROM %s "
+            "SELECT mail_id, title, created_at, gems, receiver_name, read_at FROM %s "
             ... "WHERE sender_steamid64 = '%s' "
             ... "AND (expires_at = 0 OR expires_at > %d OR gems_redeemed != 0) "
             ... "ORDER BY created_at DESC, mail_id DESC LIMIT %d",
@@ -1334,7 +1371,8 @@ public void SQL_OnMailListLoaded(Database db, DBResultSet rows, const char[] err
         int timestamp = rows.FetchInt(2);
         int gems = rows.FetchInt(3);
         rows.FetchString(4, partyName, sizeof(partyName));
-        BuildMailListDisplay(title, timestamp, gems, partyName, display, sizeof(display));
+        bool unread = mode == MailView_Inbox && rows.FetchInt(5) == 0;
+        BuildMailListDisplay(title, timestamp, gems, partyName, unread, display, sizeof(display));
 
         Format(info, sizeof(info), "%c:%d", mode == MailView_Inbox ? 'i' : 's', mailId);
         menu.AddItem(info, display);
@@ -1414,6 +1452,30 @@ void RequestMailDetails(int client, int mailId, MailViewMode mode)
     g_MailDatabase.Query(SQL_OnMailDetailsLoaded, query, pack);
 }
 
+void MarkMailRead(int mailId)
+{
+    if (!g_MailDatabaseReady || g_MailDatabase == null || mailId <= 0)
+    {
+        return;
+    }
+
+    char query[256];
+    FormatEx(query, sizeof(query),
+        "UPDATE %s SET read_at = %d WHERE mail_id = %d AND read_at = 0",
+        MAIL_TABLE,
+        GetTime(),
+        mailId);
+    g_MailDatabase.Query(SQL_OnMailMarkedRead, query);
+}
+
+public void SQL_OnMailMarkedRead(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[server_mail] Failed to mark mail as read: %s", error);
+    }
+}
+
 public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] error, any data)
 {
     DataPack pack = view_as<DataPack>(data);
@@ -1449,6 +1511,8 @@ public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] 
 
     if (mode == MailView_Inbox)
     {
+        MarkMailRead(mailId);
+
         int sender = FindMailClientBySteamId(senderSteamId);
         char coloredSender[256];
         BuildColoredMailName(sender, senderSteamId, senderName, coloredSender, sizeof(coloredSender));
