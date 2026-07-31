@@ -135,6 +135,8 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 ## hugs_api.inc
 - `Hugs_GetRapesGiven` - Returns how many rapes a client has given in hugs stats.
 - `Hugs_AreStatsLoaded` - Returns whether a client's hugs stats are loaded.
+- `Hugs_RedeemMailedHug` - Credits a mailed hug using sender and receiver SteamID64 identities.
+- `Hugs_RedeemMailedRape` - Credits a mailed rape using sender and receiver SteamID64 identities.
 
 ## mutecheck_api.inc
 - `MuteCheck_GetMutedClientCount` - Returns how many connected human clients the listener has muted.
@@ -152,6 +154,9 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `PointsStore_GetPurchaseExpiresAt` - Returns a shop item's expiry timestamp for a client.
 - `PointsStore_GetPurchaseUsesRemaining` - Returns remaining uses for a limited-use shop item.
 - `PointsStore_ConsumePurchaseUse` - Consumes one use from a limited-use shop item.
+
+## rtd_api.inc
+- `RTD_ApplyGiftedRoll` - Applies a no-charge gifted roll while retaining normal RTD eligibility checks.
 
 ## saysounds.inc
 - `SaySounds_ShouldPlay` - Returns whether a client should hear say sounds.

@@ -21,6 +21,8 @@
 		RegPluginLibrary("hugs");
 		CreateNative("Hugs_GetRapesGiven", Native_Hugs_GetRapesGiven);
 		CreateNative("Hugs_AreStatsLoaded", Native_Hugs_AreStatsLoaded);
+		CreateNative("Hugs_RedeemMailedHug", Native_Hugs_RedeemMailedHug);
+		CreateNative("Hugs_RedeemMailedRape", Native_Hugs_RedeemMailedRape);
 		MarkNativeAsOptional("Filters_IsRedlisted");
 		MarkNativeAsOptional("Filters_GetChatName");
 		return APLRes_Success;
@@ -84,6 +86,133 @@ enum HugsLeaderboardKind
 	{
 		int client = GetNativeCell(1);
 		return IsClientIndexValid(client) && g_bStatsLoaded[client];
+	}
+
+	public any Native_Hugs_RedeemMailedHug(Handle plugin, int numParams)
+	{
+		return Native_RedeemMailedInteraction(false);
+	}
+
+	public any Native_Hugs_RedeemMailedRape(Handle plugin, int numParams)
+	{
+		return Native_RedeemMailedInteraction(true);
+	}
+
+	bool Native_RedeemMailedInteraction(bool rape)
+	{
+		char senderSteamId64[KOGASA_STEAMID_MAX];
+		char receiverSteamId64[KOGASA_STEAMID_MAX];
+		char senderName[MAX_NAME_LENGTH];
+		GetNativeString(1, senderSteamId64, sizeof(senderSteamId64));
+		GetNativeString(2, receiverSteamId64, sizeof(receiverSteamId64));
+		GetNativeString(3, senderName, sizeof(senderName));
+		return ApplyMailedInteraction(senderSteamId64, receiverSteamId64, senderName, rape);
+	}
+
+	bool ApplyMailedInteraction(
+		const char[] senderSteamId64,
+		const char[] receiverSteamId64,
+		const char[] senderName,
+		bool rape)
+	{
+		if (!IsDatabaseReady() || senderName[0] == '\0'
+			|| !Kogasa_IsSteamId64(senderSteamId64)
+			|| !Kogasa_IsSteamId64(receiverSteamId64)
+			|| StrEqual(senderSteamId64, receiverSteamId64, false))
+		{
+			return false;
+		}
+
+		int receiver = Kogasa_FindClientBySteamId64(receiverSteamId64);
+		if (!IsHumanClient(receiver) || !EnsureStatsReady(receiver, false))
+		{
+			return false;
+		}
+		if (rape && IsRapeProtected(receiver))
+		{
+			CPrintToChat(receiver, "{green}[Hugs]{default} Your rape protection blocked that mailed interaction.");
+			return false;
+		}
+
+		int sender = Kogasa_FindClientBySteamId64(senderSteamId64);
+		if (sender > 0 && !EnsureStatsReady(sender, false))
+		{
+			return false;
+		}
+
+		int amount = GetEffectiveMultiplier();
+		if (sender > 0)
+		{
+			if (rape)
+			{
+				g_iRapesGiven[sender] += amount;
+			}
+			else
+			{
+				g_iHugsGiven[sender] += amount;
+			}
+			SaveClientStats(sender);
+		}
+		else if (!CreditOfflineMailedInteraction(senderSteamId64, senderName, rape, amount))
+		{
+			return false;
+		}
+
+		if (rape)
+		{
+			g_iRapesReceived[receiver] += amount;
+			UpdateLastRapistsByName(receiver, senderName);
+			if (sender > 0)
+			{
+				checkRapeChievements(sender);
+			}
+		}
+		else
+		{
+			g_iHugsReceived[receiver] += amount;
+			UpdateLastHuggers(receiver, senderName);
+		}
+		SaveClientStats(receiver);
+		return true;
+	}
+
+	bool CreditOfflineMailedInteraction(
+		const char[] senderSteamId64,
+		const char[] senderName,
+		bool rape,
+		int amount)
+	{
+		char senderSteam2[KOGASA_STEAMID_MAX];
+		if (!Kogasa_ConvertSteamId64ToSteam2(senderSteamId64, senderSteam2, sizeof(senderSteam2)))
+		{
+			return false;
+		}
+
+		char steamEsc[96];
+		char nameEsc[(MAX_NAME_LENGTH * 2) + 1];
+		if (!KogasaSql_Escape(g_hDatabase, senderSteam2, steamEsc, sizeof(steamEsc), "Hugs")
+			|| !KogasaSql_Escape(g_hDatabase, senderName, nameEsc, sizeof(nameEsc), "Hugs"))
+		{
+			return false;
+		}
+
+		char column[32];
+		strcopy(column, sizeof(column), rape ? "rapes_given" : "hugs_given");
+		char query[768];
+		FormatEx(query, sizeof(query),
+			"INSERT INTO %s (steamid, name, %s) VALUES ('%s', '%s', %d) "
+			... "ON DUPLICATE KEY UPDATE name = VALUES(name), %s = %s + %d",
+			HUGS_DB_TABLE, column, steamEsc, nameEsc, amount, column, column, amount);
+		SQL_TQuery(g_hDatabase, SQL_OnMailedInteractionSaved, query);
+		return true;
+	}
+
+	public void SQL_OnMailedInteractionSaved(Database db, DBResultSet results, const char[] error, any data)
+	{
+		if (error[0] != '\0')
+		{
+			LogError("[Hugs] Failed to credit mailed interaction: %s", error);
+		}
 	}
 
 	// Cooldown variables
@@ -1998,7 +2127,14 @@ void UpdateLastRapists(int recipient, int sender)
 {
 	char rapistName[MAX_NAME_LENGTH];
 	GetClientName(sender, rapistName, sizeof(rapistName));
-	
+	UpdateLastRapistsByName(recipient, rapistName);
+
+	// Check for achievement progress from the sender
+	checkRapeChievements(sender);
+}
+
+void UpdateLastRapistsByName(int recipient, const char[] rapistName)
+{
 	char rapists[MAX_HISTORY_ENTRIES][MAX_NAME_LENGTH];
 	int count = ParseHistoryList(g_szLastRapists[recipient], rapists);
 	int limit = (count < (MAX_HISTORY_ENTRIES - 1)) ? count : (MAX_HISTORY_ENTRIES - 1);
@@ -2013,9 +2149,6 @@ void UpdateLastRapists(int recipient, int sender)
 	int newCount = (count >= MAX_HISTORY_ENTRIES) ? MAX_HISTORY_ENTRIES : count + 1;
 	ImplodeStrings(rapists, newCount, ",", g_szLastRapists[recipient], HISTORY_STRING_LEN);
 	SaveClientStats(recipient);
-	
-	// Check for achievement progress from the sender
-	checkRapeChievements(sender);
 }
 
 	int ParseHistoryList(const char[] input, char output[][MAX_NAME_LENGTH])

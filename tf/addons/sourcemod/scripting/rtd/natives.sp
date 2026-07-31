@@ -57,6 +57,12 @@ void CreateNatives(){
 	CreateNative("RTD2_DefaultCorePerk", Native_DefaultCorePerk); // deprecated
 
 	CreateNative("RTD2_CanPlayerBeHurt", Native_CanPlayerBeHurt);
+	CreateNative("RTD_ApplyGiftedRoll", Native_ApplyGiftedRoll);
+}
+
+public int Native_ApplyGiftedRoll(Handle hPlugin, int iParams)
+{
+	return RollPerkForClient(GetNativeCell(1), 0, false);
 }
 
 #define GET_PERK \

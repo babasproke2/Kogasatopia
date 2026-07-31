@@ -1408,14 +1408,14 @@ void ParseDisabledPerks()
 	delete hDisabledPerks;
 }
 
-void RollPerkForClient(int client, int payer = 0)
+bool RollPerkForClient(int client, int payer = 0, bool chargeCost = true)
 {
 	if (!IsValidClient(client))
 	{
 		if (IsValidClient(payer))
 			RTDPrint(payer, "Target is no longer available.");
 
-		return;
+		return false;
 	}
 
 	int replyClient = IsValidClient(payer) ? payer : client;
@@ -1425,7 +1425,7 @@ void RollPerkForClient(int client, int payer = 0)
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
 			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Disabled");
 
-		return;
+		return false;
 	}
 
 	if (!IsRollerAllowed(client))
@@ -1433,7 +1433,7 @@ void RollPerkForClient(int client, int payer = 0)
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
 			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_No_Access");
 
-		return;
+		return false;
 	}
 
 	if (!IsRTDInRound())
@@ -1441,7 +1441,7 @@ void RollPerkForClient(int client, int payer = 0)
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
 			RTDPrint(replyClient, "%t", "RTD2_Not_In_Round");
 
-		return;
+		return false;
 	}
 
 	if (g_iCvarRtdTeam > 0 && g_iCvarRtdTeam == GetClientTeam(client) - 1)
@@ -1449,7 +1449,7 @@ void RollPerkForClient(int client, int payer = 0)
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
 			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Team");
 
-		return;
+		return false;
 	}
 
 	if (GetForwardFunctionCount(g_hFwdCanRoll) > 0)
@@ -1461,7 +1461,7 @@ void RollPerkForClient(int client, int payer = 0)
 		Call_Finish(result);
 
 		if (result != Plugin_Continue)
-			return;
+			return false;
 	}
 
 	if (!IsPlayerAlive(client))
@@ -1469,7 +1469,7 @@ void RollPerkForClient(int client, int payer = 0)
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
 			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Alive");
 
-		return;
+		return false;
 	}
 
 	if (g_hRollers.GetInRoll(client))
@@ -1482,7 +1482,7 @@ void RollPerkForClient(int client, int payer = 0)
 				RTDPrint(replyClient, "%N is already using RTD.", client);
 		}
 
-		return;
+		return false;
 	}
 
 	int iTimeLeft = g_hRollers.GetLastRollTime(client) + g_iCvarRollInterval;
@@ -1491,7 +1491,7 @@ void RollPerkForClient(int client, int payer = 0)
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
 			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Wait", 0x04, iTimeLeft - GetTime(), 0x01);
 
-		return;
+		return false;
 	}
 
 	switch (g_iCvarRtdMode)
@@ -1508,7 +1508,7 @@ void RollPerkForClient(int client, int payer = 0)
 				if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
 					RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Mode1");
 
-				return;
+				return false;
 			}
 		}
 
@@ -1524,25 +1524,25 @@ void RollPerkForClient(int client, int payer = 0)
 				if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
 					RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Mode2");
 
-				return;
+				return false;
 			}
 		}
 	}
 
 	Perk perk = RollPerk(client);
 
-	if (perk == null) // should not happen unless everything is disabled or not applicable to player
+	if (perk == null)
 	{
 		LogMessage("WARNING: Perk not found for player when they attempted a roll");
 
 		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
 			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_No_Access");
 
-		return;
+		return false;
 	}
 
-	if (!SpendRollCost(replyClient))
-		return;
+	if (chargeCost && !SpendRollCost(replyClient))
+		return false;
 
 	ApplyPerk(client, perk);
 
@@ -1555,6 +1555,7 @@ void RollPerkForClient(int client, int payer = 0)
 		else
 			LogMessage("%L paid for %L to roll %s", replyClient, client, sBuffer);
 	}
+	return true;
 }
 
 bool SpendRollCost(int client)
