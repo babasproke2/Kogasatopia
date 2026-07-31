@@ -7,7 +7,9 @@
 
 #undef REQUIRE_PLUGIN
 #include <filters_api>
+#include <hugs_api>
 #include <points_store_api>
+#include <rtd_api>
 #include <saysounds>
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
@@ -22,9 +24,11 @@
 #define MAIL_CONTENTS_MAX 512
 #define MAIL_REQUEST_KEY_MAX 128
 #define MAIL_SEARCH_MAX 64
+#define MAIL_ATTACHMENT_MAX 16
 #define MAIL_LIST_MAX 50
 #define MAIL_RECONNECT_DELAY 5.0
 #define MAIL_SEND_COOLDOWN 60.0
+#define MAIL_RTD_GIFT_COST 50
 #define MAIL_PREFIX "{cornflowerblue}[Mail]{default}"
 
 enum MailViewMode
@@ -51,6 +55,7 @@ ArrayList g_MailSearchResults[MAXPLAYERS + 1];
 char g_MailPendingContents[MAXPLAYERS + 1][MAIL_CONTENTS_MAX];
 char g_MailPendingSearch[MAXPLAYERS + 1][MAIL_NAME_MAX];
 int g_MailPendingGems[MAXPLAYERS + 1];
+char g_MailPendingAttachment[MAXPLAYERS + 1][MAIL_ATTACHMENT_MAX];
 int g_MailSearchGeneration[MAXPLAYERS + 1];
 int g_MailGiftSerial = 0;
 float g_MailNextSendAllowedAt[MAXPLAYERS + 1];
@@ -60,6 +65,7 @@ StringMap g_MailPendingRedemptions = null;
 StringMap g_MailRedemptionUsers = null;
 StringMap g_MailRedemptionTitles = null;
 StringMap g_MailRedemptionSteamIds = null;
+StringMap g_MailPendingAttachments = null;
 
 public Plugin myinfo =
 {
@@ -84,8 +90,11 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("Filters_GetSteamIdColorTag");
     MarkNativeAsOptional("Filters_GetLastRecordedSteamName");
+    MarkNativeAsOptional("Hugs_RedeemMailedHug");
+    MarkNativeAsOptional("Hugs_RedeemMailedRape");
     MarkNativeAsOptional("PointsStore_ApplyBonusPointsSteamIdOnce");
     MarkNativeAsOptional("SaySounds_PlayCommand");
+    MarkNativeAsOptional("RTD_ApplyGiftedRoll");
     MarkNativeAsOptional("WhaleTracker_GetRankedPlaytimeHours");
 
     g_MailSendResultForward = new GlobalForward(
@@ -103,12 +112,22 @@ public void OnPluginStart()
     RegConsoleCmd("sm_mail", Command_Mail, "Open mail or send mail to a ranked player.");
     RegConsoleCmd("sm_inbox", Command_Inbox, "Open your mail inbox.");
     RegConsoleCmd("sm_gift", Command_Gift, "Mail Gems to a ranked player.");
+    RegConsoleCmd("sm_mailhug", Command_MailHug, "Mail a one-use hug to a ranked player.");
+    RegConsoleCmd("sm_hugmail", Command_MailHug, "Mail a one-use hug to a ranked player.");
+    RegConsoleCmd("sm_gifthug", Command_MailHug, "Mail a one-use hug to a ranked player.");
+    RegConsoleCmd("sm_mailrape", Command_MailRape, "Mail a one-use rape to a ranked player.");
+    RegConsoleCmd("sm_rapemail", Command_MailRape, "Mail a one-use rape to a ranked player.");
+    RegConsoleCmd("sm_giftrape", Command_MailRape, "Mail a one-use rape to a ranked player.");
+    RegConsoleCmd("sm_mailrtd", Command_MailRtd, "Mail a prepaid RTD roll to a ranked player.");
+    RegConsoleCmd("sm_sendrtd", Command_MailRtd, "Mail a prepaid RTD roll to a ranked player.");
+    RegConsoleCmd("sm_giftrtd", Command_MailRtd, "Mail a prepaid RTD roll to a ranked player.");
     Stimulus_OnPluginStart();
 
     g_MailPendingRedemptions = new StringMap();
     g_MailRedemptionUsers = new StringMap();
     g_MailRedemptionTitles = new StringMap();
     g_MailRedemptionSteamIds = new StringMap();
+    g_MailPendingAttachments = new StringMap();
 
     for (int client = 1; client <= MaxClients; client++)
     {
@@ -128,6 +147,7 @@ public void OnPluginEnd()
     delete g_MailRedemptionUsers;
     delete g_MailRedemptionTitles;
     delete g_MailRedemptionSteamIds;
+    delete g_MailPendingAttachments;
 
     for (int client = 1; client <= MaxClients; client++)
     {
@@ -176,6 +196,7 @@ void ClearClientMailState(int client)
     g_MailPendingContents[client][0] = '\0';
     g_MailPendingSearch[client][0] = '\0';
     g_MailPendingGems[client] = 0;
+    g_MailPendingAttachment[client][0] = '\0';
     g_MailSearchGeneration[client]++;
 }
 
@@ -306,6 +327,8 @@ void EnsureMailSchema()
             ... "contents VARCHAR(512) NOT NULL, "
             ... "gems INT NOT NULL DEFAULT 0, "
             ... "gems_redeemed TINYINT NOT NULL DEFAULT 0, "
+            ... "attachment_type VARCHAR(16) NOT NULL DEFAULT '', "
+            ... "attachment_redeemed TINYINT NOT NULL DEFAULT 0, "
             ... "expires_at INT NOT NULL DEFAULT 0, "
             ... "read_at INT NOT NULL DEFAULT 0, "
             ... "idempotency_key VARCHAR(128) NULL, "
@@ -330,6 +353,8 @@ void EnsureMailSchema()
             ... "contents VARCHAR(512) NOT NULL, "
             ... "gems INTEGER NOT NULL DEFAULT 0, "
             ... "gems_redeemed INTEGER NOT NULL DEFAULT 0, "
+            ... "attachment_type VARCHAR(16) NOT NULL DEFAULT '', "
+            ... "attachment_redeemed INTEGER NOT NULL DEFAULT 0, "
             ... "expires_at INTEGER NOT NULL DEFAULT 0, "
             ... "read_at INTEGER NOT NULL DEFAULT 0, "
             ... "idempotency_key VARCHAR(128) UNIQUE)");
@@ -411,14 +436,88 @@ public void SQL_OnMailReadColumnReady(Database db, DBResultSet results, const ch
         return;
     }
 
+    EnsureMailAttachmentTypeColumn();
+}
+
+void EnsureMailAttachmentTypeColumn()
+{
+    char query[256];
+    if (g_MailDatabaseIsMySql)
+    {
+        FormatEx(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN IF NOT EXISTS attachment_type VARCHAR(16) NOT NULL DEFAULT '' AFTER gems_redeemed",
+            MAIL_TABLE);
+    }
+    else
+    {
+        FormatEx(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN attachment_type VARCHAR(16) NOT NULL DEFAULT ''",
+            MAIL_TABLE);
+    }
+    g_MailDatabase.Query(SQL_OnMailAttachmentTypeColumnReady, query);
+}
+
+public void SQL_OnMailAttachmentTypeColumnReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0'
+        && StrContains(error, "duplicate column", false) == -1
+        && StrContains(error, "already exists", false) == -1)
+    {
+        LogError("[server_mail] Mail attachment-type migration failed: %s", error);
+        ScheduleMailReconnect();
+        return;
+    }
+
+    char query[256];
+    if (g_MailDatabaseIsMySql)
+    {
+        FormatEx(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN IF NOT EXISTS attachment_redeemed TINYINT NOT NULL DEFAULT 0 AFTER attachment_type",
+            MAIL_TABLE);
+    }
+    else
+    {
+        FormatEx(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN attachment_redeemed INTEGER NOT NULL DEFAULT 0",
+            MAIL_TABLE);
+    }
+    g_MailDatabase.Query(SQL_OnMailAttachmentStateColumnReady, query);
+}
+
+public void SQL_OnMailAttachmentStateColumnReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0'
+        && StrContains(error, "duplicate column", false) == -1
+        && StrContains(error, "already exists", false) == -1)
+    {
+        LogError("[server_mail] Mail attachment-state migration failed: %s", error);
+        ScheduleMailReconnect();
+        return;
+    }
+
     Stimulus_EnsureSchema();
 }
 
 void FinishMailSchemaReady()
 {
     g_MailDatabaseReady = true;
+    char recoveryQuery[256];
+    // Preserve at-most-once delivery if the server stops between applying an
+    // attachment and persisting its final redeemed state.
+    FormatEx(recoveryQuery, sizeof(recoveryQuery),
+        "UPDATE %s SET attachment_redeemed = 1 WHERE attachment_redeemed = 2",
+        MAIL_TABLE);
+    g_MailDatabase.Query(SQL_OnInterruptedAttachmentsRecovered, recoveryQuery);
     Stimulus_BackfillExistingExpiry();
     Stimulus_CleanupExpiredMail();
+}
+
+public void SQL_OnInterruptedAttachmentsRecovered(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[server_mail] Failed to recover interrupted mail attachments: %s", error);
+    }
 }
 
 bool EscapeMailSql(const char[] input, char[] output, int maxlen)
@@ -623,6 +722,106 @@ public Action Command_Gift(int client, int args)
     FormatEx(g_MailPendingContents[client], sizeof(g_MailPendingContents[]),
         "You received %d %s.", amount, currencyName);
     g_MailPendingGems[client] = amount;
+    RequestMailPlayerSearch(client);
+    return Plugin_Handled;
+}
+
+public Action Command_MailHug(int client, int args)
+{
+    return BeginAttachmentMailCommand(client, args, "hug");
+}
+
+public Action Command_MailRape(int client, int args)
+{
+    return BeginAttachmentMailCommand(client, args, "rape");
+}
+
+public Action Command_MailRtd(int client, int args)
+{
+    return BeginAttachmentMailCommand(client, args, "rtd");
+}
+
+bool IsHugsMailAvailable()
+{
+    return GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedHug") == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedRape") == FeatureStatus_Available;
+}
+
+bool IsRtdMailAvailable()
+{
+    return GetFeatureStatus(FeatureType_Native, "RTD_ApplyGiftedRoll") == FeatureStatus_Available;
+}
+
+public Action BeginAttachmentMailCommand(int client, int args, const char[] attachmentType)
+{
+    if (!IsMailClient(client))
+    {
+        return Plugin_Handled;
+    }
+    if (!g_MailDatabaseReady)
+    {
+        CPrintToChat(client, "%s Mail is temporarily unavailable.", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+    if (!CheckMailSendCooldown(client))
+    {
+        return Plugin_Handled;
+    }
+    if (args != 1)
+    {
+        CPrintToChat(client, "%s Usage: {gold}!mail%s playername", MAIL_PREFIX, attachmentType);
+        return Plugin_Handled;
+    }
+    if ((StrEqual(attachmentType, "hug") || StrEqual(attachmentType, "rape"))
+        && !IsHugsMailAvailable())
+    {
+        CPrintToChat(client, "%s Hug gifts are temporarily unavailable.", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+    if (StrEqual(attachmentType, "rtd"))
+    {
+        if (!IsRtdMailAvailable() || !IsPointsStoreGiftAvailable())
+        {
+            CPrintToChat(client, "%s RTD gifts are temporarily unavailable.", MAIL_PREFIX);
+            return Plugin_Handled;
+        }
+        if (!PointsStore_AreBonusPointsLoaded(client))
+        {
+            CPrintToChat(client, "%s Your currency balance is still loading.", MAIL_PREFIX);
+            return Plugin_Handled;
+        }
+        if (PointsStore_GetBonusPoints(client) < MAIL_RTD_GIFT_COST)
+        {
+            CPrintToChat(client, "%s You need {cyan}%d Gems{default} to mail an RTD.", MAIL_PREFIX, MAIL_RTD_GIFT_COST);
+            return Plugin_Handled;
+        }
+    }
+
+    char search[MAIL_NAME_MAX];
+    GetCmdArgString(search, sizeof(search));
+    StripQuotes(search);
+    TrimString(search);
+    if (search[0] == '\0')
+    {
+        CPrintToChat(client, "%s Usage: {gold}!mail%s playername", MAIL_PREFIX, attachmentType);
+        return Plugin_Handled;
+    }
+
+    strcopy(g_MailPendingSearch[client], sizeof(g_MailPendingSearch[]), search);
+    strcopy(g_MailPendingAttachment[client], sizeof(g_MailPendingAttachment[]), attachmentType);
+    g_MailPendingGems[client] = 0;
+    if (StrEqual(attachmentType, "hug"))
+    {
+        strcopy(g_MailPendingContents[client], sizeof(g_MailPendingContents[]), "You received a one-time hug.");
+    }
+    else if (StrEqual(attachmentType, "rape"))
+    {
+        strcopy(g_MailPendingContents[client], sizeof(g_MailPendingContents[]), "You received a one-time rape.");
+    }
+    else
+    {
+        strcopy(g_MailPendingContents[client], sizeof(g_MailPendingContents[]), "Open this mail to use your gifted RTD roll.");
+    }
     RequestMailPlayerSearch(client);
     return Plugin_Handled;
 }
@@ -890,7 +1089,22 @@ void ShowMailSearchResults(int client)
     }
 
     Menu menu = new Menu(MenuHandler_MailSearchResults);
-    menu.SetTitle(g_MailPendingGems[client] > 0 ? "Gift Gems to:" : "Send mail to:");
+    if (StrEqual(g_MailPendingAttachment[client], "hug"))
+    {
+        menu.SetTitle("Mail a hug to:");
+    }
+    else if (StrEqual(g_MailPendingAttachment[client], "rape"))
+    {
+        menu.SetTitle("Mail a rape to:");
+    }
+    else if (StrEqual(g_MailPendingAttachment[client], "rtd"))
+    {
+        menu.SetTitle("Mail an RTD to:");
+    }
+    else
+    {
+        menu.SetTitle(g_MailPendingGems[client] > 0 ? "Gift Gems to:" : "Send mail to:");
+    }
 
     MailSearchResult entry;
     char display[256];
@@ -952,47 +1166,128 @@ public int MenuHandler_MailSearchResults(Menu menu, MenuAction action, int clien
         strcopy(receiverName, sizeof(receiverName), entry.name);
     }
 
-    char senderSteamId[MAIL_STEAMID_MAX];
-    char senderName[MAIL_NAME_MAX];
-    if (!GetMailClientIdentity(client, senderSteamId, sizeof(senderSteamId), senderName, sizeof(senderName)))
+    QueuePendingMailToTarget(client, receiverSteamId, receiverName, false);
+    return 0;
+}
+
+void ShowRtdMailCostMenu(int client, const char[] receiverSteamId, const char[] receiverName)
+{
+    Menu menu = new Menu(MenuHandler_RtdMailCost);
+    menu.SetTitle("Spend %d Gems to mail an RTD to %s?", MAIL_RTD_GIFT_COST, receiverName);
+    menu.AddItem(receiverSteamId, "Yes");
+    menu.AddItem("no", "No");
+    menu.ExitButton = true;
+    menu.Display(client, 15);
+}
+
+public int MenuHandler_RtdMailCost(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End)
     {
-        CPrintToChat(client, "%s Could not resolve your Steam identity.", MAIL_PREFIX);
+        delete menu;
+        return 0;
+    }
+    if (action == MenuAction_Cancel && IsMailClient(client))
+    {
+        ClearClientMailState(client);
+        return 0;
+    }
+    if (action != MenuAction_Select || !IsMailClient(client))
+    {
         return 0;
     }
 
-    if (!CheckMailSendCooldown(client))
+    char receiverSteamId[MAIL_STEAMID_MAX];
+    menu.GetItem(item, receiverSteamId, sizeof(receiverSteamId));
+    if (StrEqual(receiverSteamId, "no"))
     {
         ClearClientMailState(client);
         return 0;
     }
 
-    int gems = g_MailPendingGems[client];
-    char requestKey[MAIL_REQUEST_KEY_MAX];
-    requestKey[0] = '\0';
-    if (gems > 0)
+    char receiverName[MAIL_NAME_MAX];
+    strcopy(receiverName, sizeof(receiverName), receiverSteamId);
+    ArrayList results = g_MailSearchResults[client];
+    int index = results != null ? FindSearchResult(results, receiverSteamId) : -1;
+    if (index != -1)
     {
-        if (StrEqual(senderSteamId, receiverSteamId, false))
-        {
-            CPrintToChat(client, "%s You cannot gift Gems to yourself.", MAIL_PREFIX);
-            ClearClientMailState(client);
-            return 0;
-        }
+        MailSearchResult entry;
+        results.GetArray(index, entry, sizeof(entry));
+        strcopy(receiverName, sizeof(receiverName), entry.name);
+    }
+    QueuePendingMailToTarget(client, receiverSteamId, receiverName, true);
+    return 0;
+}
 
-        if (!IsPointsStoreGiftAvailable() || !PointsStore_AreBonusPointsLoaded(client))
-        {
-            CPrintToChat(client, "%s Your currency balance is unavailable.", MAIL_PREFIX);
-            ClearClientMailState(client);
-            return 0;
-        }
+void RefundMailSendCost(const char[] senderSteamId, int amount)
+{
+    if (amount <= 0)
+    {
+        return;
+    }
+    if (!IsPointsStoreGiftAvailable()
+        || !PointsStore_ApplyBonusPointsSteamId(
+            senderSteamId,
+            amount,
+            false,
+            false,
+            "server_mail_send_refund"))
+    {
+        LogError("[server_mail] Failed to refund %d Gems to %s.", amount, senderSteamId);
+    }
+}
 
-        if (PointsStore_GetBonusPoints(client) < gems
-            || !PointsStore_SpendBonusPoints(client, gems))
+void QueuePendingMailToTarget(
+    int client,
+    const char[] receiverSteamId,
+    const char[] receiverName,
+    bool rtdConfirmed)
+{
+    char senderSteamId[MAIL_STEAMID_MAX];
+    char senderName[MAIL_NAME_MAX];
+    if (!GetMailClientIdentity(client, senderSteamId, sizeof(senderSteamId), senderName, sizeof(senderName)))
+    {
+        CPrintToChat(client, "%s Could not resolve your Steam identity.", MAIL_PREFIX);
+        ClearClientMailState(client);
+        return;
+    }
+    if (!CheckMailSendCooldown(client))
+    {
+        ClearClientMailState(client);
+        return;
+    }
+    if (StrEqual(senderSteamId, receiverSteamId, false))
+    {
+        CPrintToChat(client, "%s You cannot mail a gift to yourself.", MAIL_PREFIX);
+        ClearClientMailState(client);
+        return;
+    }
+
+    bool isRtd = StrEqual(g_MailPendingAttachment[client], "rtd");
+    if (isRtd && !rtdConfirmed)
+    {
+        ShowRtdMailCostMenu(client, receiverSteamId, receiverName);
+        return;
+    }
+
+    int gems = g_MailPendingGems[client];
+    int senderCost = gems > 0 ? gems : (isRtd ? MAIL_RTD_GIFT_COST : 0);
+    if (senderCost > 0)
+    {
+        if (!IsPointsStoreGiftAvailable() || !PointsStore_AreBonusPointsLoaded(client)
+            || PointsStore_GetBonusPoints(client) < senderCost
+            || !PointsStore_SpendBonusPoints(client, senderCost))
         {
             CPrintToChat(client, "%s You no longer have enough Gems for that gift.", MAIL_PREFIX);
             ClearClientMailState(client);
-            return 0;
+            return;
         }
+    }
 
+    char requestKey[MAIL_REQUEST_KEY_MAX];
+    requestKey[0] = '\0';
+    if (senderCost > 0 || g_MailPendingAttachment[client][0] != '\0')
+    {
         g_MailGiftSerial++;
         FormatEx(requestKey, sizeof(requestKey),
             "server_mail:gift:%s:%s:%d:%d",
@@ -1002,39 +1297,45 @@ public int MenuHandler_MailSearchResults(Menu menu, MenuAction action, int clien
             g_MailGiftSerial);
     }
 
+    char title[MAIL_TITLE_MAX];
+    strcopy(title, sizeof(title), "N/A");
+    if (StrEqual(g_MailPendingAttachment[client], "hug"))
+    {
+        FormatEx(title, sizeof(title), "Hug from %s", senderName);
+    }
+    else if (StrEqual(g_MailPendingAttachment[client], "rape"))
+    {
+        FormatEx(title, sizeof(title), "Rape from %s", senderName);
+    }
+    else if (isRtd)
+    {
+        FormatEx(title, sizeof(title), "rtd from %s", senderName);
+    }
+
     bool queued = QueueMailInsert(
         senderSteamId,
         senderName,
         receiverSteamId,
         receiverName,
-        "N/A",
+        title,
         g_MailPendingContents[client],
         gems,
         requestKey,
         GetClientUserId(client),
         true,
-        true);
+        true,
+        g_MailPendingAttachment[client],
+        senderCost);
     if (!queued)
     {
-        if (gems > 0
-            && !PointsStore_ApplyBonusPointsSteamId(
-                senderSteamId,
-                gems,
-                false,
-                false,
-                "server_mail_gift_refund"))
-        {
-            LogError("[server_mail] Failed to refund rejected gift from %s.", senderSteamId);
-        }
+        RefundMailSendCost(senderSteamId, senderCost);
         CPrintToChat(client, "%s Failed to queue mail. Try again.", MAIL_PREFIX);
     }
     else
     {
         g_MailUserSendPending[client] = true;
     }
-    g_MailPendingContents[client][0] = '\0';
-    g_MailPendingGems[client] = 0;
-    return 0;
+    ClearClientMailState(client);
 }
 
 void FireMailSendResult(const char[] requestKey, bool success, int mailId, bool newlyCreated)
@@ -1063,12 +1364,18 @@ bool QueueMailInsert(
     const char[] requestKey,
     int senderUserId = 0,
     bool notifyPlayers = false,
-    bool userInitiated = false)
+    bool userInitiated = false,
+    const char[] attachmentType = "",
+    int senderCost = 0)
 {
     if (!g_MailDatabaseReady || g_MailDatabase == null
         || !IsValidSteamId64(receiverSteamId)
         || senderName[0] == '\0' || receiverName[0] == '\0'
-        || title[0] == '\0' || contents[0] == '\0' || gems < 0)
+        || title[0] == '\0' || contents[0] == '\0' || gems < 0 || senderCost < 0
+        || (attachmentType[0] != '\0'
+            && !StrEqual(attachmentType, "hug")
+            && !StrEqual(attachmentType, "rape")
+            && !StrEqual(attachmentType, "rtd")))
     {
         return false;
     }
@@ -1089,13 +1396,15 @@ bool QueueMailInsert(
     char escapedTitle[(MAIL_TITLE_MAX * 2) + 1];
     char escapedContents[(MAIL_CONTENTS_MAX * 2) + 1];
     char escapedRequest[(MAIL_REQUEST_KEY_MAX * 2) + 1];
+    char escapedAttachment[(MAIL_ATTACHMENT_MAX * 2) + 1];
     if (!EscapeMailSql(senderSteamId, escapedSenderSteam, sizeof(escapedSenderSteam))
         || !EscapeMailSql(senderName, escapedSenderName, sizeof(escapedSenderName))
         || !EscapeMailSql(receiverSteamId, escapedReceiverSteam, sizeof(escapedReceiverSteam))
         || !EscapeMailSql(receiverName, escapedReceiverName, sizeof(escapedReceiverName))
         || !EscapeMailSql(title, escapedTitle, sizeof(escapedTitle))
         || !EscapeMailSql(contents, escapedContents, sizeof(escapedContents))
-        || !EscapeMailSql(requestKey, escapedRequest, sizeof(escapedRequest)))
+        || !EscapeMailSql(requestKey, escapedRequest, sizeof(escapedRequest))
+        || !EscapeMailSql(attachmentType, escapedAttachment, sizeof(escapedAttachment)))
     {
         return false;
     }
@@ -1117,8 +1426,8 @@ bool QueueMailInsert(
     {
         FormatEx(query, sizeof(query),
             "INSERT INTO %s "
-            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, expires_at, read_at, idempotency_key) "
-            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, %d, 0, %s) "
+            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, attachment_type, attachment_redeemed, expires_at, read_at, idempotency_key) "
+            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, '%s', 0, %d, 0, %s) "
             ... "ON DUPLICATE KEY UPDATE mail_id = LAST_INSERT_ID(mail_id)",
             MAIL_TABLE,
             escapedSenderSteam,
@@ -1129,6 +1438,7 @@ bool QueueMailInsert(
             escapedTitle,
             escapedContents,
             gems,
+            escapedAttachment,
             expiresAt,
             idempotencyValue);
     }
@@ -1136,8 +1446,8 @@ bool QueueMailInsert(
     {
         FormatEx(query, sizeof(query),
             "INSERT OR IGNORE INTO %s "
-            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, expires_at, read_at, idempotency_key) "
-            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, %d, 0, %s)",
+            ... "(sender_steamid64, sender_name, receiver_steamid64, receiver_name, created_at, title, contents, gems, gems_redeemed, attachment_type, attachment_redeemed, expires_at, read_at, idempotency_key) "
+            ... "VALUES ('%s', '%s', '%s', '%s', %d, '%s', '%s', %d, 0, '%s', 0, %d, 0, %s)",
             MAIL_TABLE,
             escapedSenderSteam,
             escapedSenderName,
@@ -1147,6 +1457,7 @@ bool QueueMailInsert(
             escapedTitle,
             escapedContents,
             gems,
+            escapedAttachment,
             expiresAt,
             idempotencyValue);
     }
@@ -1160,6 +1471,7 @@ bool QueueMailInsert(
     pack.WriteString(receiverSteamId);
     pack.WriteString(receiverName);
     pack.WriteCell(gems);
+    pack.WriteCell(senderCost);
     pack.WriteCell(userInitiated ? 1 : 0);
     g_MailDatabase.Query(SQL_OnMailInserted, query, pack);
     return true;
@@ -1183,6 +1495,7 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
     pack.ReadString(receiverSteamId, sizeof(receiverSteamId));
     pack.ReadString(receiverName, sizeof(receiverName));
     int gems = pack.ReadCell();
+    int senderCost = pack.ReadCell();
     bool userInitiated = pack.ReadCell() != 0;
     delete pack;
 
@@ -1197,18 +1510,7 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
         FireMailSendResult(requestKey, false, 0, false);
         Stimulus_OnMailInsertResult(requestKey, false, 0);
 
-        if (gems > 0
-            && StrContains(requestKey, "server_mail:gift:", false) == 0
-            && (!IsPointsStoreGiftAvailable()
-                || !PointsStore_ApplyBonusPointsSteamId(
-                    senderSteamId,
-                    gems,
-                    false,
-                    false,
-                    "server_mail_gift_refund")))
-        {
-            LogError("[server_mail] Failed to refund unsuccessful gift from %s.", senderSteamId);
-        }
+        RefundMailSendCost(senderSteamId, senderCost);
 
         int sender = GetClientOfUserId(senderUserId);
         if (notifyPlayers && IsMailClient(sender))
@@ -1227,18 +1529,9 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
     FireMailSendResult(requestKey, true, mailId, newlyCreated);
     Stimulus_OnMailInsertResult(requestKey, true, mailId);
 
-    if (!newlyCreated
-        && gems > 0
-        && StrContains(requestKey, "server_mail:gift:", false) == 0
-        && (!IsPointsStoreGiftAvailable()
-            || !PointsStore_ApplyBonusPointsSteamId(
-                senderSteamId,
-                gems,
-                false,
-                false,
-                "server_mail_gift_refund")))
+    if (!newlyCreated && senderCost > 0)
     {
-        LogError("[server_mail] Failed to refund duplicate gift from %s.", senderSteamId);
+        RefundMailSendCost(senderSteamId, senderCost);
     }
 
     if (!notifyPlayers || !newlyCreated)
@@ -1515,7 +1808,7 @@ void RequestMailDetails(int client, int mailId, MailViewMode mode)
     }
     char query[1024];
     FormatEx(query, sizeof(query),
-        "SELECT mail_id, sender_steamid64, sender_name, receiver_name, created_at, title, contents, gems, gems_redeemed "
+        "SELECT mail_id, sender_steamid64, sender_name, receiver_name, created_at, title, contents, gems, gems_redeemed, attachment_type, attachment_redeemed "
         ... "FROM %s WHERE mail_id = %d AND %s = '%s' "
         ... "AND (expires_at = 0 OR expires_at > %d OR gems_redeemed != 0) LIMIT 1",
         MAIL_TABLE,
@@ -1586,6 +1879,9 @@ public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] 
     rows.FetchString(6, contents, sizeof(contents));
     int gems = rows.FetchInt(7);
     bool redeemed = rows.FetchInt(8) != 0;
+    char attachmentType[MAIL_ATTACHMENT_MAX];
+    rows.FetchString(9, attachmentType, sizeof(attachmentType));
+    bool attachmentRedeemed = rows.FetchInt(10) == 1;
 
     if (mode == MailView_Inbox)
     {
@@ -1603,6 +1899,10 @@ public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] 
         if (gems > 0 && !redeemed)
         {
             BeginMailRedemption(client, mailId);
+        }
+        if (attachmentType[0] != '\0' && !attachmentRedeemed)
+        {
+            BeginMailAttachmentRedemption(client, mailId);
         }
         return;
     }
@@ -1892,6 +2192,268 @@ public void SQL_OnMailMarkedRedeemed(Database db, DBResultSet results, const cha
     if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") == FeatureStatus_Available)
     {
         SaySounds_PlayCommand(0, "xp_levelup", true);
+    }
+}
+
+void BuildMailAttachmentKey(int mailId, char[] key, int maxlen)
+{
+    FormatEx(key, maxlen, "server_mail:attachment:%d", mailId);
+}
+
+bool IsMailAttachmentProviderAvailable(const char[] attachmentType)
+{
+    if (StrEqual(attachmentType, "hug"))
+    {
+        return GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedHug") == FeatureStatus_Available;
+    }
+    if (StrEqual(attachmentType, "rape"))
+    {
+        return GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedRape") == FeatureStatus_Available;
+    }
+    if (StrEqual(attachmentType, "rtd"))
+    {
+        return GetFeatureStatus(FeatureType_Native, "RTD_ApplyGiftedRoll") == FeatureStatus_Available;
+    }
+    return false;
+}
+
+void BeginMailAttachmentRedemption(int client, int mailId)
+{
+    if (!g_MailDatabaseReady || g_MailDatabase == null || mailId <= 0)
+    {
+        CPrintToChat(client, "%s That attachment is temporarily unavailable.", MAIL_PREFIX);
+        return;
+    }
+
+    char key[MAIL_REQUEST_KEY_MAX];
+    BuildMailAttachmentKey(mailId, key, sizeof(key));
+    int unused;
+    if (g_MailPendingAttachments.GetValue(key, unused))
+    {
+        CPrintToChat(client, "%s That attachment is already being used.", MAIL_PREFIX);
+        return;
+    }
+
+    char receiverSteamId[MAIL_STEAMID_MAX];
+    char receiverName[MAIL_NAME_MAX];
+    if (!GetMailClientIdentity(
+            client,
+            receiverSteamId,
+            sizeof(receiverSteamId),
+            receiverName,
+            sizeof(receiverName)))
+    {
+        return;
+    }
+
+    char escapedReceiver[65];
+    if (!EscapeMailSql(receiverSteamId, escapedReceiver, sizeof(escapedReceiver)))
+    {
+        return;
+    }
+
+    g_MailPendingAttachments.SetValue(key, GetClientUserId(client));
+    char query[768];
+    FormatEx(query, sizeof(query),
+        "SELECT sender_steamid64, sender_name, attachment_type FROM %s "
+        ... "WHERE mail_id = %d AND receiver_steamid64 = '%s' "
+        ... "AND attachment_type != '' AND attachment_redeemed = 0 LIMIT 1",
+        MAIL_TABLE,
+        mailId,
+        escapedReceiver);
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(mailId);
+    pack.WriteString(receiverSteamId);
+    g_MailDatabase.Query(SQL_OnMailAttachmentValidated, query, pack);
+}
+
+public void SQL_OnMailAttachmentValidated(Database db, DBResultSet rows, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    int mailId = pack.ReadCell();
+    char receiverSteamId[MAIL_STEAMID_MAX];
+    pack.ReadString(receiverSteamId, sizeof(receiverSteamId));
+    delete pack;
+
+    char key[MAIL_REQUEST_KEY_MAX];
+    BuildMailAttachmentKey(mailId, key, sizeof(key));
+    int client = GetClientOfUserId(userId);
+    if (!IsMailClient(client))
+    {
+        g_MailPendingAttachments.Remove(key);
+        return;
+    }
+    if (error[0] != '\0' || rows == null || !rows.FetchRow())
+    {
+        if (error[0] != '\0')
+        {
+            LogError("[server_mail] Attachment validation failed: %s", error);
+        }
+        g_MailPendingAttachments.Remove(key);
+        CPrintToChat(client, "%s That attachment is unavailable or already used.", MAIL_PREFIX);
+        return;
+    }
+
+    char senderSteamId[MAIL_STEAMID_MAX];
+    char senderName[MAIL_NAME_MAX];
+    char attachmentType[MAIL_ATTACHMENT_MAX];
+    rows.FetchString(0, senderSteamId, sizeof(senderSteamId));
+    rows.FetchString(1, senderName, sizeof(senderName));
+    rows.FetchString(2, attachmentType, sizeof(attachmentType));
+    if (!IsMailAttachmentProviderAvailable(attachmentType))
+    {
+        g_MailPendingAttachments.Remove(key);
+        CPrintToChat(client, "%s That attachment's plugin is temporarily unavailable.", MAIL_PREFIX);
+        return;
+    }
+
+    char escapedReceiver[65];
+    if (!EscapeMailSql(receiverSteamId, escapedReceiver, sizeof(escapedReceiver)))
+    {
+        g_MailPendingAttachments.Remove(key);
+        return;
+    }
+    char query[512];
+    FormatEx(query, sizeof(query),
+        "UPDATE %s SET attachment_redeemed = 2 "
+        ... "WHERE mail_id = %d AND receiver_steamid64 = '%s' AND attachment_redeemed = 0",
+        MAIL_TABLE,
+        mailId,
+        escapedReceiver);
+
+    DataPack claimPack = new DataPack();
+    claimPack.WriteCell(userId);
+    claimPack.WriteCell(mailId);
+    claimPack.WriteString(receiverSteamId);
+    claimPack.WriteString(senderSteamId);
+    claimPack.WriteString(senderName);
+    claimPack.WriteString(attachmentType);
+    g_MailDatabase.Query(SQL_OnMailAttachmentClaimed, query, claimPack);
+}
+
+void SetMailAttachmentState(
+    int mailId,
+    const char[] receiverSteamId,
+    int fromState,
+    int toState,
+    int userId,
+    const char[] attachmentType)
+{
+    char escapedReceiver[65];
+    char key[MAIL_REQUEST_KEY_MAX];
+    BuildMailAttachmentKey(mailId, key, sizeof(key));
+    if (!EscapeMailSql(receiverSteamId, escapedReceiver, sizeof(escapedReceiver)))
+    {
+        g_MailPendingAttachments.Remove(key);
+        return;
+    }
+
+    char query[512];
+    FormatEx(query, sizeof(query),
+        "UPDATE %s SET attachment_redeemed = %d "
+        ... "WHERE mail_id = %d AND receiver_steamid64 = '%s' AND attachment_redeemed = %d",
+        MAIL_TABLE,
+        toState,
+        mailId,
+        escapedReceiver,
+        fromState);
+    DataPack pack = new DataPack();
+    pack.WriteCell(userId);
+    pack.WriteCell(mailId);
+    pack.WriteCell(toState);
+    pack.WriteString(attachmentType);
+    g_MailDatabase.Query(SQL_OnMailAttachmentStateSet, query, pack);
+}
+
+public void SQL_OnMailAttachmentClaimed(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    int mailId = pack.ReadCell();
+    char receiverSteamId[MAIL_STEAMID_MAX];
+    char senderSteamId[MAIL_STEAMID_MAX];
+    char senderName[MAIL_NAME_MAX];
+    char attachmentType[MAIL_ATTACHMENT_MAX];
+    pack.ReadString(receiverSteamId, sizeof(receiverSteamId));
+    pack.ReadString(senderSteamId, sizeof(senderSteamId));
+    pack.ReadString(senderName, sizeof(senderName));
+    pack.ReadString(attachmentType, sizeof(attachmentType));
+    delete pack;
+
+    char key[MAIL_REQUEST_KEY_MAX];
+    BuildMailAttachmentKey(mailId, key, sizeof(key));
+    int client = GetClientOfUserId(userId);
+    if (error[0] != '\0' || results == null || results.AffectedRows != 1)
+    {
+        if (error[0] != '\0')
+        {
+            LogError("[server_mail] Attachment claim failed: %s", error);
+        }
+        g_MailPendingAttachments.Remove(key);
+        if (IsMailClient(client))
+        {
+            CPrintToChat(client, "%s That attachment is unavailable or already being used.", MAIL_PREFIX);
+        }
+        return;
+    }
+
+    bool applied = false;
+    bool providerAvailable = IsMailAttachmentProviderAvailable(attachmentType);
+    if (providerAvailable && IsMailClient(client) && StrEqual(attachmentType, "hug"))
+    {
+        applied = Hugs_RedeemMailedHug(senderSteamId, receiverSteamId, senderName);
+    }
+    else if (providerAvailable && IsMailClient(client) && StrEqual(attachmentType, "rape"))
+    {
+        applied = Hugs_RedeemMailedRape(senderSteamId, receiverSteamId, senderName);
+    }
+    else if (providerAvailable && IsMailClient(client) && StrEqual(attachmentType, "rtd"))
+    {
+        applied = RTD_ApplyGiftedRoll(client);
+    }
+
+    if (!applied && IsMailClient(client))
+    {
+        CPrintToChat(client, "%s That attachment could not be used now; it remains in your inbox.", MAIL_PREFIX);
+    }
+    SetMailAttachmentState(
+        mailId,
+        receiverSteamId,
+        2,
+        applied ? 1 : 0,
+        userId,
+        attachmentType);
+}
+
+public void SQL_OnMailAttachmentStateSet(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int userId = pack.ReadCell();
+    int mailId = pack.ReadCell();
+    int state = pack.ReadCell();
+    char attachmentType[MAIL_ATTACHMENT_MAX];
+    pack.ReadString(attachmentType, sizeof(attachmentType));
+    delete pack;
+
+    char key[MAIL_REQUEST_KEY_MAX];
+    BuildMailAttachmentKey(mailId, key, sizeof(key));
+    g_MailPendingAttachments.Remove(key);
+    if (error[0] != '\0' || results == null || results.AffectedRows != 1)
+    {
+        LogError("[server_mail] Failed to finalize %s attachment %d: %s", attachmentType, mailId, error);
+        return;
+    }
+
+    int client = GetClientOfUserId(userId);
+    if (state == 1 && IsMailClient(client) && !StrEqual(attachmentType, "rtd"))
+    {
+        CPrintToChat(client, "%s Your mailed %s was redeemed.", MAIL_PREFIX, attachmentType);
     }
 }
 
