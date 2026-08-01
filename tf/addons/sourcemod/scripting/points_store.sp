@@ -88,6 +88,7 @@ ConVar g_CvarEnableWelfare = null;
 ConVar g_CvarWelfareMinPlayers = null;
 ConVar g_CvarLotteryDisabled = null;
 ConVar g_CvarLotteryMaxTicketValue = null;
+ConVar g_CvarLotteryEqualTicketValue = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 bool g_IdempotentAwardsReady = false;
@@ -117,6 +118,8 @@ int g_CurrentLotteryId = 0;
 char g_CurrentLotteryHash[LOTTO_HASH_MAX];
 char g_CurrentLotteryHashColor[BP_CURRENCY_COLOR_MAX + 2];
 bool g_CurrentLotterySuper = false;
+bool g_CurrentLotteryEqual = false;
+bool g_LotteryEqualRefundInProgress = false;
 
 bool g_LotteryWaitingCustom[MAXPLAYERS + 1];
 bool g_ClientLotteryTicketLoaded[MAXPLAYERS + 1];
@@ -251,10 +254,12 @@ public void OnPluginStart()
     g_CvarWelfareMinPlayers = CreateConVar("sm_points_store_welfare_min_players", "3", "Minimum GetClientCount(false) value required to collect welfare. 0 disables the requirement.", _, true, 0.0, true, 64.0);
     g_CvarLotteryDisabled = CreateConVar("sm_points_store_lottery_disabled", "0", "Disable lottery ticket commands and lottery draws on this server.", _, true, 0.0, true, 1.0);
     g_CvarLotteryMaxTicketValue = CreateConVar("sm_points_store_lottery_max_ticket_value", "1000", "Maximum lottery ticket value. Bets above this are capped. 0 disables the cap.", _, true, 0.0);
+    g_CvarLotteryEqualTicketValue = CreateConVar("sm_points_store_lottery_equal_ticket_value", "100", "Required ticket value during an Equal Lottery.", _, true, 1.0);
     g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarLotteryDisabled.AddChangeHook(OnLotteryDisabledConVarChanged);
+    g_CvarLotteryEqualTicketValue.AddChangeHook(OnLotteryEqualTicketValueChanged);
     RefreshCurrencyLabels();
 
     RegConsoleCmd("sm_shop", Command_Shop, "Open the points store.");
@@ -409,6 +414,8 @@ void ConnectDatabase()
     g_CurrentLotteryHash[0] = '\0';
     g_CurrentLotteryHashColor[0] = '\0';
     g_CurrentLotterySuper = false;
+    g_CurrentLotteryEqual = false;
+    g_LotteryEqualRefundInProgress = false;
     CancelPendingLotteryCall();
 
     char dbConfig[64];
@@ -633,6 +640,7 @@ void EnsureLotterySchema()
             ... "hash_color VARCHAR(32) NOT NULL, "
             ... "created_at INT NOT NULL, "
             ... "super_lottery TINYINT NOT NULL DEFAULT 0, "
+            ... "equal_lottery TINYINT NOT NULL DEFAULT 0, "
             ... "finished TINYINT NOT NULL DEFAULT 0, "
             ... "finished_at INT NOT NULL DEFAULT 0, "
             ... "winner_steamid64 VARCHAR(32) NOT NULL DEFAULT '', "
@@ -652,6 +660,7 @@ void EnsureLotterySchema()
             ... "hash_color VARCHAR(32) NOT NULL, "
             ... "created_at INTEGER NOT NULL, "
             ... "super_lottery INTEGER NOT NULL DEFAULT 0, "
+            ... "equal_lottery INTEGER NOT NULL DEFAULT 0, "
             ... "finished INTEGER NOT NULL DEFAULT 0, "
             ... "finished_at INTEGER NOT NULL DEFAULT 0, "
             ... "winner_steamid64 VARCHAR(32) NOT NULL DEFAULT '', "
@@ -695,6 +704,33 @@ public void SQL_OnLotterySuperColumnReady(Database db, DBResultSet results, cons
         && StrContains(error, "duplicate column", false) == -1)
     {
         LogError("[points_store] Lottery super_lottery migration failed: %s", error);
+    }
+
+    char query[256];
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN IF NOT EXISTS equal_lottery TINYINT NOT NULL DEFAULT 0 AFTER super_lottery",
+            LOTTO_TABLE);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "ALTER TABLE %s ADD COLUMN equal_lottery INTEGER NOT NULL DEFAULT 0",
+            LOTTO_TABLE);
+    }
+
+    g_Database.Query(SQL_OnLotteryEqualColumnReady, query);
+}
+
+public void SQL_OnLotteryEqualColumnReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0'
+        && StrContains(error, "Duplicate column", false) == -1
+        && StrContains(error, "duplicate column", false) == -1
+        && StrContains(error, "already exists", false) == -1)
+    {
+        LogError("[points_store] Lottery equal_lottery migration failed: %s", error);
     }
 
     EnsureLotteryTicketsSchema();
@@ -981,9 +1017,19 @@ int GetLotteryMaxTicketValue()
     return g_CvarLotteryMaxTicketValue.IntValue;
 }
 
+int GetLotteryEqualTicketValue()
+{
+    if (g_CvarLotteryEqualTicketValue == null)
+    {
+        return 100;
+    }
+
+    return g_CvarLotteryEqualTicketValue.IntValue;
+}
+
 int ClampLotteryTicketValue(int client, int amount)
 {
-    if (g_CurrentLotterySuper)
+    if (g_CurrentLotterySuper || g_CurrentLotteryEqual)
     {
         return amount;
     }
@@ -1019,6 +1065,8 @@ void ClearLocalLotteryState()
     g_CurrentLotteryHash[0] = '\0';
     g_CurrentLotteryHashColor[0] = '\0';
     g_CurrentLotterySuper = false;
+    g_CurrentLotteryEqual = false;
+    g_LotteryEqualRefundInProgress = false;
     ClearAllClientLotteryCaches();
     ResetLotteryDrawState();
 }
@@ -1043,7 +1091,7 @@ void EnsureActiveLottery()
 
     char query[256];
     Format(query, sizeof(query),
-        "SELECT id, hash, hash_color, super_lottery FROM %s WHERE finished = 0 ORDER BY id DESC LIMIT 1",
+        "SELECT id, hash, hash_color, super_lottery, equal_lottery FROM %s WHERE finished = 0 ORDER BY id DESC LIMIT 1",
         LOTTO_TABLE);
     g_Database.Query(SQL_OnActiveLotterySelected, query);
 }
@@ -1069,7 +1117,8 @@ public void SQL_OnActiveLotterySelected(Database db, DBResultSet results, const 
         results.FetchString(1, hash, sizeof(hash));
         results.FetchString(2, hashColor, sizeof(hashColor));
         bool superLottery = results.FetchInt(3) != 0;
-        SetActiveLottery(lotteryId, hash, hashColor, superLottery);
+        bool equalLottery = results.FetchInt(4) != 0;
+        SetActiveLottery(lotteryId, hash, hashColor, superLottery, equalLottery);
         return;
     }
 
@@ -1179,16 +1228,28 @@ public void SQL_OnActiveLotteryInsertedSelected(Database db, DBResultSet results
         return;
     }
 
-    SetActiveLottery(results.FetchInt(0), hash, hashColor, false);
+    SetActiveLottery(results.FetchInt(0), hash, hashColor, false, false);
 }
 
-void SetActiveLottery(int lotteryId, const char[] hash, const char[] hashColor, bool superLottery)
+void SetActiveLottery(
+    int lotteryId,
+    const char[] hash,
+    const char[] hashColor,
+    bool superLottery,
+    bool equalLottery)
 {
     g_CurrentLotteryId = lotteryId;
     strcopy(g_CurrentLotteryHash, sizeof(g_CurrentLotteryHash), hash);
     strcopy(g_CurrentLotteryHashColor, sizeof(g_CurrentLotteryHashColor), hashColor);
     g_CurrentLotterySuper = superLottery;
+    g_CurrentLotteryEqual = equalLottery && !superLottery;
     g_LotteryReady = true;
+
+    if (g_CurrentLotteryEqual)
+    {
+        BeginEqualLotteryRefunds();
+        return;
+    }
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -1202,6 +1263,10 @@ void SetActiveLottery(int lotteryId, const char[] hash, const char[] hashColor, 
 void SetCurrentLotterySuper(bool superLottery)
 {
     g_CurrentLotterySuper = superLottery;
+    if (superLottery)
+    {
+        g_CurrentLotteryEqual = false;
+    }
 
     if (!superLottery || !g_DatabaseReady || g_Database == null || g_CurrentLotteryId <= 0)
     {
@@ -1210,10 +1275,263 @@ void SetCurrentLotterySuper(bool superLottery)
 
     char query[192];
     Format(query, sizeof(query),
-        "UPDATE %s SET super_lottery = 1 WHERE id = %d AND finished = 0",
+        "UPDATE %s SET super_lottery = 1, equal_lottery = 0 WHERE id = %d AND finished = 0",
         LOTTO_TABLE,
         g_CurrentLotteryId);
     g_Database.Query(SQL_OnIgnoredResult, query);
+}
+
+void SetCurrentLotteryEqual(bool equalLottery)
+{
+    g_CurrentLotteryEqual = equalLottery;
+    if (equalLottery)
+    {
+        g_CurrentLotterySuper = false;
+    }
+
+    if (!equalLottery || !g_DatabaseReady || g_Database == null || g_CurrentLotteryId <= 0)
+    {
+        return;
+    }
+
+    char query[192];
+    Format(query, sizeof(query),
+        "UPDATE %s SET super_lottery = 0, equal_lottery = 1 WHERE id = %d AND finished = 0",
+        LOTTO_TABLE,
+        g_CurrentLotteryId);
+    g_Database.Query(SQL_OnIgnoredResult, query);
+    BeginEqualLotteryRefunds();
+}
+
+void BeginEqualLotteryRefunds()
+{
+    if (!g_CurrentLotteryEqual || g_LotteryEqualRefundInProgress
+        || !g_DatabaseReady || g_Database == null || g_CurrentLotteryId <= 0)
+    {
+        return;
+    }
+
+    g_LotteryEqualRefundInProgress = true;
+    ContinueEqualLotteryRefunds(g_CurrentLotteryId);
+}
+
+void ContinueEqualLotteryRefunds(int lotteryId)
+{
+    if (!g_CurrentLotteryEqual || lotteryId != g_CurrentLotteryId
+        || !g_DatabaseReady || g_Database == null)
+    {
+        g_LotteryEqualRefundInProgress = false;
+        return;
+    }
+
+    if (g_LotteryPendingTicketWrites > 0)
+    {
+        CreateTimer(0.5, Timer_RetryEqualLotteryRefunds, lotteryId, TIMER_FLAG_NO_MAPCHANGE);
+        return;
+    }
+
+    int requiredValue = GetLotteryEqualTicketValue();
+    DataPack pack = new DataPack();
+    pack.WriteCell(lotteryId);
+    pack.WriteCell(requiredValue);
+
+    char query[384];
+    FormatEx(query, sizeof(query),
+        "SELECT steamid64, ticket_value FROM %s "
+        ... "WHERE lottery_id = %d AND ticket_value != %d",
+        LOTTO_TICKET_TABLE,
+        lotteryId,
+        requiredValue);
+    g_Database.Query(SQL_OnEqualLotteryInvalidTicketsLoaded, query, pack);
+}
+
+public Action Timer_RetryEqualLotteryRefunds(Handle timer, any lotteryId)
+{
+    if (!g_CurrentLotteryEqual || lotteryId != g_CurrentLotteryId)
+    {
+        return Plugin_Stop;
+    }
+
+    g_LotteryEqualRefundInProgress = true;
+    ContinueEqualLotteryRefunds(lotteryId);
+    return Plugin_Stop;
+}
+
+public void SQL_OnEqualLotteryInvalidTicketsLoaded(
+    Database db,
+    DBResultSet rows,
+    const char[] error,
+    any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int lotteryId = pack.ReadCell();
+    int requiredValue = pack.ReadCell();
+    delete pack;
+
+    if (!g_CurrentLotteryEqual || lotteryId != g_CurrentLotteryId)
+    {
+        g_LotteryEqualRefundInProgress = false;
+        return;
+    }
+    if (error[0] != '\0')
+    {
+        g_LotteryEqualRefundInProgress = false;
+        LogError("[points_store] Failed to load invalid Equal Lottery tickets: %s", error);
+        CreateTimer(1.0, Timer_RetryEqualLotteryRefunds, lotteryId, TIMER_FLAG_NO_MAPCHANGE);
+        return;
+    }
+
+    ArrayList steamIds = new ArrayList(ByteCountToCells(32));
+    ArrayList amounts = new ArrayList();
+    char steamId[32];
+    while (rows != null && rows.FetchRow())
+    {
+        rows.FetchString(0, steamId, sizeof(steamId));
+        steamIds.PushString(steamId);
+        amounts.Push(rows.FetchInt(1));
+    }
+
+    if (steamIds.Length == 0)
+    {
+        delete steamIds;
+        delete amounts;
+        g_LotteryEqualRefundInProgress = false;
+        ReloadAllClientLotteryTickets();
+        if (requiredValue != GetLotteryEqualTicketValue())
+        {
+            BeginEqualLotteryRefunds();
+        }
+        return;
+    }
+
+    Transaction txn = new Transaction();
+    char query[1024];
+    if (g_IsMySql)
+    {
+        FormatEx(query, sizeof(query),
+            "INSERT INTO %s (steamid64, balance) "
+            ... "SELECT steamid64, ticket_value FROM %s WHERE lottery_id = %d AND ticket_value != %d "
+            ... "ON DUPLICATE KEY UPDATE balance = GREATEST(0, balance + VALUES(balance))",
+            BP_BALANCE_TABLE,
+            LOTTO_TICKET_TABLE,
+            lotteryId,
+            requiredValue);
+    }
+    else
+    {
+        FormatEx(query, sizeof(query),
+            "INSERT INTO %s (steamid64, balance) "
+            ... "SELECT steamid64, ticket_value FROM %s WHERE lottery_id = %d AND ticket_value != %d "
+            ... "ON CONFLICT(steamid64) DO UPDATE SET balance = MAX(0, balance + excluded.balance), updated_at = CURRENT_TIMESTAMP",
+            BP_BALANCE_TABLE,
+            LOTTO_TICKET_TABLE,
+            lotteryId,
+            requiredValue);
+    }
+    txn.AddQuery(query);
+
+    FormatEx(query, sizeof(query),
+        "DELETE FROM %s WHERE lottery_id = %d AND ticket_value != %d",
+        LOTTO_TICKET_TABLE,
+        lotteryId,
+        requiredValue);
+    txn.AddQuery(query);
+
+    DataPack txnPack = new DataPack();
+    txnPack.WriteCell(lotteryId);
+    txnPack.WriteCell(requiredValue);
+    txnPack.WriteCell(view_as<int>(steamIds));
+    txnPack.WriteCell(view_as<int>(amounts));
+    g_Database.Execute(
+        txn,
+        SQLTxn_OnEqualLotteryTicketsRefunded,
+        SQLTxn_OnEqualLotteryTicketsRefundFailure,
+        txnPack);
+}
+
+public void SQLTxn_OnEqualLotteryTicketsRefunded(
+    Database db,
+    any data,
+    int numQueries,
+    DBResultSet[] results,
+    any[] queryData)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int lotteryId = pack.ReadCell();
+    int requiredValue = pack.ReadCell();
+    ArrayList steamIds = view_as<ArrayList>(pack.ReadCell());
+    ArrayList amounts = view_as<ArrayList>(pack.ReadCell());
+    delete pack;
+
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    char steamId[32];
+    for (int i = 0; i < steamIds.Length; i++)
+    {
+        steamIds.GetString(i, steamId, sizeof(steamId));
+        int amount = amounts.Get(i);
+        int client = FindClientBySteamId64(steamId);
+        int balanceAfter = -1;
+        if (IsClientAuthorizedHuman(client))
+        {
+            if (g_ClientBonusPointsLoaded[client])
+            {
+                g_ClientBonusPoints[client] += amount;
+                balanceAfter = g_ClientBonusPoints[client];
+            }
+            else
+            {
+                LoadClientBonusPoints(client);
+            }
+
+            ClearClientLotteryTicketCache(client);
+            g_ClientLotteryTicketLoaded[client] = true;
+
+            CPrintToChat(client,
+                "%s[Lottery]{default} An {gold}Equal Value Lottery{default} is coming; your ticket has been refunded! Bet again with a value of {gold}%d{default} to get a ticket.",
+                colorTag,
+                requiredValue);
+        }
+        LogLotteryCreditEvent("lottery_equal_refund", steamId, amount, lotteryId, client, balanceAfter);
+    }
+
+    delete steamIds;
+    delete amounts;
+    g_LotteryEqualRefundInProgress = false;
+    ReloadAllClientLotteryTickets();
+    if (g_CurrentLotteryEqual && lotteryId == g_CurrentLotteryId
+        && requiredValue != GetLotteryEqualTicketValue())
+    {
+        BeginEqualLotteryRefunds();
+    }
+}
+
+public void SQLTxn_OnEqualLotteryTicketsRefundFailure(
+    Database db,
+    any data,
+    int numQueries,
+    const char[] error,
+    int failIndex,
+    any[] queryData)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int lotteryId = pack.ReadCell();
+    pack.ReadCell();
+    ArrayList steamIds = view_as<ArrayList>(pack.ReadCell());
+    ArrayList amounts = view_as<ArrayList>(pack.ReadCell());
+    delete pack;
+    delete steamIds;
+    delete amounts;
+
+    g_LotteryEqualRefundInProgress = false;
+    LogError("[points_store] Equal Lottery refund transaction failed at query %d: %s", failIndex, error);
+    if (g_CurrentLotteryEqual && lotteryId == g_CurrentLotteryId)
+    {
+        CreateTimer(1.0, Timer_RetryEqualLotteryRefunds, lotteryId, TIMER_FLAG_NO_MAPCHANGE);
+    }
 }
 
 void ClearClientLotteryTicketCache(int client)
@@ -1235,6 +1553,17 @@ void ClearAllClientLotteryCaches()
     for (int i = 1; i <= MaxClients; i++)
     {
         ClearClientLotteryTicketCache(i);
+    }
+}
+
+void ReloadAllClientLotteryTickets()
+{
+    for (int i = 1; i <= MaxClients; i++)
+    {
+        if (IsClientAuthorizedHuman(i))
+        {
+            LoadClientLotteryTicket(i);
+        }
     }
 }
 
@@ -1384,6 +1713,12 @@ bool IsLotteryReadyForClient(int client, bool needTicketLoaded = true)
     {
         CPrintToChat(client, "%s[Lotto]{default} The lottery database is not ready.", colorTag);
         EnsureActiveLottery();
+        return false;
+    }
+
+    if (needTicketLoaded && g_LotteryEqualRefundInProgress)
+    {
+        CPrintToChat(client, "%s[Lotto]{default} Equal Lottery tickets are being updated. Try again in a moment.", colorTag);
         return false;
     }
 
@@ -1830,6 +2165,11 @@ int RoundLotteryTicketValue(int amount)
 
 int GetLotteryChanceCount(int amount)
 {
+    if (g_CurrentLotteryEqual)
+    {
+        return amount == GetLotteryEqualTicketValue() ? 1 : 0;
+    }
+
     int roundedAmount = RoundLotteryTicketValue(amount);
     if (roundedAmount <= 0)
     {
@@ -1861,6 +2201,18 @@ void ShowLotteryMenu(int client)
     menu.SetTitle(title);
 
     char display[128];
+    if (g_CurrentLotteryEqual)
+    {
+        int requiredValue = GetLotteryEqualTicketValue();
+        char info[16];
+        IntToString(requiredValue, info, sizeof(info));
+        Format(display, sizeof(display), "%d %s", requiredValue, currencyLong);
+        menu.AddItem(info, display);
+        menu.AddItem("pool", "Prize pool");
+        menu.Display(client, MENU_TIME_FOREVER);
+        return;
+    }
+
     Format(display, sizeof(display), "10 %s", currencyLong);
     menu.AddItem("10", display);
     Format(display, sizeof(display), "25 %s", currencyLong);
@@ -1959,6 +2311,15 @@ void PromptLotteryCustomAmount(int client)
 {
     char colorTag[BP_CURRENCY_COLOR_MAX + 2];
     GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    if (g_CurrentLotteryEqual)
+    {
+        CPrintToChat(client,
+            "%s[Lottery]{default} Equal Lottery tickets must have a value of {gold}%d{default}.",
+            colorTag,
+            GetLotteryEqualTicketValue());
+        return;
+    }
+
     g_LotteryWaitingCustom[client] = true;
     CPrintToChat(client, "%s[Lottery]{default} Type your ticket value, or {gold}all{default}. Values are rounded down to the nearest %s%d{default}.", colorTag, colorTag, LOTTO_TICKET_UNIT);
 }
@@ -1994,6 +2355,12 @@ void AttemptLotteryAllTicketPurchase(int client)
 
     if (!IsLotteryReadyForClient(client))
     {
+        return;
+    }
+
+    if (g_CurrentLotteryEqual)
+    {
+        AttemptLotteryTicketPurchase(client, GetLotteryEqualTicketValue());
         return;
     }
 
@@ -2037,19 +2404,31 @@ void AttemptLotteryTicketPurchase(int client, int amount)
         return;
     }
 
-    amount = ClampLotteryTicketValue(client, amount);
-
-    int roundedAmount = RoundLotteryTicketValue(amount);
-    if (roundedAmount <= 0)
+    if (g_CurrentLotteryEqual && amount != GetLotteryEqualTicketValue())
     {
-        CPrintToChat(client, "%s[Lottery]{default} Ticket value must be at least %s%d %s{default}.", colorTag, colorTag, LOTTO_TICKET_UNIT, currencyLong);
+        CPrintToChat(client,
+            "%s[Lottery]{default} Equal Lottery tickets must have a value of {gold}%d{default}.",
+            colorTag,
+            GetLotteryEqualTicketValue());
         return;
     }
 
-    if (roundedAmount != amount)
+    amount = ClampLotteryTicketValue(client, amount);
+
+    if (!g_CurrentLotteryEqual)
     {
-        CPrintToChat(client, "%s[Lottery]{default} Ticket value rounded down to %s%d %s{default}.", colorTag, colorTag, roundedAmount, currencyLong);
-        amount = roundedAmount;
+        int roundedAmount = RoundLotteryTicketValue(amount);
+        if (roundedAmount <= 0)
+        {
+            CPrintToChat(client, "%s[Lottery]{default} Ticket value must be at least %s%d %s{default}.", colorTag, colorTag, LOTTO_TICKET_UNIT, currencyLong);
+            return;
+        }
+
+        if (roundedAmount != amount)
+        {
+            CPrintToChat(client, "%s[Lottery]{default} Ticket value rounded down to %s%d %s{default}.", colorTag, colorTag, roundedAmount, currencyLong);
+            amount = roundedAmount;
+        }
     }
 
     if (g_ClientLotteryHasTicket[client])
@@ -2675,10 +3054,19 @@ public Action Command_DoLottery(int client, int args)
         return Plugin_Handled;
     }
 
-    if (g_CurrentLotterySuper || GetRandomInt(1, 100) <= 35)
+    int specialLotteryRoll = GetRandomInt(1, 100);
+    if (g_CurrentLotterySuper || (!g_CurrentLotteryEqual && specialLotteryRoll <= 35))
     {
         SetCurrentLotterySuper(true);
         CPrintToChatAll("%s[Lotto]{default} A {gold}SUPER LOTTERY{default} is being called soon, {gold}!bet{default} no longer has a size limit!", colorTag);
+    }
+    else if (g_CurrentLotteryEqual || specialLotteryRoll <= 70)
+    {
+        SetCurrentLotteryEqual(true);
+        CPrintToChatAll(
+            "%s[Lotto]{default} An {gold}Equal Lottery{default} is being called soon, {gold}only tickets with a value of %d are accepted!",
+            colorTag,
+            GetLotteryEqualTicketValue());
     }
     else
     {
@@ -2760,7 +3148,7 @@ void StartLotteryDraw(int requesterUserId, int lotteryId, bool retry = false)
         g_LotteryDrawInProgress = true;
     }
 
-    if (g_LotteryPendingTicketWrites > 0)
+    if (g_LotteryPendingTicketWrites > 0 || g_LotteryEqualRefundInProgress)
     {
         DataPack retryPack = new DataPack();
         retryPack.WriteCell(requesterUserId);
@@ -3180,6 +3568,8 @@ public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[]
         g_CurrentLotteryHash[0] = '\0';
         g_CurrentLotteryHashColor[0] = '\0';
         g_CurrentLotterySuper = false;
+        g_CurrentLotteryEqual = false;
+        g_LotteryEqualRefundInProgress = false;
         ClearAllClientLotteryCaches();
         ResetLotteryDrawState();
         EnsureActiveLottery();
@@ -3216,6 +3606,8 @@ public void SQL_OnLotteryFinished(Database db, DBResultSet results, const char[]
     g_CurrentLotteryHash[0] = '\0';
     g_CurrentLotteryHashColor[0] = '\0';
     g_CurrentLotterySuper = false;
+    g_CurrentLotteryEqual = false;
+    g_LotteryEqualRefundInProgress = false;
     ClearAllClientLotteryCaches();
     ResetLotteryDrawState();
     EnsureActiveLottery();
@@ -4466,6 +4858,14 @@ public void OnLotteryDisabledConVarChanged(ConVar convar, const char[] oldValue,
     }
 
     ClearLocalLotteryState();
+}
+
+public void OnLotteryEqualTicketValueChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    if (g_CurrentLotteryEqual)
+    {
+        BeginEqualLotteryRefunds();
+    }
 }
 
 void RefreshCurrencyLabels()
