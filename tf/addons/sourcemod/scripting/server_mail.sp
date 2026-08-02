@@ -1593,26 +1593,6 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
     }
 }
 
-void BuildMailDisplayTitle(const char[] title, int timestamp, int gems, char[] output, int maxlen)
-{
-    char date[32];
-    FormatTime(date, sizeof(date), "%m-%d-%Y", timestamp);
-    if (StrEqual(title, "N/A", false))
-    {
-        strcopy(output, maxlen, date);
-        return;
-    }
-
-    if (gems > 0)
-    {
-        Format(output, maxlen, "%s %s (%d)", title, date, gems);
-    }
-    else
-    {
-        Format(output, maxlen, "%s %s", title, date);
-    }
-}
-
 void BuildMailListDisplay(
     const char[] title,
     int timestamp,
@@ -1808,7 +1788,7 @@ void RequestMailDetails(int client, int mailId, MailViewMode mode)
     }
     char query[1024];
     FormatEx(query, sizeof(query),
-        "SELECT mail_id, sender_steamid64, sender_name, receiver_name, created_at, title, contents, gems, gems_redeemed, attachment_type, attachment_redeemed "
+        "SELECT mail_id, sender_steamid64, sender_name, receiver_steamid64, receiver_name, contents, gems, gems_redeemed, attachment_type, attachment_redeemed "
         ... "FROM %s WHERE mail_id = %d AND %s = '%s' "
         ... "AND (expires_at = 0 OR expires_at > %d OR gems_redeemed != 0) LIMIT 1",
         MAIL_TABLE,
@@ -1868,20 +1848,19 @@ public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] 
     int mailId = rows.FetchInt(0);
     char senderSteamId[MAIL_STEAMID_MAX];
     char senderName[MAIL_NAME_MAX];
+    char receiverSteamId[MAIL_STEAMID_MAX];
     char receiverName[MAIL_NAME_MAX];
-    char title[MAIL_TITLE_MAX];
     char contents[MAIL_CONTENTS_MAX];
     rows.FetchString(1, senderSteamId, sizeof(senderSteamId));
     rows.FetchString(2, senderName, sizeof(senderName));
-    rows.FetchString(3, receiverName, sizeof(receiverName));
-    int timestamp = rows.FetchInt(4);
-    rows.FetchString(5, title, sizeof(title));
-    rows.FetchString(6, contents, sizeof(contents));
-    int gems = rows.FetchInt(7);
-    bool redeemed = rows.FetchInt(8) != 0;
+    rows.FetchString(3, receiverSteamId, sizeof(receiverSteamId));
+    rows.FetchString(4, receiverName, sizeof(receiverName));
+    rows.FetchString(5, contents, sizeof(contents));
+    int gems = rows.FetchInt(6);
+    bool redeemed = rows.FetchInt(7) != 0;
     char attachmentType[MAIL_ATTACHMENT_MAX];
-    rows.FetchString(9, attachmentType, sizeof(attachmentType));
-    bool attachmentRedeemed = rows.FetchInt(10) == 1;
+    rows.FetchString(8, attachmentType, sizeof(attachmentType));
+    bool attachmentRedeemed = rows.FetchInt(9) == 1;
 
     if (mode == MailView_Inbox)
     {
@@ -1907,81 +1886,14 @@ public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] 
         return;
     }
 
-    char displayTitle[256];
-    char dateLong[64];
-    char menuTitle[1024];
-    BuildMailDisplayTitle(title, timestamp, gems, displayTitle, sizeof(displayTitle));
-    FormatTime(dateLong, sizeof(dateLong), "%Y-%m-%d %H:%M", timestamp);
-    FormatEx(menuTitle, sizeof(menuTitle),
-        "%s\n%s: %s\nDate: %s\n\n%s",
-        displayTitle,
-        mode == MailView_Inbox ? "From" : "To",
-        mode == MailView_Inbox ? senderName : receiverName,
-        dateLong,
+    int receiver = FindMailClientBySteamId(receiverSteamId);
+    char coloredReceiver[256];
+    BuildColoredMailName(receiver, receiverSteamId, receiverName, coloredReceiver, sizeof(coloredReceiver));
+    CPrintToChatEx(client,
+        receiver > 0 ? receiver : client,
+        "{cornflowerblue}[Mail]{default} To %s{default}: %s",
+        coloredReceiver,
         contents);
-
-    Menu menu = new Menu(MenuHandler_MailDetails);
-    menu.SetTitle(menuTitle);
-
-    char info[32];
-    Format(info, sizeof(info), "back:%d", view_as<int>(mode));
-    if (mode == MailView_Inbox && gems > 0)
-    {
-        if (redeemed)
-        {
-            menu.AddItem("redeemed", "Attached Gems: Redeemed", ITEMDRAW_DISABLED);
-        }
-        else if (!IsPointsStoreAwardAvailable())
-        {
-            menu.AddItem("unavailable", "Attached Gems: Currency system unavailable", ITEMDRAW_DISABLED);
-        }
-        else
-        {
-            Format(info, sizeof(info), "redeem:%d", mailId);
-            char redeemLabel[128];
-            Format(redeemLabel, sizeof(redeemLabel), "Redeem %d Gems", gems);
-            menu.AddItem(info, redeemLabel);
-        }
-        Format(info, sizeof(info), "back:%d", view_as<int>(mode));
-        menu.AddItem(info, "Back");
-    }
-    else
-    {
-        menu.AddItem(info, "Back");
-    }
-
-    menu.ExitBackButton = true;
-    menu.Display(client, MENU_TIME_FOREVER);
-}
-
-public int MenuHandler_MailDetails(Menu menu, MenuAction action, int client, int item)
-{
-    if (action == MenuAction_End)
-    {
-        delete menu;
-        return 0;
-    }
-    if (action == MenuAction_Cancel && item == MenuCancel_ExitBack && IsMailClient(client))
-    {
-        ShowMailMainMenu(client);
-        return 0;
-    }
-    if (action != MenuAction_Select || !IsMailClient(client))
-    {
-        return 0;
-    }
-
-    char info[32];
-    menu.GetItem(item, info, sizeof(info));
-    if (StrContains(info, "redeem:", false) == 0)
-    {
-        BeginMailRedemption(client, StringToInt(info[7]));
-    }
-    else if (StrContains(info, "back:", false) == 0)
-    {
-        RequestMailList(client, view_as<MailViewMode>(StringToInt(info[5])));
-    }
-    return 0;
 }
 
 void BeginMailRedemption(int client, int mailId)
