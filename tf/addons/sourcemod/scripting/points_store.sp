@@ -11,6 +11,8 @@
 #include <dgm_api>
 #include <filters_api>
 #include <saysounds>
+#include <server_mail>
+#include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
 #include "include/kogasa_sql.inc"
@@ -173,6 +175,8 @@ static const char g_LotteryColors[][] =
     "whitesmoke", "yellow", "yellowgreen"
 };
 
+#include "points_store/bounties.inc"
+
 public Plugin myinfo =
 {
     name = "points_store",
@@ -185,10 +189,13 @@ public Plugin myinfo =
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
     MarkNativeAsOptional("Filters_GetChatName");
+    MarkNativeAsOptional("Filters_GetSteamIdColorTag");
     MarkNativeAsOptional("SaySounds_PlayCommand");
     MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
+    MarkNativeAsOptional("ServerMail_SendCustomSteamId");
+    MarkNativeAsOptional("WhaleTracker_GetRankedPlaytimeHours");
     RegPluginLibrary("points_store");
     CreateNative("PointsStore_AreBonusPointsLoaded", Native_PointsStore_AreBonusPointsLoaded);
     CreateNative("PointsStore_GetBonusPoints", Native_PointsStore_GetBonusPoints);
@@ -322,6 +329,8 @@ public void OnPluginStart()
     RegAdminCmd("sm_dolottery", Command_DoLottery, ADMFLAG_GENERIC, "Draw the current currency lottery.");
     RegAdminCmd("sm_dolotto", Command_DoLottery, ADMFLAG_GENERIC, "Draw the current currency lottery.");
 
+    Bounties_OnPluginStart();
+
     LoadStoreItems();
     LoadLotteryWords();
     ConnectDatabase();
@@ -329,6 +338,7 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
+    Bounties_OnPluginEnd();
     PluginStats_Flush();
     delete g_IdempotentAwardForward;
 
@@ -373,6 +383,7 @@ public void OnPluginEnd()
 public void OnMapStart()
 {
     PluginStats_OnMapStart();
+    Bounties_OnMapStart();
     if (g_PerMapAwardCounts != null)
     {
         g_PerMapAwardCounts.Clear();
@@ -388,6 +399,7 @@ public void OnMapEnd()
 
 public void OnClientAuthorized(int client, const char[] auth)
 {
+    Bounties_OnClientAuthorized(client);
     g_NextSendAllowedAt[client] = 0.0;
     ClearClientStoreCache(client);
     LoadClientPurchases(client);
@@ -397,6 +409,7 @@ public void OnClientAuthorized(int client, const char[] auth)
 
 public void OnClientDisconnect(int client)
 {
+    Bounties_OnClientDisconnect(client);
     g_NextSendAllowedAt[client] = 0.0;
     g_LotteryWaitingCustom[client] = false;
     ClearClientStoreCache(client);
@@ -408,6 +421,7 @@ void ConnectDatabase()
     KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
     KogasaSql_Close(g_Database, g_DatabaseReady);
     g_IdempotentAwardsReady = false;
+    g_BountyDatabaseReady = false;
     g_LotteryReady = false;
     g_LotteryCreating = false;
     g_CurrentLotteryId = 0;
@@ -458,6 +472,7 @@ void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
 {
     g_DatabaseReady = false;
     g_IdempotentAwardsReady = false;
+    g_BountyDatabaseReady = false;
     if (g_hDatabaseReconnectTimer == null)
     {
         g_hDatabaseReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase, _, TIMER_FLAG_NO_MAPCHANGE);
@@ -893,6 +908,7 @@ void FinishSchemaReady()
 {
     g_DatabaseReady = true;
     EnsureIdempotentAwardsSchema();
+    EnsureBountySchema();
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -5954,6 +5970,12 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
         return false;
     }
 
+    if (points < 0 && g_BountyPlacementPending[client])
+    {
+        LogBonusPointsRejected("bounty_placement_pending", client, points, type, target, g_ClientBonusPoints[client], randomChance, 0.0);
+        return false;
+    }
+
     if (randomChance < 0.1)
     {
         randomChance = 0.1;
@@ -7257,7 +7279,7 @@ static void PlayPurchaseSound()
     SaySounds_PlayCommand(0, "xp_gain", false);
 }
 
-static void BuildPurchaseDisplayName(int client, char[] buffer, int maxlen)
+void BuildPurchaseDisplayName(int client, char[] buffer, int maxlen)
 {
     buffer[0] = '\0';
 
