@@ -197,7 +197,7 @@ public Action Command_PlaceBounty(int client, int args)
     }
     if (args < 1)
     {
-        CPrintToChat(client, "%s Usage: {gold}!bounty playername", g_CurrencyPrefix);
+        CPrintToChat(client, "%s Usage: {gold}!bounty playername [amount]", g_CurrencyPrefix);
         return Plugin_Handled;
     }
     if (!AreBonusPointsReady(client))
@@ -212,17 +212,65 @@ public Action Command_PlaceBounty(int client, int args)
         return Plugin_Handled;
     }
 
-    GetCmdArgString(g_BountyPendingSearch[client], sizeof(g_BountyPendingSearch[]));
-    StripQuotes(g_BountyPendingSearch[client]);
+    g_BountyPendingSearch[client][0] = '\0';
+    g_BountyPendingAmount[client] = 0;
+
+    int searchArgCount = args;
+    if (args >= 2)
+    {
+        char amountText[16];
+        int amount;
+        GetCmdArg(args, amountText, sizeof(amountText));
+        int parsedLength = StringToIntEx(amountText, amount);
+        if (parsedLength > 0 && amountText[parsedLength] == '\0')
+        {
+            if (!IsBountyAmountAllowed(amount))
+            {
+                CPrintToChat(client, "%s Bounty amount must be {gold}10, 25, 50, 100, 250, or 1000{default}.", g_CurrencyPrefix);
+                return Plugin_Handled;
+            }
+            if (GetCachedBonusPoints(client) < amount)
+            {
+                CPrintToChat(client, "%s You do not have enough %s.", g_CurrencyPrefix, g_CurrencyLongLabel);
+                return Plugin_Handled;
+            }
+
+            g_BountyPendingAmount[client] = amount;
+            searchArgCount--;
+        }
+    }
+
+    char searchPart[BOUNTY_NAME_MAX];
+    for (int i = 1; i <= searchArgCount; i++)
+    {
+        GetCmdArg(i, searchPart, sizeof(searchPart));
+        if (g_BountyPendingSearch[client][0] != '\0')
+        {
+            StrCat(g_BountyPendingSearch[client], sizeof(g_BountyPendingSearch[]), " ");
+        }
+        StrCat(g_BountyPendingSearch[client], sizeof(g_BountyPendingSearch[]), searchPart);
+    }
     TrimString(g_BountyPendingSearch[client]);
     if (g_BountyPendingSearch[client][0] == '\0')
     {
-        CPrintToChat(client, "%s Usage: {gold}!bounty playername", g_CurrencyPrefix);
+        CPrintToChat(client, "%s Usage: {gold}!bounty playername [amount]", g_CurrencyPrefix);
         return Plugin_Handled;
     }
 
     RequestBountyPlayerSearch(client);
     return Plugin_Handled;
+}
+
+bool IsBountyAmountAllowed(int amount)
+{
+    for (int i = 0; i < sizeof(g_BountyAmounts); i++)
+    {
+        if (g_BountyAmounts[i] == amount)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 int GetBountyRankMinimumKillsDeaths()
@@ -450,7 +498,14 @@ public int MenuHandler_BountySearchResults(Menu menu, MenuAction action, int cli
         strcopy(g_BountyPendingTargetName[client], sizeof(g_BountyPendingTargetName[]), entry.name);
     }
 
-    ShowBountyAmountMenu(client);
+    if (g_BountyPendingAmount[client] > 0)
+    {
+        ShowBountyConsentMenu(client);
+    }
+    else
+    {
+        ShowBountyAmountMenu(client);
+    }
     return 0;
 }
 
