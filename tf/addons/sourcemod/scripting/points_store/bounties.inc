@@ -9,8 +9,9 @@
 #define BOUNTY_SEARCH_MAX 64
 #define BOUNTY_TOKEN_MAX 128
 #define BOUNTY_WALL_EXPIRY_SECONDS 604800
-#define BOUNTY_PLAYTIME_EXPIRY_SECONDS 1200
+#define BOUNTY_PLAYTIME_EXPIRY_SECONDS 1800
 #define BOUNTY_HALFTIME_SECONDS (BOUNTY_PLAYTIME_EXPIRY_SECONDS / 2)
+#define BOUNTY_HALFTIME_REMAINING_MINUTES ((BOUNTY_PLAYTIME_EXPIRY_SECONDS - BOUNTY_HALFTIME_SECONDS) / 60)
 #define BOUNTY_KILL_GROWTH_MIN_AMOUNT 100
 #define BOUNTY_KILL_GROWTH_PERCENT 5
 #define BOUNTY_MAINTENANCE_INTERVAL 60.0
@@ -48,7 +49,7 @@ bool g_BountySchemaCheckFailed = false;
 
 static const char g_BountyHelpLines[][] =
 {
-    "Bounties last 20 minutes of playtime, meaning one expires after playing on the server for 10 minutes twice.",
+    "Bounties last 30 minutes of playtime, meaning one expires after playing on the server for 15 minutes twice.",
     "When a client with a bounty on them is dominated, the bounty ends and pays the dominator the Gems.",
     "For every kill the bounty target gets while alive, the bounty payout increases by 5%, such as from 100 to 105 gems.",
     "Bounty growth applies to original bounty amounts of at least 100 Gems."
@@ -1761,14 +1762,12 @@ public void SQLTxn_OnBountiesSurvived(Database db, any data, int numQueries, DBR
         char targetSteamId[BOUNTY_STEAMID_MAX];
         char targetName[BOUNTY_NAME_MAX];
         char targetDisplay[256];
-        char currencyName[BP_CURRENCY_SHORT_MAX];
         while (results[halftimeQueryIndex].FetchRow())
         {
             int amount = results[halftimeQueryIndex].FetchInt(0);
             results[halftimeQueryIndex].FetchString(1, targetSteamId, sizeof(targetSteamId));
             results[halftimeQueryIndex].FetchString(2, targetName, sizeof(targetName));
             BuildBountyDisplayName(targetSteamId, targetName, targetDisplay, sizeof(targetDisplay));
-            GetCurrencyShortLabelForAmount(amount, currencyName, sizeof(currencyName));
 
             int target = FindClientBySteamId64(targetSteamId);
             for (int recipient = 1; recipient <= MaxClients; recipient++)
@@ -1776,12 +1775,9 @@ public void SQLTxn_OnBountiesSurvived(Database db, any data, int numQueries, DBR
                 if (IsClientInGameHuman(recipient))
                 {
                     CPrintToChatEx(recipient, target > 0 ? target : recipient,
-                        "%s The %s%d %s{default} bounty on %s is 50%% over! Dominate %s now!!!",
+                        "%s {gold}%d minutes{default} remaining in %s's bounty! Dominate him now!!!",
                         g_BountyPrefix,
-                        g_CurrencyColorTag,
-                        amount,
-                        currencyName,
-                        targetDisplay,
+                        BOUNTY_HALFTIME_REMAINING_MINUTES,
                         targetDisplay);
                 }
             }
