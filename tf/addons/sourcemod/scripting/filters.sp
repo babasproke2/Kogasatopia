@@ -15,6 +15,7 @@
 #include <adminsdb_api>
 #include <hugs_api>
 #include <mutecheck_api>
+#include <points_store_api>
 #include <tags_api>
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
@@ -41,6 +42,10 @@
 #define PRENAME_MAX_PATTERN 64
 #define PRENAME_MAX_RENAME 64
 #define NAME_COLOR_AMERICA "america"
+#define NAME_PATTERN_GRADIENT_PREFIX "gradient:"
+#define NAME_PATTERN_MAX 96
+#define NAME_GRADIENT_MAX_STEPS 8
+#define GRADIENT_NAME_ACCESS_ITEM "gradient_name_access"
 #define NAME_PATTERN_AMERICA_PREVIEW "{red}Ame{white}ri{dodgerblue}ca{default}"
 #define CHAT_PREFIX_MAXLEN 128
 
@@ -77,6 +82,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional("Hugs_GetRapesGiven");
     MarkNativeAsOptional("Hugs_AreStatsLoaded");
     MarkNativeAsOptional("MuteCheck_GetMutedClientCount");
+    MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("WhaleTracker_GetCumulativeKills");
     MarkNativeAsOptional("WhaleTracker_AreStatsLoaded");
     MarkNativeAsOptional("Tags_GetSelectedTag");
@@ -90,7 +96,7 @@ Handle g_hChatFrontend;
 
 // Per-client name color and pattern preferences (empty string means unset)
 char g_NameColors[MAXPLAYERS + 1][32];
-char g_NamePatterns[MAXPLAYERS + 1][32];
+char g_NamePatterns[MAXPLAYERS + 1][NAME_PATTERN_MAX];
 
 // Truthtext handles
 Handle g_sEnabled = INVALID_HANDLE;
@@ -581,7 +587,7 @@ static void Filters_StartTimers()
 
     if (g_hMuteDeafenTimer == null)
     {
-        g_hMuteDeafenTimer = CreateTimer(FILTERS_MUTE_CHECK_INTERVAL, Timer_RefreshMuteDeafenState, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+        g_hMuteDeafenTimer = CreateTimer(FILTERS_MUTE_CHECK_INTERVAL, Timer_RefreshMuteDeafenState, _, TIMER_REPEAT);
     }
 }
 
@@ -837,8 +843,9 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         ... "updated_at INT NOT NULL DEFAULT 0,"
         ... "INDEX(last_name_lower),"
         ... "INDEX(updated_at)) DEFAULT CHARSET=utf8mb4",
-        "CREATE TABLE IF NOT EXISTS filters_namecolors (steamid VARCHAR(32) PRIMARY KEY, color VARCHAR(32) NOT NULL DEFAULT '', pattern VARCHAR(32) NOT NULL DEFAULT '', updated_at INT NOT NULL DEFAULT 0)",
-        "ALTER TABLE filters_namecolors ADD COLUMN IF NOT EXISTS pattern VARCHAR(32) NOT NULL DEFAULT '' AFTER color"
+        "CREATE TABLE IF NOT EXISTS filters_namecolors (steamid VARCHAR(32) PRIMARY KEY, color VARCHAR(32) NOT NULL DEFAULT '', pattern VARCHAR(96) NOT NULL DEFAULT '', updated_at INT NOT NULL DEFAULT 0)",
+        "ALTER TABLE filters_namecolors ADD COLUMN IF NOT EXISTS pattern VARCHAR(96) NOT NULL DEFAULT '' AFTER color",
+        "ALTER TABLE filters_namecolors MODIFY COLUMN pattern VARCHAR(96) NOT NULL DEFAULT ''"
     };
 
     g_iPendingSchemaQueries = sizeof(schemaQueries);
@@ -1705,8 +1712,11 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
     char commandToken[16];
     int nextIndex = BreakString(buffer, commandToken, sizeof(commandToken));
     bool americaCommand = StrEqual(commandToken, "!america", false) || StrEqual(commandToken, "/america", false);
+    bool gradientCommand = StrEqual(commandToken, "!gradient", false) || StrEqual(commandToken, "/gradient", false)
+        || StrEqual(commandToken, "!hue", false) || StrEqual(commandToken, "/hue", false);
 
     if (!americaCommand
+        && !gradientCommand
         && !StrEqual(commandToken, "!name", false)
         && !StrEqual(commandToken, "/name", false)
         && !StrEqual(commandToken, "!color", false)
@@ -1715,9 +1725,14 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
         return false;
     }
 
+    if (gradientCommand)
+    {
+        return HandleGradientNameCommand(client, buffer, nextIndex);
+    }
+
     if (americaCommand)
     {
-        if (HasValidNamePattern(client))
+        if (IsAmericaNamePattern(g_NamePatterns[client]))
         {
             ClearNamePatternPreference(client);
             CPrintToChat(client, "{default}[Filters] Your america name pattern has been disabled.");
@@ -1731,18 +1746,7 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
 
     if (nextIndex == -1 || !buffer[nextIndex])
     {
-        if (HasValidNamePattern(client))
-        {
-            CPrintToChat(client, "{default}[Filters] Your name color is currently %s. Use !name <color>, !america, or !name default.", NAME_PATTERN_AMERICA_PREVIEW);
-        }
-        else if (g_NameColors[client][0] != '\0')
-        {
-            CPrintToChat(client, "{default}[Filters] Your name color is currently {%s}%s{default}. Use !name <color>, !america, or !name default.", g_NameColors[client], g_NameColors[client]);
-        }
-        else
-        {
-            CPrintToChat(client, "{default}[Filters] Your name color uses the {teamcolor}team color{default}. Use !name <color> or !america to change it.");
-        }
+        PrintCurrentNamePreference(client);
         return true;
     }
 
@@ -1752,18 +1756,7 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
 
     if (!colorName[0])
     {
-        if (HasValidNamePattern(client))
-        {
-            CPrintToChat(client, "{default}[Filters] Your name color is currently %s. Use !name <color>, !america, or !name default.", NAME_PATTERN_AMERICA_PREVIEW);
-        }
-        else if (g_NameColors[client][0] != '\0')
-        {
-            CPrintToChat(client, "{default}[Filters] Your name color is currently {%s}%s{default}. Use !name <color>, !america, or !name default.", g_NameColors[client], g_NameColors[client]);
-        }
-        else
-        {
-            CPrintToChat(client, "{default}[Filters] Your name color uses the {teamcolor}team color{default}. Use !name <color> or !america to change it.");
-        }
+        PrintCurrentNamePreference(client);
         return true;
     }
 
@@ -1784,7 +1777,7 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
 
     if (IsAmericaNamePattern(colorName))
     {
-        if (HasValidNamePattern(client))
+        if (IsAmericaNamePattern(g_NamePatterns[client]))
         {
             ClearNamePatternPreference(client);
             CPrintToChat(client, "{default}[Filters] Your america name pattern has been disabled.");
@@ -1798,7 +1791,7 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
 
     if (!CColorExists(colorName))
     {
-        CPrintToChat(client, "{default}[Filters] Unknown color \"%s\". Example: !name deeppink or !america", colorName);
+        CPrintToChat(client, "{default}[Filters] Unknown color \"%s\". Example: !name deeppink, !america, or !gradient blue red", colorName);
         return true;
     }
 
@@ -1811,6 +1804,109 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
     SetNameColorPreference(client, colorName);
 
     CPrintToChat(client, "{default}[Filters] Your name color is now {%s}%s{default}.", colorName, colorName);
+    return true;
+}
+
+static void PrintCurrentNamePreference(int client)
+{
+    if (HasValidNamePattern(client))
+    {
+        char renderedName[256];
+        BuildRenderedClientName(client, renderedName, sizeof(renderedName));
+        CPrintToChat(client,
+            "{default}[Filters] Your name color is currently %s. Use !name <color>, !america, !gradient <color1> <color2>, or !name default.",
+            renderedName);
+    }
+    else if (g_NameColors[client][0] != '\0')
+    {
+        CPrintToChat(client,
+            "{default}[Filters] Your name color is currently {%s}%s{default}. Use !name <color>, !america, !gradient <color1> <color2>, or !name default.",
+            g_NameColors[client],
+            g_NameColors[client]);
+    }
+    else
+    {
+        CPrintToChat(client,
+            "{default}[Filters] Your name color uses the {teamcolor}team color{default}. Use !name <color>, !america, or !gradient <color1> <color2> to change it.");
+    }
+}
+
+static bool ParseGradientCommandColors(const char[] command, int argumentsIndex, char[] firstColor, int firstLen, char[] secondColor, int secondLen)
+{
+    firstColor[0] = '\0';
+    secondColor[0] = '\0';
+    if (argumentsIndex == -1 || !command[argumentsIndex])
+    {
+        return false;
+    }
+
+    char arguments[128];
+    strcopy(arguments, sizeof(arguments), command[argumentsIndex]);
+    TrimString(arguments);
+    int secondIndex = BreakString(arguments, firstColor, firstLen);
+    if (secondIndex == -1 || !arguments[secondIndex])
+    {
+        return false;
+    }
+
+    char remaining[96];
+    strcopy(remaining, sizeof(remaining), arguments[secondIndex]);
+    TrimString(remaining);
+    int extraIndex = BreakString(remaining, secondColor, secondLen);
+    if (extraIndex != -1 && remaining[extraIndex])
+    {
+        return false;
+    }
+
+    TrimString(firstColor);
+    TrimString(secondColor);
+    ToLowercase(firstColor);
+    ToLowercase(secondColor);
+    return firstColor[0] != '\0' && secondColor[0] != '\0';
+}
+
+static bool HandleGradientNameCommand(int client, const char[] command, int argumentsIndex)
+{
+    if (GetFeatureStatus(FeatureType_Native, "PointsStore_HasPurchase") != FeatureStatus_Available
+        || !PointsStore_HasPurchase(client, GRADIENT_NAME_ACCESS_ITEM))
+    {
+        CPrintToChat(client,
+            "{default}[Filters] Purchase {gold}Gradient Color Name Access{default} from {gold}!shop{default} before using gradients.");
+        return true;
+    }
+
+    char firstColor[32];
+    char secondColor[32];
+    if (!ParseGradientCommandColors(command, argumentsIndex, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor)))
+    {
+        CPrintToChat(client,
+            "{default}[Filters] Usage: {gold}!gradient <color1> <color2>{default}. Use {gold}!colors{default} to list colors.");
+        return true;
+    }
+
+    if (!CColorExists(firstColor))
+    {
+        CPrintToChat(client, "{default}[Filters] Unknown color \"%s\". Use {gold}!colors{default} to list colors.", firstColor);
+        return true;
+    }
+    if (!CColorExists(secondColor))
+    {
+        CPrintToChat(client, "{default}[Filters] Unknown color \"%s\". Use {gold}!colors{default} to list colors.", secondColor);
+        return true;
+    }
+
+    char pattern[NAME_PATTERN_MAX];
+    FormatEx(pattern, sizeof(pattern), "%s%s:%s", NAME_PATTERN_GRADIENT_PREFIX, firstColor, secondColor);
+    if (StrEqual(g_NamePatterns[client], pattern, false))
+    {
+        CPrintToChat(client, "{default}[Filters] Your name already uses that gradient.");
+        return true;
+    }
+
+    SetNamePatternPreference(client, pattern);
+    char renderedName[256];
+    BuildRenderedClientName(client, renderedName, sizeof(renderedName));
+    CPrintToChat(client, "{default}[Filters] Your name gradient is now %s.", renderedName);
     return true;
 }
 
@@ -2203,9 +2299,46 @@ static bool IsAmericaNamePattern(const char[] pattern)
     return StrEqual(pattern, NAME_COLOR_AMERICA, false);
 }
 
+static bool ParseGradientNamePattern(const char[] pattern, char[] firstColor, int firstLen, char[] secondColor, int secondLen)
+{
+    firstColor[0] = '\0';
+    secondColor[0] = '\0';
+    if (StrContains(pattern, NAME_PATTERN_GRADIENT_PREFIX, false) != 0)
+    {
+        return false;
+    }
+
+    char colors[NAME_PATTERN_MAX];
+    strcopy(colors, sizeof(colors), pattern[strlen(NAME_PATTERN_GRADIENT_PREFIX)]);
+    int separator = FindCharInString(colors, ':');
+    if (separator <= 0 || !colors[separator + 1] || FindCharInString(colors[separator + 1], ':') != -1)
+    {
+        return false;
+    }
+
+    colors[separator] = '\0';
+    strcopy(firstColor, firstLen, colors);
+    strcopy(secondColor, secondLen, colors[separator + 1]);
+    TrimString(firstColor);
+    TrimString(secondColor);
+    ToLowercase(firstColor);
+    ToLowercase(secondColor);
+    return firstColor[0] != '\0'
+        && secondColor[0] != '\0'
+        && CColorExists(firstColor)
+        && CColorExists(secondColor);
+}
+
+static bool IsGradientNamePattern(const char[] pattern)
+{
+    char firstColor[32];
+    char secondColor[32];
+    return ParseGradientNamePattern(pattern, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor));
+}
+
 static bool IsValidNamePattern(const char[] pattern)
 {
-    return IsAmericaNamePattern(pattern);
+    return IsAmericaNamePattern(pattern) || IsGradientNamePattern(pattern);
 }
 
 static bool HasValidNamePattern(int client)
@@ -2224,6 +2357,85 @@ static bool GetActiveNamePattern(int client, char[] pattern, int maxlen)
 
     strcopy(pattern, maxlen, g_NamePatterns[client]);
     return true;
+}
+
+static bool GetNamedColorRgb(const char[] colorName, int &rgb)
+{
+    CCheckTrie();
+    return GetTrieValue(CTrie, colorName, rgb);
+}
+
+static void BuildGradientName(const char[] name, const char[] firstColor, const char[] secondColor, char[] output, int maxlen)
+{
+    output[0] = '\0';
+
+    int firstRgb;
+    int secondRgb;
+    if (!GetNamedColorRgb(firstColor, firstRgb) || !GetNamedColorRgb(secondColor, secondRgb))
+    {
+        strcopy(output, maxlen, name);
+        return;
+    }
+
+    int charCount = CountUtf8Chars(name);
+    if (charCount <= 0)
+    {
+        strcopy(output, maxlen, "{default}");
+        return;
+    }
+
+    int firstRed = (firstRgb >> 16) & 0xFF;
+    int firstGreen = (firstRgb >> 8) & 0xFF;
+    int firstBlue = firstRgb & 0xFF;
+    int secondRed = (secondRgb >> 16) & 0xFF;
+    int secondGreen = (secondRgb >> 8) & 0xFF;
+    int secondBlue = secondRgb & 0xFF;
+    int stepCount = charCount < NAME_GRADIENT_MAX_STEPS ? charCount : NAME_GRADIENT_MAX_STEPS;
+    int denominator = stepCount > 1 ? stepCount - 1 : 1;
+    int currentStep = -1;
+    int charIndex = 0;
+    int byteIndex = 0;
+
+    while (name[byteIndex] != '\0')
+    {
+        int step = charCount > 1 ? charIndex * (stepCount - 1) / (charCount - 1) : 0;
+        if (step != currentStep)
+        {
+            int red = (firstRed * (denominator - step) + secondRed * step + denominator / 2) / denominator;
+            int green = (firstGreen * (denominator - step) + secondGreen * step + denominator / 2) / denominator;
+            int blue = (firstBlue * (denominator - step) + secondBlue * step + denominator / 2) / denominator;
+            int rgb = (red << 16) | (green << 8) | blue;
+
+            char colorCode[8];
+            FormatEx(colorCode, sizeof(colorCode), "\x07%06X", rgb);
+            StrCat(output, maxlen, colorCode);
+            currentStep = step;
+        }
+
+        int charBytes = IsCharMB(name[byteIndex]);
+        if (charBytes <= 0)
+        {
+            charBytes = 1;
+        }
+
+        char glyph[8];
+        int copyLen = charBytes;
+        if (copyLen > sizeof(glyph) - 1)
+        {
+            copyLen = sizeof(glyph) - 1;
+        }
+        for (int i = 0; i < copyLen; i++)
+        {
+            glyph[i] = name[byteIndex + i];
+        }
+        glyph[copyLen] = '\0';
+        StrCat(output, maxlen, glyph);
+
+        byteIndex += charBytes;
+        charIndex++;
+    }
+
+    StrCat(output, maxlen, "\x01");
 }
 
 static void SetNameColorPreference(int client, const char[] color)
@@ -2419,11 +2631,21 @@ static void BuildRenderedClientName(int client, char[] output, int maxlen)
     char name[MAX_NAME_LENGTH];
     GetClientName(client, name, sizeof(name));
 
-    char pattern[32];
+    char pattern[NAME_PATTERN_MAX];
     if (GetActiveNamePattern(client, pattern, sizeof(pattern)) && IsAmericaNamePattern(pattern))
     {
         BuildAmericaName(name, output, maxlen);
         return;
+    }
+    if (pattern[0] != '\0')
+    {
+        char firstColor[32];
+        char secondColor[32];
+        if (ParseGradientNamePattern(pattern, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor)))
+        {
+            BuildGradientName(name, firstColor, secondColor, output, maxlen);
+            return;
+        }
     }
 
     BuildColorOnlyClientName(client, output, maxlen);
@@ -3276,12 +3498,12 @@ void SaveNamePreferencesToDb(int client)
 
     char escapedSteam[64];
     char escapedColor[64];
-    char escapedPattern[64];
+    char escapedPattern[(NAME_PATTERN_MAX * 2) + 1];
     KogasaSql_Escape(g_hFiltersDb, steamId64, escapedSteam, sizeof(escapedSteam), "filters");
     KogasaSql_Escape(g_hFiltersDb, g_NameColors[client], escapedColor, sizeof(escapedColor), "filters");
     KogasaSql_Escape(g_hFiltersDb, g_NamePatterns[client], escapedPattern, sizeof(escapedPattern), "filters");
 
-    char query[384];
+    char query[512];
     Format(query, sizeof(query),
         "REPLACE INTO filters_namecolors (steamid, color, pattern, updated_at) VALUES ('%s', '%s', '%s', %d)",
         escapedSteam, escapedColor, escapedPattern, GetTime());
@@ -3334,7 +3556,7 @@ public void Filters_LoadNamePreferencesCallback(Database db, DBResultSet results
     }
 
     char dbColor[32];
-    char dbPattern[32];
+    char dbPattern[NAME_PATTERN_MAX];
     results.FetchString(0, dbColor, sizeof(dbColor));
     results.FetchString(1, dbPattern, sizeof(dbPattern));
     TrimString(dbColor);
@@ -3764,7 +3986,7 @@ public any Native_Filters_GetChatName(Handle plugin, int numParams)
 
     if (client > 0 && client <= MaxClients && IsClientInGame(client))
     {
-        BuildColorOnlyClientName(client, buffer, sizeof(buffer));
+        BuildRenderedClientName(client, buffer, sizeof(buffer));
     }
 
     SetNativeString(2, buffer, maxlen, true);
@@ -3993,6 +4215,7 @@ public Action Command_Colors(int client, int args)
         CPrintToChat(client, "%s", colorLines[i]);
     }
     CPrintToChat(client, "{default}[Filters] Use !america for {orangered}red{default}/{white}white{default}/{steelblue}blue{default} thirds.");
+    CPrintToChat(client, "{default}[Filters] Gradient access owners can use {gold}!gradient <color1> <color2>{default} or {gold}!hue <color1> <color2>{default}.");
 
     return Plugin_Handled;
 }
