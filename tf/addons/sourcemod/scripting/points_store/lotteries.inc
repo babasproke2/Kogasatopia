@@ -2632,7 +2632,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
     ArrayList tickets = new ArrayList(ByteCountToCells(LOTTO_TICKET_MAX));
     ArrayList ticketValues = new ArrayList();
     ArrayList ticketChances = new ArrayList();
-    bool selectedWinners[MAXPLAYERS + 1];
+    ArrayList selectedWinners = new ArrayList();
     int totalChances = 0;
 
     while (results.FetchRow())
@@ -2642,11 +2642,6 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
         if (chanceCount <= 0)
         {
             continue;
-        }
-
-        if (steamIds.Length >= MAXPLAYERS)
-        {
-            break;
         }
 
         char steamId[32];
@@ -2661,6 +2656,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
         tickets.PushString(ticket);
         ticketValues.Push(ticketValue);
         ticketChances.Push(chanceCount);
+        selectedWinners.Push(0);
         totalChances += chanceCount;
     }
 
@@ -2675,6 +2671,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
         delete tickets;
         delete ticketValues;
         delete ticketChances;
+        delete selectedWinners;
         return;
     }
 
@@ -2689,15 +2686,20 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
         delete tickets;
         delete ticketValues;
         delete ticketChances;
+        delete selectedWinners;
         return;
     }
 
-    selectedWinners[mainWinnerIndex] = true;
+    selectedWinners.Set(mainWinnerIndex, 1);
 
     g_LotteryDrawExtraWinnerCount = validTicketCount / LOTTO_EXTRA_WINNER_PARTICIPANTS;
     if (g_LotteryDrawExtraWinnerCount > validTicketCount - 1)
     {
         g_LotteryDrawExtraWinnerCount = validTicketCount - 1;
+    }
+    if (g_LotteryDrawExtraWinnerCount > sizeof(g_LotteryDrawExtraWinnerPrizes))
+    {
+        g_LotteryDrawExtraWinnerCount = sizeof(g_LotteryDrawExtraWinnerPrizes);
     }
 
     int extraPrize = (prizePool * LOTTO_EXTRA_WINNER_PERCENT) / 100;
@@ -2728,7 +2730,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
             break;
         }
 
-        selectedWinners[extraWinnerIndex] = true;
+        selectedWinners.Set(extraWinnerIndex, 1);
         g_LotteryDrawExtraWinnerPrizes[i] = extraPrize;
         g_LotteryDrawExtraWinnerTicketValues[i] = ticketValues.Get(extraWinnerIndex);
         char extraSteamId[32];
@@ -2761,6 +2763,7 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
     delete tickets;
     delete ticketValues;
     delete ticketChances;
+    delete selectedWinners;
 
     if (g_LotteryDrawTokens.Length <= 0)
     {
@@ -2778,13 +2781,13 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
     g_LotteryDrawTimer = CreateTimer(LOTTO_REVEAL_INTERVAL, Timer_LotteryReveal, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 }
 
-int PickLotteryWinnerIndex(ArrayList ticketChances, bool[] selectedWinners)
+int PickLotteryWinnerIndex(ArrayList ticketChances, ArrayList selectedWinners)
 {
     int totalChances = 0;
     int ticketCount = ticketChances.Length;
     for (int i = 0; i < ticketCount; i++)
     {
-        if (!selectedWinners[i])
+        if (selectedWinners.Get(i) == 0)
         {
             totalChances += ticketChances.Get(i);
         }
@@ -2799,7 +2802,7 @@ int PickLotteryWinnerIndex(ArrayList ticketChances, bool[] selectedWinners)
     int running = 0;
     for (int i = 0; i < ticketCount; i++)
     {
-        if (selectedWinners[i])
+        if (selectedWinners.Get(i) != 0)
         {
             continue;
         }
