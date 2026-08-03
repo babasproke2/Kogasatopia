@@ -9,7 +9,7 @@
 #define BOUNTY_SEARCH_MAX 64
 #define BOUNTY_TOKEN_MAX 128
 #define BOUNTY_WALL_EXPIRY_SECONDS 604800
-#define BOUNTY_PLAYTIME_EXPIRY_SECONDS 3600
+#define BOUNTY_PLAYTIME_EXPIRY_SECONDS 1200
 #define BOUNTY_HALFTIME_SECONDS (BOUNTY_PLAYTIME_EXPIRY_SECONDS / 2)
 #define BOUNTY_SURVIVOR_TAX_PERCENT 20
 #define BOUNTY_MAINTENANCE_INTERVAL 60.0
@@ -45,9 +45,9 @@ bool g_BountySchemaCheckFailed = false;
 
 static const char g_BountyHelpLines[][] =
 {
-    "Bounties last one hour of playtime, meaning one expires after playing on the server for 30 minutes twice.",
+    "Bounties last 20 minutes of playtime, meaning one expires after playing on the server for 10 minutes twice.",
     "When a client with a bounty on them is dominated, the bounty ends and pays the dominator the Gems.",
-    "If the bounty target survives an hour, the bounty ends and the survivor receives 80% of the Gems."
+    "If the bounty target survives 20 minutes, the bounty ends and the survivor receives 80% of the Gems."
 };
 
 void Bounties_OnPluginStart()
