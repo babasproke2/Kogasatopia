@@ -289,8 +289,10 @@ public void OnPluginStart()
     RegConsoleCmd("sm_bpsend", Command_SendBonusPoints, "Send currency to another player.");
     RegConsoleCmd("sm_gem", Command_ShowBonusPoints, "Show your currency balance.");
     RegConsoleCmd("sm_gems", Command_ShowBonusPoints, "Show your currency balance.");
+    RegConsoleCmd("sm_wallet", Command_ShowBonusPoints, "Show your currency balance.");
     AddCommandListener(CommandListener_ShowBonusPointsAlias, "gem");
     AddCommandListener(CommandListener_ShowBonusPointsAlias, "gems");
+    AddCommandListener(CommandListener_ShowBonusPointsAlias, "wallet");
     RegConsoleCmd("sm_gemranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
     RegConsoleCmd("sm_gemsranks", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
     RegConsoleCmd("sm_gemsleaderboard", Command_ShowCurrencyLeaderboard, "Show the currency leaderboard.");
@@ -1863,7 +1865,7 @@ public Action CommandListener_PointsStoreChatAlias(int client, const char[] comm
     StripQuotes(text);
     TrimString(text);
 
-    if (StrEqual(text, "gem", false) || StrEqual(text, "gems", false))
+    if (StrEqual(text, "gem", false) || StrEqual(text, "gems", false) || StrEqual(text, "wallet", false))
     {
         return Command_ShowBonusPoints(client, 0);
     }
