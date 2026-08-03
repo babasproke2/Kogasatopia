@@ -6977,7 +6977,7 @@ void ShowShopMenu(int client)
         if (ownedPrice > 0)
         {
             Format(display, sizeof(display), "%s BOUGHT", itemName);
-            menu.AddItem(itemKey, display, ITEMDRAW_DISABLED);
+            menu.AddItem(itemKey, display);
         }
         else
         {
@@ -7043,12 +7043,19 @@ void ShowShopItemMenu(int client, const char[] itemKey)
     menu.SetTitle(itemName);
     menu.AddItem("description", "Description");
 
-    char currencyShort[BP_CURRENCY_SHORT_MAX];
-    char purchaseDisplay[96];
-    int price = g_ItemPrices.Get(itemIndex);
-    GetCurrencyShortLabelForAmount(price, currencyShort, sizeof(currencyShort));
-    Format(purchaseDisplay, sizeof(purchaseDisplay), "Purchase (%d %s)", price, currencyShort);
-    menu.AddItem("purchase", purchaseDisplay);
+    if (GetCachedPurchasePrice(client, itemKey) > 0)
+    {
+        menu.AddItem("purchased", "Purchased", ITEMDRAW_DISABLED);
+    }
+    else
+    {
+        char currencyShort[BP_CURRENCY_SHORT_MAX];
+        char purchaseDisplay[96];
+        int price = g_ItemPrices.Get(itemIndex);
+        GetCurrencyShortLabelForAmount(price, currencyShort, sizeof(currencyShort));
+        Format(purchaseDisplay, sizeof(purchaseDisplay), "Purchase (%d %s)", price, currencyShort);
+        menu.AddItem("purchase", purchaseDisplay);
+    }
     menu.AddItem("back", "Back");
     menu.ExitBackButton = true;
     menu.Display(client, MENU_TIME_FOREVER);
