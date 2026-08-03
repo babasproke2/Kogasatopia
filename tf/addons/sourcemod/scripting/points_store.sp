@@ -92,6 +92,7 @@ ConVar g_CvarLotteryDisabled = null;
 ConVar g_CvarLotteryMaxTicketValue = null;
 ConVar g_CvarLotteryEqualTicketValue = null;
 ConVar g_CvarBountyMinPlayers = null;
+ConVar g_CvarBountyMaxAmount = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 bool g_IdempotentAwardsReady = false;
@@ -265,6 +266,7 @@ public void OnPluginStart()
     g_CvarLotteryMaxTicketValue = CreateConVar("sm_points_store_lottery_max_ticket_value", "1000", "Maximum lottery ticket value. Bets above this are capped. 0 disables the cap.", _, true, 0.0);
     g_CvarLotteryEqualTicketValue = CreateConVar("sm_points_store_lottery_equal_ticket_value", "100", "Required ticket value during an Equal Lottery.", _, true, 1.0);
     g_CvarBountyMinPlayers = CreateConVar("sm_points_store_bounty_min_players", "6", "Minimum GetClientCount(false) required to place bounties and advance bounty playtime.", _, true, 0.0, true, 64.0);
+    g_CvarBountyMaxAmount = CreateConVar("sm_points_store_bounty_max_amount", "1000", "Maximum Gem value of an individual bounty, including kill growth.", _, true, 1.0);
     g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);

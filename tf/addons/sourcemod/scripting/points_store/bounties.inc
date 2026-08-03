@@ -12,8 +12,8 @@
 #define BOUNTY_PLAYTIME_EXPIRY_SECONDS 1800
 #define BOUNTY_HALFTIME_SECONDS (BOUNTY_PLAYTIME_EXPIRY_SECONDS / 2)
 #define BOUNTY_HALFTIME_REMAINING_MINUTES ((BOUNTY_PLAYTIME_EXPIRY_SECONDS - BOUNTY_HALFTIME_SECONDS) / 60)
-#define BOUNTY_KILL_GROWTH_MIN_AMOUNT 100
 #define BOUNTY_KILL_GROWTH_PERCENT 5
+#define BOUNTY_MEDIC_ASSISTS_PER_GROWTH 2
 #define BOUNTY_MAINTENANCE_INTERVAL 60.0
 #define BOUNTY_CHALLENGE_SOUND "duel_challenge"
 #define BOUNTY_EVENT_SOUND "duel_event"
@@ -40,6 +40,7 @@ char g_BountyPendingSearch[MAXPLAYERS + 1][BOUNTY_NAME_MAX];
 char g_BountyPendingTargetSteamId[MAXPLAYERS + 1][BOUNTY_STEAMID_MAX];
 char g_BountyPendingTargetName[MAXPLAYERS + 1][BOUNTY_NAME_MAX];
 int g_BountyPendingAmount[MAXPLAYERS + 1];
+int g_BountyMedicAssistsLife[MAXPLAYERS + 1];
 int g_BountySearchGeneration[MAXPLAYERS + 1];
 int g_BountyOperationSerial = 0;
 Handle g_BountyMaintenanceTimer = null;
@@ -51,8 +52,8 @@ static const char g_BountyHelpLines[][] =
 {
     "Bounties last 30 minutes of playtime, meaning one expires after playing on the server for 15 minutes twice.",
     "When a client with a bounty on them is dominated, the bounty ends and pays the dominator the Gems.",
-    "For every kill the bounty target gets while alive, the bounty payout increases by 5%, such as from 100 to 105 gems.",
-    "Bounty growth applies to original bounty amounts of at least 100 Gems."
+    "Each kill increases the bounty by 5% of its original value, rounded down with a minimum increase of 1 Gem.",
+    "While the bounty target plays Medic, every two assists count as one kill."
 };
 
 void Bounties_OnPluginStart()
@@ -89,6 +90,11 @@ int GetBountyMinPlayers()
     return g_CvarBountyMinPlayers != null ? g_CvarBountyMinPlayers.IntValue : 6;
 }
 
+int GetBountyMaxAmount()
+{
+    return g_CvarBountyMaxAmount != null ? g_CvarBountyMaxAmount.IntValue : 1000;
+}
+
 bool IsBountyPopulationEligible()
 {
     return GetClientCount(false) >= GetBountyMinPlayers();
@@ -110,6 +116,12 @@ public Action Command_BountyHelp(int client, int args)
     {
         CPrintToChat(client, "%s %s", g_BountyPrefix, g_BountyHelpLines[i]);
     }
+    CPrintToChat(client,
+        "%s An individual bounty cannot exceed %s%d %s{default}.",
+        g_BountyPrefix,
+        g_CurrencyColorTag,
+        GetBountyMaxAmount(),
+        g_CurrencyLongLabel);
     int thresholdDisplay = GetBountyMinPlayers() - 1;
     if (thresholdDisplay < 0)
     {
@@ -136,6 +148,11 @@ void Bounties_OnPluginEnd()
 
 void Bounties_OnMapStart()
 {
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        g_BountyMedicAssistsLife[client] = 0;
+    }
+
     if (g_BountyDatabaseReady)
     {
         ProcessExpiredBounties();
@@ -163,6 +180,7 @@ void ResetBountyClientState(int client)
     g_BountyPendingTargetSteamId[client][0] = '\0';
     g_BountyPendingTargetName[client][0] = '\0';
     g_BountyPendingAmount[client] = 0;
+    g_BountyMedicAssistsLife[client] = 0;
     g_BountyPlacementPending[client] = false;
     g_BountySearchGeneration[client]++;
 }
@@ -393,7 +411,10 @@ public Action Command_PlaceBounty(int client, int args)
         {
             if (!IsBountyAmountAllowed(amount))
             {
-                CPrintToChat(client, "%s Bounty amount must be {gold}10, 25, 50, 100, 250, or 1000{default}.", g_BountyPrefix);
+                CPrintToChat(client,
+                    "%s Bounty amount must be between {gold}1 and %d{default}.",
+                    g_BountyPrefix,
+                    GetBountyMaxAmount());
                 return Plugin_Handled;
             }
             if (GetCachedBonusPoints(client) < amount)
@@ -430,14 +451,7 @@ public Action Command_PlaceBounty(int client, int args)
 
 bool IsBountyAmountAllowed(int amount)
 {
-    for (int i = 0; i < sizeof(g_BountyAmounts); i++)
-    {
-        if (g_BountyAmounts[i] == amount)
-        {
-            return true;
-        }
-    }
-    return false;
+    return amount > 0 && amount <= GetBountyMaxAmount();
 }
 
 int GetBountyRankMinimumKillsDeaths()
@@ -686,6 +700,10 @@ void ShowBountyAmountMenu(int client)
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
     for (int i = 0; i < sizeof(g_BountyAmounts); i++)
     {
+        if (g_BountyAmounts[i] > GetBountyMaxAmount())
+        {
+            continue;
+        }
         IntToString(g_BountyAmounts[i], info, sizeof(info));
         FormatEx(display, sizeof(display), "%d %s", g_BountyAmounts[i], currencyLong);
         menu.AddItem(info, display);
@@ -709,7 +727,7 @@ public int MenuHandler_BountyAmount(Menu menu, MenuAction action, int client, in
     char info[16];
     menu.GetItem(item, info, sizeof(info));
     int amount = StringToInt(info);
-    if (amount <= 0 || !AreBonusPointsReady(client) || GetCachedBonusPoints(client) < amount)
+    if (!IsBountyAmountAllowed(amount) || !AreBonusPointsReady(client) || GetCachedBonusPoints(client) < amount)
     {
         CPrintToChat(client, "%s You do not have enough %s.", g_BountyPrefix, g_CurrencyLongLabel);
         return 0;
@@ -794,6 +812,14 @@ public int MenuHandler_BountyConsent(Menu menu, MenuAction action, int client, i
     if (!AreBonusPointsReady(client) || GetCachedBonusPoints(client) < g_BountyPendingAmount[client])
     {
         CPrintToChat(client, "%s You no longer have enough %s.", g_BountyPrefix, g_CurrencyLongLabel);
+        return 0;
+    }
+    if (!IsBountyAmountAllowed(g_BountyPendingAmount[client]))
+    {
+        CPrintToChat(client,
+            "%s The maximum bounty is now {gold}%d{default}. Choose another amount.",
+            g_BountyPrefix,
+            GetBountyMaxAmount());
         return 0;
     }
     if (!IsBountyPopulationEligible())
@@ -1074,8 +1100,18 @@ void MarkActiveBountyTarget(const char[] steamId)
         g_ActiveBountyTargets = new StringMap();
     }
 
+    int existingMarker;
+    bool wasActive = g_ActiveBountyTargets.GetValue(steamId, existingMarker);
     g_BountyTargetCacheGeneration++;
     g_ActiveBountyTargets.SetValue(steamId, 1, true);
+    if (!wasActive)
+    {
+        int target = FindClientBySteamId64(steamId);
+        if (target > 0)
+        {
+            g_BountyMedicAssistsLife[target] = 0;
+        }
+    }
 }
 
 void RefreshActiveBountyTargets()
@@ -1117,6 +1153,14 @@ public void SQL_OnActiveBountyTargetsLoaded(Database db, DBResultSet rows, const
 
     delete g_ActiveBountyTargets;
     g_ActiveBountyTargets = refreshedTargets;
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientInGameHuman(client) && !IsClientActiveBountyTarget(client))
+        {
+            g_BountyMedicAssistsLife[client] = 0;
+        }
+    }
 }
 
 public void Event_BountyPlayerDeath(Event event, const char[] name, bool dontBroadcast)
@@ -1129,6 +1173,30 @@ public void Event_BountyPlayerDeath(Event event, const char[] name, bool dontBro
 
     int attacker = GetClientOfUserId(event.GetInt("attacker"));
     int victim = GetClientOfUserId(event.GetInt("userid"));
+    int assister = GetClientOfUserId(event.GetInt("assister"));
+
+    if (IsClientInGameHuman(victim))
+    {
+        g_BountyMedicAssistsLife[victim] = 0;
+    }
+
+    if (IsClientInGameHuman(assister) && assister != victim)
+    {
+        if (TF2_GetPlayerClass(assister) == TFClass_Medic && IsClientActiveBountyTarget(assister))
+        {
+            g_BountyMedicAssistsLife[assister]++;
+            if (g_BountyMedicAssistsLife[assister] >= BOUNTY_MEDIC_ASSISTS_PER_GROWTH)
+            {
+                g_BountyMedicAssistsLife[assister] -= BOUNTY_MEDIC_ASSISTS_PER_GROWTH;
+                GrowActiveBountiesForKill(assister, true);
+            }
+        }
+        else
+        {
+            g_BountyMedicAssistsLife[assister] = 0;
+        }
+    }
+
     if (!IsClientInGameHuman(attacker) || !IsClientInGameHuman(victim) || attacker == victim)
     {
         return;
@@ -1136,7 +1204,7 @@ public void Event_BountyPlayerDeath(Event event, const char[] name, bool dontBro
 
     if (IsPlayerAlive(attacker))
     {
-        GrowActiveBountiesForKill(attacker);
+        GrowActiveBountiesForKill(attacker, false);
     }
 
     if (deathFlags & TF_DEATHFLAG_KILLERDOMINATION)
@@ -1145,7 +1213,20 @@ public void Event_BountyPlayerDeath(Event event, const char[] name, bool dontBro
     }
 }
 
-void GrowActiveBountiesForKill(int attacker)
+bool IsClientActiveBountyTarget(int client)
+{
+    if (g_ActiveBountyTargets == null)
+    {
+        return false;
+    }
+
+    char steamId[BOUNTY_STEAMID_MAX];
+    int cacheMarker;
+    return GetClientSteamId64(client, steamId, sizeof(steamId))
+        && g_ActiveBountyTargets.GetValue(steamId, cacheMarker);
+}
+
+void GrowActiveBountiesForKill(int attacker, bool fromMedicAssists)
 {
     if (!g_BountyDatabaseReady || g_Database == null)
     {
@@ -1166,33 +1247,41 @@ void GrowActiveBountiesForKill(int attacker)
         return;
     }
 
+    int maxAmount = GetBountyMaxAmount();
     char query[768];
     if (g_IsMySql)
     {
         FormatEx(query, sizeof(query),
-            "UPDATE %s SET bonus_amount = bonus_amount + FLOOR(amount * %d / 100) "
-            ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d AND amount >= %d",
+            "UPDATE %s SET bonus_amount = LEAST(%d - amount, bonus_amount + GREATEST(1, FLOOR(amount * %d / 100))) "
+            ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d "
+            ... "AND amount < %d AND amount + bonus_amount < %d",
             BOUNTY_TABLE,
+            maxAmount,
             BOUNTY_KILL_GROWTH_PERCENT,
             escapedAttackerSteam,
             GetTime(),
-            BOUNTY_KILL_GROWTH_MIN_AMOUNT);
+            maxAmount,
+            maxAmount);
     }
     else
     {
         FormatEx(query, sizeof(query),
-            "UPDATE %s SET bonus_amount = bonus_amount + (amount * %d / 100) "
-            ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d AND amount >= %d",
+            "UPDATE %s SET bonus_amount = MIN(%d - amount, bonus_amount + MAX(1, (amount * %d / 100))) "
+            ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d "
+            ... "AND amount < %d AND amount + bonus_amount < %d",
             BOUNTY_TABLE,
+            maxAmount,
             BOUNTY_KILL_GROWTH_PERCENT,
             escapedAttackerSteam,
             GetTime(),
-            BOUNTY_KILL_GROWTH_MIN_AMOUNT);
+            maxAmount,
+            maxAmount);
     }
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(attacker));
     pack.WriteString(attackerSteamId);
+    pack.WriteCell(fromMedicAssists);
     g_Database.Query(SQL_OnBountyKillGrowth, query, pack);
 }
 
@@ -1203,6 +1292,7 @@ public void SQL_OnBountyKillGrowth(Database db, DBResultSet results, const char[
     int attacker = GetClientOfUserId(pack.ReadCell());
     char attackerSteamId[BOUNTY_STEAMID_MAX];
     pack.ReadString(attackerSteamId, sizeof(attackerSteamId));
+    bool fromMedicAssists = pack.ReadCell() != 0;
     delete pack;
 
     if (error[0] != '\0')
@@ -1215,8 +1305,9 @@ public void SQL_OnBountyKillGrowth(Database db, DBResultSet results, const char[
     if (bountyCount > 0)
     {
         LogPointsStoreEvent(
-            "event=bounty_kill_growth|time=%d|target=%s|client=%d|bounties=%d|growth_percent=%d",
-            GetTime(), attackerSteamId, attacker, bountyCount, BOUNTY_KILL_GROWTH_PERCENT);
+            "event=bounty_kill_growth|time=%d|target=%s|client=%d|bounties=%d|growth_percent=%d|source=%s",
+            GetTime(), attackerSteamId, attacker, bountyCount, BOUNTY_KILL_GROWTH_PERCENT,
+            fromMedicAssists ? "medic_assists" : "kill");
     }
 }
 
@@ -1762,12 +1853,14 @@ public void SQLTxn_OnBountiesSurvived(Database db, any data, int numQueries, DBR
         char targetSteamId[BOUNTY_STEAMID_MAX];
         char targetName[BOUNTY_NAME_MAX];
         char targetDisplay[256];
+        char currencyName[BP_CURRENCY_SHORT_MAX];
         while (results[halftimeQueryIndex].FetchRow())
         {
             int amount = results[halftimeQueryIndex].FetchInt(0);
             results[halftimeQueryIndex].FetchString(1, targetSteamId, sizeof(targetSteamId));
             results[halftimeQueryIndex].FetchString(2, targetName, sizeof(targetName));
             BuildBountyDisplayName(targetSteamId, targetName, targetDisplay, sizeof(targetDisplay));
+            GetCurrencyShortLabelForAmount(amount, currencyName, sizeof(currencyName));
 
             int target = FindClientBySteamId64(targetSteamId);
             for (int recipient = 1; recipient <= MaxClients; recipient++)
@@ -1775,10 +1868,13 @@ public void SQLTxn_OnBountiesSurvived(Database db, any data, int numQueries, DBR
                 if (IsClientInGameHuman(recipient))
                 {
                     CPrintToChatEx(recipient, target > 0 ? target : recipient,
-                        "%s {gold}%d minutes{default} remaining in %s's bounty! Dominate him now!!!",
+                        "%s %s's bounty is now %s%d %s{default} and expires in {gold}%d minutes{default}!",
                         g_BountyPrefix,
-                        BOUNTY_HALFTIME_REMAINING_MINUTES,
-                        targetDisplay);
+                        targetDisplay,
+                        g_CurrencyColorTag,
+                        amount,
+                        currencyName,
+                        BOUNTY_HALFTIME_REMAINING_MINUTES);
                 }
             }
             LogPointsStoreEvent(
