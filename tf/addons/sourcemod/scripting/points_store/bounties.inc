@@ -50,10 +50,9 @@ bool g_BountySchemaCheckFailed = false;
 
 static const char g_BountyHelpLines[][] =
 {
-    "Bounties last 30 minutes of playtime, meaning one expires after playing on the server for 15 minutes twice.",
+    "Bounties last 30 minutes of playtime or one week in real time.",
     "When a client with a bounty on them is dominated, the bounty ends and pays the dominator the Gems.",
-    "Each kill increases the bounty by 5% of its original value, rounded down with a minimum increase of 1 Gem.",
-    "While the bounty target plays Medic, every two assists count as one kill."
+    "Each kill, or every 2 assists as Medic, increases the bounty by 5% of its original value."
 };
 
 void Bounties_OnPluginStart()

@@ -2619,7 +2619,7 @@ static void BuildTransName(const char[] name, char[] output, int maxlen)
 
 static void BuildRainbowName(const char[] name, char[] output, int maxlen)
 {
-    int colors[] = {0xFF4040, 0xFFA500, 0xFFFF00, 0x3EFF3E, 0x99CCFF, 0x4B0082, 0xEE82EE};
+    int colors[] = {0xFF4040, 0xFFA500, 0xFFFF00, 0x3EFF3E, 0x99CCFF, 0x9370D8, 0xEE82EE};
     BuildPaletteName(name, colors, sizeof(colors), output, maxlen);
 }
 
