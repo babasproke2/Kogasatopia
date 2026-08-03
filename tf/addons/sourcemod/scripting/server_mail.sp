@@ -37,6 +37,13 @@ enum MailViewMode
     MailView_Sent
 };
 
+enum MailRedemptionQueueResult
+{
+    MailRedemption_Queued = 0,
+    MailRedemption_AlreadyPending,
+    MailRedemption_Failed
+};
+
 enum struct MailSearchResult
 {
     char steamId[MAIL_STEAMID_MAX];
@@ -60,6 +67,7 @@ int g_MailSearchGeneration[MAXPLAYERS + 1];
 int g_MailGiftSerial = 0;
 float g_MailNextSendAllowedAt[MAXPLAYERS + 1];
 bool g_MailUserSendPending[MAXPLAYERS + 1];
+bool g_MailRedeemAllPending[MAXPLAYERS + 1];
 
 StringMap g_MailPendingRedemptions = null;
 StringMap g_MailRedemptionUsers = null;
@@ -111,6 +119,8 @@ public void OnPluginStart()
 {
     RegConsoleCmd("sm_mail", Command_Mail, "Open mail or send mail to a ranked player.");
     RegConsoleCmd("sm_inbox", Command_Inbox, "Open your mail inbox.");
+    RegConsoleCmd("sm_redeem", Command_RedeemAll, "Redeem every unclaimed Gem attachment in your inbox.");
+    RegConsoleCmd("sm_redeemall", Command_RedeemAll, "Redeem every unclaimed Gem attachment in your inbox.");
     RegConsoleCmd("sm_gift", Command_Gift, "Mail Gems to a ranked player.");
     RegConsoleCmd("sm_mailhug", Command_MailHug, "Mail a one-use hug to a ranked player.");
     RegConsoleCmd("sm_hugmail", Command_MailHug, "Mail a one-use hug to a ranked player.");
@@ -168,6 +178,7 @@ public void OnClientDisconnect(int client)
     ClearClientMailState(client);
     g_MailNextSendAllowedAt[client] = 0.0;
     g_MailUserSendPending[client] = false;
+    g_MailRedeemAllPending[client] = false;
     Stimulus_ResetClient(client);
 }
 
@@ -654,6 +665,134 @@ public Action Command_Inbox(int client, int args)
 
     RequestMailList(client, MailView_Inbox);
     return Plugin_Handled;
+}
+
+public Action Command_RedeemAll(int client, int args)
+{
+    if (!IsMailClient(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (!g_MailDatabaseReady || g_MailDatabase == null || !IsPointsStoreAwardAvailable())
+    {
+        CPrintToChat(client, "%s Currency redemption is temporarily unavailable.", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+
+    if (g_MailRedeemAllPending[client])
+    {
+        CPrintToChat(client, "%s Your mailed Gems are still being checked.", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+
+    char steamId[MAIL_STEAMID_MAX];
+    char name[MAIL_NAME_MAX];
+    if (!GetMailClientIdentity(client, steamId, sizeof(steamId), name, sizeof(name)))
+    {
+        return Plugin_Handled;
+    }
+
+    char escapedSteam[65];
+    if (!EscapeMailSql(steamId, escapedSteam, sizeof(escapedSteam)))
+    {
+        CPrintToChat(client, "%s Your Steam identity could not be prepared.", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+
+    char query[768];
+    FormatEx(query, sizeof(query),
+        "SELECT mail_id, title, gems FROM %s "
+        ... "WHERE receiver_steamid64 = '%s' AND gems > 0 AND gems_redeemed = 0 "
+        ... "AND (expires_at = 0 OR expires_at > %d) ORDER BY mail_id",
+        MAIL_TABLE,
+        escapedSteam,
+        GetTime());
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteString(steamId);
+    g_MailRedeemAllPending[client] = true;
+    g_MailDatabase.Query(SQL_OnRedeemAllLoaded, query, pack);
+    return Plugin_Handled;
+}
+
+public void SQL_OnRedeemAllLoaded(Database db, DBResultSet rows, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int client = GetClientOfUserId(pack.ReadCell());
+    char steamId[MAIL_STEAMID_MAX];
+    pack.ReadString(steamId, sizeof(steamId));
+    delete pack;
+
+    if (!IsMailClient(client))
+    {
+        return;
+    }
+    g_MailRedeemAllPending[client] = false;
+
+    if (error[0] != '\0' || rows == null)
+    {
+        LogError("[server_mail] Failed to load redeemable mail: %s", error);
+        CPrintToChat(client, "%s Your mailed Gems could not be loaded.", MAIL_PREFIX);
+        return;
+    }
+
+    int queued = 0;
+    int pending = 0;
+    int failed = 0;
+    int totalGems = 0;
+    while (rows.FetchRow())
+    {
+        int mailId = rows.FetchInt(0);
+        char title[MAIL_TITLE_MAX];
+        rows.FetchString(1, title, sizeof(title));
+        int gems = rows.FetchInt(2);
+
+        MailRedemptionQueueResult result = QueueValidatedMailRedemption(client, mailId, steamId, title, gems);
+        if (result == MailRedemption_Queued)
+        {
+            queued++;
+            totalGems += gems;
+        }
+        else if (result == MailRedemption_AlreadyPending)
+        {
+            pending++;
+        }
+        else
+        {
+            failed++;
+        }
+    }
+
+    if (queued > 0)
+    {
+        char currencyColor[40];
+        char currencyName[64];
+        GetCurrencyFormatting(currencyColor, sizeof(currencyColor), currencyName, sizeof(currencyName));
+        CPrintToChat(client,
+            "%s Redeeming {gold}%d{default} mailed Gem attachment%s worth %s%d %s{default}.",
+            MAIL_PREFIX,
+            queued,
+            queued == 1 ? "" : "s",
+            currencyColor,
+            totalGems,
+            currencyName);
+    }
+    else if (pending > 0)
+    {
+        CPrintToChat(client, "%s Your mailed Gems are already being redeemed.", MAIL_PREFIX);
+    }
+    else
+    {
+        CPrintToChat(client, "%s You have no unredeemed Gems in your inbox.", MAIL_PREFIX);
+    }
+
+    if (failed > 0)
+    {
+        CPrintToChat(client, "%s Some mailed Gems could not be queued. Try again.", MAIL_PREFIX);
+    }
 }
 
 public Action Command_Gift(int client, int args)
@@ -1965,6 +2104,40 @@ public void SQL_OnMailRedemptionValidated(Database db, DBResultSet rows, const c
     char title[MAIL_TITLE_MAX];
     rows.FetchString(0, title, sizeof(title));
     int gems = rows.FetchInt(1);
+
+    MailRedemptionQueueResult result = QueueValidatedMailRedemption(client, mailId, steamId, title, gems);
+    if (result == MailRedemption_AlreadyPending)
+    {
+        CPrintToChat(client, "%s This attachment is already being redeemed.", MAIL_PREFIX);
+    }
+    else if (result == MailRedemption_Failed)
+    {
+        CPrintToChat(client, "%s Currency redemption could not be queued. Try again.", MAIL_PREFIX);
+    }
+}
+
+MailRedemptionQueueResult QueueValidatedMailRedemption(
+    int client,
+    int mailId,
+    const char[] steamId,
+    const char[] rawTitle,
+    int gems)
+{
+    if (!IsMailClient(client) || mailId <= 0 || gems <= 0 || !IsPointsStoreAwardAvailable())
+    {
+        return MailRedemption_Failed;
+    }
+
+    char awardKey[MAIL_REQUEST_KEY_MAX];
+    Format(awardKey, sizeof(awardKey), "server_mail:redeem:%d", mailId);
+    int unused;
+    if (g_MailPendingRedemptions.GetValue(awardKey, unused))
+    {
+        return MailRedemption_AlreadyPending;
+    }
+
+    char title[MAIL_TITLE_MAX];
+    strcopy(title, sizeof(title), rawTitle);
     if (StrEqual(title, "N/A", false))
     {
         char currencyColor[40];
@@ -1973,18 +2146,18 @@ public void SQL_OnMailRedemptionValidated(Database db, DBResultSet rows, const c
         FormatEx(title, sizeof(title), "%d %s", gems, currencyName);
     }
 
-    char awardKey[MAIL_REQUEST_KEY_MAX];
-    Format(awardKey, sizeof(awardKey), "server_mail:redeem:%d", mailId);
     g_MailPendingRedemptions.SetValue(awardKey, mailId);
-    g_MailRedemptionUsers.SetValue(awardKey, userId);
+    g_MailRedemptionUsers.SetValue(awardKey, GetClientUserId(client));
     g_MailRedemptionTitles.SetString(awardKey, title);
     g_MailRedemptionSteamIds.SetString(awardKey, steamId);
 
     if (!PointsStore_ApplyBonusPointsSteamIdOnce(steamId, gems, awardKey, "server_mail_redemption"))
     {
         ClearPendingRedemption(awardKey);
-        CPrintToChat(client, "%s Currency redemption could not be queued. Try again.", MAIL_PREFIX);
+        return MailRedemption_Failed;
     }
+
+    return MailRedemption_Queued;
 }
 
 void ClearPendingRedemption(const char[] awardKey)
@@ -2030,9 +2203,11 @@ public void PointsStore_OnApplyBonusPointsSteamIdOnce(const char[] awardKey, boo
 
     char query[512];
     FormatEx(query, sizeof(query),
-        "UPDATE %s SET gems_redeemed = 1, expires_at = 0 "
+        "UPDATE %s SET gems_redeemed = 1, expires_at = 0, "
+        ... "read_at = CASE WHEN read_at = 0 THEN %d ELSE read_at END "
         ... "WHERE mail_id = %d AND receiver_steamid64 = '%s' AND gems_redeemed = 0",
         MAIL_TABLE,
+        GetTime(),
         mailId,
         escapedSteam);
 
