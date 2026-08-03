@@ -2072,6 +2072,39 @@ void StripMenuColorTags(const char[] input, char[] output, int maxlen)
     int len = strlen(input);
     for (int i = 0; i < len && out < maxlen - 1; i++)
     {
+        int colorCodeLength = 0;
+        if (input[i] == '\x07')
+        {
+            colorCodeLength = 6;
+        }
+        else if (input[i] == '\x08')
+        {
+            colorCodeLength = 8;
+        }
+
+        if (colorCodeLength > 0)
+        {
+            bool hasCompleteColor = i + colorCodeLength < len;
+            for (int offset = 1; hasCompleteColor && offset <= colorCodeLength; offset++)
+            {
+                char character = input[i + offset];
+                hasCompleteColor = (character >= '0' && character <= '9')
+                    || (character >= 'A' && character <= 'F')
+                    || (character >= 'a' && character <= 'f');
+            }
+
+            if (hasCompleteColor)
+            {
+                i += colorCodeLength;
+            }
+            continue;
+        }
+
+        if (input[i] >= '\x01' && input[i] <= '\x06')
+        {
+            continue;
+        }
+
         if (input[i] == '{')
         {
             inTag = true;
