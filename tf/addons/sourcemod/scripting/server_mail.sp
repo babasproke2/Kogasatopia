@@ -2,6 +2,7 @@
 #pragma newdecls required
 
 #include <sourcemod>
+#include <clientprefs>
 
 #include <multicolors>
 
@@ -28,6 +29,8 @@
 #define MAIL_LIST_MAX 50
 #define MAIL_RECONNECT_DELAY 5.0
 #define MAIL_SEND_COOLDOWN 60.0
+#define MAIL_UNREAD_REMINDER_DELAY 30.0
+#define MAIL_UNREAD_REMINDER_RETRY 5.0
 #define MAIL_RTD_GIFT_COST 50
 #define MAIL_PREFIX "{cornflowerblue}[Mail]{default}"
 
@@ -57,6 +60,9 @@ bool g_MailDatabaseReady = false;
 bool g_MailDatabaseIsMySql = false;
 Handle g_MailReconnectTimer = null;
 GlobalForward g_MailSendResultForward = null;
+Cookie g_MailUnreadReminderCookie = null;
+Handle g_MailUnreadReminderTimer[MAXPLAYERS + 1];
+bool g_MailUnreadReminderPending[MAXPLAYERS + 1];
 
 ArrayList g_MailSearchResults[MAXPLAYERS + 1];
 char g_MailPendingContents[MAXPLAYERS + 1][MAIL_CONTENTS_MAX];
@@ -131,6 +137,11 @@ public void OnPluginStart()
     RegConsoleCmd("sm_mailrtd", Command_MailRtd, "Mail a prepaid RTD roll to a ranked player.");
     RegConsoleCmd("sm_sendrtd", Command_MailRtd, "Mail a prepaid RTD roll to a ranked player.");
     RegConsoleCmd("sm_giftrtd", Command_MailRtd, "Mail a prepaid RTD roll to a ranked player.");
+    HookEvent("player_team", Event_MailPlayerTeam, EventHookMode_Post);
+    g_MailUnreadReminderCookie = new Cookie(
+        "server_mail_unread_reminder_day",
+        "Last date the unread-mail reminder was displayed.",
+        CookieAccess_Private);
     Stimulus_OnPluginStart();
 
     g_MailPendingRedemptions = new StringMap();
@@ -144,6 +155,8 @@ public void OnPluginStart()
         if (IsClientInGame(client))
         {
             ClearClientMailState(client);
+            ResetUnreadMailReminder(client);
+            ScheduleUnreadMailReminder(client);
         }
     }
 
@@ -162,7 +175,10 @@ public void OnPluginEnd()
     for (int client = 1; client <= MaxClients; client++)
     {
         delete g_MailSearchResults[client];
+        delete g_MailUnreadReminderTimer[client];
     }
+
+    delete g_MailUnreadReminderCookie;
 
     if (g_MailReconnectTimer != null)
     {
@@ -173,8 +189,14 @@ public void OnPluginEnd()
     g_MailDatabase = null;
 }
 
+public void OnClientPutInServer(int client)
+{
+    ResetUnreadMailReminder(client);
+}
+
 public void OnClientDisconnect(int client)
 {
+    ResetUnreadMailReminder(client);
     ClearClientMailState(client);
     g_MailNextSendAllowedAt[client] = 0.0;
     g_MailUserSendPending[client] = false;
@@ -184,7 +206,145 @@ public void OnClientDisconnect(int client)
 
 public void OnMapStart()
 {
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        g_MailUnreadReminderTimer[client] = null;
+        g_MailUnreadReminderPending[client] = false;
+    }
     Stimulus_OnMapStart();
+}
+
+public void Event_MailPlayerTeam(Event event, const char[] name, bool dontBroadcast)
+{
+    int client = GetClientOfUserId(event.GetInt("userid"));
+    if (!IsMailClient(client))
+    {
+        return;
+    }
+
+    int team = event.GetInt("team");
+    if (team == 2 || team == 3)
+    {
+        ScheduleUnreadMailReminder(client);
+    }
+    else
+    {
+        CancelUnreadMailReminder(client);
+    }
+}
+
+void ScheduleUnreadMailReminder(int client, float delay = MAIL_UNREAD_REMINDER_DELAY)
+{
+    if (!IsMailClient(client) || (GetClientTeam(client) != 2 && GetClientTeam(client) != 3)
+        || g_MailUnreadReminderTimer[client] != null || g_MailUnreadReminderPending[client])
+    {
+        return;
+    }
+
+    g_MailUnreadReminderTimer[client] = CreateTimer(
+        delay,
+        Timer_CheckUnreadMail,
+        GetClientUserId(client),
+        TIMER_FLAG_NO_MAPCHANGE);
+}
+
+void CancelUnreadMailReminder(int client)
+{
+    delete g_MailUnreadReminderTimer[client];
+    g_MailUnreadReminderTimer[client] = null;
+}
+
+void ResetUnreadMailReminder(int client)
+{
+    CancelUnreadMailReminder(client);
+    g_MailUnreadReminderPending[client] = false;
+}
+
+public Action Timer_CheckUnreadMail(Handle timer, any userId)
+{
+    int client = GetClientOfUserId(userId);
+    if (client > 0 && client <= MaxClients)
+    {
+        g_MailUnreadReminderTimer[client] = null;
+    }
+
+    if (!IsMailClient(client) || (GetClientTeam(client) != 2 && GetClientTeam(client) != 3))
+    {
+        return Plugin_Stop;
+    }
+    if (!AreClientCookiesCached(client))
+    {
+        ScheduleUnreadMailReminder(client, MAIL_UNREAD_REMINDER_RETRY);
+        return Plugin_Stop;
+    }
+    if (!g_MailDatabaseReady || g_MailDatabase == null)
+    {
+        ScheduleUnreadMailReminder(client, MAIL_UNREAD_REMINDER_RETRY);
+        return Plugin_Stop;
+    }
+
+    char today[16];
+    char lastReminderDay[16];
+    FormatTime(today, sizeof(today), "%Y%m%d", GetTime());
+    g_MailUnreadReminderCookie.Get(client, lastReminderDay, sizeof(lastReminderDay));
+    if (StrEqual(today, lastReminderDay))
+    {
+        return Plugin_Stop;
+    }
+
+    char steamId[MAIL_STEAMID_MAX];
+    char name[MAIL_NAME_MAX];
+    char escapedSteam[(MAIL_STEAMID_MAX * 2) + 1];
+    if (!GetMailClientIdentity(client, steamId, sizeof(steamId), name, sizeof(name))
+        || !EscapeMailSql(steamId, escapedSteam, sizeof(escapedSteam)))
+    {
+        return Plugin_Stop;
+    }
+
+    char query[512];
+    FormatEx(query, sizeof(query),
+        "SELECT 1 FROM %s WHERE receiver_steamid64 = '%s' AND read_at = 0 "
+        ... "AND (expires_at = 0 OR expires_at > %d OR gems_redeemed != 0) LIMIT 1",
+        MAIL_TABLE,
+        escapedSteam,
+        GetTime());
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteString(today);
+    g_MailUnreadReminderPending[client] = true;
+    g_MailDatabase.Query(SQL_OnUnreadMailReminderChecked, query, pack);
+    return Plugin_Stop;
+}
+
+public void SQL_OnUnreadMailReminderChecked(Database db, DBResultSet rows, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int client = GetClientOfUserId(pack.ReadCell());
+    char reminderDay[16];
+    pack.ReadString(reminderDay, sizeof(reminderDay));
+    delete pack;
+
+    if (client > 0 && client <= MaxClients)
+    {
+        g_MailUnreadReminderPending[client] = false;
+    }
+    if (error[0] != '\0')
+    {
+        LogError("[server_mail] Unread-mail reminder query failed: %s", error);
+        return;
+    }
+    if (!IsMailClient(client) || (GetClientTeam(client) != 2 && GetClientTeam(client) != 3)
+        || rows == null || !rows.FetchRow())
+    {
+        return;
+    }
+
+    g_MailUnreadReminderCookie.Set(client, reminderDay);
+    CPrintToChat(client,
+        "%s You have unread server mail; use {gold}!inbox{default} to read it!",
+        MAIL_PREFIX);
 }
 
 public void OnLibraryRemoved(const char[] name)
