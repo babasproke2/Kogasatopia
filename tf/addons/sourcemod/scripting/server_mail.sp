@@ -209,7 +209,6 @@ public void OnMapStart()
     for (int client = 1; client <= MaxClients; client++)
     {
         g_MailUnreadReminderTimer[client] = null;
-        g_MailUnreadReminderPending[client] = false;
     }
     Stimulus_OnMapStart();
 }
