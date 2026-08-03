@@ -42,12 +42,14 @@
 #define PRENAME_MAX_PATTERN 64
 #define PRENAME_MAX_RENAME 64
 #define NAME_COLOR_AMERICA "america"
+#define NAME_PATTERN_MAP "map"
 #define NAME_PATTERN_TRANS "trans"
 #define NAME_PATTERN_RAINBOW "rainbow"
 #define NAME_PATTERN_GRADIENT_PREFIX "gradient:"
 #define NAME_PATTERN_MAX 96
 #define NAME_GRADIENT_MAX_STEPS 8
 #define AMERICA_NAME_ACCESS_ITEM "america_flag_name"
+#define MAP_NAME_ACCESS_ITEM "map_flag_name"
 #define TRANS_NAME_ACCESS_ITEM "trans_flag_name"
 #define RAINBOW_NAME_ACCESS_ITEM "rainbow_name_access"
 #define GRADIENT_NAME_ACCESS_ITEM "gradient_name_access"
@@ -1716,12 +1718,14 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
     char commandToken[16];
     int nextIndex = BreakString(buffer, commandToken, sizeof(commandToken));
     bool americaCommand = StrEqual(commandToken, "!america", false) || StrEqual(commandToken, "/america", false);
+    bool mapCommand = StrEqual(commandToken, "!map", false) || StrEqual(commandToken, "/map", false);
     bool transCommand = StrEqual(commandToken, "!trans", false) || StrEqual(commandToken, "/trans", false);
     bool rainbowCommand = StrEqual(commandToken, "!rainbow", false) || StrEqual(commandToken, "/rainbow", false);
     bool gradientCommand = StrEqual(commandToken, "!gradient", false) || StrEqual(commandToken, "/gradient", false)
         || StrEqual(commandToken, "!hue", false) || StrEqual(commandToken, "/hue", false);
 
     if (!americaCommand
+        && !mapCommand
         && !transCommand
         && !rainbowCommand
         && !gradientCommand
@@ -1741,6 +1745,11 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
     if (americaCommand)
     {
         return HandlePresetNamePatternCommand(client, NAME_COLOR_AMERICA, AMERICA_NAME_ACCESS_ITEM, "America Flag Name Color", "america");
+    }
+
+    if (mapCommand)
+    {
+        return HandlePresetNamePatternCommand(client, NAME_PATTERN_MAP, MAP_NAME_ACCESS_ITEM, "MAP Flag Name Color", "map");
     }
 
     if (transCommand)
@@ -1789,6 +1798,11 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
         return HandlePresetNamePatternCommand(client, NAME_COLOR_AMERICA, AMERICA_NAME_ACCESS_ITEM, "America Flag Name Color", "america");
     }
 
+    if (IsMapNamePattern(colorName))
+    {
+        return HandlePresetNamePatternCommand(client, NAME_PATTERN_MAP, MAP_NAME_ACCESS_ITEM, "MAP Flag Name Color", "map");
+    }
+
     if (IsTransNamePattern(colorName))
     {
         return HandlePresetNamePatternCommand(client, NAME_PATTERN_TRANS, TRANS_NAME_ACCESS_ITEM, "Trans Name Color", "trans");
@@ -1801,7 +1815,7 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
 
     if (!CColorExists(colorName))
     {
-        CPrintToChat(client, "{default}[Filters] Unknown color \"%s\". Example: !name deeppink, !america, !trans, !rainbow, or !gradient blue red", colorName);
+        CPrintToChat(client, "{default}[Filters] Unknown color \"%s\". Example: !name deeppink, !america, !map, !trans, !rainbow, or !gradient blue red", colorName);
         return true;
     }
 
@@ -1824,20 +1838,20 @@ static void PrintCurrentNamePreference(int client)
         char renderedName[256];
         BuildRenderedClientName(client, renderedName, sizeof(renderedName));
         CPrintToChat(client,
-            "{default}[Filters] Your name color is currently %s. Use !name <color>, !america, !trans, !rainbow, !gradient <color1> <color2>, or !name default.",
+            "{default}[Filters] Your name color is currently %s. Use !name <color>, !america, !map, !trans, !rainbow, !gradient <color1> <color2>, or !name default.",
             renderedName);
     }
     else if (g_NameColors[client][0] != '\0')
     {
         CPrintToChat(client,
-            "{default}[Filters] Your name color is currently {%s}%s{default}. Use !name <color>, !america, !trans, !rainbow, !gradient <color1> <color2>, or !name default.",
+            "{default}[Filters] Your name color is currently {%s}%s{default}. Use !name <color>, !america, !map, !trans, !rainbow, !gradient <color1> <color2>, or !name default.",
             g_NameColors[client],
             g_NameColors[client]);
     }
     else
     {
         CPrintToChat(client,
-            "{default}[Filters] Your name color uses the {teamcolor}team color{default}. Use !name <color>, !america, !trans, !rainbow, or !gradient <color1> <color2> to change it.");
+            "{default}[Filters] Your name color uses the {teamcolor}team color{default}. Use !name <color>, !america, !map, !trans, !rainbow, or !gradient <color1> <color2> to change it.");
     }
 }
 
@@ -2347,6 +2361,11 @@ static bool IsAmericaNamePattern(const char[] pattern)
     return StrEqual(pattern, NAME_COLOR_AMERICA, false);
 }
 
+static bool IsMapNamePattern(const char[] pattern)
+{
+    return StrEqual(pattern, NAME_PATTERN_MAP, false);
+}
+
 static bool IsTransNamePattern(const char[] pattern)
 {
     return StrEqual(pattern, NAME_PATTERN_TRANS, false);
@@ -2397,6 +2416,7 @@ static bool IsGradientNamePattern(const char[] pattern)
 static bool IsValidNamePattern(const char[] pattern)
 {
     return IsAmericaNamePattern(pattern)
+        || IsMapNamePattern(pattern)
         || IsTransNamePattern(pattern)
         || IsRainbowNamePattern(pattern)
         || IsGradientNamePattern(pattern);
@@ -2611,6 +2631,12 @@ static void BuildAmericaName(const char[] name, char[] output, int maxlen)
     BuildPaletteName(name, colors, sizeof(colors), output, maxlen);
 }
 
+static void BuildMapName(const char[] name, char[] output, int maxlen)
+{
+    int colors[] = {0x99CCFF, 0x6495ED, 0xFFFFE0, 0xFFFFFF, 0xFFFFFF, 0xFFFFE0, 0xFFC0CB, 0xFF69B4};
+    BuildPaletteName(name, colors, sizeof(colors), output, maxlen);
+}
+
 static void BuildTransName(const char[] name, char[] output, int maxlen)
 {
     int colors[] = {0x5BCEFA, 0xFFFFFF, 0xF5A9B8};
@@ -2641,6 +2667,11 @@ static void BuildRenderedClientName(int client, char[] output, int maxlen)
         if (IsAmericaNamePattern(pattern))
         {
             BuildAmericaName(name, output, maxlen);
+            return;
+        }
+        if (IsMapNamePattern(pattern))
+        {
+            BuildMapName(name, output, maxlen);
             return;
         }
         if (IsTransNamePattern(pattern))
@@ -4229,7 +4260,7 @@ public Action Command_Colors(int client, int args)
     {
         CPrintToChat(client, "%s", colorLines[i]);
     }
-    CPrintToChat(client, "{default}[Filters] Store owners can use {gold}!america{default}, {gold}!trans{default}, or {gold}!rainbow{default} for preset patterns.");
+    CPrintToChat(client, "{default}[Filters] Store owners can use {gold}!america{default}, {gold}!map{default}, {gold}!trans{default}, or {gold}!rainbow{default} for preset patterns.");
     CPrintToChat(client, "{default}[Filters] Gradient access owners can use {gold}!gradient <color1> <color2>{default} or {gold}!hue <color1> <color2>{default}.");
 
     return Plugin_Handled;
