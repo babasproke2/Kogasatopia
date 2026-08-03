@@ -10,6 +10,7 @@
 #define BOUNTY_TOKEN_MAX 128
 #define BOUNTY_WALL_EXPIRY_SECONDS 604800
 #define BOUNTY_PLAYTIME_EXPIRY_SECONDS 3600
+#define BOUNTY_HALFTIME_SECONDS (BOUNTY_PLAYTIME_EXPIRY_SECONDS / 2)
 #define BOUNTY_SURVIVOR_TAX_PERCENT 20
 #define BOUNTY_MAINTENANCE_INTERVAL 60.0
 #define BOUNTY_CHALLENGE_SOUND "duel_challenge"
@@ -178,6 +179,7 @@ void EnsureBountySchema()
             ... "expires_at INT NOT NULL, "
             ... "qualifying_playtime_seconds INT NOT NULL DEFAULT 0, "
             ... "last_target_playtime_seconds INT NOT NULL DEFAULT 0, "
+            ... "halftime_announced TINYINT NOT NULL DEFAULT 0, "
             ... "status VARCHAR(16) NOT NULL DEFAULT 'active', "
             ... "resolved_at INT NOT NULL DEFAULT 0, "
             ... "resolution_token VARCHAR(128) NOT NULL DEFAULT '', "
@@ -206,6 +208,7 @@ void EnsureBountySchema()
             ... "expires_at INTEGER NOT NULL, "
             ... "qualifying_playtime_seconds INTEGER NOT NULL DEFAULT 0, "
             ... "last_target_playtime_seconds INTEGER NOT NULL DEFAULT 0, "
+            ... "halftime_announced INTEGER NOT NULL DEFAULT 0, "
             ... "status VARCHAR(16) NOT NULL DEFAULT 'active', "
             ... "resolved_at INTEGER NOT NULL DEFAULT 0, "
             ... "resolution_token VARCHAR(128) NOT NULL DEFAULT '', "
@@ -228,10 +231,11 @@ public void SQL_OnBountySchemaReady(Database db, DBResultSet results, const char
         return;
     }
 
-    g_BountySchemaChecksPending = 2;
+    g_BountySchemaChecksPending = 3;
     g_BountySchemaCheckFailed = false;
     CheckBountySchemaColumn("qualifying_playtime_seconds", "INTEGER NOT NULL DEFAULT 0");
     CheckBountySchemaColumn("last_target_playtime_seconds", "INTEGER NOT NULL DEFAULT 0");
+    CheckBountySchemaColumn("halftime_announced", "INTEGER NOT NULL DEFAULT 0");
 }
 
 void CheckBountySchemaColumn(const char[] column, const char[] definition)
@@ -1518,6 +1522,27 @@ public void SQL_OnBountyProgressTargetsLoaded(Database db, DBResultSet rows, con
     }
 
     FormatEx(query, sizeof(query),
+        "UPDATE %s SET halftime_announced = 2 "
+        ... "WHERE status = 'active' AND expires_at > %d AND halftime_announced = 0 "
+        ... "AND qualifying_playtime_seconds >= %d",
+        BOUNTY_TABLE,
+        now,
+        BOUNTY_HALFTIME_SECONDS);
+    txn.AddQuery(query);
+
+    int halftimeQueryIndex = updateCount + 1;
+    FormatEx(query, sizeof(query),
+        "SELECT amount, target_steamid64, target_name FROM %s "
+        ... "WHERE status = 'active' AND halftime_announced = 2 ORDER BY bounty_id",
+        BOUNTY_TABLE);
+    txn.AddQuery(query);
+
+    FormatEx(query, sizeof(query),
+        "UPDATE %s SET halftime_announced = 1 WHERE halftime_announced = 2",
+        BOUNTY_TABLE);
+    txn.AddQuery(query);
+
+    FormatEx(query, sizeof(query),
         "UPDATE %s SET status = 'survived', resolved_at = %d, resolution_token = '%s', target_notified = 1 "
         ... "WHERE status = 'active' AND expires_at > %d AND qualifying_playtime_seconds >= %d",
         BOUNTY_TABLE,
@@ -1585,7 +1610,7 @@ public void SQL_OnBountyProgressTargetsLoaded(Database db, DBResultSet rows, con
     }
     txn.AddQuery(query);
 
-    int summaryQueryIndex = updateCount + 3;
+    int summaryQueryIndex = updateCount + 6;
     if (g_IsMySql)
     {
         FormatEx(query, sizeof(query),
@@ -1612,6 +1637,7 @@ public void SQL_OnBountyProgressTargetsLoaded(Database db, DBResultSet rows, con
 
     DataPack pack = new DataPack();
     pack.WriteString(token);
+    pack.WriteCell(halftimeQueryIndex);
     pack.WriteCell(summaryQueryIndex);
     g_Database.Execute(txn, SQLTxn_OnBountiesSurvived, SQLTxn_OnBountyProgressFailed, pack);
 }
@@ -1622,9 +1648,45 @@ public void SQLTxn_OnBountiesSurvived(Database db, any data, int numQueries, DBR
     pack.Reset();
     char token[BOUNTY_TOKEN_MAX];
     pack.ReadString(token, sizeof(token));
+    int halftimeQueryIndex = pack.ReadCell();
     int summaryQueryIndex = pack.ReadCell();
     delete pack;
     g_BountyProgressPending = false;
+
+    if (halftimeQueryIndex < numQueries && results[halftimeQueryIndex] != null)
+    {
+        char targetSteamId[BOUNTY_STEAMID_MAX];
+        char targetName[BOUNTY_NAME_MAX];
+        char targetDisplay[256];
+        char currencyName[BP_CURRENCY_SHORT_MAX];
+        while (results[halftimeQueryIndex].FetchRow())
+        {
+            int amount = results[halftimeQueryIndex].FetchInt(0);
+            results[halftimeQueryIndex].FetchString(1, targetSteamId, sizeof(targetSteamId));
+            results[halftimeQueryIndex].FetchString(2, targetName, sizeof(targetName));
+            BuildBountyDisplayName(targetSteamId, targetName, targetDisplay, sizeof(targetDisplay));
+            GetCurrencyShortLabelForAmount(amount, currencyName, sizeof(currencyName));
+
+            int target = FindClientBySteamId64(targetSteamId);
+            for (int recipient = 1; recipient <= MaxClients; recipient++)
+            {
+                if (IsClientInGameHuman(recipient))
+                {
+                    CPrintToChatEx(recipient, target > 0 ? target : recipient,
+                        "%s The %s%d %s{default} bounty on %s is 50%% over! Dominate %s now!!!",
+                        g_BountyPrefix,
+                        g_CurrencyColorTag,
+                        amount,
+                        currencyName,
+                        targetDisplay,
+                        targetDisplay);
+                }
+            }
+            LogPointsStoreEvent(
+                "event=bounty_halftime|time=%d|target=%s|amount=%d",
+                GetTime(), targetSteamId, amount);
+        }
+    }
 
     int totalTax = 0;
     bool resolvedAny = false;
