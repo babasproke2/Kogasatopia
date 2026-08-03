@@ -91,6 +91,7 @@ ConVar g_CvarWelfareMinPlayers = null;
 ConVar g_CvarLotteryDisabled = null;
 ConVar g_CvarLotteryMaxTicketValue = null;
 ConVar g_CvarLotteryEqualTicketValue = null;
+ConVar g_CvarBountyMinPlayers = null;
 bool g_DatabaseReady = false;
 bool g_IsMySql = false;
 bool g_IdempotentAwardsReady = false;
@@ -196,6 +197,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     MarkNativeAsOptional("ServerMail_SendCustomSteamId");
     MarkNativeAsOptional("WhaleTracker_GetRankedPlaytimeHours");
+    MarkNativeAsOptional("WhaleTracker_GetRankedPlaytimeSeconds");
     RegPluginLibrary("points_store");
     CreateNative("PointsStore_AreBonusPointsLoaded", Native_PointsStore_AreBonusPointsLoaded);
     CreateNative("PointsStore_GetBonusPoints", Native_PointsStore_GetBonusPoints);
@@ -262,6 +264,7 @@ public void OnPluginStart()
     g_CvarLotteryDisabled = CreateConVar("sm_points_store_lottery_disabled", "0", "Disable lottery ticket commands and lottery draws on this server.", _, true, 0.0, true, 1.0);
     g_CvarLotteryMaxTicketValue = CreateConVar("sm_points_store_lottery_max_ticket_value", "1000", "Maximum lottery ticket value. Bets above this are capped. 0 disables the cap.", _, true, 0.0);
     g_CvarLotteryEqualTicketValue = CreateConVar("sm_points_store_lottery_equal_ticket_value", "100", "Required ticket value during an Equal Lottery.", _, true, 1.0);
+    g_CvarBountyMinPlayers = CreateConVar("sm_points_store_bounty_min_players", "6", "Minimum GetClientCount(false) required to place bounties and advance bounty playtime.", _, true, 0.0, true, 64.0);
     g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
@@ -4933,6 +4936,7 @@ void RefreshCurrencyLabels()
     }
 
     Format(g_CurrencyPrefix, sizeof(g_CurrencyPrefix), "%s[%s]{default}", g_CurrencyColorTag, g_CurrencyShortLabel);
+    Bounties_RefreshPrefix();
 }
 
 void SanitizeLogField(char[] value, int maxlen)
