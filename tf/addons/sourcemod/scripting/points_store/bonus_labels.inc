@@ -27,9 +27,25 @@ void GetBonusPointsTypeLabel(const char[] type, char[] label, int maxlen)
     {
         strcopy(label, maxlen, "Dropshot kill");
     }
-    else if (StrEqual(type, "meatshot_kill", false))
+    else if (StrEqual(type, "meatshot_kills_2", false))
     {
-        strcopy(label, maxlen, "Meatshot kill");
+        strcopy(label, maxlen, "2 Meatshot Kills");
+    }
+    else if (StrEqual(type, "backstabs_life_4", false))
+    {
+        strcopy(label, maxlen, "4 Backstabs this life");
+    }
+    else if (StrEqual(type, "backstabs_life_10", false))
+    {
+        strcopy(label, maxlen, "10 Backstabs this life");
+    }
+    else if (StrEqual(type, "headshot_kills_life_4", false))
+    {
+        strcopy(label, maxlen, "4 Headshots this life");
+    }
+    else if (StrEqual(type, "headshot_kills_life_10", false))
+    {
+        strcopy(label, maxlen, "10 Headshots this life");
     }
     else if (StrEqual(type, "ambassador_headshot_kill", false))
     {

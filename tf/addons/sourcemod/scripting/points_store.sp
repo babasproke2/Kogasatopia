@@ -91,6 +91,7 @@ StringMap g_PerMapAwardCounts = null;
 #include "points_store/lotteries.inc"
 #include "points_store/bounties.inc"
 #include "points_store/bonus_labels.inc"
+#include "points_store/dailies.inc"
 
 public Plugin myinfo =
 {
@@ -217,6 +218,7 @@ public void OnPluginStart()
 
     Lotteries_OnPluginStart();
     Bounties_OnPluginStart();
+    Dailies_OnPluginStart();
 
     LoadStoreItems();
     ConnectDatabase();
@@ -2342,6 +2344,10 @@ bool BuildPerMapAwardKeyForSteamId(const char[] steamId, const char[] type, char
     else if (StrContains(type, "Medic high Übercharge kill (", false) == 0)
     {
         strcopy(counterType, sizeof(counterType), "medic_high_uber_kill");
+    }
+    else if (type[0] == '3' && StrContains(type, "bercharges this life", false) != -1)
+    {
+        strcopy(counterType, sizeof(counterType), "ubers_life_3");
     }
 
     Format(key, maxlen, "%s:%s", steamId, counterType);

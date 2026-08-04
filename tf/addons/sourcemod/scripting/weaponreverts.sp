@@ -29,7 +29,6 @@
 
 #define FLS_STREAK_TARGET	   2
 #define FLS_STREAK_WINDOW	   4.0
-#define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
 #define AMBASSADOR_HEADSHOT_KILL_BONUS_TYPE "ambassador_headshot_kill"
 #define SANDMAN_CLEAVER_COMBO_BONUS_TYPE "sandman_cleaver_combo"
 #define AMBASSADOR_ITEMDEF 61
@@ -975,26 +974,6 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 		return;
 	}
 
-	if (!kill)
-	{
-		return;
-	}
-
-	if (IsFakeClient(attacker) || IsFakeClient(victim))
-	{
-		ScatterPellets_Debug("points ignored: bots do not award meatshot currency");
-		return;
-	}
-
-	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
-	{
-		bool awarded = PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, MEATSHOT_KILL_BONUS_TYPE, 0, 3.0, 8);
-		ScatterPellets_Debug("points_store award result: %d", awarded ? 1 : 0);
-	}
-	else
-	{
-		ScatterPellets_Debug("ignored: PointsStore_ApplyBonusPoints native unavailable");
-	}
 }
 
 static int Accuracy_GetClassSubtractionValue(int client)
