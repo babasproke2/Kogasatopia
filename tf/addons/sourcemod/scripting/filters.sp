@@ -1718,7 +1718,7 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
     char commandToken[16];
     int nextIndex = BreakString(buffer, commandToken, sizeof(commandToken));
     bool americaCommand = StrEqual(commandToken, "!america", false) || StrEqual(commandToken, "/america", false);
-    bool mapCommand = StrEqual(commandToken, "!map", false) || StrEqual(commandToken, "/map", false);
+    bool mapCommand = StrEqual(commandToken, "!mapflag", false) || StrEqual(commandToken, "/mapflag", false);
     bool transCommand = StrEqual(commandToken, "!trans", false) || StrEqual(commandToken, "/trans", false);
     bool rainbowCommand = StrEqual(commandToken, "!rainbow", false) || StrEqual(commandToken, "/rainbow", false);
     bool gradientCommand = StrEqual(commandToken, "!gradient", false) || StrEqual(commandToken, "/gradient", false)
@@ -1815,7 +1815,7 @@ bool HandleNameColorCommand(int client, const char[] sArgs)
 
     if (!CColorExists(colorName))
     {
-        CPrintToChat(client, "{default}[Filters] Unknown color \"%s\". Example: !name deeppink, !america, !map, !trans, !rainbow, or !gradient blue red", colorName);
+        CPrintToChat(client, "{default}[Filters] Unknown color \"%s\". Example: !name deeppink, !america, !mapflag, !trans, !rainbow, or !gradient blue red", colorName);
         return true;
     }
 
@@ -1838,20 +1838,20 @@ static void PrintCurrentNamePreference(int client)
         char renderedName[256];
         BuildRenderedClientName(client, renderedName, sizeof(renderedName));
         CPrintToChat(client,
-            "{default}[Filters] Your name color is currently %s. Use !name <color>, !america, !map, !trans, !rainbow, !gradient <color1> <color2>, or !name default.",
+            "{default}[Filters] Your name color is currently %s. Use !name <color>, !america, !mapflag, !trans, !rainbow, !gradient <color1> <color2>, or !name default.",
             renderedName);
     }
     else if (g_NameColors[client][0] != '\0')
     {
         CPrintToChat(client,
-            "{default}[Filters] Your name color is currently {%s}%s{default}. Use !name <color>, !america, !map, !trans, !rainbow, !gradient <color1> <color2>, or !name default.",
+            "{default}[Filters] Your name color is currently {%s}%s{default}. Use !name <color>, !america, !mapflag, !trans, !rainbow, !gradient <color1> <color2>, or !name default.",
             g_NameColors[client],
             g_NameColors[client]);
     }
     else
     {
         CPrintToChat(client,
-            "{default}[Filters] Your name color uses the {teamcolor}team color{default}. Use !name <color>, !america, !map, !trans, !rainbow, or !gradient <color1> <color2> to change it.");
+            "{default}[Filters] Your name color uses the {teamcolor}team color{default}. Use !name <color>, !america, !mapflag, !trans, !rainbow, or !gradient <color1> <color2> to change it.");
     }
 }
 
@@ -4260,7 +4260,7 @@ public Action Command_Colors(int client, int args)
     {
         CPrintToChat(client, "%s", colorLines[i]);
     }
-    CPrintToChat(client, "{default}[Filters] Store owners can use {gold}!america{default}, {gold}!map{default}, {gold}!trans{default}, or {gold}!rainbow{default} for preset patterns.");
+    CPrintToChat(client, "{default}[Filters] Store owners can use {gold}!america{default}, {gold}!mapflag{default}, {gold}!trans{default}, or {gold}!rainbow{default} for preset patterns.");
     CPrintToChat(client, "{default}[Filters] Gradient access owners can use {gold}!gradient <color1> <color2>{default} or {gold}!hue <color1> <color2>{default}.");
 
     return Plugin_Handled;
