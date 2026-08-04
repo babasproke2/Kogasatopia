@@ -2,6 +2,8 @@
 // Sorted from most to least popular. One playable map per line.
 // Included 394 maps; skipped 103 mapsdb rows without an installed .bsp or known workshop mapcycle entry.
 
+plr_timebomb_a2
+koth_tiftidlava3_a1
 workshop/tetris_1_2.ugc3343673005
 balloon_race_v2b_fix
 cp_mojave
