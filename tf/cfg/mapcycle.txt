@@ -21,7 +21,6 @@ workshop/pl_drawpu.ugc1625449436
 workshop/ctf_2fort_classic_halloween_10.ugc2421392181
 workshop/ctf_circusfunny.ugc3244888924
 workshop/trade_greenhillpark_fix1.ugc2646877514
-workshop/cp_battlefortress_b8c.ugc2792143054
 workshop/plr_dogbread_b3.ugc480152564
 workshop/koth_product_final.ugc454272353
 workshop/koth_sneed.ugc2188478353
