@@ -110,6 +110,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     MarkNativeAsOptional("Hugs_RedeemMailedFeed");
     MarkNativeAsOptional("Hugs_RedeemMailedRape");
     MarkNativeAsOptional("PointsStore_ApplyBonusPointsSteamIdOnce");
+    MarkNativeAsOptional("PointsStore_RefundBonusPointsSteamId");
     MarkNativeAsOptional("SaySounds_PlayCommand");
     MarkNativeAsOptional("RTD_ApplyGiftedRoll");
     MarkNativeAsOptional("WhaleTracker_GetRankedPlaytimeHours");
@@ -430,7 +431,7 @@ bool IsPointsStoreGiftAvailable()
         && GetFeatureStatus(FeatureType_Native, "PointsStore_AreBonusPointsLoaded") == FeatureStatus_Available
         && GetFeatureStatus(FeatureType_Native, "PointsStore_GetBonusPoints") == FeatureStatus_Available
         && GetFeatureStatus(FeatureType_Native, "PointsStore_SpendBonusPoints") == FeatureStatus_Available
-        && GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPointsSteamId") == FeatureStatus_Available;
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_RefundBonusPointsSteamId") == FeatureStatus_Available;
 }
 
 void ConnectMailDatabase()
@@ -1622,11 +1623,9 @@ void RefundMailSendCost(const char[] senderSteamId, int amount)
         return;
     }
     if (!IsPointsStoreGiftAvailable()
-        || !PointsStore_ApplyBonusPointsSteamId(
+        || !PointsStore_RefundBonusPointsSteamId(
             senderSteamId,
             amount,
-            false,
-            false,
             "server_mail_send_refund"))
     {
         LogError("[server_mail] Failed to refund %d Gems to %s.", amount, senderSteamId);

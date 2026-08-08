@@ -1163,7 +1163,7 @@ public Action Event_PlayerDeath(Event hEvent, const char[] sEventName, bool dont
 		&& !IsFakeClient(attacker) && !IsFakeClient(client)
 		&& GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 	{
-		PointsStore_ApplyBonusPoints(attacker, 2, true, true, 1.0, "Killed positive RTD player", client, 3.0, 3);
+		PointsStore_ApplyBonusPoints(attacker, "Killed positive RTD player", true, true, 1.0, client, 3.0);
 	}
 
 	Events.PlayerDied(client);

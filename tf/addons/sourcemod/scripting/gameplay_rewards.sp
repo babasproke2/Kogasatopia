@@ -43,7 +43,7 @@ float GameplayRewardDelay()
 	return g_GameplayRewardDelay == null ? 3.0 : g_GameplayRewardDelay.FloatValue;
 }
 
-void AwardGameplayReward(int client, int points, const char[] type, int target, int perMap, float delay = -1.0)
+void AwardGameplayReward(int client, const char[] type, int target, float delay = -1.0)
 {
 	if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
 	{
@@ -52,21 +52,19 @@ void AwardGameplayReward(int client, int points, const char[] type, int target, 
 
 	PointsStore_ApplyBonusPoints(
 		client,
-		points,
+		type,
 		true,
 		true,
 		REWARD_CHANCE_ALWAYS,
-		type,
 		target,
-		delay >= 0.0 ? delay : GameplayRewardDelay(),
-		perMap);
+		delay >= 0.0 ? delay : GameplayRewardDelay());
 }
 
 public void OnAirShot(int attacker, int victim, bool killed)
 {
 	if (killed)
 	{
-		AwardGameplayReward(attacker, 1, "airshot_kill", 0, 5);
+		AwardGameplayReward(attacker, "airshot_kill", 0);
 	}
 }
 
@@ -74,7 +72,7 @@ public void OnDropShot(int attacker, int victim)
 {
 	if (TF2_GetPlayerClass(attacker) == TFClass_Sniper)
 	{
-		AwardGameplayReward(attacker, 1, "dropshot_kill", victim, 3);
+		AwardGameplayReward(attacker, "dropshot_kill", victim);
 	}
 }
 
@@ -82,24 +80,24 @@ public void OnTopScoringPlayerRoundEnd(const char[] steamId64)
 {
 	if (steamId64[0] != '\0')
 	{
-		PointsStore_ApplyBonusPointsSteamId(steamId64, 3, true, true, "top_scoring_player", 2);
+		PointsStore_ApplyBonusPointsSteamId(steamId64, "top_scoring_player", true, true);
 	}
 }
 
 public void OnAirborneBackstab(int attacker, int victim)
 {
-	AwardGameplayReward(attacker, 1, "Airborne backstab", victim, 3);
+	AwardGameplayReward(attacker, "Airborne backstab", victim);
 }
 
 public void OnBackstabMilestone(int client, int backstabsThisLife)
 {
 	if (backstabsThisLife > 0 && backstabsThisLife % 3 == 0)
 	{
-		AwardGameplayReward(client, 1, "backstabs_life_3", 0, 3);
+		AwardGameplayReward(client, "backstabs_life_3", 0);
 	}
 	if (backstabsThisLife == 6)
 	{
-		AwardGameplayReward(client, 3, "backstabs_life_6", 0, 1);
+		AwardGameplayReward(client, "backstabs_life_6", 0);
 	}
 }
 
@@ -107,17 +105,17 @@ public void OnHeadshotMilestone(int client, int headshotsThisLife)
 {
 	if (headshotsThisLife > 0 && headshotsThisLife % 4 == 0)
 	{
-		AwardGameplayReward(client, 1, "headshot_kills_life_4", 0, 4);
+		AwardGameplayReward(client, "headshot_kills_life_4", 0);
 	}
 	if (headshotsThisLife == 10)
 	{
-		AwardGameplayReward(client, 3, "headshot_kills_life_10", 0, 1);
+		AwardGameplayReward(client, "headshot_kills_life_10", 0);
 	}
 }
 
 public void OnTopScorerKill(int attacker, int victim)
 {
-	AwardGameplayReward(attacker, 1, "top_score_kill", victim, 10);
+	AwardGameplayReward(attacker, "top_score_kill", victim);
 }
 
 public void OnMarketGardenKill(int attacker, int victim, int attackerClass)
@@ -131,88 +129,84 @@ public void OnMarketGardenKill(int attacker, int victim, int attackerClass)
 	{
 		strcopy(type, sizeof(type), "market_garden_kill");
 	}
-	AwardGameplayReward(attacker, 1, type, 0, 5);
+	AwardGameplayReward(attacker, type, 0);
 }
 
 public void OnDemoSyncKill(int attacker, int victim)
 {
-	AwardGameplayReward(attacker, 1, "demo_sync_kill", 0, 3);
+	AwardGameplayReward(attacker, "demo_sync_kill", 0);
 }
 
 public void OnSoldierSyncKill(int attacker, int victim)
 {
-	AwardGameplayReward(attacker, 2, "soldier_sync_kill", 0, 3);
+	AwardGameplayReward(attacker, "soldier_sync_kill", 0);
 }
 
 public void OnMedicUberDropKill(int attacker, int medic)
 {
-	AwardGameplayReward(attacker, 3, "medic_uber_drop_kill", 0, 2);
+	AwardGameplayReward(attacker, "medic_uber_drop_kill", 0);
 }
 
 public void OnMedicHighUberKill(int attacker, int medic, int uberPercent)
 {
-	char reason[64];
-	FormatEx(reason, sizeof(reason), "Medic high Übercharge kill (%d%%)", uberPercent);
-	AwardGameplayReward(attacker, 1, reason, medic, 2);
+	AwardGameplayReward(attacker, "medic_high_uber_kill", uberPercent);
 }
 
 public void OnMultipleDominations(int client)
 {
-	AwardGameplayReward(client, 1, "multiple_dominations", 0, 3);
+	AwardGameplayReward(client, "multiple_dominations", 0);
 }
 
 public void OnRevenge(int client, int victim)
 {
-	AwardGameplayReward(client, 1, "player_revenge", victim, 3);
+	AwardGameplayReward(client, "player_revenge", victim);
 }
 
 public void OnMedicAssistMilestone(int medic, int assistsThisLife)
 {
-	char reason[32];
-	FormatEx(reason, sizeof(reason), "Assists: %d", assistsThisLife);
-	AwardGameplayReward(medic, 1, reason, 0, 4);
+	AwardGameplayReward(medic, "medic_assists", assistsThisLife);
 }
 
 public void OnMeatshotMilestone(int client, int meatshotKillsThisLife)
 {
 	if (meatshotKillsThisLife == 8)
 	{
-		AwardGameplayReward(client, 3, "meatshot_kills_life_8", 0, 1);
+		AwardGameplayReward(client, "meatshot_kills_life_8", 0);
 	}
 }
 
 public void OnUberDeployed(int medic, int ubersThisLife)
 {
-	AwardGameplayReward(medic, 1, "uber_deployed", 0, 4);
+	AwardGameplayReward(medic, "uber_deployed", 0);
 	if (ubersThisLife == 3)
 	{
-		AwardGameplayReward(medic, 2, "3 Übercharges this life", 0, 1);
+		AwardGameplayReward(medic, "ubers_life_3", 0);
 	}
 }
 
 public void OnReflectKill(int attacker, int victim, bool directHit)
 {
-	AwardGameplayReward(attacker, 1, "reflect", 0, 3);
+	AwardGameplayReward(attacker, "reflect", 0);
 	if (directHit)
 	{
-		AwardGameplayReward(attacker, 2, "reflect_direct_hit", 0, 3);
+		AwardGameplayReward(attacker, "reflect_direct_hit", 0);
 	}
 }
 
 public void OnJuggle(int attacker, int victim)
 {
-	AwardGameplayReward(attacker, 2, "Juggle", 0, 3);
+	AwardGameplayReward(attacker, "Juggle", 0);
 }
 
 public void OnMultikill(int client, int kills)
 {
 	if (kills >= 5)
 	{
-		AwardGameplayReward(client, 3, "multikill_5_plus", kills, 4, 1.0);
+		AwardGameplayReward(client, "multikill_5_plus", kills, 1.0);
 	}
 	else if (kills >= 3)
 	{
-		AwardGameplayReward(client, 2, "multikill_3_4", kills, 3, 1.0);
+		AwardGameplayReward(client, "multikill_3_4", kills, 1.0);
 	}
 }
 
@@ -226,11 +220,11 @@ public void OnKillstreak(int client, int killstreak)
 	bool high = killstreak > 10;
 	if (high)
 	{
-		AwardGameplayReward(client, 2, "killstreak_above_10", killstreak, 4);
+		AwardGameplayReward(client, "killstreak_above_10", killstreak);
 	}
 	else
 	{
-		AwardGameplayReward(client, 1, "killstreak_5_10", killstreak, 3);
+		AwardGameplayReward(client, "killstreak_5_10", killstreak);
 	}
 }
 
@@ -238,39 +232,39 @@ public void OnKillstreakEnd(int attacker, int victim, int killstreak)
 {
 	if (killstreak > 19)
 	{
-		AwardGameplayReward(attacker, 3, "killstreak_end_20_plus", killstreak, 1);
+		AwardGameplayReward(attacker, "killstreak_end_20_plus", killstreak);
 	}
 	else if (killstreak > 14)
 	{
-		AwardGameplayReward(attacker, 2, "killstreak_end_15_19", killstreak, 2);
+		AwardGameplayReward(attacker, "killstreak_end_15_19", killstreak);
 	}
 	else if (killstreak > 6)
 	{
-		AwardGameplayReward(attacker, 1, "killstreak_end_7_14", killstreak, 3);
+		AwardGameplayReward(attacker, "killstreak_end_7_14", killstreak);
 	}
 }
 
 public void OnAmbassadorHeadshotKill(int attacker, int victim)
 {
-	AwardGameplayReward(attacker, 1, "ambassador_headshot_kill", 0, 5);
+	AwardGameplayReward(attacker, "ambassador_headshot_kill", 0);
 }
 
 public void OnSandmanCleaverCombo(int attacker, int victim)
 {
-	AwardGameplayReward(attacker, 1, "sandman_cleaver_combo", 0, 4);
+	AwardGameplayReward(attacker, "sandman_cleaver_combo", 0);
 }
 
 public void OnMeatshotKill(int attacker, int victim)
 {
-	AwardGameplayReward(attacker, 1, "meatshot_kill", victim, 4);
+	AwardGameplayReward(attacker, "meatshot_kill", victim);
 }
 
 public void OnEnvironmentalKill(int attacker, int victim)
 {
-	AwardGameplayReward(attacker, 1, "Environmental kill", victim, 3);
+	AwardGameplayReward(attacker, "Environmental kill", victim);
 }
 
 public void OnSandmanMoonshot(int attacker, int victim)
 {
-	AwardGameplayReward(attacker, 3, "Sandman moonshot", victim, 1);
+	AwardGameplayReward(attacker, "Sandman moonshot", victim);
 }

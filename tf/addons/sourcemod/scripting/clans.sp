@@ -180,7 +180,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("Clans_GetSameTeamClanMemberCount", Native_Clans_GetSameTeamClanMemberCount);
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("Filters_GetLastRecordedSteamName");
-    MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
+    MarkNativeAsOptional("PointsStore_RefundBonusPoints");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
     MarkNativeAsOptional("PointsStore_StealBonusPoints");
     MarkNativeAsOptional("DGM_IsRoundRunning");
@@ -191,7 +191,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 
 bool IsClanGemStoreAvailable()
 {
-    return GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available
+    return GetFeatureStatus(FeatureType_Native, "PointsStore_RefundBonusPoints") == FeatureStatus_Available
         && GetFeatureStatus(FeatureType_Native, "PointsStore_SpendBonusPoints") == FeatureStatus_Available;
 }
 
@@ -202,7 +202,7 @@ bool GiveClanGems(int client, int gems)
         return false;
     }
 
-    return PointsStore_ApplyBonusPoints(client, gems, false, false, 1.0, "clan_gems", 0, 0.0);
+    return PointsStore_RefundBonusPoints(client, gems, "clan_gems");
 }
 
 bool SpendClanGems(int client, int gems)

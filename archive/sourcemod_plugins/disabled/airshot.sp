@@ -184,7 +184,7 @@ static void AwardDropshotKillGem(int attacker, int victim)
 		return;
 	}
 
-	PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, DROPSHOT_KILL_BONUS_TYPE, victim, 3.0, DROPSHOT_KILL_BONUS_PER_MAP);
+	PointsStore_ApplyBonusPoints(attacker, DROPSHOT_KILL_BONUS_TYPE, true, true, 1.0, victim, 3.0);
 }
 
 public void WhaleTracker_OnAirshot(int attacker, int victim)
@@ -237,7 +237,7 @@ public Action Timer_BroadcastAirshot(Handle timer, any userid)
 	{
 		if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
 		{
-			PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "airshot_kill", 0, 3.0, 5);
+			PointsStore_ApplyBonusPoints(attacker, "airshot_kill", true, true, 1.0, 0, 3.0);
 		}
 		if (g_bSaySoundsAvailable)
 		{

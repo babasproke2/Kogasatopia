@@ -5,47 +5,6 @@
 
 #define DAILY_CLASS_ALL 0
 
-static const char g_DailyGemLabels[][] =
-{
-    "Meatshot Kill",
-    "Sandman-Cleaver Combo",
-    "8 Meatshot Kills This Life",
-    "Sandman Moonshot",
-    "Market Garden Kill",
-    "Soldier Sync Kill",
-    "Reflected Projectile Kill",
-    "Reflected Direct Hit Kill",
-    "Market Garden Kill (Demo)",
-    "Demoman Sync Kill",
-    "Every 4 Assists",
-    "Deploy UberCharge",
-    "3 UberCharges This Life",
-    "Every 4 Headshot Kills",
-    "Headshot Kill While Falling",
-    "10 Headshots This Life",
-    "Ambassador Headshot Kill",
-    "Airborne Backstab",
-    "Every 3 Backstabs This Life",
-    "6 Backstabs This Life",
-    "Kill Enemy Team's Top Scorer",
-    "Airshot Kill",
-    "Multikill, 5+ Kills",
-    "Killstreak Milestone, Above 10",
-    "Multiple Dominations",
-    "Revenge",
-    "Juggle",
-    "Multikill, 3-4 Kills",
-    "Killstreak Milestone, 5 or 10",
-    "End a 7-14 Killstreak",
-    "Environmental Kill",
-    "Kill a Positive-RTD Player",
-    "Medic Uber Drop Kill",
-    "Kill Medic With at Least 90% Uber",
-    "Top-Scoring Player at Round End",
-    "End a 15-19 Killstreak",
-    "End a 20+ Killstreak"
-};
-
 static const char g_DailyGemTypes[][] =
 {
     "meatshot_kill",
@@ -85,30 +44,6 @@ static const char g_DailyGemTypes[][] =
     "top_scoring_player",
     "killstreak_end_15_19",
     "killstreak_end_20_plus"
-};
-
-static const int g_DailyGemLimits[] =
-{
-    4, 4, 1, 1,
-    5, 3,
-    3, 3,
-    5, 3,
-    4, 4, 1,
-    4, 3, 1,
-    5, 3, 3, 1,
-    10, 5, 4, 4, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 1
-};
-
-static const int g_DailyGemPoints[] =
-{
-    1, 1, 3, 3,
-    1, 2,
-    1, 2,
-    1, 1,
-    1, 1, 2,
-    1, 1, 3,
-    1, 1, 1, 3,
-    1, 1, 3, 2, 1, 1, 2, 2, 1, 1, 1, 2, 3, 1, 3, 2, 3
 };
 
 static const int g_DailyGemClasses[] =
@@ -163,15 +98,20 @@ void GetDailyClassName(int classId, char[] name, int maxlen)
 int GetDailyClassProgress(int client, int classId)
 {
     int progress = 0;
-    for (int i = 0; i < sizeof(g_DailyGemLimits); i++)
+    for (int i = 0; i < sizeof(g_DailyGemTypes); i++)
     {
         if (g_DailyGemClasses[i] != classId)
         {
             continue;
         }
 
+        RewardDefinition reward;
+        if (!GetRewardDefinition(g_DailyGemTypes[i], reward))
+        {
+            continue;
+        }
         int used = GetPerMapAwardCount(client, g_DailyGemTypes[i]);
-        progress += used < g_DailyGemLimits[i] ? used : g_DailyGemLimits[i];
+        progress += used < reward.perMapLimit ? used : reward.perMapLimit;
     }
     return progress;
 }
@@ -184,26 +124,31 @@ void PrintDailyClassGroup(int client, int classId)
 
     int entryCount = 0;
     char currencyName[BP_CURRENCY_SHORT_MAX];
-    for (int i = 0; i < sizeof(g_DailyGemLimits); i++)
+    for (int i = 0; i < sizeof(g_DailyGemTypes); i++)
     {
         if (g_DailyGemClasses[i] != classId)
         {
             continue;
         }
 
-        int used = GetPerMapAwardCount(client, g_DailyGemTypes[i]);
-        if (used > g_DailyGemLimits[i])
+        RewardDefinition reward;
+        if (!GetRewardDefinition(g_DailyGemTypes[i], reward))
         {
-            used = g_DailyGemLimits[i];
+            continue;
         }
-        GetCurrencyShortLabelForAmount(g_DailyGemPoints[i], currencyName, sizeof(currencyName));
+        int used = GetPerMapAwardCount(client, g_DailyGemTypes[i]);
+        if (used > reward.perMapLimit)
+        {
+            used = reward.perMapLimit;
+        }
+        GetCurrencyShortLabelForAmount(reward.amount, currencyName, sizeof(currencyName));
         CPrintToChat(client,
             "{default}%s {gold}(%d/%d){default} - %s%d %s{default}",
-            g_DailyGemLabels[i],
+            reward.longName,
             used,
-            g_DailyGemLimits[i],
+            reward.perMapLimit,
             g_CurrencyColorTag,
-            g_DailyGemPoints[i],
+            reward.amount,
             currencyName);
         entryCount++;
     }

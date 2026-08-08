@@ -145,10 +145,17 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 ## points_store_api.inc
 - `PointsStore_AreBonusPointsLoaded` - Returns whether a client's currency cache is ready.
 - `PointsStore_GetBonusPoints` - Returns a client's current currency balance.
-- `PointsStore_ApplyBonusPoints` - Applies a currency delta to a connected client.
-- `PointsStore_ApplyBonusPointsSteamId` - Applies a currency delta to a SteamID64, including offline players.
+- `PointsStore_ApplyBonusPoints` - Applies a configured reward to a connected client by reward ID.
+- `PointsStore_ApplyBonusPointsSteamId` - Applies a configured reward by reward ID to a SteamID64.
+- `PointsStore_GetRewardAmount` - Returns a configured reward's currency amount.
+- `PointsStore_GetRewardPerMapLimit` - Returns a configured reward's per-map limit.
+- `PointsStore_GetRewardLongName` - Returns a configured reward's long display name.
+- `PointsStore_GetRewardShortDescription` - Returns a configured reward's short description.
+- `PointsStore_GetRewardLongDescription` - Returns a configured reward's long description.
 - `PointsStore_ApplyBonusPointsSteamIdOnce` - Applies an offline-safe currency award once for a stable key.
 - `PointsStore_OnApplyBonusPointsSteamIdOnce` - Reports the confirmed result of an idempotent currency award.
+- `PointsStore_RefundBonusPoints` - Refunds a dynamic amount to a connected client.
+- `PointsStore_RefundBonusPointsSteamId` - Refunds a dynamic amount to a SteamID64.
 - `PointsStore_SpendBonusPoints` - Spends a connected client's currency without chat or sound output.
 - `PointsStore_HasPurchase` - Returns whether a client owns a shop item.
 - `PointsStore_GetPurchasePrice` - Returns the price paid for a shop item.

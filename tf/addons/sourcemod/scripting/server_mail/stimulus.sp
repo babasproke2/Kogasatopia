@@ -303,7 +303,7 @@ bool Stimulus_IsCurrencyAvailable()
     return GetFeatureStatus(FeatureType_Native, "PointsStore_AreBonusPointsLoaded") == FeatureStatus_Available
         && GetFeatureStatus(FeatureType_Native, "PointsStore_GetBonusPoints") == FeatureStatus_Available
         && GetFeatureStatus(FeatureType_Native, "PointsStore_SpendBonusPoints") == FeatureStatus_Available
-        && GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPointsSteamId") == FeatureStatus_Available;
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_RefundBonusPointsSteamId") == FeatureStatus_Available;
 }
 
 void Stimulus_BeginDeployment(int client)
@@ -397,12 +397,10 @@ void Stimulus_RefundDeployment(int userId, const char[] steamId)
         g_MailStimulusDeploymentPending[client] = false;
     }
 
-    if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPointsSteamId") != FeatureStatus_Available
-        || !PointsStore_ApplyBonusPointsSteamId(
+    if (GetFeatureStatus(FeatureType_Native, "PointsStore_RefundBonusPointsSteamId") != FeatureStatus_Available
+        || !PointsStore_RefundBonusPointsSteamId(
             steamId,
             MAIL_STIMULUS_DEPLOY_COST,
-            false,
-            false,
             "server_mail_stimulus_refund"))
     {
         LogError("[server_mail] Failed to refund Stimulus Check deployment cost to %s.", steamId);

@@ -22,33 +22,50 @@ native bool PointsStore_AreBonusPointsLoaded(int client);
 native int PointsStore_GetBonusPoints(int client);
 
 /**
- * Applies currency with the standard points-store sound/chat behavior.
+ * Applies a configured reward with the standard points-store sound/chat behavior.
  *
  * @param client        Client index.
- * @param points        Points delta. Negative spends.
+ * @param rewardId      Stable key under "rewards" in points_store.cfg.
  * @param playSound     Play the reward sound through SaySounds.
  * @param chatAlert     Print currency chat line.
  * @param randomChance  Chance, clamped to 0.1..1.0.
- * @param type          Message type key.
  * @param target        Optional target client or event value.
  * @param delay         Delay in seconds. 0.0 = immediate.
- * @param perMap        Positive cap for successful awards of this type per map. 0 = unlimited.
- * @return              True on success.
+ * @return              True when queued/applied; false if the reward is not configured.
  */
-native bool PointsStore_ApplyBonusPoints(int client, int points, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0, int perMap = 0);
+native bool PointsStore_ApplyBonusPoints(int client, const char[] rewardId, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, int target = 0, float delay = 3.0);
 
 /**
- * Applies currency to a SteamID64, including disconnected clients.
+ * Applies a configured reward to a SteamID64, including disconnected clients.
  *
  * @param steamId64      Target SteamID64.
- * @param points         Points delta.
+ * @param rewardId       Stable key under "rewards" in points_store.cfg.
  * @param playSound      Play the reward sound if the client is online.
  * @param chatAlert      Print currency chat line if the client is online.
- * @param type           Message type key.
- * @param perMap         Positive cap for successful awards of this type per map. 0 = unlimited.
- * @return               True on success.
+ * @return               True when queued/applied; false if the reward is not configured.
  */
-native bool PointsStore_ApplyBonusPointsSteamId(const char[] steamId64, int points, bool playSound = true, bool chatAlert = true, const char[] type = "", int perMap = 0);
+native bool PointsStore_ApplyBonusPointsSteamId(const char[] steamId64, const char[] rewardId, bool playSound = true, bool chatAlert = true);
+
+/** Returns a configured reward amount, or 0 when the ID is unknown. */
+native int PointsStore_GetRewardAmount(const char[] rewardId);
+
+/** Returns a configured per-map limit, or -1 when the ID is unknown. */
+native int PointsStore_GetRewardPerMapLimit(const char[] rewardId);
+
+/** Writes a configured reward's long display name. */
+native bool PointsStore_GetRewardLongName(const char[] rewardId, char[] buffer, int maxlen);
+
+/** Writes a configured reward's short description. */
+native bool PointsStore_GetRewardShortDescription(const char[] rewardId, char[] buffer, int maxlen);
+
+/** Writes a configured reward's long description. */
+native bool PointsStore_GetRewardLongDescription(const char[] rewardId, char[] buffer, int maxlen);
+
+/** Refunds a dynamic amount without treating it as a configured reward. */
+native bool PointsStore_RefundBonusPoints(int client, int points, const char[] type = "api_refund");
+
+/** Refunds a dynamic amount to a SteamID64 without treating it as a configured reward. */
+native bool PointsStore_RefundBonusPointsSteamId(const char[] steamId64, int points, const char[] type = "api_refund");
 
 /**
  * Applies an offline-safe currency award exactly once for a stable key.
@@ -161,7 +178,14 @@ public void __pl_points_store_SetNTVOptional()
     MarkNativeAsOptional("PointsStore_GetBonusPoints");
     MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
     MarkNativeAsOptional("PointsStore_ApplyBonusPointsSteamId");
+    MarkNativeAsOptional("PointsStore_GetRewardAmount");
+    MarkNativeAsOptional("PointsStore_GetRewardPerMapLimit");
+    MarkNativeAsOptional("PointsStore_GetRewardLongName");
+    MarkNativeAsOptional("PointsStore_GetRewardShortDescription");
+    MarkNativeAsOptional("PointsStore_GetRewardLongDescription");
     MarkNativeAsOptional("PointsStore_ApplyBonusPointsSteamIdOnce");
+    MarkNativeAsOptional("PointsStore_RefundBonusPoints");
+    MarkNativeAsOptional("PointsStore_RefundBonusPointsSteamId");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
     MarkNativeAsOptional("PointsStore_StealBonusPoints");
     MarkNativeAsOptional("PointsStore_HasPurchase");

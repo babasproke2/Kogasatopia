@@ -42,7 +42,6 @@
 #define BP_WELFARE_MAX 16
 #define BP_PURCHASE_PERMANENT 0
 #define BP_PURCHASE_UNLIMITED_USES -1
-#define REFLECT_BONUS_PER_MAP_LIMIT 3
 #define BP_LEADERBOARD_PAGE_SIZE 10
 
 ArrayList g_ItemKeys = null;
@@ -89,6 +88,7 @@ float g_NextSendAllowedAt[MAXPLAYERS + 1];
 StringMap g_PerMapAwardCounts = null;
 #include "points_store/lotteries.inc"
 #include "points_store/bounties.inc"
+#include "points_store/rewards.inc"
 #include "points_store/bonus_labels.inc"
 #include "points_store/dailies.inc"
 
@@ -116,7 +116,14 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("PointsStore_GetBonusPoints", Native_PointsStore_GetBonusPoints);
     CreateNative("PointsStore_ApplyBonusPoints", Native_PointsStore_ApplyBonusPoints);
     CreateNative("PointsStore_ApplyBonusPointsSteamId", Native_PointsStore_ApplyBonusPointsSteamId);
+    CreateNative("PointsStore_GetRewardAmount", Native_PointsStore_GetRewardAmount);
+    CreateNative("PointsStore_GetRewardPerMapLimit", Native_PointsStore_GetRewardPerMapLimit);
+    CreateNative("PointsStore_GetRewardLongName", Native_PointsStore_GetRewardLongName);
+    CreateNative("PointsStore_GetRewardShortDescription", Native_PointsStore_GetRewardShortDescription);
+    CreateNative("PointsStore_GetRewardLongDescription", Native_PointsStore_GetRewardLongDescription);
     CreateNative("PointsStore_ApplyBonusPointsSteamIdOnce", Native_PointsStore_ApplyBonusPointsSteamIdOnce);
+    CreateNative("PointsStore_RefundBonusPoints", Native_PointsStore_RefundBonusPoints);
+    CreateNative("PointsStore_RefundBonusPointsSteamId", Native_PointsStore_RefundBonusPointsSteamId);
     CreateNative("PointsStore_SpendBonusPoints", Native_PointsStore_SpendBonusPoints);
     CreateNative("PointsStore_StealBonusPoints", Native_PointsStore_StealBonusPoints);
     CreateNative("PointsStore_HasPurchase", Native_PointsStore_HasPurchase);
@@ -144,6 +151,7 @@ public void OnPluginStart()
     g_ItemDurations = new ArrayList();
     g_ItemUses = new ArrayList();
     g_PerMapAwardCounts = new StringMap();
+    Rewards_OnPluginStart();
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -235,6 +243,7 @@ public void OnPluginEnd()
     delete g_ItemDurations;
     delete g_ItemUses;
     delete g_PerMapAwardCounts;
+    Rewards_OnPluginEnd();
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -1565,7 +1574,9 @@ bool IsBonusPointsNumericTargetType(const char[] type)
         || StrEqual(type, "killstreak_end_20_plus", false)
         || StrEqual(type, "multikill", false)
         || StrEqual(type, "multikill_3_4", false)
-        || StrEqual(type, "multikill_5_plus", false);
+        || StrEqual(type, "multikill_5_plus", false)
+        || StrEqual(type, "medic_assists", false)
+        || StrEqual(type, "medic_high_uber_kill", false);
 }
 
 bool IsPointsEventLoggingEnabled()
@@ -2338,22 +2349,7 @@ bool BuildPerMapAwardKeyForSteamId(const char[] steamId, const char[] type, char
         return false;
     }
 
-    char counterType[64];
-    strcopy(counterType, sizeof(counterType), type);
-    if (StrContains(type, "Assists: ", false) == 0)
-    {
-        strcopy(counterType, sizeof(counterType), "medic_assists");
-    }
-    else if (StrContains(type, "Medic high Übercharge kill (", false) == 0)
-    {
-        strcopy(counterType, sizeof(counterType), "medic_high_uber_kill");
-    }
-    else if (type[0] == '3' && StrContains(type, "bercharges this life", false) != -1)
-    {
-        strcopy(counterType, sizeof(counterType), "ubers_life_3");
-    }
-
-    Format(key, maxlen, "%s:%s", steamId, counterType);
+    Format(key, maxlen, "%s:%s", steamId, type);
     return true;
 }
 
@@ -2447,20 +2443,8 @@ void BuildPerMapAwardSuffix(int perMapUsed, int perMap, char[] suffix, int maxle
     }
 }
 
-int GetEffectivePerMapAwardLimit(const char[] type, int perMap)
-{
-    if (StrEqual(type, "reflect", false))
-    {
-        return REFLECT_BONUS_PER_MAP_LIMIT;
-    }
-
-    return perMap;
-}
-
 bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, int perMap = 0, const char[] targetNameSnapshot = "", bool announceMilestone = false)
 {
-    perMap = GetEffectivePerMapAwardLimit(type, perMap);
-
     if (!IsClientInGameHuman(client) || points == 0)
     {
         LogBonusPointsRejected(!IsClientInGameHuman(client) ? "invalid_client" : "zero_delta", client, points, type, target, 0, randomChance, 0.0);
@@ -2561,7 +2545,17 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
 public Action Timer_CompletionBonus(Handle timer, any userId)
 {
     int client = GetClientOfUserId(userId);
-    if (ApplyBonusPointsNow(client, 2, false, true, 1.0, "completion_bonus"))
+    RewardDefinition reward;
+    if (GetRewardDefinition("completion_bonus", reward)
+        && ApplyBonusPointsNow(
+            client,
+            reward.amount,
+            false,
+            true,
+            1.0,
+            reward.id,
+            0,
+            reward.perMapLimit))
     {
         PlayLevelUpSound(client);
     }
@@ -2570,8 +2564,6 @@ public Action Timer_CompletionBonus(Handle timer, any userId)
 
 bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, float delay = 3.0, int perMap = 0, bool announceMilestone = false)
 {
-    perMap = GetEffectivePerMapAwardLimit(type, perMap);
-
     if (delay < 0.0)
     {
         delay = 0.0;
@@ -2631,8 +2623,6 @@ bool ApplyBonusPointsSteamId(const char[] steamId, int points, bool playSound = 
     {
         return ApplyBonusPointsNow(client, points, playSound, chatAlert, 1.0, type, 0, perMap, "", announceMilestone);
     }
-
-    perMap = GetEffectivePerMapAwardLimit(type, perMap);
 
     int perMapUsed = 0;
     if (!CanApplyPerMapAwardForSteamId(steamId, points, type, perMap, perMapUsed))
@@ -2845,6 +2835,18 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
         {
             CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Multikill: %d{default}%s", prefix, sign, points, target, perMapSuffix);
         }
+        return;
+    }
+
+    if (StrEqual(type, "medic_assists", false))
+    {
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Assists: %d{default}%s", prefix, sign, points, target, perMapSuffix);
+        return;
+    }
+
+    if (StrEqual(type, "medic_high_uber_kill", false))
+    {
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Medic high Übercharge kill (%d%%){default}%s", prefix, sign, points, target, perMapSuffix);
         return;
     }
 
@@ -3844,28 +3846,32 @@ public any Native_PointsStore_GetBonusPoints(Handle plugin, int numParams)
 public any Native_PointsStore_ApplyBonusPoints(Handle plugin, int numParams)
 {
     int client = GetNativeCell(1);
-    int points = GetNativeCell(2);
+    char rewardId[BP_REWARD_ID_MAX];
+    GetNativeString(2, rewardId, sizeof(rewardId));
+    TrimString(rewardId);
+
+    RewardDefinition reward;
+    if (!GetRewardDefinition(rewardId, reward))
+    {
+        return false;
+    }
+
     bool playSound = (numParams >= 3) ? view_as<bool>(GetNativeCell(3)) : true;
     bool chatAlert = (numParams >= 4) ? view_as<bool>(GetNativeCell(4)) : true;
     float randomChance = (numParams >= 5) ? view_as<float>(GetNativeCell(5)) : 1.0;
-
-    char type[64];
-    type[0] = '\0';
-    if (numParams >= 6)
-    {
-        GetNativeString(6, type, sizeof(type));
-        TrimString(type);
-    }
-
-    if (points < 0 && type[0] == '\0')
-    {
-        BuildCallerSpendType(plugin, type, sizeof(type));
-    }
-
-    int target = (numParams >= 7) ? GetNativeCell(7) : 0;
-    float delay = (numParams >= 8) ? view_as<float>(GetNativeCell(8)) : 3.0;
-    int perMap = (numParams >= 9) ? GetNativeCell(9) : 0;
-    return ApplyBonusPoints(client, points, playSound, chatAlert, randomChance, type, target, delay, perMap, true);
+    int target = (numParams >= 6) ? GetNativeCell(6) : 0;
+    float delay = (numParams >= 7) ? view_as<float>(GetNativeCell(7)) : 3.0;
+    return ApplyBonusPoints(
+        client,
+        reward.amount,
+        playSound,
+        chatAlert,
+        randomChance,
+        reward.id,
+        target,
+        delay,
+        reward.perMapLimit,
+        true);
 }
 
 public any Native_PointsStore_ApplyBonusPointsSteamId(Handle plugin, int numParams)
@@ -3874,20 +3880,97 @@ public any Native_PointsStore_ApplyBonusPointsSteamId(Handle plugin, int numPara
     GetNativeString(1, steamId, sizeof(steamId));
     TrimString(steamId);
 
-    int points = GetNativeCell(2);
-    bool playSound = (numParams >= 3) ? view_as<bool>(GetNativeCell(3)) : true;
-    bool chatAlert = (numParams >= 4) ? view_as<bool>(GetNativeCell(4)) : true;
+    char rewardId[BP_REWARD_ID_MAX];
+    GetNativeString(2, rewardId, sizeof(rewardId));
+    TrimString(rewardId);
 
-    char type[64];
-    type[0] = '\0';
-    if (numParams >= 5)
+    RewardDefinition reward;
+    if (!GetRewardDefinition(rewardId, reward))
     {
-        GetNativeString(5, type, sizeof(type));
-        TrimString(type);
+        return false;
     }
 
-    int perMap = (numParams >= 6) ? GetNativeCell(6) : 0;
-    return ApplyBonusPointsSteamId(steamId, points, playSound, chatAlert, type, perMap, true);
+    bool playSound = (numParams >= 3) ? view_as<bool>(GetNativeCell(3)) : true;
+    bool chatAlert = (numParams >= 4) ? view_as<bool>(GetNativeCell(4)) : true;
+    return ApplyBonusPointsSteamId(
+        steamId,
+        reward.amount,
+        playSound,
+        chatAlert,
+        reward.id,
+        reward.perMapLimit,
+        true);
+}
+
+public any Native_PointsStore_RefundBonusPoints(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    int points = GetNativeCell(2);
+    char type[64];
+    strcopy(type, sizeof(type), "api_refund");
+    if (numParams >= 3)
+    {
+        GetNativeString(3, type, sizeof(type));
+        TrimString(type);
+    }
+    return points > 0 && ApplyBonusPoints(client, points, false, false, 1.0, type, 0, 0.0);
+}
+
+bool GetNativeRewardDefinition(int parameter, RewardDefinition definition)
+{
+    char rewardId[BP_REWARD_ID_MAX];
+    GetNativeString(parameter, rewardId, sizeof(rewardId));
+    TrimString(rewardId);
+    return GetRewardDefinition(rewardId, definition);
+}
+
+public any Native_PointsStore_GetRewardAmount(Handle plugin, int numParams)
+{
+    RewardDefinition reward;
+    return GetNativeRewardDefinition(1, reward) ? reward.amount : 0;
+}
+
+public any Native_PointsStore_GetRewardPerMapLimit(Handle plugin, int numParams)
+{
+    RewardDefinition reward;
+    return GetNativeRewardDefinition(1, reward) ? reward.perMapLimit : -1;
+}
+
+public any Native_PointsStore_GetRewardLongName(Handle plugin, int numParams)
+{
+    RewardDefinition reward;
+    return GetNativeRewardDefinition(1, reward)
+        && SetNativeString(2, reward.longName, GetNativeCell(3), true) == SP_ERROR_NONE;
+}
+
+public any Native_PointsStore_GetRewardShortDescription(Handle plugin, int numParams)
+{
+    RewardDefinition reward;
+    return GetNativeRewardDefinition(1, reward)
+        && SetNativeString(2, reward.shortDescription, GetNativeCell(3), true) == SP_ERROR_NONE;
+}
+
+public any Native_PointsStore_GetRewardLongDescription(Handle plugin, int numParams)
+{
+    RewardDefinition reward;
+    return GetNativeRewardDefinition(1, reward)
+        && SetNativeString(2, reward.longDescription, GetNativeCell(3), true) == SP_ERROR_NONE;
+}
+
+public any Native_PointsStore_RefundBonusPointsSteamId(Handle plugin, int numParams)
+{
+    char steamId[32];
+    GetNativeString(1, steamId, sizeof(steamId));
+    TrimString(steamId);
+    int points = GetNativeCell(2);
+    char type[64];
+    strcopy(type, sizeof(type), "api_refund");
+    if (numParams >= 3)
+    {
+        GetNativeString(3, type, sizeof(type));
+        TrimString(type);
+    }
+    return points > 0 && ApplyBonusPointsSteamId(steamId, points, false, false, type);
 }
 
 public any Native_PointsStore_ApplyBonusPointsSteamIdOnce(Handle plugin, int numParams)

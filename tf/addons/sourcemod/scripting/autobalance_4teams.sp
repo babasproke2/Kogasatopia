@@ -36,7 +36,7 @@ native int FilterAlerts_MarkAutobalance(int client);
 #define POINTS_STORE_AB_IMMUNITY_ITEM "abImmunity24h"
 #define TEAM_MOVE_SAYSOUND "tp-enderman"
 #define TEAM_SWAP_COST 25
-#define TEAM_SWAP_REWARD 10
+#define TEAM_SWAP_REWARD_ID "team_swap_receiver"
 #define TEAM_SWAP_TIMEOUT 60.0
 
 StringMap g_hMapImmunity = null;            // SteamID64 set for map-long immunity.
@@ -86,6 +86,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("FilterAlerts_MarkAutobalance");
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
+    MarkNativeAsOptional("PointsStore_GetRewardAmount");
+    MarkNativeAsOptional("PointsStore_RefundBonusPoints");
     MarkNativeAsOptional("PointsStore_AreBonusPointsLoaded");
     MarkNativeAsOptional("PointsStore_GetBonusPoints");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
@@ -303,9 +305,9 @@ public Action Command_AcceptTeamSwap(int client, int args)
         return Plugin_Handled;
     }
 
-    if (!PointsStore_ApplyBonusPoints(client, TEAM_SWAP_REWARD, true, true, 1.0, "team_swap_receiver", sender, 0.0, 0))
+    if (!PointsStore_ApplyBonusPoints(client, TEAM_SWAP_REWARD_ID, true, true, 1.0, sender, 0.0))
     {
-        PointsStore_ApplyBonusPoints(sender, TEAM_SWAP_COST, false, false, 1.0, "team_swap_refund", client, 0.0, 0);
+        PointsStore_RefundBonusPoints(sender, TEAM_SWAP_COST, "team_swap_refund");
         CPrintToChat(sender, "[Team Swap] The receiver reward failed; your Gems were refunded.");
         CPrintToChat(client, "[Team Swap] Your reward could not be applied, so the swap was cancelled.");
         return Plugin_Handled;
@@ -329,7 +331,8 @@ public Action Command_AcceptTeamSwap(int client, int args)
     BuildTeamSwapDisplayName(sender, senderName, sizeof(senderName));
     BuildTeamSwapDisplayName(client, targetName, sizeof(targetName));
     CPrintToChatEx(sender, client, "[Team Swap] You swapped teams with %s{default} for {gold}%d Gems{default}.", targetName, TEAM_SWAP_COST);
-    CPrintToChatEx(client, sender, "[Team Swap] You swapped teams with %s{default} and received {green}+%d Gems{default}.", senderName, TEAM_SWAP_REWARD);
+    int teamSwapReward = PointsStore_GetRewardAmount(TEAM_SWAP_REWARD_ID);
+    CPrintToChatEx(client, sender, "[Team Swap] You swapped teams with %s{default} and received {green}+%d Gems{default}.", senderName, teamSwapReward);
     return Plugin_Handled;
 }
 
@@ -552,7 +555,9 @@ static bool CanUseTeamSwapStore(int client, bool printFailure)
     bool available = GetFeatureStatus(FeatureType_Native, "PointsStore_AreBonusPointsLoaded") == FeatureStatus_Available
         && GetFeatureStatus(FeatureType_Native, "PointsStore_GetBonusPoints") == FeatureStatus_Available
         && GetFeatureStatus(FeatureType_Native, "PointsStore_SpendBonusPoints") == FeatureStatus_Available
-        && GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available;
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_GetRewardAmount") == FeatureStatus_Available
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_RefundBonusPoints") == FeatureStatus_Available;
     if (!available)
     {
         if (printFailure)
@@ -908,7 +913,7 @@ public Action Timer_Autobalance(Handle timer)
     TF2_RespawnPlayer(pick);
     if (volunteerSelection && GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
     {
-        PointsStore_ApplyBonusPoints(pick, 1, true, true, 1.0, "autobalance_volunteer", 0, 0.0, 0);
+        PointsStore_ApplyBonusPoints(pick, "autobalance_volunteer", true, true, 1.0, 0, 0.0);
     }
     SetClientMapImmunity(pick, true);
     g_fImbalanceDetectedAt = 0.0;
