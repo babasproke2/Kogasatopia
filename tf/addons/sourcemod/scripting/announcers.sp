@@ -12,8 +12,8 @@
 #undef REQUIRE_PLUGIN
 #include <dgm_api>
 #include <filters_api>
-#include <points_store_api>
 #include <saysounds>
+#include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
 #include "include/kogasa_steam_identity.inc"
@@ -35,7 +35,6 @@
 #define ANNOUNCER_SOUND_IS_PAID_NATIVE "SaySounds_IsCommandPaid"
 #define ANNOUNCER_SOUND_GET_GROUP_NATIVE "SaySounds_GetCommandGroup"
 #define DGM_CAPACITY_NATIVE "DGM_ServerCapacitycheck"
-#define POINTS_STORE_BONUS_NATIVE "PointsStore_ApplyBonusPoints"
 
 static const char g_KillstreakLabels[][] =
 {
@@ -368,7 +367,6 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_GetGameModeKey");
-    MarkNativeAsOptional(POINTS_STORE_BONUS_NATIVE);
     MarkNativeAsOptional("Filters_GetChatName");
     return APLRes_Success;
 }
@@ -454,7 +452,7 @@ public int MenuHandler_AnnouncerGroups(Menu menu, MenuAction action, int client,
     return 0;
 }
 
-public void WhaleTracker_OnKillstreak(int client, int killstreak)
+public void OnKillstreak(int client, int killstreak)
 {
     if (!IsValidAnnouncerClient(client))
     {
@@ -462,7 +460,6 @@ public void WhaleTracker_OnKillstreak(int client, int killstreak)
     }
 
     LogAnnouncerEvent(client, 0, "killstreak", killstreak);
-    AwardKillstreakBonusPoints(client, killstreak);
 
     if (!g_cvKillstreaksEnabled.BoolValue)
     {
@@ -474,7 +471,7 @@ public void WhaleTracker_OnKillstreak(int client, int killstreak)
     AnnounceKillstreakMilestone(client, clientName, killstreak);
 }
 
-public void WhaleTracker_OnKillstreakEnd(int attacker, int victim, int killstreak)
+public void OnKillstreakEnd(int attacker, int victim, int killstreak)
 {
     if (!IsValidAnnouncerClient(victim))
     {
@@ -482,7 +479,6 @@ public void WhaleTracker_OnKillstreakEnd(int attacker, int victim, int killstrea
     }
 
     LogAnnouncerEvent(victim, attacker, "killstreak_end", killstreak);
-    AwardKillstreakEndBonusPoints(attacker, killstreak);
 
     if (!g_cvKillstreaksEnabled.BoolValue)
     {
@@ -492,12 +488,12 @@ public void WhaleTracker_OnKillstreakEnd(int attacker, int victim, int killstrea
     AnnounceKillstreakEnd(victim, killstreak);
 }
 
-public void WhaleTracker_OnMultikill(int client, int kills)
+public void OnMultikill(int client, int kills)
 {
     QueueMultikillRollup(client, kills);
 }
 
-public void WhaleTracker_OnMedicDrop(int attacker, int medic)
+public void OnMedicDrop(int attacker, int medic)
 {
     if (IsValidAnnouncerClient(medic))
     {
@@ -684,7 +680,6 @@ void AnnounceMultikillNow(int client, int kills)
 
     LogAnnouncerEvent(client, 0, "multikill", kills);
     LogMultikillEvent(client, kills, label);
-    AwardMultikillBonusPoints(client, kills);
     if (!g_cvMultikillsEnabled.BoolValue)
     {
         return;
@@ -721,100 +716,6 @@ void AnnounceMultikillNow(int client, int kills)
 
     bool useSound = g_cvMultikillsSound.BoolValue && commandName[0] != '\0';
     Announcer_Announce(broadcastToAll ? 0 : client, client, commandName, Announcer_ShouldPlaySound(useSound), g_cvMultikillsChat.BoolValue, message);
-}
-
-void AwardMultikillBonusPoints(int client, int kills)
-{
-    int points = 0;
-    if (kills < 3)
-    {
-        return;
-    }
-    else if (kills >= WHALE_MULTIKILL_MAX_LEVEL)
-    {
-        points = 3;
-    }
-    else
-    {
-        points = 2;
-    }
-
-    if (GetFeatureStatus(FeatureType_Native, POINTS_STORE_BONUS_NATIVE) != FeatureStatus_Available)
-    {
-        return;
-    }
-
-    int perMap = points == 2 ? 3 : 4;
-    char type[32];
-    strcopy(type, sizeof(type), points == 2 ? "multikill_3_4" : "multikill_5_plus");
-    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, type, kills, 1.0, perMap);
-}
-
-void AwardKillstreakBonusPoints(int client, int killstreak)
-{
-    if (killstreak < WHALE_KILLSTREAK_BONUS_INTERVAL || killstreak % WHALE_KILLSTREAK_BONUS_INTERVAL != 0)
-    {
-        return;
-    }
-
-    if (GetFeatureStatus(FeatureType_Native, POINTS_STORE_BONUS_NATIVE) != FeatureStatus_Available)
-    {
-        return;
-    }
-
-    int points = killstreak > 10 ? 2 : 1;
-    int perMap = points == 1 ? 3 : 4;
-    char type[32];
-    strcopy(type, sizeof(type), points == 1 ? "killstreak_5_10" : "killstreak_above_10");
-    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, type, killstreak, 3.0, perMap);
-}
-
-void AwardKillstreakEndBonusPoints(int client, int killstreak)
-{
-    if (!IsValidAnnouncerClient(client))
-    {
-        return;
-    }
-
-    int points = 0;
-    if (killstreak > 19)
-    {
-        points = 3;
-    }
-    else if (killstreak > 14)
-    {
-        points = 2;
-    }
-    else if (killstreak > 6)
-    {
-        points = 1;
-    }
-
-    if (points <= 0)
-    {
-        return;
-    }
-
-    if (GetFeatureStatus(FeatureType_Native, POINTS_STORE_BONUS_NATIVE) != FeatureStatus_Available)
-    {
-        return;
-    }
-
-    int perMap = 4 - points;
-    char type[32];
-    if (points == 1)
-    {
-        strcopy(type, sizeof(type), "killstreak_end_7_14");
-    }
-    else if (points == 2)
-    {
-        strcopy(type, sizeof(type), "killstreak_end_15_19");
-    }
-    else
-    {
-        strcopy(type, sizeof(type), "killstreak_end_20_plus");
-    }
-    PointsStore_ApplyBonusPoints(client, points, true, true, 1.0, type, killstreak, 3.0, perMap);
 }
 
 float GetMultikillRollupWindow()

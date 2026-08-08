@@ -103,12 +103,10 @@ native bool WhaleTracker_GetLastRecordedName(const char[] steamId64, char[] buff
  */
 native int WhaleTracker_GetLastSeen(const char[] steamId64);
 
-/**
- * Fired when WhaleTracker records an airshot.
- *
- * @param attacker      Attacker client index.
- * @param victim        Victim client index.
- */
+/** Fired after an airshot is resolved on the next frame. */
+forward void OnAirShot(int attacker, int victim, bool killed);
+
+/** Legacy airshot notification retained for existing consumers. */
 forward void WhaleTracker_OnAirshot(int attacker, int victim);
 
 /**
@@ -120,7 +118,7 @@ forward void WhaleTracker_OnAirshot(int attacker, int victim);
  * @param victim        Victim client index.
  * @param weapon        Weapon entity index that caused the hit.
  */
-forward void WhaleTracker_OnProjectileDirectHit(int attacker, int victim, int weapon);
+forward void OnProjectileDirectHit(int attacker, int victim, int weapon);
 
 /**
  * Fired when WhaleTracker records a medic dropping a full uber.
@@ -128,7 +126,7 @@ forward void WhaleTracker_OnProjectileDirectHit(int attacker, int victim, int we
  * @param attacker      Attacker client index, or 0 if no valid attacker.
  * @param medic         Medic client index.
  */
-forward void WhaleTracker_OnMedicDrop(int attacker, int medic);
+forward void OnMedicDrop(int attacker, int medic);
 
 /**
  * Fired when WhaleTracker records a killstreak milestone.
@@ -138,7 +136,7 @@ forward void WhaleTracker_OnMedicDrop(int attacker, int medic);
  * @param client        Client index.
  * @param killstreak    Current killstreak value.
  */
-forward void WhaleTracker_OnKillstreak(int client, int killstreak);
+forward void OnKillstreak(int client, int killstreak);
 
 /**
  * Fired when WhaleTracker records the end of a killstreak.
@@ -149,7 +147,7 @@ forward void WhaleTracker_OnKillstreak(int client, int killstreak);
  * @param victim        Client index whose killstreak ended.
  * @param killstreak    Final killstreak value before it was reset.
  */
-forward void WhaleTracker_OnKillstreakEnd(int attacker, int victim, int killstreak);
+forward void OnKillstreakEnd(int attacker, int victim, int killstreak);
 
 /**
  * Fired when WhaleTracker records a multikill milestone.
@@ -159,4 +157,25 @@ forward void WhaleTracker_OnKillstreakEnd(int attacker, int victim, int killstre
  * @param client        Client index.
  * @param kills         Number of kills in the current multikill chain.
  */
-forward void WhaleTracker_OnMultikill(int client, int kills);
+forward void OnMultikill(int client, int kills);
+
+/** Fired when the round's tracked top scorer should receive an offline-capable reward. */
+forward void OnTopScoringPlayerRoundEnd(const char[] steamId64);
+
+forward void OnAirborneBackstab(int attacker, int victim);
+forward void OnBackstabMilestone(int client, int backstabsThisLife);
+forward void OnHeadshotMilestone(int client, int headshotsThisLife);
+forward void OnTopScorerKill(int attacker, int victim);
+forward void OnMarketGardenKill(int attacker, int victim, int attackerClass);
+forward void OnDemoSyncKill(int attacker, int victim);
+forward void OnSoldierSyncKill(int attacker, int victim);
+forward void OnMedicUberDropKill(int attacker, int medic);
+forward void OnMedicHighUberKill(int attacker, int medic, int uberPercent);
+forward void OnMultipleDominations(int client);
+forward void OnRevenge(int client, int victim);
+forward void OnMedicAssistMilestone(int medic, int assistsThisLife);
+forward void OnMeatshotMilestone(int client, int meatshotKillsThisLife);
+forward void OnUberDeployed(int medic, int ubersThisLife);
+forward void OnReflectKill(int attacker, int victim, bool directHit);
+forward void OnJuggle(int attacker, int victim);
+forward void OnDropShot(int attacker, int victim);
