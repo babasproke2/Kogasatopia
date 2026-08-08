@@ -123,7 +123,6 @@ void PrintDailyClassGroup(int client, int classId)
     CPrintToChat(client, "{gold} ----- [{green}%s{gold}] -----", className);
 
     int entryCount = 0;
-    char currencyName[BP_CURRENCY_SHORT_MAX];
     for (int i = 0; i < sizeof(g_DailyGemTypes); i++)
     {
         if (g_DailyGemClasses[i] != classId)
@@ -141,15 +140,12 @@ void PrintDailyClassGroup(int client, int classId)
         {
             used = reward.perMapLimit;
         }
-        GetCurrencyShortLabelForAmount(reward.amount, currencyName, sizeof(currencyName));
         CPrintToChat(client,
-            "{default}%s {gold}(%d/%d){default} - %s%d %s{default}",
+            "{default}%s {gold}(%d/%d){default} - {limegreen}+%d{default}",
             reward.longName,
             used,
             reward.perMapLimit,
-            g_CurrencyColorTag,
-            reward.amount,
-            currencyName);
+            reward.amount);
         entryCount++;
     }
 
