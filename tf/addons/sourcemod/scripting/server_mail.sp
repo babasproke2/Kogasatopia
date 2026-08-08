@@ -37,7 +37,8 @@
 enum MailViewMode
 {
     MailView_Inbox = 0,
-    MailView_Sent
+    MailView_Sent,
+    MailView_Unread
 };
 
 enum MailRedemptionQueueResult
@@ -74,6 +75,7 @@ int g_MailGiftSerial = 0;
 float g_MailNextSendAllowedAt[MAXPLAYERS + 1];
 bool g_MailUserSendPending[MAXPLAYERS + 1];
 bool g_MailRedeemAllPending[MAXPLAYERS + 1];
+bool g_MailReadAllPending[MAXPLAYERS + 1];
 
 StringMap g_MailPendingRedemptions = null;
 StringMap g_MailRedemptionUsers = null;
@@ -125,6 +127,8 @@ public void OnPluginStart()
 {
     RegConsoleCmd("sm_mail", Command_Mail, "Open mail or send mail to a ranked player.");
     RegConsoleCmd("sm_inbox", Command_Inbox, "Open your mail inbox.");
+    RegConsoleCmd("sm_unread", Command_Unread, "Open unread mail.");
+    RegConsoleCmd("sm_readall", Command_ReadAll, "Mark all received mail as read.");
     RegConsoleCmd("sm_redeem", Command_RedeemAll, "Redeem every unclaimed Gem attachment in your inbox.");
     RegConsoleCmd("sm_redeemall", Command_RedeemAll, "Redeem every unclaimed Gem attachment in your inbox.");
     RegConsoleCmd("sm_gift", Command_Gift, "Mail Gems to a ranked player.");
@@ -201,6 +205,7 @@ public void OnClientDisconnect(int client)
     g_MailNextSendAllowedAt[client] = 0.0;
     g_MailUserSendPending[client] = false;
     g_MailRedeemAllPending[client] = false;
+    g_MailReadAllPending[client] = false;
     Stimulus_ResetClient(client);
 }
 
@@ -824,6 +829,76 @@ public Action Command_Inbox(int client, int args)
 
     RequestMailList(client, MailView_Inbox);
     return Plugin_Handled;
+}
+
+public Action Command_Unread(int client, int args)
+{
+    if (!IsMailClient(client))
+    {
+        return Plugin_Handled;
+    }
+
+    RequestMailList(client, MailView_Unread);
+    return Plugin_Handled;
+}
+
+public Action Command_ReadAll(int client, int args)
+{
+    if (!IsMailClient(client))
+    {
+        return Plugin_Handled;
+    }
+    if (!g_MailDatabaseReady || g_MailDatabase == null)
+    {
+        CPrintToChat(client, "%s Mail is temporarily unavailable.", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+    if (g_MailReadAllPending[client])
+    {
+        CPrintToChat(client, "%s Your mail is still being updated.", MAIL_PREFIX);
+        return Plugin_Handled;
+    }
+
+    char steamId[MAIL_STEAMID_MAX];
+    char name[MAIL_NAME_MAX];
+    char escapedSteam[65];
+    if (!GetMailClientIdentity(client, steamId, sizeof(steamId), name, sizeof(name))
+        || !EscapeMailSql(steamId, escapedSteam, sizeof(escapedSteam)))
+    {
+        return Plugin_Handled;
+    }
+
+    char query[384];
+    FormatEx(query, sizeof(query),
+        "UPDATE %s SET read_at = %d WHERE receiver_steamid64 = '%s' AND read_at = 0",
+        MAIL_TABLE,
+        GetTime(),
+        escapedSteam);
+    g_MailReadAllPending[client] = true;
+    g_MailDatabase.Query(SQL_OnAllMailMarkedRead, query, GetClientUserId(client));
+    return Plugin_Handled;
+}
+
+public void SQL_OnAllMailMarkedRead(Database db, DBResultSet results, const char[] error, any userId)
+{
+    int client = GetClientOfUserId(userId);
+    if (client > 0)
+    {
+        g_MailReadAllPending[client] = false;
+    }
+    if (error[0] != '\0')
+    {
+        LogError("[server_mail] Failed to mark all mail as read: %s", error);
+        if (IsMailClient(client))
+        {
+            CPrintToChat(client, "%s Failed to update your mail.", MAIL_PREFIX);
+        }
+        return;
+    }
+    if (IsMailClient(client))
+    {
+        CPrintToChat(client, "%s All received mail has been marked as read.", MAIL_PREFIX);
+    }
 }
 
 public Action Command_RedeemAll(int client, int args)
@@ -1954,16 +2029,20 @@ void RequestMailList(int client, MailViewMode mode)
 
     char query[1024];
     int now = GetTime();
-    if (mode == MailView_Inbox)
+    if (mode != MailView_Sent)
     {
+        char unreadClause[32];
+        strcopy(unreadClause, sizeof(unreadClause), mode == MailView_Unread ? "AND read_at = 0 " : "");
         FormatEx(query, sizeof(query),
             "SELECT mail_id, title, created_at, gems, sender_name, read_at FROM %s "
             ... "WHERE receiver_steamid64 = '%s' "
             ... "AND (expires_at = 0 OR expires_at > %d OR gems_redeemed != 0) "
+            ... "%s"
             ... "ORDER BY created_at DESC, mail_id DESC LIMIT %d",
             MAIL_TABLE,
             escapedSteam,
             now,
+            unreadClause,
             MAIL_LIST_MAX);
     }
     else
@@ -2006,7 +2085,14 @@ public void SQL_OnMailListLoaded(Database db, DBResultSet rows, const char[] err
     }
 
     Menu menu = new Menu(MenuHandler_MailList);
-    menu.SetTitle(mode == MailView_Inbox ? "Inbox" : "Sent Mail");
+    if (mode == MailView_Unread)
+    {
+        menu.SetTitle("Unread Mail");
+    }
+    else
+    {
+        menu.SetTitle(mode == MailView_Inbox ? "Inbox" : "Sent Mail");
+    }
 
     char info[32];
     char title[MAIL_TITLE_MAX];
@@ -2020,17 +2106,24 @@ public void SQL_OnMailListLoaded(Database db, DBResultSet rows, const char[] err
         int timestamp = rows.FetchInt(2);
         int gems = rows.FetchInt(3);
         rows.FetchString(4, partyName, sizeof(partyName));
-        bool unread = mode == MailView_Inbox && rows.FetchInt(5) == 0;
+        bool unread = mode != MailView_Sent && rows.FetchInt(5) == 0;
         BuildMailListDisplay(title, timestamp, gems, partyName, unread, display, sizeof(display));
 
-        Format(info, sizeof(info), "%c:%d", mode == MailView_Inbox ? 'i' : 's', mailId);
+        Format(info, sizeof(info), "%c:%d", mode == MailView_Sent ? 's' : 'i', mailId);
         menu.AddItem(info, display);
         count++;
     }
 
     if (count == 0)
     {
-        menu.AddItem("none", mode == MailView_Inbox ? "No received mail" : "No sent mail", ITEMDRAW_DISABLED);
+        if (mode == MailView_Unread)
+        {
+            menu.AddItem("none", "No unread mail", ITEMDRAW_DISABLED);
+        }
+        else
+        {
+            menu.AddItem("none", mode == MailView_Inbox ? "No received mail" : "No sent mail", ITEMDRAW_DISABLED);
+        }
     }
     menu.ExitBackButton = true;
     menu.Display(client, MENU_TIME_FOREVER);
