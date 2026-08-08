@@ -1039,7 +1039,7 @@ void DGM_ApplySetupUberMultiplier()
     {
         if (!g_bSetupUberUnavailableLogged)
         {
-            PrintToServer("[DGM] TF2 setup Uber extension unavailable; setup Uber multiplier remains stock.");
+            PrintToServer("[DGM] TF2 setup Über extension unavailable; setup Über multiplier remains stock.");
             g_bSetupUberUnavailableLogged = true;
         }
         return;
@@ -1048,7 +1048,7 @@ void DGM_ApplySetupUberMultiplier()
     float multiplier = g_cvSetupUberMultiplier.FloatValue;
     TF2SetupUber_SetMultiplier(multiplier);
     g_bSetupUberUnavailableLogged = false;
-    PrintToServer("[DGM] Setup UberCharge multiplier set to %.2f.", multiplier);
+    PrintToServer("[DGM] Setup ÜberCharge multiplier set to %.2f.", multiplier);
 }
 
 // I prefer the visual effect when TF2's mp_disable_respawn_times cvar is true but dislike that it can be exploited

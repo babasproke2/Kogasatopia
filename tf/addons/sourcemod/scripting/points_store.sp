@@ -2846,7 +2846,7 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
 
     if (StrEqual(type, "medic_high_uber_kill", false))
     {
-        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Medic high Übercharge kill (%d%%){default}%s", prefix, sign, points, target, perMapSuffix);
+        CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Medic high ÜberCharge kill (%d%%){default}%s", prefix, sign, points, target, perMapSuffix);
         return;
     }
 
