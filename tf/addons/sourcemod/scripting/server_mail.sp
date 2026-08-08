@@ -107,6 +107,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     MarkNativeAsOptional("Filters_GetSteamIdColorTag");
     MarkNativeAsOptional("Filters_GetLastRecordedSteamName");
     MarkNativeAsOptional("Hugs_RedeemMailedHug");
+    MarkNativeAsOptional("Hugs_RedeemMailedFeed");
     MarkNativeAsOptional("Hugs_RedeemMailedRape");
     MarkNativeAsOptional("PointsStore_ApplyBonusPointsSteamIdOnce");
     MarkNativeAsOptional("SaySounds_PlayCommand");
@@ -135,6 +136,8 @@ public void OnPluginStart()
     RegConsoleCmd("sm_mailhug", Command_MailHug, "Mail a one-use hug to a ranked player.");
     RegConsoleCmd("sm_hugmail", Command_MailHug, "Mail a one-use hug to a ranked player.");
     RegConsoleCmd("sm_gifthug", Command_MailHug, "Mail a one-use hug to a ranked player.");
+    RegConsoleCmd("sm_mailfeed", Command_MailFeed, "Mail a one-use feed to a ranked player.");
+    RegConsoleCmd("sm_feedmail", Command_MailFeed, "Mail a one-use feed to a ranked player.");
     RegConsoleCmd("sm_mailrape", Command_MailRape, "Mail a one-use rape to a ranked player.");
     RegConsoleCmd("sm_rapemail", Command_MailRape, "Mail a one-use rape to a ranked player.");
     RegConsoleCmd("sm_giftrape", Command_MailRape, "Mail a one-use rape to a ranked player.");
@@ -1104,6 +1107,11 @@ public Action Command_MailHug(int client, int args)
     return BeginAttachmentMailCommand(client, args, "hug");
 }
 
+public Action Command_MailFeed(int client, int args)
+{
+    return BeginAttachmentMailCommand(client, args, "feed");
+}
+
 public Action Command_MailRape(int client, int args)
 {
     return BeginAttachmentMailCommand(client, args, "rape");
@@ -1114,10 +1122,17 @@ public Action Command_MailRtd(int client, int args)
     return BeginAttachmentMailCommand(client, args, "rtd");
 }
 
-bool IsHugsMailAvailable()
+bool IsHugsMailAvailable(const char[] attachmentType)
 {
-    return GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedHug") == FeatureStatus_Available
-        && GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedRape") == FeatureStatus_Available;
+    if (StrEqual(attachmentType, "hug"))
+    {
+        return GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedHug") == FeatureStatus_Available;
+    }
+    if (StrEqual(attachmentType, "feed"))
+    {
+        return GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedFeed") == FeatureStatus_Available;
+    }
+    return GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedRape") == FeatureStatus_Available;
 }
 
 bool IsRtdMailAvailable()
@@ -1145,8 +1160,8 @@ public Action BeginAttachmentMailCommand(int client, int args, const char[] atta
         CPrintToChat(client, "%s Usage: {gold}!mail%s playername", MAIL_PREFIX, attachmentType);
         return Plugin_Handled;
     }
-    if ((StrEqual(attachmentType, "hug") || StrEqual(attachmentType, "rape"))
-        && !IsHugsMailAvailable())
+    if ((StrEqual(attachmentType, "hug") || StrEqual(attachmentType, "feed") || StrEqual(attachmentType, "rape"))
+        && !IsHugsMailAvailable(attachmentType))
     {
         CPrintToChat(client, "%s Hug gifts are temporarily unavailable.", MAIL_PREFIX);
         return Plugin_Handled;
@@ -1186,6 +1201,10 @@ public Action BeginAttachmentMailCommand(int client, int args, const char[] atta
     if (StrEqual(attachmentType, "hug"))
     {
         strcopy(g_MailPendingContents[client], sizeof(g_MailPendingContents[]), "You received a one-time hug.");
+    }
+    else if (StrEqual(attachmentType, "feed"))
+    {
+        strcopy(g_MailPendingContents[client], sizeof(g_MailPendingContents[]), "You received a one-time feed.");
     }
     else if (StrEqual(attachmentType, "rape"))
     {
@@ -1466,6 +1485,10 @@ void ShowMailSearchResults(int client)
     {
         menu.SetTitle("Mail a hug to:");
     }
+    else if (StrEqual(g_MailPendingAttachment[client], "feed"))
+    {
+        menu.SetTitle("Mail a feed to:");
+    }
     else if (StrEqual(g_MailPendingAttachment[client], "rape"))
     {
         menu.SetTitle("Mail a rape to:");
@@ -1676,6 +1699,10 @@ void QueuePendingMailToTarget(
     {
         FormatEx(title, sizeof(title), "Hug from %s", senderName);
     }
+    else if (StrEqual(g_MailPendingAttachment[client], "feed"))
+    {
+        FormatEx(title, sizeof(title), "Feed from %s", senderName);
+    }
     else if (StrEqual(g_MailPendingAttachment[client], "rape"))
     {
         FormatEx(title, sizeof(title), "Rape from %s", senderName);
@@ -1747,6 +1774,7 @@ bool QueueMailInsert(
         || title[0] == '\0' || contents[0] == '\0' || gems < 0 || senderCost < 0
         || (attachmentType[0] != '\0'
             && !StrEqual(attachmentType, "hug")
+            && !StrEqual(attachmentType, "feed")
             && !StrEqual(attachmentType, "rape")
             && !StrEqual(attachmentType, "rtd")))
     {
@@ -2545,6 +2573,10 @@ bool IsMailAttachmentProviderAvailable(const char[] attachmentType)
     {
         return GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedHug") == FeatureStatus_Available;
     }
+    if (StrEqual(attachmentType, "feed"))
+    {
+        return GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedFeed") == FeatureStatus_Available;
+    }
     if (StrEqual(attachmentType, "rape"))
     {
         return GetFeatureStatus(FeatureType_Native, "Hugs_RedeemMailedRape") == FeatureStatus_Available;
@@ -2746,6 +2778,10 @@ public void SQL_OnMailAttachmentClaimed(Database db, DBResultSet results, const 
     if (providerAvailable && IsMailClient(client) && StrEqual(attachmentType, "hug"))
     {
         applied = Hugs_RedeemMailedHug(senderSteamId, receiverSteamId, senderName);
+    }
+    else if (providerAvailable && IsMailClient(client) && StrEqual(attachmentType, "feed"))
+    {
+        applied = Hugs_RedeemMailedFeed(senderSteamId, receiverSteamId, senderName);
     }
     else if (providerAvailable && IsMailClient(client) && StrEqual(attachmentType, "rape"))
     {

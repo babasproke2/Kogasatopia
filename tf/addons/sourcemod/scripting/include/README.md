@@ -136,6 +136,7 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `Hugs_GetRapesGiven` - Returns how many rapes a client has given in hugs stats.
 - `Hugs_AreStatsLoaded` - Returns whether a client's hugs stats are loaded.
 - `Hugs_RedeemMailedHug` - Credits a mailed hug using sender and receiver SteamID64 identities.
+- `Hugs_RedeemMailedFeed` - Credits a mailed feed using sender and receiver SteamID64 identities.
 - `Hugs_RedeemMailedRape` - Credits a mailed rape using sender and receiver SteamID64 identities.
 
 ## mutecheck_api.inc

@@ -17,6 +17,12 @@ native bool Hugs_RedeemMailedHug(
     const char[] receiverSteamId64,
     const char[] senderName);
 
+/** Redeems one mailed feed using persistent SteamID64 identities. */
+native bool Hugs_RedeemMailedFeed(
+    const char[] senderSteamId64,
+    const char[] receiverSteamId64,
+    const char[] senderName);
+
 /** Redeems one mailed rape using persistent SteamID64 identities. */
 native bool Hugs_RedeemMailedRape(
     const char[] senderSteamId64,
@@ -35,5 +41,6 @@ public void __pl_hugs_SetNTVOptional()
     MarkNativeAsOptional("Hugs_GetRapesGiven");
     MarkNativeAsOptional("Hugs_AreStatsLoaded");
     MarkNativeAsOptional("Hugs_RedeemMailedHug");
+    MarkNativeAsOptional("Hugs_RedeemMailedFeed");
     MarkNativeAsOptional("Hugs_RedeemMailedRape");
 }

@@ -22,6 +22,7 @@
 		CreateNative("Hugs_GetRapesGiven", Native_Hugs_GetRapesGiven);
 		CreateNative("Hugs_AreStatsLoaded", Native_Hugs_AreStatsLoaded);
 		CreateNative("Hugs_RedeemMailedHug", Native_Hugs_RedeemMailedHug);
+		CreateNative("Hugs_RedeemMailedFeed", Native_Hugs_RedeemMailedFeed);
 		CreateNative("Hugs_RedeemMailedRape", Native_Hugs_RedeemMailedRape);
 		MarkNativeAsOptional("Filters_IsRedlisted");
 		MarkNativeAsOptional("Filters_GetChatName");
@@ -90,15 +91,20 @@ enum HugsLeaderboardKind
 
 	public any Native_Hugs_RedeemMailedHug(Handle plugin, int numParams)
 	{
-		return Native_RedeemMailedInteraction(false);
+		return Native_RedeemMailedInteraction(false, false);
+	}
+
+	public any Native_Hugs_RedeemMailedFeed(Handle plugin, int numParams)
+	{
+		return Native_RedeemMailedInteraction(false, true);
 	}
 
 	public any Native_Hugs_RedeemMailedRape(Handle plugin, int numParams)
 	{
-		return Native_RedeemMailedInteraction(true);
+		return Native_RedeemMailedInteraction(true, false);
 	}
 
-	bool Native_RedeemMailedInteraction(bool rape)
+	bool Native_RedeemMailedInteraction(bool rape, bool feed)
 	{
 		char senderSteamId64[KOGASA_STEAMID_MAX];
 		char receiverSteamId64[KOGASA_STEAMID_MAX];
@@ -106,14 +112,15 @@ enum HugsLeaderboardKind
 		GetNativeString(1, senderSteamId64, sizeof(senderSteamId64));
 		GetNativeString(2, receiverSteamId64, sizeof(receiverSteamId64));
 		GetNativeString(3, senderName, sizeof(senderName));
-		return ApplyMailedInteraction(senderSteamId64, receiverSteamId64, senderName, rape);
+		return ApplyMailedInteraction(senderSteamId64, receiverSteamId64, senderName, rape, feed);
 	}
 
 	bool ApplyMailedInteraction(
 		const char[] senderSteamId64,
 		const char[] receiverSteamId64,
 		const char[] senderName,
-		bool rape)
+		bool rape,
+		bool feed)
 	{
 		if (!IsDatabaseReady() || senderName[0] == '\0'
 			|| !Kogasa_IsSteamId64(senderSteamId64)
@@ -147,13 +154,17 @@ enum HugsLeaderboardKind
 			{
 				g_iRapesGiven[sender] += amount;
 			}
+			else if (feed)
+			{
+				g_iFeedsGiven[sender] += amount;
+			}
 			else
 			{
 				g_iHugsGiven[sender] += amount;
 			}
 			SaveClientStats(sender);
 		}
-		else if (!CreditOfflineMailedInteraction(senderSteamId64, senderName, rape, amount))
+		else if (!CreditOfflineMailedInteraction(senderSteamId64, senderName, rape, feed, amount))
 		{
 			return false;
 		}
@@ -166,6 +177,11 @@ enum HugsLeaderboardKind
 			{
 				checkRapeChievements(sender);
 			}
+		}
+		else if (feed)
+		{
+			g_iFeedsReceived[receiver] += amount;
+			UpdateLastFeeders(receiver, senderName);
 		}
 		else
 		{
@@ -180,6 +196,7 @@ enum HugsLeaderboardKind
 		const char[] senderSteamId64,
 		const char[] senderName,
 		bool rape,
+		bool feed,
 		int amount)
 	{
 		char senderSteam2[KOGASA_STEAMID_MAX];
@@ -197,7 +214,7 @@ enum HugsLeaderboardKind
 		}
 
 		char column[32];
-		strcopy(column, sizeof(column), rape ? "rapes_given" : "hugs_given");
+		strcopy(column, sizeof(column), rape ? "rapes_given" : (feed ? "feeds_given" : "hugs_given"));
 		char query[768];
 		FormatEx(query, sizeof(query),
 			"INSERT INTO %s (steamid, name, %s) VALUES ('%s', '%s', %d) "
