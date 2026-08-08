@@ -17,10 +17,6 @@
 #include <dhooks>
 #include <addplayerhealth>
 
-#undef REQUIRE_PLUGIN
-#include <points_store_api>
-#define REQUIRE_PLUGIN
-
 #undef REQUIRE_EXTENSIONS
 #include <scattergun_pellets>
 #define REQUIRE_EXTENSIONS
@@ -29,9 +25,6 @@
 
 #define FLS_STREAK_TARGET	   2
 #define FLS_STREAK_WINDOW	   4.0
-#define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
-#define AMBASSADOR_HEADSHOT_KILL_BONUS_TYPE "ambassador_headshot_kill"
-#define SANDMAN_CLEAVER_COMBO_BONUS_TYPE "sandman_cleaver_combo"
 #define AMBASSADOR_ITEMDEF 61
 #define FESTIVE_AMBASSADOR_ITEMDEF 1006
 #define ATTR_SANDMAN_PRE_JI "sandman pre_ji"
@@ -134,6 +127,7 @@ bool g_bAccuracyExploding[MAXPLAYERS + 1];
 int g_iAmbassadorCritParticle = INVALID_STRING_INDEX;
 
 #include <weaponreverts>
+#include "weaponreverts/gameplay_events.sp"
  
 ConVar g_sEnabled;
 ConVar g_hPomsonDamageMult;
@@ -234,6 +228,7 @@ stock void ResetClientArrays(int client)
 }
 
 public void OnPluginStart() {
+	WeaponRevertsEvents_Init();
 	PreCacheWeaponSounds();
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
 	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
@@ -399,6 +394,7 @@ public void OnMapEnd()
 
 public void OnPluginEnd()
 {
+	WeaponRevertsEvents_Shutdown();
 	StopHealTimer();
 	for (int i = 1; i <= MaxClients; i++)
 	{
@@ -578,10 +574,7 @@ static void TryAwardAmbassadorHeadshotKill(Event event, int attacker, int victim
 	if (!IsAmbassadorHeadshotWeapon(weapon))
 		return;
 
-	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
-	{
-		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, AMBASSADOR_HEADSHOT_KILL_BONUS_TYPE, 0, 3.0, 5);
-	}
+	FireAmbassadorHeadshotKill(attacker, victim);
 }
 
 static void TryAwardSandmanCleaverCombo(int attacker, int victim)
@@ -593,10 +586,7 @@ static void TryAwardSandmanCleaverCombo(int attacker, int victim)
 	if (GetClientTeam(attacker) <= 1 || GetClientTeam(attacker) == GetClientTeam(victim))
 		return;
 
-	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
-	{
-		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, SANDMAN_CLEAVER_COMBO_BONUS_TYPE, 0, 3.0, 4);
-	}
+	FireSandmanCleaverCombo(attacker, victim);
 }
 
 static void VitaSaw_ClearStoredCharge(int client)
@@ -894,37 +884,9 @@ static void ScatterPellets_Debug(const char[] format, any ...)
 	LogMessage("[scattergun_pellets] %s", message);
 }
 
-static void ScatterPellets_GetFeatureStatusName(FeatureStatus status, char[] buffer, int maxlen)
-{
-	switch (status)
-	{
-		case FeatureStatus_Available:
-		{
-			strcopy(buffer, maxlen, "available");
-		}
-		case FeatureStatus_Unavailable:
-		{
-			strcopy(buffer, maxlen, "unavailable");
-		}
-		case FeatureStatus_Unknown:
-		{
-			strcopy(buffer, maxlen, "unknown");
-		}
-		default:
-		{
-			strcopy(buffer, maxlen, "invalid");
-		}
-	}
-}
-
 public Action Command_ScatterPelletsStatus(int client, int args)
 {
-	FeatureStatus pointsNative = GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints");
-	char pointsStatus[16];
-	ScatterPellets_GetFeatureStatusName(pointsNative, pointsStatus, sizeof(pointsStatus));
-
 	ReplyToCommand(client, "[WeaponReverts] scattergun_pellets extension: %s", LibraryExists("scattergun_pellets") ? "available" : "unavailable");
-	ReplyToCommand(client, "[WeaponReverts] points_store native: %s", pointsStatus);
 
 	if (Accuracy_IsValidClient(client))
 	{
@@ -980,10 +942,7 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 		return;
 	}
 
-	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
-	{
-		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, MEATSHOT_KILL_BONUS_TYPE, victim, 3.0, 4);
-	}
+	FireMeatshotKill(attacker, victim);
 
 }
 
@@ -1059,10 +1018,9 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 		&& IsClientInGame(environmentalAttacker)
 		&& !IsFakeClient(environmentalAttacker)
 		&& GetClientTeam(environmentalAttacker) != GetClientTeam(client)
-		&& GetGameTime() - g_fEnvironmentalKillTime[client] <= ENVIRONMENTAL_KILL_CREDIT_WINDOW
-		&& GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+		&& GetGameTime() - g_fEnvironmentalKillTime[client] <= ENVIRONMENTAL_KILL_CREDIT_WINDOW)
 	{
-		PointsStore_ApplyBonusPoints(environmentalAttacker, 1, true, true, 1.0, "Environmental kill", client, 3.0, 3);
+		FireEnvironmentalKill(environmentalAttacker, client);
 	}
 	g_iEnvironmentalKillAttackerUserId[client] = 0;
 	g_fEnvironmentalKillTime[client] = 0.0;
@@ -1684,10 +1642,9 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 
 		int attacker = GetEntPropEnt(inflictor, Prop_Send, "m_hOwnerEntity");
 		if (WR_IsClientInGame(attacker) && !IsFakeClient(attacker) && !IsFakeClient(victim)
-			&& attacker != victim && GetClientTeam(attacker) != GetClientTeam(victim)
-			&& GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+			&& attacker != victim && GetClientTeam(attacker) != GetClientTeam(victim))
 		{
-			PointsStore_ApplyBonusPoints(attacker, 3, true, true, 1.0, "Sandman moonshot", victim, 3.0, 1);
+			FireSandmanMoonshot(attacker, victim);
 		}
 	}
 

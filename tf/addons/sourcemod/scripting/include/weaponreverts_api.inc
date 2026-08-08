@@ -35,6 +35,12 @@ native bool WeaponReverts_GetWeaponInfo(int weaponIndex,
  */
 native bool WeaponReverts_CanClassUseWeapon(const char[] className, int weaponIndex);
 
+forward void OnAmbassadorHeadshotKill(int attacker, int victim);
+forward void OnSandmanCleaverCombo(int attacker, int victim);
+forward void OnMeatshotKill(int attacker, int victim);
+forward void OnEnvironmentalKill(int attacker, int victim);
+forward void OnSandmanMoonshot(int attacker, int victim);
+
 public SharedPlugin __pl_weaponreverts = {
 	name = "weaponreverts",
 	file = "weaponreverts.smx",
