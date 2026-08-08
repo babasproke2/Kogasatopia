@@ -309,8 +309,6 @@ cp_carrier
 cp_cloak
 cp_cobson
 cp_cowerhouse
-cp_degrootkeep
-cp_degrootkeep_rats
 cp_foundry
 cp_freaky_fair
 cp_frostwatch
