@@ -109,15 +109,19 @@ public SMCResult RewardConfig_EnterSection(SMCParser parser, const char[] name, 
 
 void StoreParsedRewardDefinition()
 {
-    if (g_RewardConfigEntry.id[0] == '\0'
-        || g_RewardConfigEntry.amount <= 0
-        || g_RewardConfigEntry.perMapLimit < 0
-        || g_RewardConfigEntry.longName[0] == '\0'
-        || g_RewardConfigEntry.shortDescription[0] == '\0'
-        || g_RewardConfigEntry.longDescription[0] == '\0')
+    if (g_RewardConfigEntry.id[0] == '\0' || g_RewardConfigEntry.amount <= 0)
     {
-        LogError("[points_store] Ignoring incomplete reward definition '%s'.", g_RewardConfigEntry.id);
+        LogError("[points_store] Ignoring reward definition '%s' without a positive reward value.", g_RewardConfigEntry.id);
         return;
+    }
+
+    if (g_RewardConfigEntry.perMapLimit < 0)
+    {
+        g_RewardConfigEntry.perMapLimit = 0;
+    }
+    if (g_RewardConfigEntry.longName[0] == '\0')
+    {
+        strcopy(g_RewardConfigEntry.longName, sizeof(g_RewardConfigEntry.longName), g_RewardConfigEntry.id);
     }
 
     int existingIndex;
