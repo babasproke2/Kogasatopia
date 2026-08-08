@@ -6,7 +6,7 @@ These plugins are very specific and are shared for the sake of letting anyone lo
 - cwx by nosoop with some local changes such as a descriptions feature
 - mapsdb, a plugin that handles per-gamemode setting configurations, map popularity statistics and once-only server configs for better load times between maps
 - dgm.sp for instant respawn configuration and gamemode tweaks
-- airshot.sp for airshot announcements, including dropshots and on-kill differentiation
+- gameplay_rewards.sp for Points Store rewards emitted by gameplay APIs; airshot announcements are integrated into WhaleTracker
 - saysounds.sp as an implementation of the saysounds concept with many features
 - announcers.sp for gameplay announcers such as Unreal Tournament killstreak trackers
 - clans.sp for a Minecraft factions style plugin in tf2 along with tags.sp for a chat tags system
