@@ -11,7 +11,6 @@
 #include <dgm_api>
 #include <filters_api>
 #include <saysounds>
-#include <server_mail>
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
@@ -110,7 +109,6 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
-    MarkNativeAsOptional("ServerMail_SendCustomSteamId");
     MarkNativeAsOptional("WhaleTracker_GetRankedPlaytimeHours");
     MarkNativeAsOptional("WhaleTracker_GetRankedPlaytimeSeconds");
     RegPluginLibrary("points_store");
@@ -293,6 +291,11 @@ void ConnectDatabase()
     KogasaSql_Close(g_Database, g_DatabaseReady);
     g_IdempotentAwardsReady = false;
     g_BountyDatabaseReady = false;
+    g_BountyExpiryPending = false;
+    g_BountyProgressPending = false;
+    g_BountyDisconnectRefundPending = false;
+    g_BountyAutomaticPlacementPending = false;
+    g_ActiveBountyCount = 0;
     Lotteries_OnDatabaseDisconnected();
 
     char dbConfig[64];

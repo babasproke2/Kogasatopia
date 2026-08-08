@@ -13,9 +13,12 @@
 #define BOUNTY_PLAYTIME_EXPIRY_SECONDS 1200
 #define BOUNTY_HALFTIME_SECONDS (BOUNTY_PLAYTIME_EXPIRY_SECONDS / 2)
 #define BOUNTY_HALFTIME_REMAINING_MINUTES ((BOUNTY_PLAYTIME_EXPIRY_SECONDS - BOUNTY_HALFTIME_SECONDS) / 60)
-#define BOUNTY_KILL_GROWTH_PERCENT 5
+#define BOUNTY_KILL_GROWTH_AMOUNT 5
 #define BOUNTY_MEDIC_ASSISTS_PER_GROWTH 2
 #define BOUNTY_MAINTENANCE_INTERVAL 60.0
+#define BOUNTY_DISCONNECT_GRACE_SECONDS 300
+#define BOUNTY_PLACEMENT_COOLDOWN_SECONDS 900
+#define BOUNTY_MAX_ACTIVE 3
 #define BOUNTY_CHALLENGE_SOUND "duel_challenge"
 #define BOUNTY_EVENT_SOUND "duel_event"
 #define BOUNTY_AUTOMATIC_CHANCE_PERCENT 15
@@ -35,9 +38,10 @@ static const int g_BountyAmounts[] = {10, 25, 50, 100, 250, 1000};
 bool g_BountyDatabaseReady = false;
 bool g_BountyExpiryPending = false;
 bool g_BountyProgressPending = false;
-bool g_BountyNotificationQueryPending = false;
+bool g_BountyDisconnectRefundPending = false;
 StringMap g_ActiveBountyTargets = null;
 int g_BountyTargetCacheGeneration = 0;
+int g_ActiveBountyCount = 0;
 bool g_BountyPlacementPending[MAXPLAYERS + 1];
 ArrayList g_BountySearchResults[MAXPLAYERS + 1];
 char g_BountyPendingSearch[MAXPLAYERS + 1][BOUNTY_NAME_MAX];
@@ -46,6 +50,7 @@ char g_BountyPendingTargetName[MAXPLAYERS + 1][BOUNTY_NAME_MAX];
 int g_BountyPendingAmount[MAXPLAYERS + 1];
 int g_BountyMedicAssistsLife[MAXPLAYERS + 1];
 int g_BountySearchGeneration[MAXPLAYERS + 1];
+int g_BountyLastPlacementAt[MAXPLAYERS + 1];
 int g_BountyOperationSerial = 0;
 Handle g_BountyMaintenanceTimer = null;
 char g_BountyPrefix[96];
@@ -57,7 +62,7 @@ static const char g_BountyHelpLines[][] =
 {
     "Bounties last 20 minutes of playtime or one week in real time.",
     "When a client with a bounty on them is dominated, the bounty ends and pays the dominator the Gems.",
-    "Each kill, or every 2 assists as Medic, increases the bounty by 5% of its original value."
+    "Each kill, or every 2 assists as Medic, increases the bounty by 5 Gems."
 };
 
 void Bounties_OnPluginStart()
@@ -103,6 +108,65 @@ int GetBountyMaxAmount()
 bool IsBountyPopulationEligible()
 {
     return GetClientCount(false) >= GetBountyMinPlayers();
+}
+
+int GetBountyPlacementCooldownRemaining(int client)
+{
+    int remaining = (g_BountyLastPlacementAt[client] + BOUNTY_PLACEMENT_COOLDOWN_SECONDS) - GetTime();
+    return remaining > 0 ? remaining : 0;
+}
+
+void LoadBountyPlacementCooldown(int client)
+{
+    if (!g_BountyDatabaseReady || g_Database == null || client <= 0 || client > MaxClients
+        || !IsClientConnected(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    char steamId[BOUNTY_STEAMID_MAX];
+    char escapedSteamId[65];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId))
+        || !EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)))
+    {
+        return;
+    }
+
+    char query[384];
+    FormatEx(query, sizeof(query),
+        "SELECT COALESCE(MAX(placed_at), 0) FROM %s WHERE sender_steamid64 = '%s'",
+        BOUNTY_TABLE,
+        escapedSteamId);
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteString(steamId);
+    g_Database.Query(SQL_OnBountyPlacementCooldownLoaded, query, pack);
+}
+
+public void SQL_OnBountyPlacementCooldownLoaded(Database db, DBResultSet rows, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int client = GetClientOfUserId(pack.ReadCell());
+    char expectedSteamId[BOUNTY_STEAMID_MAX];
+    pack.ReadString(expectedSteamId, sizeof(expectedSteamId));
+    delete pack;
+
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Bounty cooldown query failed: %s", error);
+        return;
+    }
+
+    char currentSteamId[BOUNTY_STEAMID_MAX];
+    if (client <= 0 || client > MaxClients || !IsClientConnected(client) || IsFakeClient(client)
+        || !GetClientSteamId64(client, currentSteamId, sizeof(currentSteamId))
+        || !StrEqual(currentSteamId, expectedSteamId, false))
+    {
+        return;
+    }
+
+    g_BountyLastPlacementAt[client] = rows != null && rows.FetchRow() ? rows.FetchInt(0) : 0;
 }
 
 public Action Command_BountyHelp(int client, int args)
@@ -163,14 +227,19 @@ void Bounties_OnMapStart()
     {
         ProcessExpiredBounties();
         RequestBountyProgress();
-        RequestPendingBountyNotifications();
         RefreshActiveBountyTargets();
     }
 }
 
 public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroadcast)
 {
-    if (!g_BountyDatabaseReady || g_Database == null || g_BountyAutomaticPlacementPending
+    if (!g_BountyDatabaseReady || g_Database == null)
+    {
+        return;
+    }
+
+    ProcessDisconnectedBountyRefunds();
+    if (g_BountyAutomaticPlacementPending || g_ActiveBountyCount >= BOUNTY_MAX_ACTIVE
         || GetRandomInt(1, 100) > BOUNTY_AUTOMATIC_CHANCE_PERCENT)
     {
         return;
@@ -206,10 +275,10 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
 
     char query[3072];
     FormatEx(query, sizeof(query),
-        "SELECT w.steamid FROM whaletracker w INNER JOIN %s b ON b.steamid64 = w.steamid "
+        "SELECT w.steamid FROM whaletracker w INNER JOIN %s b ON BINARY b.steamid64 = BINARY w.steamid "
         ... "WHERE w.steamid IN (%s) AND b.balance > %d "
-        ... "AND (COALESCE(w.kills, 0) + COALESCE(w.assists, 0)) > "
-        ... "(5 * CASE WHEN COALESCE(w.deaths, 0) > 0 THEN w.deaths ELSE 1 END) "
+        ... "AND (COALESCE(w.kills, 0) + COALESCE(w.assists, 0)) >= "
+        ... "(2 * CASE WHEN COALESCE(w.deaths, 0) > 0 THEN w.deaths ELSE 1 END) "
         ... "ORDER BY %s LIMIT 1",
         BP_BALANCE_TABLE,
         steamIds,
@@ -271,8 +340,9 @@ void QueueAutomaticBounty(int target, const char[] targetSteamId)
     char query[1536];
     FormatEx(query, sizeof(query),
         "INSERT INTO %s (sender_steamid64, sender_name, target_steamid64, target_name, amount, placed_at, expires_at, "
-        ... "qualifying_playtime_seconds, last_target_playtime_seconds, sender_notified, status) "
-        ... "VALUES ('%s', 'kogasa.tf', '%s', '%s', %d, %d, %d, 0, %d, 1, 'active')",
+        ... "qualifying_playtime_seconds, last_target_playtime_seconds, status) "
+        ... "SELECT '%s', 'kogasa.tf', '%s', '%s', %d, %d, %d, 0, %d, 'active' "
+        ... "WHERE (SELECT COUNT(*) FROM %s WHERE status = 'active' AND expires_at > %d) < %d",
         BOUNTY_TABLE,
         BOUNTY_SYSTEM_STEAMID,
         escapedTargetSteam,
@@ -280,7 +350,10 @@ void QueueAutomaticBounty(int target, const char[] targetSteamId)
         BOUNTY_AUTOMATIC_AMOUNT,
         now,
         now + BOUNTY_WALL_EXPIRY_SECONDS,
-        targetPlaytime);
+        targetPlaytime,
+        BOUNTY_TABLE,
+        now,
+        BOUNTY_MAX_ACTIVE);
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(target));
@@ -301,13 +374,18 @@ public void SQL_OnAutomaticBountyPlaced(Database db, DBResultSet results, const 
     delete pack;
     g_BountyAutomaticPlacementPending = false;
 
-    if (error[0] != '\0' || results == null || results.AffectedRows <= 0)
+    if (error[0] != '\0')
     {
-        LogError("[points_store] Automatic bounty placement failed: %s", error[0] ? error : "no row inserted");
+        LogError("[points_store] Automatic bounty placement failed: %s", error);
+        return;
+    }
+    if (results == null || results.AffectedRows <= 0)
+    {
         return;
     }
 
     MarkActiveBountyTarget(targetSteamId);
+    g_ActiveBountyCount++;
 
     char targetDisplay[256];
     BuildBountyDisplayName(targetSteamId, targetName, targetDisplay, sizeof(targetDisplay));
@@ -350,10 +428,13 @@ void PrintBountyTargetInstructions(int target)
 void Bounties_OnClientAuthorized(int client)
 {
     ResetBountyClientState(client);
+    ClearBountyDisconnectForClient(client);
+    LoadBountyPlacementCooldown(client);
 }
 
 void Bounties_OnClientDisconnect(int client)
 {
+    MarkBountyTargetDisconnected(client);
     ResetBountyClientState(client);
 }
 
@@ -367,6 +448,7 @@ void ResetBountyClientState(int client)
     g_BountyPendingAmount[client] = 0;
     g_BountyMedicAssistsLife[client] = 0;
     g_BountyPlacementPending[client] = false;
+    g_BountyLastPlacementAt[client] = 0;
     g_BountySearchGeneration[client]++;
 }
 
@@ -394,17 +476,16 @@ void EnsureBountySchema()
             ... "qualifying_playtime_seconds INT NOT NULL DEFAULT 0, "
             ... "last_target_playtime_seconds INT NOT NULL DEFAULT 0, "
             ... "halftime_announced TINYINT NOT NULL DEFAULT 0, "
+            ... "target_disconnected_at INT NOT NULL DEFAULT 0, "
             ... "status VARCHAR(16) NOT NULL DEFAULT 'active', "
             ... "resolved_at INT NOT NULL DEFAULT 0, "
             ... "resolution_token VARCHAR(128) NOT NULL DEFAULT '', "
             ... "claimed_by_steamid64 VARCHAR(32) NOT NULL DEFAULT '', "
             ... "claimed_by_name VARCHAR(128) NOT NULL DEFAULT '', "
-            ... "sender_notified TINYINT NOT NULL DEFAULT 0, "
-            ... "target_notified TINYINT NOT NULL DEFAULT 0, "
             ... "PRIMARY KEY (bounty_id), "
             ... "KEY idx_bounties_active_target (status, target_steamid64, expires_at), "
             ... "KEY idx_bounties_resolution (resolution_token), "
-            ... "KEY idx_bounties_notifications (status, sender_notified, target_notified)"
+            ... "KEY idx_bounties_sender_cooldown (sender_steamid64, placed_at)"
             ... ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
             BOUNTY_TABLE);
     }
@@ -424,13 +505,12 @@ void EnsureBountySchema()
             ... "qualifying_playtime_seconds INTEGER NOT NULL DEFAULT 0, "
             ... "last_target_playtime_seconds INTEGER NOT NULL DEFAULT 0, "
             ... "halftime_announced INTEGER NOT NULL DEFAULT 0, "
+            ... "target_disconnected_at INTEGER NOT NULL DEFAULT 0, "
             ... "status VARCHAR(16) NOT NULL DEFAULT 'active', "
             ... "resolved_at INTEGER NOT NULL DEFAULT 0, "
             ... "resolution_token VARCHAR(128) NOT NULL DEFAULT '', "
             ... "claimed_by_steamid64 VARCHAR(32) NOT NULL DEFAULT '', "
-            ... "claimed_by_name VARCHAR(128) NOT NULL DEFAULT '', "
-            ... "sender_notified INTEGER NOT NULL DEFAULT 0, "
-            ... "target_notified INTEGER NOT NULL DEFAULT 0)"
+            ... "claimed_by_name VARCHAR(128) NOT NULL DEFAULT '')"
             , BOUNTY_TABLE);
     }
 
@@ -446,12 +526,13 @@ public void SQL_OnBountySchemaReady(Database db, DBResultSet results, const char
         return;
     }
 
-    g_BountySchemaChecksPending = 4;
+    g_BountySchemaChecksPending = 5;
     g_BountySchemaCheckFailed = false;
     CheckBountySchemaColumn("bonus_amount", "INTEGER NOT NULL DEFAULT 0");
     CheckBountySchemaColumn("qualifying_playtime_seconds", "INTEGER NOT NULL DEFAULT 0");
     CheckBountySchemaColumn("last_target_playtime_seconds", "INTEGER NOT NULL DEFAULT 0");
     CheckBountySchemaColumn("halftime_announced", "INTEGER NOT NULL DEFAULT 0");
+    CheckBountySchemaColumn("target_disconnected_at", "INTEGER NOT NULL DEFAULT 0");
 }
 
 void CheckBountySchemaColumn(const char[] column, const char[] definition)
@@ -528,9 +609,18 @@ void FinishBountySchemaColumnCheck(bool success)
         g_Database.Query(SQL_OnIgnoredResult,
             "CREATE INDEX IF NOT EXISTS idx_bounties_resolution ON points_store_bounties (resolution_token)");
     }
+    g_Database.Query(SQL_OnIgnoredResult,
+        "CREATE INDEX IF NOT EXISTS idx_bounties_sender_cooldown ON points_store_bounties (sender_steamid64, placed_at)");
     ProcessExpiredBounties();
     RequestBountyProgress();
-    RequestPendingBountyNotifications();
+    ClearConnectedBountyDisconnects();
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientInGameHuman(client))
+        {
+            LoadBountyPlacementCooldown(client);
+        }
+    }
     RefreshActiveBountyTargets();
 }
 
@@ -540,7 +630,6 @@ public Action Timer_BountyMaintenance(Handle timer)
     {
         ProcessExpiredBounties();
         RequestBountyProgress();
-        RequestPendingBountyNotifications();
         RefreshActiveBountyTargets();
     }
     return Plugin_Continue;
@@ -555,6 +644,19 @@ public Action Command_PlaceBounty(int client, int args)
     if (!g_BountyDatabaseReady || g_Database == null)
     {
         CPrintToChat(client, "%s Bounties are temporarily unavailable.", g_BountyPrefix);
+        return Plugin_Handled;
+    }
+    if (g_ActiveBountyCount >= BOUNTY_MAX_ACTIVE)
+    {
+        CPrintToChat(client, "%s The maximum of {gold}%d{default} active bounties has been reached.", g_BountyPrefix, BOUNTY_MAX_ACTIVE);
+        return Plugin_Handled;
+    }
+    int cooldownRemaining = GetBountyPlacementCooldownRemaining(client);
+    if (cooldownRemaining > 0)
+    {
+        CPrintToChat(client, "%s You can place another bounty in {gold}%d minutes{default}.",
+            g_BountyPrefix,
+            (cooldownRemaining + 59) / 60);
         return Plugin_Handled;
     }
     if (!IsBountyPopulationEligible())
@@ -639,56 +741,44 @@ bool IsBountyAmountAllowed(int amount)
     return amount > 0 && amount <= GetBountyMaxAmount();
 }
 
-int GetBountyRankMinimumKillsDeaths()
-{
-    ConVar convar = FindConVar("sm_whaletracker_rank_min_kd_sum");
-    return convar != null ? convar.IntValue : 200;
-}
-
-int GetBountyRankMinimumPlaytime()
-{
-    ConVar convar = FindConVar("sm_whaletracker_rank_min_playtime_seconds");
-    return convar != null ? convar.IntValue : 10800;
-}
-
 void RequestBountyPlayerSearch(int client)
 {
-    char escapedSearch[(BOUNTY_NAME_MAX * 2) + 1];
-    if (!EscapeSql(g_BountyPendingSearch[client], escapedSearch, sizeof(escapedSearch)))
+    delete g_BountySearchResults[client];
+    g_BountySearchResults[client] = new ArrayList(sizeof(BountySearchResult));
+    g_BountySearchGeneration[client]++;
+
+    if (GetFeatureStatus(FeatureType_Native, "WhaleTracker_GetRankedPlaytimeHours") != FeatureStatus_Available)
     {
-        CPrintToChat(client, "%s Could not search for that player.", g_BountyPrefix);
+        CPrintToChat(client, "%s Ranked-player checks are temporarily unavailable.", g_BountyPrefix);
         return;
     }
 
-    delete g_BountySearchResults[client];
-    g_BountySearchResults[client] = null;
-    int generation = ++g_BountySearchGeneration[client];
+    BountySearchResult entry;
+    for (int target = 1; target <= MaxClients; target++)
+    {
+        if (!IsClientInGameHuman(target) || target == client)
+        {
+            continue;
+        }
+        GetClientName(target, entry.name, sizeof(entry.name));
+        if (StrContains(entry.name, g_BountyPendingSearch[client], false) == -1)
+        {
+            continue;
+        }
 
-    char query[2048];
-    FormatEx(query, sizeof(query),
-        "SELECT w.steamid, "
-        ... "COALESCE(NULLIF(pr.newname COLLATE utf8mb4_uca1400_ai_ci, ''), NULLIF(fs.last_name, ''), NULLIF(w.cached_personaname, ''), w.steamid), "
-        ... "GREATEST(COALESCE(w.playtime, 0), 0) "
-        ... "FROM whaletracker w "
-        ... "LEFT JOIN filters_steam_names fs ON fs.steamid64 = w.steamid "
-        ... "LEFT JOIN prename_rules pr ON pr.pattern COLLATE utf8mb4_uca1400_ai_ci = w.steamid "
-        ... "WHERE (GREATEST(COALESCE(w.kills, 0), 0) + GREATEST(COALESCE(w.deaths, 0), 0)) >= %d "
-        ... "AND GREATEST(COALESCE(w.playtime, 0), 0) >= %d "
-        ... "AND (COALESCE(pr.newname, '') LIKE '%%%s%%' "
-        ... "OR COALESCE(fs.last_name, '') LIKE '%%%s%%' "
-        ... "OR COALESCE(w.cached_personaname, '') LIKE '%%%s%%') "
-        ... "ORDER BY GREATEST(COALESCE(w.playtime, 0), 0) DESC LIMIT %d",
-        GetBountyRankMinimumKillsDeaths(),
-        GetBountyRankMinimumPlaytime(),
-        escapedSearch,
-        escapedSearch,
-        escapedSearch,
-        BOUNTY_SEARCH_MAX);
+        int rankedHours = WhaleTracker_GetRankedPlaytimeHours(target);
+        if (rankedHours <= 0 || !GetClientSteamId64(target, entry.steamId, sizeof(entry.steamId)))
+        {
+            continue;
+        }
 
-    DataPack pack = new DataPack();
-    pack.WriteCell(GetClientUserId(client));
-    pack.WriteCell(generation);
-    g_Database.Query(SQL_OnBountyPlayerSearch, query, pack);
+        entry.playtime = rankedHours * 3600;
+        entry.connected = true;
+        g_BountySearchResults[client].PushArray(entry, sizeof(entry));
+    }
+
+    g_BountySearchResults[client].SortCustom(SortBountySearchResults);
+    ShowBountySearchResults(client);
 }
 
 int FindBountySearchResult(ArrayList results, const char[] steamId)
@@ -703,87 +793,6 @@ int FindBountySearchResult(ArrayList results, const char[] steamId)
         }
     }
     return -1;
-}
-
-public void SQL_OnBountyPlayerSearch(Database db, DBResultSet rows, const char[] error, any data)
-{
-    DataPack pack = view_as<DataPack>(data);
-    pack.Reset();
-    int client = GetClientOfUserId(pack.ReadCell());
-    int generation = pack.ReadCell();
-    delete pack;
-
-    if (!IsClientInGameHuman(client) || generation != g_BountySearchGeneration[client])
-    {
-        return;
-    }
-    if (error[0] != '\0')
-    {
-        LogError("[points_store] Bounty player search failed: %s", error);
-        CPrintToChat(client, "%s Player search failed.", g_BountyPrefix);
-        return;
-    }
-
-    ArrayList results = new ArrayList(sizeof(BountySearchResult));
-    BountySearchResult entry;
-    while (rows != null && rows.FetchRow())
-    {
-        rows.FetchString(0, entry.steamId, sizeof(entry.steamId));
-        rows.FetchString(1, entry.name, sizeof(entry.name));
-        entry.playtime = rows.FetchInt(2);
-        entry.connected = false;
-        results.PushArray(entry, sizeof(entry));
-    }
-
-    for (int target = 1; target <= MaxClients; target++)
-    {
-        if (!IsClientInGameHuman(target))
-        {
-            continue;
-        }
-
-        char steamId[BOUNTY_STEAMID_MAX];
-        char currentName[BOUNTY_NAME_MAX];
-        if (!GetClientSteamId64(target, steamId, sizeof(steamId)))
-        {
-            continue;
-        }
-        GetClientName(target, currentName, sizeof(currentName));
-
-        int index = FindBountySearchResult(results, steamId);
-        int rankedHours = 0;
-        if (GetFeatureStatus(FeatureType_Native, "WhaleTracker_GetRankedPlaytimeHours") == FeatureStatus_Available)
-        {
-            rankedHours = WhaleTracker_GetRankedPlaytimeHours(target);
-        }
-
-        if (index == -1)
-        {
-            if (rankedHours <= 0 || StrContains(currentName, g_BountyPendingSearch[client], false) == -1)
-            {
-                continue;
-            }
-            strcopy(entry.steamId, sizeof(entry.steamId), steamId);
-            strcopy(entry.name, sizeof(entry.name), currentName);
-            entry.playtime = rankedHours * 3600;
-            entry.connected = true;
-            results.PushArray(entry, sizeof(entry));
-            continue;
-        }
-
-        results.GetArray(index, entry, sizeof(entry));
-        strcopy(entry.name, sizeof(entry.name), currentName);
-        entry.connected = true;
-        if (rankedHours > 0)
-        {
-            entry.playtime = rankedHours * 3600;
-        }
-        results.SetArray(index, entry, sizeof(entry));
-    }
-
-    results.SortCustom(SortBountySearchResults);
-    g_BountySearchResults[client] = results;
-    ShowBountySearchResults(client);
 }
 
 public int SortBountySearchResults(int index1, int index2, Handle array, Handle data)
@@ -821,7 +830,7 @@ void ShowBountySearchResults(int client)
     for (int i = 0; i < results.Length && i < BOUNTY_SEARCH_MAX; i++)
     {
         results.GetArray(i, entry, sizeof(entry));
-        FormatEx(display, sizeof(display), "%s%s", entry.name, entry.connected ? " [online]" : "");
+        strcopy(display, sizeof(display), entry.name);
         menu.AddItem(entry.steamId, display);
     }
     menu.ExitButton = true;
@@ -842,6 +851,11 @@ public int MenuHandler_BountySearchResults(Menu menu, MenuAction action, int cli
 
     char targetSteamId[BOUNTY_STEAMID_MAX];
     menu.GetItem(item, targetSteamId, sizeof(targetSteamId));
+    if (!IsClientInGameHuman(FindClientBySteamId64(targetSteamId)))
+    {
+        CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
+        return 0;
+    }
     char senderSteamId[BOUNTY_STEAMID_MAX];
     if (!GetClientSteamId64(client, senderSteamId, sizeof(senderSteamId)))
     {
@@ -932,23 +946,14 @@ void ShowBountyConsentMenu(int client)
     GetCurrencyColorTag(currencyColor, sizeof(currencyColor));
 
     int target = FindClientBySteamId64(g_BountyPendingTargetSteamId[client]);
-    if (target > 0)
+    if (!IsClientInGameHuman(target))
     {
-        BuildPurchaseDisplayName(target, targetDisplay, sizeof(targetDisplay));
+        CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
+        return;
     }
     else
     {
-        char colorTag[32];
-        if (GetFeatureStatus(FeatureType_Native, "Filters_GetSteamIdColorTag") == FeatureStatus_Available
-            && Filters_GetSteamIdColorTag(g_BountyPendingTargetSteamId[client], colorTag, sizeof(colorTag))
-            && colorTag[0] != '\0')
-        {
-            FormatEx(targetDisplay, sizeof(targetDisplay), "%s%s{default}", colorTag, g_BountyPendingTargetName[client]);
-        }
-        else
-        {
-            FormatEx(targetDisplay, sizeof(targetDisplay), "{gold}%s{default}", g_BountyPendingTargetName[client]);
-        }
+        BuildPurchaseDisplayName(target, targetDisplay, sizeof(targetDisplay));
     }
 
     CPrintToChatEx(client,
@@ -1015,6 +1020,24 @@ public int MenuHandler_BountyConsent(Menu menu, MenuAction action, int client, i
             GetBountyMinPlayers());
         return 0;
     }
+    if (g_ActiveBountyCount >= BOUNTY_MAX_ACTIVE)
+    {
+        CPrintToChat(client, "%s The maximum of {gold}%d{default} active bounties has been reached.", g_BountyPrefix, BOUNTY_MAX_ACTIVE);
+        return 0;
+    }
+    int cooldownRemaining = GetBountyPlacementCooldownRemaining(client);
+    if (cooldownRemaining > 0)
+    {
+        CPrintToChat(client, "%s You can place another bounty in {gold}%d minutes{default}.",
+            g_BountyPrefix,
+            (cooldownRemaining + 59) / 60);
+        return 0;
+    }
+    if (!IsClientInGameHuman(FindClientBySteamId64(g_BountyPendingTargetSteamId[client])))
+    {
+        CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
+        return 0;
+    }
 
     QueueBountyPlacement(client);
     return 0;
@@ -1047,6 +1070,11 @@ void QueueBountyPlacement(int client)
 
     int now = GetTime();
     int target = FindClientBySteamId64(g_BountyPendingTargetSteamId[client]);
+    if (!IsClientInGameHuman(target))
+    {
+        CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
+        return;
+    }
     int targetPlaytime = 0;
     if (GetFeatureStatus(FeatureType_Native, "WhaleTracker_GetRankedPlaytimeSeconds") == FeatureStatus_Available)
     {
@@ -1055,11 +1083,19 @@ void QueueBountyPlacement(int client)
     Transaction txn = new Transaction();
     char query[2048];
     FormatEx(query, sizeof(query),
-        "UPDATE %s SET balance = balance - %d WHERE steamid64 = '%s' AND balance >= %d",
+        "UPDATE %s SET balance = balance - %d WHERE steamid64 = '%s' AND balance >= %d "
+        ... "AND (SELECT COUNT(*) FROM %s WHERE status = 'active' AND expires_at > %d) < %d "
+        ... "AND NOT EXISTS (SELECT 1 FROM %s WHERE sender_steamid64 = '%s' AND placed_at > %d)",
         BP_BALANCE_TABLE,
         amount,
         escapedSenderSteam,
-        amount);
+        amount,
+        BOUNTY_TABLE,
+        now,
+        BOUNTY_MAX_ACTIVE,
+        BOUNTY_TABLE,
+        escapedSenderSteam,
+        now - BOUNTY_PLACEMENT_COOLDOWN_SECONDS);
     txn.AddQuery(query);
 
     FormatEx(query, sizeof(query),
@@ -1115,12 +1151,16 @@ public void SQLTxn_OnBountyPlaced(Database db, any data, int numQueries, DBResul
         if (IsClientInGameHuman(client))
         {
             LoadClientBonusPoints(client);
-            CPrintToChat(client, "%s You no longer have enough %s for that bounty.", g_BountyPrefix, g_CurrencyLongLabel);
+            CPrintToChat(client,
+                "%s The bounty could not be placed; check your balance, cooldown, and the active bounty limit.",
+                g_BountyPrefix);
+            LoadBountyPlacementCooldown(client);
         }
         return;
     }
 
     MarkActiveBountyTarget(targetSteamId);
+    g_ActiveBountyCount++;
 
     if (IsClientInGameHuman(client))
     {
@@ -1137,6 +1177,7 @@ public void SQLTxn_OnBountyPlaced(Database db, any data, int numQueries, DBResul
             }
             LogBonusPointsDelta(client, -amount, balanceBefore, g_ClientBonusPoints[client], "bounty_escrow", 0, false, false, 1.0, true, 0, 0);
         }
+        g_BountyLastPlacementAt[client] = GetTime();
     }
 
     int target = FindClientBySteamId64(targetSteamId);
@@ -1309,7 +1350,7 @@ void RefreshActiveBountyTargets()
 
     char query[512];
     FormatEx(query, sizeof(query),
-        "SELECT DISTINCT target_steamid64 FROM %s WHERE status = 'active' AND expires_at > %d",
+        "SELECT target_steamid64, COUNT(*) FROM %s WHERE status = 'active' AND expires_at > %d GROUP BY target_steamid64",
         BOUNTY_TABLE,
         GetTime());
 
@@ -1331,14 +1372,17 @@ public void SQL_OnActiveBountyTargetsLoaded(Database db, DBResultSet rows, const
 
     StringMap refreshedTargets = new StringMap();
     char steamId[BOUNTY_STEAMID_MAX];
+    int activeCount = 0;
     while (rows != null && rows.FetchRow())
     {
         rows.FetchString(0, steamId, sizeof(steamId));
         refreshedTargets.SetValue(steamId, 1, true);
+        activeCount += rows.FetchInt(1);
     }
 
     delete g_ActiveBountyTargets;
     g_ActiveBountyTargets = refreshedTargets;
+    g_ActiveBountyCount = activeCount;
 
     for (int client = 1; client <= MaxClients; client++)
     {
@@ -1438,12 +1482,12 @@ void GrowActiveBountiesForKill(int attacker, bool fromMedicAssists)
     if (g_IsMySql)
     {
         FormatEx(query, sizeof(query),
-            "UPDATE %s SET bonus_amount = LEAST(%d - amount, bonus_amount + GREATEST(1, FLOOR(amount * %d / 100))) "
+            "UPDATE %s SET bonus_amount = LEAST(%d - amount, bonus_amount + %d) "
             ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d "
             ... "AND amount < %d AND amount + bonus_amount < %d",
             BOUNTY_TABLE,
             maxAmount,
-            BOUNTY_KILL_GROWTH_PERCENT,
+            BOUNTY_KILL_GROWTH_AMOUNT,
             escapedAttackerSteam,
             GetTime(),
             maxAmount,
@@ -1452,12 +1496,12 @@ void GrowActiveBountiesForKill(int attacker, bool fromMedicAssists)
     else
     {
         FormatEx(query, sizeof(query),
-            "UPDATE %s SET bonus_amount = MIN(%d - amount, bonus_amount + MAX(1, (amount * %d / 100))) "
+            "UPDATE %s SET bonus_amount = MIN(%d - amount, bonus_amount + %d) "
             ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d "
             ... "AND amount < %d AND amount + bonus_amount < %d",
             BOUNTY_TABLE,
             maxAmount,
-            BOUNTY_KILL_GROWTH_PERCENT,
+            BOUNTY_KILL_GROWTH_AMOUNT,
             escapedAttackerSteam,
             GetTime(),
             maxAmount,
@@ -1491,10 +1535,268 @@ public void SQL_OnBountyKillGrowth(Database db, DBResultSet results, const char[
     if (bountyCount > 0)
     {
         LogPointsStoreEvent(
-            "event=bounty_kill_growth|time=%d|target=%s|client=%d|bounties=%d|growth_percent=%d|source=%s",
-            GetTime(), attackerSteamId, attacker, bountyCount, BOUNTY_KILL_GROWTH_PERCENT,
+            "event=bounty_kill_growth|time=%d|target=%s|client=%d|bounties=%d|growth_amount=%d|source=%s",
+            GetTime(), attackerSteamId, attacker, bountyCount, BOUNTY_KILL_GROWTH_AMOUNT,
             fromMedicAssists ? "medic_assists" : "kill");
     }
+}
+
+void MarkBountyTargetDisconnected(int client)
+{
+    if (!g_BountyDatabaseReady || g_Database == null || client <= 0 || client > MaxClients || IsFakeClient(client))
+    {
+        return;
+    }
+
+    char steamId[BOUNTY_STEAMID_MAX];
+    char escapedSteamId[65];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId))
+        || !EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)))
+    {
+        return;
+    }
+
+    char query[512];
+    FormatEx(query, sizeof(query),
+        "UPDATE %s SET target_disconnected_at = CASE WHEN target_disconnected_at = 0 THEN %d ELSE target_disconnected_at END "
+        ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d",
+        BOUNTY_TABLE,
+        GetTime(),
+        escapedSteamId,
+        GetTime());
+    g_Database.Query(SQL_OnIgnoredResult, query);
+}
+
+void ClearBountyDisconnectForClient(int client)
+{
+    if (!g_BountyDatabaseReady || g_Database == null || client <= 0 || client > MaxClients
+        || !IsClientConnected(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    char steamId[BOUNTY_STEAMID_MAX];
+    char escapedSteamId[65];
+    if (!GetClientSteamId64(client, steamId, sizeof(steamId))
+        || !EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)))
+    {
+        return;
+    }
+
+    char query[384];
+    FormatEx(query, sizeof(query),
+        "UPDATE %s SET target_disconnected_at = 0 WHERE target_steamid64 = '%s' AND status = 'active'",
+        BOUNTY_TABLE,
+        escapedSteamId);
+    g_Database.Query(SQL_OnIgnoredResult, query);
+}
+
+void ClearConnectedBountyDisconnects()
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientInGameHuman(client))
+        {
+            ClearBountyDisconnectForClient(client);
+        }
+    }
+}
+
+void ProcessDisconnectedBountyRefunds()
+{
+    if (!g_BountyDatabaseReady || g_Database == null || g_BountyDisconnectRefundPending)
+    {
+        return;
+    }
+
+    char query[1024];
+    FormatEx(query, sizeof(query),
+        "SELECT bounty_id, target_steamid64 FROM %s WHERE status = 'active' AND expires_at > %d "
+        ... "AND target_disconnected_at > 0 AND target_disconnected_at <= %d ORDER BY bounty_id",
+        BOUNTY_TABLE,
+        GetTime(),
+        GetTime() - BOUNTY_DISCONNECT_GRACE_SECONDS);
+    g_BountyDisconnectRefundPending = true;
+    g_Database.Query(SQL_OnDisconnectedBountiesLoaded, query);
+}
+
+public void SQL_OnDisconnectedBountiesLoaded(Database db, DBResultSet rows, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        g_BountyDisconnectRefundPending = false;
+        LogError("[points_store] Disconnected bounty query failed: %s", error);
+        return;
+    }
+
+    char bountyIds[256];
+    char fragment[24];
+    char targetSteamId[BOUNTY_STEAMID_MAX];
+    int refundCount = 0;
+    bountyIds[0] = '\0';
+    while (rows != null && rows.FetchRow())
+    {
+        int bountyId = rows.FetchInt(0);
+        rows.FetchString(1, targetSteamId, sizeof(targetSteamId));
+        int target = FindClientBySteamId64(targetSteamId);
+        if (IsClientInGameHuman(target))
+        {
+            ClearBountyDisconnectForClient(target);
+            continue;
+        }
+
+        FormatEx(fragment, sizeof(fragment), "%s%d", refundCount > 0 ? "," : "", bountyId);
+        StrCat(bountyIds, sizeof(bountyIds), fragment);
+        refundCount++;
+    }
+
+    if (refundCount == 0)
+    {
+        g_BountyDisconnectRefundPending = false;
+        return;
+    }
+
+    char token[BOUNTY_TOKEN_MAX];
+    char escapedToken[(BOUNTY_TOKEN_MAX * 2) + 1];
+    BuildBountyOperationToken("disconnect", token, sizeof(token));
+    if (!EscapeSql(token, escapedToken, sizeof(escapedToken)))
+    {
+        g_BountyDisconnectRefundPending = false;
+        return;
+    }
+
+    int now = GetTime();
+    Transaction txn = new Transaction();
+    char query[2048];
+    FormatEx(query, sizeof(query),
+        "UPDATE %s SET status = 'disconnected', resolved_at = %d, resolution_token = '%s' "
+        ... "WHERE bounty_id IN (%s) AND status = 'active' AND target_disconnected_at > 0 AND target_disconnected_at <= %d",
+        BOUNTY_TABLE,
+        now,
+        escapedToken,
+        bountyIds,
+        now - BOUNTY_DISCONNECT_GRACE_SECONDS);
+    txn.AddQuery(query);
+
+    if (g_IsMySql)
+    {
+        FormatEx(query, sizeof(query),
+            "INSERT INTO %s (steamid64, balance) "
+            ... "SELECT sender_steamid64, SUM(amount) FROM %s WHERE resolution_token = '%s' AND sender_steamid64 != '%s' "
+            ... "GROUP BY sender_steamid64 ON DUPLICATE KEY UPDATE balance = balance + VALUES(balance)",
+            BP_BALANCE_TABLE,
+            BOUNTY_TABLE,
+            escapedToken,
+            BOUNTY_SYSTEM_STEAMID);
+    }
+    else
+    {
+        FormatEx(query, sizeof(query),
+            "INSERT INTO %s (steamid64, balance) "
+            ... "SELECT sender_steamid64, SUM(amount) FROM %s WHERE resolution_token = '%s' AND sender_steamid64 != '%s' "
+            ... "GROUP BY sender_steamid64 ON CONFLICT(steamid64) DO UPDATE SET balance = balance + excluded.balance",
+            BP_BALANCE_TABLE,
+            BOUNTY_TABLE,
+            escapedToken,
+            BOUNTY_SYSTEM_STEAMID);
+    }
+    txn.AddQuery(query);
+
+    FormatEx(query, sizeof(query),
+        "SELECT sender_steamid64, MAX(sender_name), target_steamid64, MAX(target_name), amount, target_disconnected_at "
+        ... "FROM %s WHERE resolution_token = '%s' "
+        ... "GROUP BY bounty_id, sender_steamid64, target_steamid64, amount, target_disconnected_at ORDER BY bounty_id",
+        BOUNTY_TABLE,
+        escapedToken);
+    txn.AddQuery(query);
+
+    DataPack pack = new DataPack();
+    pack.WriteString(token);
+    g_Database.Execute(txn, SQLTxn_OnDisconnectedBountiesRefunded, SQLTxn_OnDisconnectedBountyRefundFailed, pack);
+}
+
+public void SQLTxn_OnDisconnectedBountiesRefunded(Database db, any data, int numQueries, DBResultSet[] results, any[] queryData)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    char token[BOUNTY_TOKEN_MAX];
+    pack.ReadString(token, sizeof(token));
+    delete pack;
+    g_BountyDisconnectRefundPending = false;
+
+    int refundTotal = 0;
+    int refundCount = 0;
+    if (numQueries >= 3 && results[2] != null)
+    {
+        char senderSteamId[BOUNTY_STEAMID_MAX];
+        char senderName[BOUNTY_NAME_MAX];
+        char targetSteamId[BOUNTY_STEAMID_MAX];
+        char targetName[BOUNTY_NAME_MAX];
+        while (results[2].FetchRow())
+        {
+            results[2].FetchString(0, senderSteamId, sizeof(senderSteamId));
+            results[2].FetchString(1, senderName, sizeof(senderName));
+            results[2].FetchString(2, targetSteamId, sizeof(targetSteamId));
+            results[2].FetchString(3, targetName, sizeof(targetName));
+            int amount = results[2].FetchInt(4);
+            int disconnectedAt = results[2].FetchInt(5);
+            if (StrEqual(senderSteamId, BOUNTY_SYSTEM_STEAMID, false))
+            {
+                continue;
+            }
+
+            refundTotal += amount;
+            refundCount++;
+            int sender = FindClientBySteamId64(senderSteamId);
+            if (sender > 0 && g_ClientBonusPointsLoaded[sender])
+            {
+                int balanceBefore = g_ClientBonusPoints[sender];
+                g_ClientBonusPoints[sender] += amount;
+                LogBonusPointsDelta(sender, amount, balanceBefore, g_ClientBonusPoints[sender], "bounty_disconnect_refund", 0, false, false, 1.0, true, 0, 0);
+            }
+
+            char targetDisplay[256];
+            BuildBountyDisplayName(targetSteamId, targetName, targetDisplay, sizeof(targetDisplay));
+            char currencyName[BP_CURRENCY_SHORT_MAX];
+            GetCurrencyShortLabelForAmount(amount, currencyName, sizeof(currencyName));
+            int disconnectedMinutes = (GetTime() - disconnectedAt) / 60;
+            if (disconnectedMinutes < BOUNTY_DISCONNECT_GRACE_SECONDS / 60)
+            {
+                disconnectedMinutes = BOUNTY_DISCONNECT_GRACE_SECONDS / 60;
+            }
+
+            for (int recipient = 1; recipient <= MaxClients; recipient++)
+            {
+                if (IsClientInGameHuman(recipient))
+                {
+                    CPrintToChatEx(recipient, sender > 0 ? sender : recipient,
+                        "%s %s has been disconnected for {gold}%d minutes{default}; %s%d %s{default} has been refunded!",
+                        g_BountyPrefix,
+                        targetDisplay,
+                        disconnectedMinutes,
+                        g_CurrencyColorTag,
+                        amount,
+                        currencyName);
+                }
+            }
+        }
+    }
+
+    if (refundCount > 0)
+    {
+        LogPointsStoreEvent(
+            "event=bounty_disconnect_refund|time=%d|count=%d|refund_total=%d|token=%s",
+            GetTime(), refundCount, refundTotal, token);
+    }
+    RefreshActiveBountyTargets();
+}
+
+public void SQLTxn_OnDisconnectedBountyRefundFailed(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
+{
+    DataPack pack = view_as<DataPack>(data);
+    delete pack;
+    g_BountyDisconnectRefundPending = false;
+    LogError("[points_store] Disconnected bounty refund failed at query %d: %s", failIndex, error);
 }
 
 void BuildBountyOperationToken(const char[] prefix, char[] buffer, int maxlen)
@@ -1688,7 +1990,6 @@ public void SQLTxn_OnBountyClaimed(Database db, any data, int numQueries, DBResu
     LogPointsStoreEvent(
         "event=bounty_claimed|time=%d|claimant=%s|target=%s|amount=%d|token=%s",
         GetTime(), attackerSteamId, victimSteamId, amount, token);
-    RequestPendingBountyNotifications();
 }
 
 public void SQLTxn_OnBountyClaimFailed(Database db, any data, int numQueries, const char[] error, int failIndex, any[] queryData)
@@ -1824,7 +2125,6 @@ public void SQLTxn_OnBountiesExpired(Database db, any data, int numQueries, DBRe
             "event=bounty_expired|time=%d|refund_total=%d|token=%s",
             GetTime(), totalRefunded, token);
         PlayBountySaySound(BOUNTY_EVENT_SOUND);
-        RequestPendingBountyNotifications();
         RefreshActiveBountyTargets();
     }
 }
@@ -1983,7 +2283,7 @@ public void SQL_OnBountyProgressTargetsLoaded(Database db, DBResultSet rows, con
     txn.AddQuery(query);
 
     FormatEx(query, sizeof(query),
-        "UPDATE %s SET status = 'survived', resolved_at = %d, resolution_token = '%s', target_notified = 1 "
+        "UPDATE %s SET status = 'survived', resolved_at = %d, resolution_token = '%s' "
         ... "WHERE status = 'active' AND expires_at > %d AND qualifying_playtime_seconds >= %d",
         BOUNTY_TABLE,
         now,
@@ -2125,7 +2425,6 @@ public void SQLTxn_OnBountiesSurvived(Database db, any data, int numQueries, DBR
     if (resolvedAny)
     {
         PlayBountySaySound(BOUNTY_EVENT_SOUND);
-        RequestPendingBountyNotifications();
         RefreshActiveBountyTargets();
     }
 }
@@ -2136,146 +2435,4 @@ public void SQLTxn_OnBountyProgressFailed(Database db, any data, int numQueries,
     delete pack;
     g_BountyProgressPending = false;
     LogError("[points_store] Bounty progress failed at query %d: %s", failIndex, error);
-}
-
-bool IsBountyMailAvailable()
-{
-    return GetFeatureStatus(FeatureType_Native, "ServerMail_SendCustomSteamId") == FeatureStatus_Available;
-}
-
-void RequestPendingBountyNotifications()
-{
-    if (!g_BountyDatabaseReady || g_Database == null || g_BountyNotificationQueryPending || !IsBountyMailAvailable())
-    {
-        return;
-    }
-
-    char query[1024];
-    FormatEx(query, sizeof(query),
-        "SELECT bounty_id, status, sender_steamid64, sender_name, target_steamid64, target_name, amount, bonus_amount, "
-        ... "claimed_by_name, sender_notified, target_notified FROM %s "
-        ... "WHERE (status = 'claimed' AND sender_notified = 0) "
-        ... "OR (status = 'survived' AND sender_notified = 0) "
-        ... "OR (status = 'expired' AND (sender_notified = 0 OR target_notified = 0)) "
-        ... "ORDER BY resolved_at ASC, bounty_id ASC LIMIT 100",
-        BOUNTY_TABLE);
-    g_BountyNotificationQueryPending = true;
-    g_Database.Query(SQL_OnPendingBountyNotifications, query);
-}
-
-public void SQL_OnPendingBountyNotifications(Database db, DBResultSet rows, const char[] error, any data)
-{
-    g_BountyNotificationQueryPending = false;
-    if (error[0] != '\0')
-    {
-        LogError("[points_store] Bounty notification query failed: %s", error);
-        return;
-    }
-    if (!IsBountyMailAvailable())
-    {
-        return;
-    }
-
-    char status[16];
-    char senderSteamId[BOUNTY_STEAMID_MAX];
-    char senderName[BOUNTY_NAME_MAX];
-    char targetSteamId[BOUNTY_STEAMID_MAX];
-    char targetName[BOUNTY_NAME_MAX];
-    char claimantName[BOUNTY_NAME_MAX];
-    char contents[512];
-    char requestKey[BOUNTY_TOKEN_MAX];
-    char currencyName[BP_CURRENCY_LONG_MAX];
-    GetCurrencyLongLabel(currencyName, sizeof(currencyName));
-
-    while (rows != null && rows.FetchRow())
-    {
-        int bountyId = rows.FetchInt(0);
-        rows.FetchString(1, status, sizeof(status));
-        rows.FetchString(2, senderSteamId, sizeof(senderSteamId));
-        rows.FetchString(3, senderName, sizeof(senderName));
-        rows.FetchString(4, targetSteamId, sizeof(targetSteamId));
-        rows.FetchString(5, targetName, sizeof(targetName));
-        int amount = rows.FetchInt(6);
-        int payout = amount + rows.FetchInt(7);
-        rows.FetchString(8, claimantName, sizeof(claimantName));
-        bool senderNotified = rows.FetchInt(9) != 0;
-        bool targetNotified = rows.FetchInt(10) != 0;
-
-        if (StrEqual(status, "claimed", false) && !senderNotified)
-        {
-            FormatEx(contents, sizeof(contents), "%s completed your bounty of %d %s on %s!", claimantName, payout, currencyName, targetName);
-            FormatEx(requestKey, sizeof(requestKey), "bounty_claim_sender_%d", bountyId);
-            ServerMail_SendCustomSteamId("", "kogasa.tf", senderSteamId, "Bounty completed", contents, requestKey);
-        }
-        else if (StrEqual(status, "survived", false) && !senderNotified)
-        {
-            FormatEx(contents, sizeof(contents), "%s survived your bounty of %d %s and received %d %s.", targetName, amount, currencyName, payout, currencyName);
-            FormatEx(requestKey, sizeof(requestKey), "bounty_survived_sender_%d", bountyId);
-            ServerMail_SendCustomSteamId("", "kogasa.tf", senderSteamId, "Bounty survived", contents, requestKey);
-        }
-        else if (StrEqual(status, "expired", false))
-        {
-            if (!senderNotified)
-            {
-                FormatEx(contents, sizeof(contents), "Your bounty of %d %s on %s expired and was refunded.", amount, currencyName, targetName);
-                FormatEx(requestKey, sizeof(requestKey), "bounty_expire_sender_%d", bountyId);
-                ServerMail_SendCustomSteamId("", "kogasa.tf", senderSteamId, "Bounty expired", contents, requestKey);
-            }
-            if (!targetNotified)
-            {
-                FormatEx(contents, sizeof(contents), "%s's bounty of %d %s on you expired.", senderName, amount, currencyName);
-                FormatEx(requestKey, sizeof(requestKey), "bounty_expire_target_%d", bountyId);
-                ServerMail_SendCustomSteamId("", "kogasa.tf", targetSteamId, "Bounty expired", contents, requestKey);
-            }
-        }
-    }
-}
-
-public void ServerMail_OnMailSendResult(const char[] requestKey, bool success, int mailId, bool newlyCreated)
-{
-    if (!success || !g_BountyDatabaseReady || g_Database == null)
-    {
-        return;
-    }
-
-    char claimPrefix[] = "bounty_claim_sender_";
-    char survivedPrefix[] = "bounty_survived_sender_";
-    char expireSenderPrefix[] = "bounty_expire_sender_";
-    char expireTargetPrefix[] = "bounty_expire_target_";
-    int bountyId = 0;
-    char column[32];
-    column[0] = '\0';
-    if (StrContains(requestKey, claimPrefix, false) == 0)
-    {
-        bountyId = StringToInt(requestKey[strlen(claimPrefix)]);
-        column = "sender_notified";
-    }
-    else if (StrContains(requestKey, survivedPrefix, false) == 0)
-    {
-        bountyId = StringToInt(requestKey[strlen(survivedPrefix)]);
-        column = "sender_notified";
-    }
-    else if (StrContains(requestKey, expireSenderPrefix, false) == 0)
-    {
-        bountyId = StringToInt(requestKey[strlen(expireSenderPrefix)]);
-        column = "sender_notified";
-    }
-    else if (StrContains(requestKey, expireTargetPrefix, false) == 0)
-    {
-        bountyId = StringToInt(requestKey[strlen(expireTargetPrefix)]);
-        column = "target_notified";
-    }
-
-    if (bountyId <= 0 || column[0] == '\0')
-    {
-        return;
-    }
-
-    char query[256];
-    FormatEx(query, sizeof(query),
-        "UPDATE %s SET %s = 1 WHERE bounty_id = %d",
-        BOUNTY_TABLE,
-        column,
-        bountyId);
-    g_Database.Query(SQL_OnIgnoredResult, query);
 }
