@@ -178,7 +178,8 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
 static void AwardDropshotKillGem(int attacker, int victim)
 {
-	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") != FeatureStatus_Available)
+	if (TF2_GetPlayerClass(attacker) != TFClass_Sniper
+		|| GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") != FeatureStatus_Available)
 	{
 		return;
 	}

@@ -29,6 +29,7 @@
 
 #define FLS_STREAK_TARGET	   2
 #define FLS_STREAK_WINDOW	   4.0
+#define MEATSHOT_KILL_BONUS_TYPE "meatshot_kill"
 #define AMBASSADOR_HEADSHOT_KILL_BONUS_TYPE "ambassador_headshot_kill"
 #define SANDMAN_CLEAVER_COMBO_BONUS_TYPE "sandman_cleaver_combo"
 #define AMBASSADOR_ITEMDEF 61
@@ -972,6 +973,16 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 	{
 		ScatterPellets_Debug("ignored: not a full pellet shot");
 		return;
+	}
+
+	if (!kill || IsFakeClient(attacker) || IsFakeClient(victim))
+	{
+		return;
+	}
+
+	if (GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
+	{
+		PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, MEATSHOT_KILL_BONUS_TYPE, victim, 3.0, 4);
 	}
 
 }
