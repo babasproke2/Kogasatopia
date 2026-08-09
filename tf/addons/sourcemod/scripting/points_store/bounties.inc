@@ -285,7 +285,7 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
             continue;
         }
 
-        FormatEx(fragment, sizeof(fragment), "%s'%s'", candidateCount > 0 ? "," : "", escapedSteamId);
+        FormatEx(fragment, sizeof(fragment), "%s_binary'%s'", candidateCount > 0 ? "," : "", escapedSteamId);
         StrCat(steamIds, sizeof(steamIds), fragment);
         candidateCount++;
     }
@@ -298,8 +298,8 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
     char query[3072];
     FormatEx(query, sizeof(query),
         "SELECT w.steamid FROM whaletracker w INNER JOIN %s b ON BINARY b.steamid64 = BINARY w.steamid "
-        ... "WHERE w.steamid IN (%s) AND b.balance > %d "
-        ... "AND NOT EXISTS (SELECT 1 FROM %s active_bounty WHERE active_bounty.target_steamid64 = w.steamid "
+        ... "WHERE BINARY w.steamid IN (%s) AND b.balance > %d "
+        ... "AND NOT EXISTS (SELECT 1 FROM %s active_bounty WHERE BINARY active_bounty.target_steamid64 = BINARY w.steamid "
         ... "AND active_bounty.status = 'active' AND active_bounty.expires_at > %d) "
         ... "AND (COALESCE(w.kills, 0) + COALESCE(w.assists, 0)) >= "
         ... "(2 * CASE WHEN COALESCE(w.deaths, 0) > 0 THEN w.deaths ELSE 1 END) "
