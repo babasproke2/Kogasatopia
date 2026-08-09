@@ -21,6 +21,8 @@
 #define BOUNTY_AUTOMATIC_CHANCE_PERCENT 15
 #define BOUNTY_AUTOMATIC_AMOUNT 100
 #define BOUNTY_AUTOMATIC_MIN_BALANCE 500
+#define BOUNTY_AUTOMATIC_MIN_RATIO 4
+#define BOUNTY_AUTOMATIC_TARGET_COOLDOWN_SECONDS 7200
 
 enum struct BountySearchResult
 {
@@ -301,14 +303,20 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
         ... "WHERE BINARY w.steamid IN (%s) AND b.balance > %d "
         ... "AND NOT EXISTS (SELECT 1 FROM %s active_bounty WHERE BINARY active_bounty.target_steamid64 = BINARY w.steamid "
         ... "AND active_bounty.status = 'active' AND active_bounty.expires_at > %d) "
+        ... "AND NOT EXISTS (SELECT 1 FROM %s recent_automatic WHERE BINARY recent_automatic.target_steamid64 = BINARY w.steamid "
+        ... "AND recent_automatic.sender_steamid64 = '%s' AND recent_automatic.placed_at > %d) "
         ... "AND (COALESCE(w.kills, 0) + COALESCE(w.assists, 0)) >= "
-        ... "(2 * CASE WHEN COALESCE(w.deaths, 0) > 0 THEN w.deaths ELSE 1 END) "
+        ... "(%d * CASE WHEN COALESCE(w.deaths, 0) > 0 THEN w.deaths ELSE 1 END) "
         ... "ORDER BY %s LIMIT 1",
         BP_BALANCE_TABLE,
         steamIds,
         BOUNTY_AUTOMATIC_MIN_BALANCE,
         BOUNTY_TABLE,
         GetTime(),
+        BOUNTY_TABLE,
+        BOUNTY_SYSTEM_STEAMID,
+        GetTime() - BOUNTY_AUTOMATIC_TARGET_COOLDOWN_SECONDS,
+        BOUNTY_AUTOMATIC_MIN_RATIO,
         g_IsMySql ? "RAND()" : "RANDOM()");
     g_BountyAutomaticPlacementPending = true;
     g_Database.Query(SQL_OnAutomaticBountyCandidateSelected, query);
@@ -369,7 +377,8 @@ void QueueAutomaticBounty(int target, const char[] targetSteamId)
         ... "qualifying_playtime_seconds, last_target_playtime_seconds, status) "
         ... "SELECT '%s', 'kogasa.tf', '%s', '%s', %d, %d, %d, 0, %d, 'active' "
         ... "WHERE (SELECT COUNT(DISTINCT target_steamid64) FROM %s WHERE status = 'active' AND expires_at > %d) < %d "
-        ... "AND NOT EXISTS (SELECT 1 FROM %s WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d)",
+        ... "AND NOT EXISTS (SELECT 1 FROM %s WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d) "
+        ... "AND NOT EXISTS (SELECT 1 FROM %s WHERE target_steamid64 = '%s' AND sender_steamid64 = '%s' AND placed_at > %d)",
         BOUNTY_TABLE,
         BOUNTY_SYSTEM_STEAMID,
         escapedTargetSteam,
@@ -383,7 +392,11 @@ void QueueAutomaticBounty(int target, const char[] targetSteamId)
         BOUNTY_MAX_ACTIVE,
         BOUNTY_TABLE,
         escapedTargetSteam,
-        now);
+        now,
+        BOUNTY_TABLE,
+        escapedTargetSteam,
+        BOUNTY_SYSTEM_STEAMID,
+        now - BOUNTY_AUTOMATIC_TARGET_COOLDOWN_SECONDS);
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(target));
