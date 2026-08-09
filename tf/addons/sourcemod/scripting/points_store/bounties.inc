@@ -10,9 +10,6 @@
 #define BOUNTY_TOKEN_MAX 128
 #define BOUNTY_SYSTEM_STEAMID "system"
 #define BOUNTY_WALL_EXPIRY_SECONDS 604800
-#define BOUNTY_PLAYTIME_EXPIRY_SECONDS 1200
-#define BOUNTY_HALFTIME_SECONDS (BOUNTY_PLAYTIME_EXPIRY_SECONDS / 2)
-#define BOUNTY_HALFTIME_REMAINING_MINUTES ((BOUNTY_PLAYTIME_EXPIRY_SECONDS - BOUNTY_HALFTIME_SECONDS) / 60)
 #define BOUNTY_KILL_GROWTH_AMOUNT 5
 #define BOUNTY_MEDIC_ASSISTS_PER_GROWTH 2
 #define BOUNTY_MAINTENANCE_INTERVAL 60.0
@@ -60,7 +57,6 @@ bool g_BountyAutomaticPlacementPending = false;
 
 static const char g_BountyHelpLines[][] =
 {
-    "Bounties last 20 minutes of playtime or one week in real time.",
     "When a client with a bounty on them is dominated, the bounty ends and pays the dominator the Gems.",
     "Each kill, or every 2 assists as Medic, increases the bounty by 5 Gems."
 };
@@ -103,6 +99,27 @@ int GetBountyMinPlayers()
 int GetBountyMaxAmount()
 {
     return g_CvarBountyMaxAmount != null ? g_CvarBountyMaxAmount.IntValue : 1000;
+}
+
+int GetBountyMinAmount()
+{
+    return g_CvarBountyMinAmount != null ? g_CvarBountyMinAmount.IntValue : 50;
+}
+
+int GetBountyPlaytimeLimitSeconds()
+{
+    float minutes = g_CvarBountyTimeLimitMinutes != null ? g_CvarBountyTimeLimitMinutes.FloatValue : 20.0;
+    return RoundToCeil(minutes * 60.0);
+}
+
+int GetBountyHalftimeSeconds()
+{
+    return GetBountyPlaytimeLimitSeconds() / 2;
+}
+
+int GetBountyHalftimeRemainingMinutes()
+{
+    return RoundToCeil(float(GetBountyPlaytimeLimitSeconds() - GetBountyHalftimeSeconds()) / 60.0);
 }
 
 bool IsBountyPopulationEligible()
@@ -181,14 +198,19 @@ public Action Command_BountyHelp(int client, int args)
         "Use {gold}'!bounty makocake 100'{default} to place a %s100 Gem{default} bounty on Makocake.",
         g_CurrencyColorTag);
     CPrintToChat(client, "%s %s", g_BountyPrefix, firstLine);
+    CPrintToChat(client,
+        "%s Bounties last {gold}%d minutes{default} of qualifying playtime or one week in real time.",
+        g_BountyPrefix,
+        (GetBountyPlaytimeLimitSeconds() + 59) / 60);
     for (int i = 0; i < sizeof(g_BountyHelpLines); i++)
     {
         CPrintToChat(client, "%s %s", g_BountyPrefix, g_BountyHelpLines[i]);
     }
     CPrintToChat(client,
-        "%s An individual bounty cannot exceed %s%d %s{default}.",
+        "%s Individual bounties must be between %s%d and %d %s{default}.",
         g_BountyPrefix,
         g_CurrencyColorTag,
+        GetBountyMinAmount(),
         GetBountyMaxAmount(),
         g_CurrencyLongLabel);
     int thresholdDisplay = GetBountyMinPlayers() - 1;
@@ -277,12 +299,16 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
     FormatEx(query, sizeof(query),
         "SELECT w.steamid FROM whaletracker w INNER JOIN %s b ON BINARY b.steamid64 = BINARY w.steamid "
         ... "WHERE w.steamid IN (%s) AND b.balance > %d "
+        ... "AND NOT EXISTS (SELECT 1 FROM %s active_bounty WHERE active_bounty.target_steamid64 = w.steamid "
+        ... "AND active_bounty.status = 'active' AND active_bounty.expires_at > %d) "
         ... "AND (COALESCE(w.kills, 0) + COALESCE(w.assists, 0)) >= "
         ... "(2 * CASE WHEN COALESCE(w.deaths, 0) > 0 THEN w.deaths ELSE 1 END) "
         ... "ORDER BY %s LIMIT 1",
         BP_BALANCE_TABLE,
         steamIds,
         BOUNTY_AUTOMATIC_MIN_BALANCE,
+        BOUNTY_TABLE,
+        GetTime(),
         g_IsMySql ? "RAND()" : "RANDOM()");
     g_BountyAutomaticPlacementPending = true;
     g_Database.Query(SQL_OnAutomaticBountyCandidateSelected, query);
@@ -342,7 +368,8 @@ void QueueAutomaticBounty(int target, const char[] targetSteamId)
         "INSERT INTO %s (sender_steamid64, sender_name, target_steamid64, target_name, amount, placed_at, expires_at, "
         ... "qualifying_playtime_seconds, last_target_playtime_seconds, status) "
         ... "SELECT '%s', 'kogasa.tf', '%s', '%s', %d, %d, %d, 0, %d, 'active' "
-        ... "WHERE (SELECT COUNT(*) FROM %s WHERE status = 'active' AND expires_at > %d) < %d",
+        ... "WHERE (SELECT COUNT(DISTINCT target_steamid64) FROM %s WHERE status = 'active' AND expires_at > %d) < %d "
+        ... "AND NOT EXISTS (SELECT 1 FROM %s WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d)",
         BOUNTY_TABLE,
         BOUNTY_SYSTEM_STEAMID,
         escapedTargetSteam,
@@ -353,7 +380,10 @@ void QueueAutomaticBounty(int target, const char[] targetSteamId)
         targetPlaytime,
         BOUNTY_TABLE,
         now,
-        BOUNTY_MAX_ACTIVE);
+        BOUNTY_MAX_ACTIVE,
+        BOUNTY_TABLE,
+        escapedTargetSteam,
+        now);
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(target));
@@ -385,7 +415,7 @@ public void SQL_OnAutomaticBountyPlaced(Database db, DBResultSet results, const 
     }
 
     MarkActiveBountyTarget(targetSteamId);
-    g_ActiveBountyCount++;
+    RefreshActiveBountyTargets();
 
     char targetDisplay[256];
     BuildBountyDisplayName(targetSteamId, targetName, targetDisplay, sizeof(targetDisplay));
@@ -422,7 +452,7 @@ void PrintBountyTargetInstructions(int target)
     CPrintToChat(target,
         "%s If an enemy dominates you, they collect the bounty; if you avoid being dominated for {gold}%d minutes{default}, you collect the gems yourself!",
         g_BountyPrefix,
-        BOUNTY_PLAYTIME_EXPIRY_SECONDS / 60);
+        (GetBountyPlaytimeLimitSeconds() + 59) / 60);
 }
 
 void Bounties_OnClientAuthorized(int client)
@@ -646,11 +676,6 @@ public Action Command_PlaceBounty(int client, int args)
         CPrintToChat(client, "%s Bounties are temporarily unavailable.", g_BountyPrefix);
         return Plugin_Handled;
     }
-    if (g_ActiveBountyCount >= BOUNTY_MAX_ACTIVE)
-    {
-        CPrintToChat(client, "%s The maximum of {gold}%d{default} active bounties has been reached.", g_BountyPrefix, BOUNTY_MAX_ACTIVE);
-        return Plugin_Handled;
-    }
     int cooldownRemaining = GetBountyPlacementCooldownRemaining(client);
     if (cooldownRemaining > 0)
     {
@@ -699,8 +724,9 @@ public Action Command_PlaceBounty(int client, int args)
             if (!IsBountyAmountAllowed(amount))
             {
                 CPrintToChat(client,
-                    "%s Bounty amount must be between {gold}1 and %d{default}.",
+                    "%s Bounty amount must be between {gold}%d and %d{default}.",
                     g_BountyPrefix,
+                    GetBountyMinAmount(),
                     GetBountyMaxAmount());
                 return Plugin_Handled;
             }
@@ -738,7 +764,7 @@ public Action Command_PlaceBounty(int client, int args)
 
 bool IsBountyAmountAllowed(int amount)
 {
-    return amount > 0 && amount <= GetBountyMaxAmount();
+    return amount >= GetBountyMinAmount() && amount <= GetBountyMaxAmount();
 }
 
 void RequestBountyPlayerSearch(int client)
@@ -866,6 +892,11 @@ public int MenuHandler_BountySearchResults(Menu menu, MenuAction action, int cli
         CPrintToChat(client, "%s You cannot place a bounty on yourself.", g_BountyPrefix);
         return 0;
     }
+    if (g_ActiveBountyCount >= BOUNTY_MAX_ACTIVE && !IsSteamIdActiveBountyTarget(targetSteamId))
+    {
+        CPrintToChat(client, "%s The maximum of {gold}%d{default} active bounty targets has been reached.", g_BountyPrefix, BOUNTY_MAX_ACTIVE);
+        return 0;
+    }
 
     strcopy(g_BountyPendingTargetSteamId[client], sizeof(g_BountyPendingTargetSteamId[]), targetSteamId);
     strcopy(g_BountyPendingTargetName[client], sizeof(g_BountyPendingTargetName[]), targetSteamId);
@@ -899,7 +930,7 @@ void ShowBountyAmountMenu(int client)
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
     for (int i = 0; i < sizeof(g_BountyAmounts); i++)
     {
-        if (g_BountyAmounts[i] > GetBountyMaxAmount())
+        if (!IsBountyAmountAllowed(g_BountyAmounts[i]))
         {
             continue;
         }
@@ -1007,8 +1038,9 @@ public int MenuHandler_BountyConsent(Menu menu, MenuAction action, int client, i
     if (!IsBountyAmountAllowed(g_BountyPendingAmount[client]))
     {
         CPrintToChat(client,
-            "%s The maximum bounty is now {gold}%d{default}. Choose another amount.",
+            "%s Bounties must now be between {gold}%d and %d{default}. Choose another amount.",
             g_BountyPrefix,
+            GetBountyMinAmount(),
             GetBountyMaxAmount());
         return 0;
     }
@@ -1020,9 +1052,10 @@ public int MenuHandler_BountyConsent(Menu menu, MenuAction action, int client, i
             GetBountyMinPlayers());
         return 0;
     }
-    if (g_ActiveBountyCount >= BOUNTY_MAX_ACTIVE)
+    if (g_ActiveBountyCount >= BOUNTY_MAX_ACTIVE
+        && !IsSteamIdActiveBountyTarget(g_BountyPendingTargetSteamId[client]))
     {
-        CPrintToChat(client, "%s The maximum of {gold}%d{default} active bounties has been reached.", g_BountyPrefix, BOUNTY_MAX_ACTIVE);
+        CPrintToChat(client, "%s The maximum of {gold}%d{default} active bounty targets has been reached.", g_BountyPrefix, BOUNTY_MAX_ACTIVE);
         return 0;
     }
     int cooldownRemaining = GetBountyPlacementCooldownRemaining(client);
@@ -1058,7 +1091,7 @@ void QueueBountyPlacement(int client)
     char escapedSenderName[(BOUNTY_NAME_MAX * 2) + 1];
     char escapedTargetSteam[65];
     char escapedTargetName[(BOUNTY_NAME_MAX * 2) + 1];
-    if (amount <= 0
+    if (!IsBountyAmountAllowed(amount)
         || !EscapeSql(senderSteamId, escapedSenderSteam, sizeof(escapedSenderSteam))
         || !EscapeSql(senderName, escapedSenderName, sizeof(escapedSenderName))
         || !EscapeSql(g_BountyPendingTargetSteamId[client], escapedTargetSteam, sizeof(escapedTargetSteam))
@@ -1080,16 +1113,22 @@ void QueueBountyPlacement(int client)
     {
         targetPlaytime = WhaleTracker_GetRankedPlaytimeSeconds(target, g_BountyPendingTargetSteamId[client]);
     }
+    int playtimeLimit = GetBountyPlaytimeLimitSeconds();
+    int halftime = GetBountyHalftimeSeconds();
     Transaction txn = new Transaction();
-    char query[2048];
+    char query[4096];
     FormatEx(query, sizeof(query),
         "UPDATE %s SET balance = balance - %d WHERE steamid64 = '%s' AND balance >= %d "
-        ... "AND (SELECT COUNT(*) FROM %s WHERE status = 'active' AND expires_at > %d) < %d "
+        ... "AND (EXISTS (SELECT 1 FROM %s WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d) "
+        ... "OR (SELECT COUNT(DISTINCT target_steamid64) FROM %s WHERE status = 'active' AND expires_at > %d) < %d) "
         ... "AND NOT EXISTS (SELECT 1 FROM %s WHERE sender_steamid64 = '%s' AND placed_at > %d)",
         BP_BALANCE_TABLE,
         amount,
         escapedSenderSteam,
         amount,
+        BOUNTY_TABLE,
+        escapedTargetSteam,
+        now,
         BOUNTY_TABLE,
         now,
         BOUNTY_MAX_ACTIVE,
@@ -1100,8 +1139,15 @@ void QueueBountyPlacement(int client)
 
     FormatEx(query, sizeof(query),
         "INSERT INTO %s (sender_steamid64, sender_name, target_steamid64, target_name, amount, placed_at, expires_at, "
-        ... "qualifying_playtime_seconds, last_target_playtime_seconds, status) "
-        ... "SELECT '%s', '%s', '%s', '%s', %d, %d, %d, 0, %d, 'active' WHERE %s = 1",
+        ... "qualifying_playtime_seconds, last_target_playtime_seconds, halftime_announced, status) "
+        ... "SELECT '%s', '%s', '%s', '%s', %d, %d, %d, "
+        ... "CASE WHEN current_bounty.row_count = 0 OR %d >= current_bounty.total_amount THEN 0 "
+        ... "ELSE %s(0, current_bounty.progress_seconds - ((%d * %d) / current_bounty.total_amount)) END, "
+        ... "%d, 0, 'active' FROM (SELECT COUNT(*) AS row_count, "
+        ... "COALESCE(SUM(amount + bonus_amount), 0) AS total_amount, "
+        ... "COALESCE(MIN(qualifying_playtime_seconds), 0) AS progress_seconds FROM %s "
+        ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d) current_bounty "
+        ... "WHERE %s = 1",
         BOUNTY_TABLE,
         escapedSenderSteam,
         escapedSenderName,
@@ -1110,8 +1156,59 @@ void QueueBountyPlacement(int client)
         amount,
         now,
         now + BOUNTY_WALL_EXPIRY_SECONDS,
+        amount,
+        g_IsMySql ? "GREATEST" : "MAX",
+        playtimeLimit,
+        amount,
         targetPlaytime,
+        BOUNTY_TABLE,
+        escapedTargetSteam,
+        now,
         g_IsMySql ? "ROW_COUNT()" : "changes()");
+    txn.AddQuery(query);
+
+    if (g_IsMySql)
+    {
+        FormatEx(query, sizeof(query),
+            "UPDATE %s existing_bounty JOIN (SELECT qualifying_playtime_seconds, last_target_playtime_seconds "
+            ... "FROM %s WHERE bounty_id = LAST_INSERT_ID() AND sender_steamid64 = '%s' "
+            ... "AND target_steamid64 = '%s' AND placed_at = %d) new_bounty "
+            ... "SET existing_bounty.qualifying_playtime_seconds = new_bounty.qualifying_playtime_seconds, "
+            ... "existing_bounty.last_target_playtime_seconds = new_bounty.last_target_playtime_seconds, "
+            ... "existing_bounty.halftime_announced = IF(new_bounty.qualifying_playtime_seconds < %d, 0, 1) "
+            ... "WHERE existing_bounty.target_steamid64 = '%s' AND existing_bounty.status = 'active' "
+            ... "AND existing_bounty.expires_at > %d",
+            BOUNTY_TABLE,
+            BOUNTY_TABLE,
+            escapedSenderSteam,
+            escapedTargetSteam,
+            now,
+            halftime,
+            escapedTargetSteam,
+            now);
+    }
+    else
+    {
+        FormatEx(query, sizeof(query),
+            "UPDATE %s SET "
+            ... "qualifying_playtime_seconds = (SELECT qualifying_playtime_seconds FROM %s WHERE bounty_id = last_insert_rowid()), "
+            ... "last_target_playtime_seconds = (SELECT last_target_playtime_seconds FROM %s WHERE bounty_id = last_insert_rowid()), "
+            ... "halftime_announced = CASE WHEN (SELECT qualifying_playtime_seconds FROM %s WHERE bounty_id = last_insert_rowid()) < %d THEN 0 ELSE 1 END "
+            ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d "
+            ... "AND EXISTS (SELECT 1 FROM %s WHERE bounty_id = last_insert_rowid() AND sender_steamid64 = '%s' "
+            ... "AND target_steamid64 = '%s' AND placed_at = %d)",
+            BOUNTY_TABLE,
+            BOUNTY_TABLE,
+            BOUNTY_TABLE,
+            BOUNTY_TABLE,
+            halftime,
+            escapedTargetSteam,
+            now,
+            BOUNTY_TABLE,
+            escapedSenderSteam,
+            escapedTargetSteam,
+            now);
+    }
     txn.AddQuery(query);
 
     DataPack pack = new DataPack();
@@ -1141,7 +1238,7 @@ public void SQLTxn_OnBountyPlaced(Database db, any data, int numQueries, DBResul
     int amount = pack.ReadCell();
     delete pack;
 
-    bool placed = numQueries >= 2 && results[1] != null && results[1].AffectedRows > 0;
+    bool placed = numQueries >= 3 && results[1] != null && results[1].AffectedRows > 0;
     if (client > 0)
     {
         g_BountyPlacementPending[client] = false;
@@ -1160,7 +1257,7 @@ public void SQLTxn_OnBountyPlaced(Database db, any data, int numQueries, DBResul
     }
 
     MarkActiveBountyTarget(targetSteamId);
-    g_ActiveBountyCount++;
+    RefreshActiveBountyTargets();
 
     if (IsClientInGameHuman(client))
     {
@@ -1341,6 +1438,14 @@ void MarkActiveBountyTarget(const char[] steamId)
     }
 }
 
+bool IsSteamIdActiveBountyTarget(const char[] steamId)
+{
+    int cacheMarker;
+    return g_ActiveBountyTargets != null
+        && steamId[0] != '\0'
+        && g_ActiveBountyTargets.GetValue(steamId, cacheMarker);
+}
+
 void RefreshActiveBountyTargets()
 {
     if (!g_BountyDatabaseReady || g_Database == null)
@@ -1377,7 +1482,7 @@ public void SQL_OnActiveBountyTargetsLoaded(Database db, DBResultSet rows, const
     {
         rows.FetchString(0, steamId, sizeof(steamId));
         refreshedTargets.SetValue(steamId, 1, true);
-        activeCount += rows.FetchInt(1);
+        activeCount++;
     }
 
     delete g_ActiveBountyTargets;
@@ -1478,16 +1583,18 @@ void GrowActiveBountiesForKill(int attacker, bool fromMedicAssists)
     }
 
     int maxAmount = GetBountyMaxAmount();
-    char query[768];
+    char query[1024];
     if (g_IsMySql)
     {
         FormatEx(query, sizeof(query),
-            "UPDATE %s SET bonus_amount = LEAST(%d - amount, bonus_amount + %d) "
-            ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d "
-            ... "AND amount < %d AND amount + bonus_amount < %d",
+            "UPDATE %s SET bonus_amount = LEAST(%d - amount, bonus_amount + %d) WHERE bounty_id = ("
+            ... "SELECT bounty_id FROM (SELECT bounty_id FROM %s WHERE target_steamid64 = '%s' "
+            ... "AND status = 'active' AND expires_at > %d AND amount < %d AND amount + bonus_amount < %d "
+            ... "ORDER BY bounty_id LIMIT 1) eligible_bounty)",
             BOUNTY_TABLE,
             maxAmount,
             BOUNTY_KILL_GROWTH_AMOUNT,
+            BOUNTY_TABLE,
             escapedAttackerSteam,
             GetTime(),
             maxAmount,
@@ -1496,12 +1603,14 @@ void GrowActiveBountiesForKill(int attacker, bool fromMedicAssists)
     else
     {
         FormatEx(query, sizeof(query),
-            "UPDATE %s SET bonus_amount = MIN(%d - amount, bonus_amount + %d) "
-            ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d "
-            ... "AND amount < %d AND amount + bonus_amount < %d",
+            "UPDATE %s SET bonus_amount = MIN(%d - amount, bonus_amount + %d) WHERE bounty_id = ("
+            ... "SELECT bounty_id FROM %s WHERE target_steamid64 = '%s' AND status = 'active' "
+            ... "AND expires_at > %d AND amount < %d AND amount + bonus_amount < %d "
+            ... "ORDER BY bounty_id LIMIT 1)",
             BOUNTY_TABLE,
             maxAmount,
             BOUNTY_KILL_GROWTH_AMOUNT,
+            BOUNTY_TABLE,
             escapedAttackerSteam,
             GetTime(),
             maxAmount,
@@ -2188,6 +2297,8 @@ public void SQL_OnBountyProgressTargetsLoaded(Database db, DBResultSet rows, con
 
     bool countPlaytime = IsBountyPopulationEligible();
     int now = GetTime();
+    int playtimeLimit = GetBountyPlaytimeLimitSeconds();
+    int halftime = GetBountyHalftimeSeconds();
     int updateCount = 0;
     Transaction txn = new Transaction();
     char targetSteamId[BOUNTY_STEAMID_MAX];
@@ -2216,7 +2327,7 @@ public void SQL_OnBountyProgressTargetsLoaded(Database db, DBResultSet rows, con
                 ... "%d - last_target_playtime_seconds, 0)), last_target_playtime_seconds = %d "
                 ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d",
                 BOUNTY_TABLE,
-                BOUNTY_PLAYTIME_EXPIRY_SECONDS,
+                playtimeLimit,
                 countPlaytime ? 1 : 0,
                 currentPlaytime,
                 currentPlaytime,
@@ -2232,7 +2343,7 @@ public void SQL_OnBountyProgressTargetsLoaded(Database db, DBResultSet rows, con
                 ... "THEN %d - last_target_playtime_seconds ELSE 0 END), last_target_playtime_seconds = %d "
                 ... "WHERE target_steamid64 = '%s' AND status = 'active' AND expires_at > %d",
                 BOUNTY_TABLE,
-                BOUNTY_PLAYTIME_EXPIRY_SECONDS,
+                playtimeLimit,
                 countPlaytime ? 1 : 0,
                 currentPlaytime,
                 currentPlaytime,
@@ -2267,13 +2378,18 @@ public void SQL_OnBountyProgressTargetsLoaded(Database db, DBResultSet rows, con
         ... "AND qualifying_playtime_seconds >= %d",
         BOUNTY_TABLE,
         now,
-        BOUNTY_HALFTIME_SECONDS);
+        halftime);
     txn.AddQuery(query);
 
     int halftimeQueryIndex = updateCount + 1;
     FormatEx(query, sizeof(query),
-        "SELECT amount + bonus_amount, target_steamid64, target_name FROM %s "
-        ... "WHERE status = 'active' AND halftime_announced = 2 ORDER BY bounty_id",
+        "SELECT SUM(all_bounties.amount + all_bounties.bonus_amount), all_bounties.target_steamid64, MAX(all_bounties.target_name) "
+        ... "FROM %s all_bounties WHERE all_bounties.status = 'active' AND all_bounties.expires_at > %d "
+        ... "AND EXISTS (SELECT 1 FROM %s alert_bounty WHERE alert_bounty.target_steamid64 = all_bounties.target_steamid64 "
+        ... "AND alert_bounty.status = 'active' AND alert_bounty.halftime_announced = 2) "
+        ... "GROUP BY all_bounties.target_steamid64 ORDER BY all_bounties.target_steamid64",
+        BOUNTY_TABLE,
+        now,
         BOUNTY_TABLE);
     txn.AddQuery(query);
 
@@ -2289,7 +2405,7 @@ public void SQL_OnBountyProgressTargetsLoaded(Database db, DBResultSet rows, con
         now,
         escapedToken,
         now,
-        BOUNTY_PLAYTIME_EXPIRY_SECONDS);
+        playtimeLimit);
     txn.AddQuery(query);
 
     if (g_IsMySql)
@@ -2368,7 +2484,7 @@ public void SQLTxn_OnBountiesSurvived(Database db, any data, int numQueries, DBR
                         g_CurrencyColorTag,
                         amount,
                         currencyName,
-                        BOUNTY_HALFTIME_REMAINING_MINUTES);
+                        GetBountyHalftimeRemainingMinutes());
                 }
             }
             LogPointsStoreEvent(
