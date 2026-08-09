@@ -48,6 +48,8 @@
 #define NAME_PATTERN_GRADIENT_PREFIX "gradient:"
 #define NAME_PATTERN_MAX 96
 #define NAME_GRADIENT_MAX_STEPS 8
+#define NAME_GRADIENT_DEFAULT_COMPLETION 50
+#define NAME_GRADIENT_MAX_COMPLETION 90
 #define AMERICA_NAME_ACCESS_ITEM "america_flag_name"
 #define MAP_NAME_ACCESS_ITEM "map_flag_name"
 #define TRANS_NAME_ACCESS_ITEM "trans_flag_name"
@@ -576,6 +578,8 @@ static void Filters_RegisterCommands()
     RegConsoleCmd("sm_filters_debug", Command_FiltersDebug, "Show debug stats for filters");
     RegConsoleCmd("sm_colors", Command_Colors, "Show available chat colors");
     RegConsoleCmd("sm_colours", Command_Colors, "Show available chat colours");
+    RegConsoleCmd("sm_gradientmenu", Command_GradientMenu, "Adjust where the second gradient color becomes full.");
+    RegConsoleCmd("sm_gm", Command_GradientMenu, "Adjust where the second gradient color becomes full.");
     RegConsoleCmd("sm_prename", Command_Prename, "sm_prename <name_substring|steamid> <newname> (admins) or sm_prename <newname> (self)");
     RegConsoleCmd("sm_reset", Command_PrenameReset, "sm_reset <name|steamid> (admins) or sm_reset (self)");
     RegAdminCmd("sm_migrate", Command_PrenameMigrate, ADMFLAG_SLAY, "sm_migrate - Migrates legacy name rules to SteamID rules for connected clients");
@@ -1958,7 +1962,7 @@ static bool HandleGradientNameCommand(int client, const char[] command, int argu
     }
 
     char pattern[NAME_PATTERN_MAX];
-    FormatEx(pattern, sizeof(pattern), "%s%s:%s", NAME_PATTERN_GRADIENT_PREFIX, firstColor, secondColor);
+    FormatEx(pattern, sizeof(pattern), "%s%s:%s:%d", NAME_PATTERN_GRADIENT_PREFIX, firstColor, secondColor, NAME_GRADIENT_DEFAULT_COMPLETION);
     if (StrEqual(g_NamePatterns[client], pattern, false))
     {
         CPrintToChat(client, "{default}[Filters] Your name already uses that gradient.");
@@ -1970,6 +1974,160 @@ static bool HandleGradientNameCommand(int client, const char[] command, int argu
     BuildRenderedClientName(client, renderedName, sizeof(renderedName));
     CPrintToChat(client, "{default}[Filters] Your name gradient is now %s.", renderedName);
     return true;
+}
+
+public Action Command_GradientMenu(int client, int args)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return Plugin_Handled;
+    }
+    if (!ClientHasNamePatternAccess(client, GRADIENT_NAME_ACCESS_ITEM, "Gradient Color Name Access"))
+    {
+        return Plugin_Handled;
+    }
+
+    char firstColor[32];
+    char secondColor[32];
+    int completionPercent;
+    if (!ParseGradientNamePattern(
+        g_NamePatterns[client],
+        firstColor,
+        sizeof(firstColor),
+        secondColor,
+        sizeof(secondColor),
+        completionPercent))
+    {
+        CPrintToChat(client, "{default}[Filters] Use {gold}!gradient <color1> <color2>{default} before opening Gradient Control.");
+        return Plugin_Handled;
+    }
+
+    ShowGradientControlMenu(client, completionPercent);
+    return Plugin_Handled;
+}
+
+static void ShowGradientControlMenu(int client, int completionPercent)
+{
+    Menu menu = new Menu(MenuHandler_GradientControl);
+    menu.SetTitle("Gradient Control");
+
+    int positionCount = GetGradientControlPositionCount();
+    menu.AddItem("left", "Adjust Left", completionPercent > GetGradientControlPercent(0) ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
+    menu.AddItem("right", "Adjust Right", completionPercent < GetGradientControlPercent(positionCount - 1) ? ITEMDRAW_DEFAULT : ITEMDRAW_DISABLED);
+
+    char percentage[16];
+    FormatEx(percentage, sizeof(percentage), "%d%%", completionPercent);
+    menu.AddItem("percentage", percentage, ITEMDRAW_DISABLED);
+    menu.ExitButton = true;
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int MenuHandler_GradientControl(Menu menu, MenuAction action, int client, int item)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+        return 0;
+    }
+    if (action != MenuAction_Select || client <= 0 || !IsClientInGame(client))
+    {
+        return 0;
+    }
+
+    char direction[16];
+    menu.GetItem(item, direction, sizeof(direction));
+
+    char firstColor[32];
+    char secondColor[32];
+    int completionPercent;
+    if (!ParseGradientNamePattern(
+        g_NamePatterns[client],
+        firstColor,
+        sizeof(firstColor),
+        secondColor,
+        sizeof(secondColor),
+        completionPercent))
+    {
+        CPrintToChat(client, "{default}[Filters] Your active name pattern is no longer a gradient.");
+        return 0;
+    }
+
+    if (StrEqual(direction, "left", false))
+    {
+        completionPercent = GetAdjacentGradientControlPercent(completionPercent, false);
+    }
+    else if (StrEqual(direction, "right", false))
+    {
+        completionPercent = GetAdjacentGradientControlPercent(completionPercent, true);
+    }
+
+    char pattern[NAME_PATTERN_MAX];
+    FormatEx(pattern, sizeof(pattern), "%s%s:%s:%d", NAME_PATTERN_GRADIENT_PREFIX, firstColor, secondColor, completionPercent);
+    SetNamePatternPreference(client, pattern);
+    ShowGradientControlMenu(client, completionPercent);
+    return 0;
+}
+
+static int GetGradientControlSlotCount()
+{
+    int count = 0;
+    for (int slot = 1; slot <= NAME_GRADIENT_MAX_STEPS; slot++)
+    {
+        int percent = RoundToNearest(float(slot) * 100.0 / float(NAME_GRADIENT_MAX_STEPS));
+        if (percent > NAME_GRADIENT_MAX_COMPLETION)
+        {
+            break;
+        }
+        count++;
+    }
+    return count;
+}
+
+static int GetGradientControlPositionCount()
+{
+    int slotCount = GetGradientControlSlotCount();
+    return GetGradientControlPercent(slotCount - 1) < NAME_GRADIENT_MAX_COMPLETION ? slotCount + 1 : slotCount;
+}
+
+static int GetGradientControlPercent(int position)
+{
+    int slotCount = GetGradientControlSlotCount();
+    if (position >= slotCount)
+    {
+        return NAME_GRADIENT_MAX_COMPLETION;
+    }
+    if (position < 0)
+    {
+        position = 0;
+    }
+    return RoundToNearest(float(position + 1) * 100.0 / float(NAME_GRADIENT_MAX_STEPS));
+}
+
+static int GetAdjacentGradientControlPercent(int completionPercent, bool moveRight)
+{
+    int positionCount = GetGradientControlPositionCount();
+    if (moveRight)
+    {
+        for (int position = 0; position < positionCount; position++)
+        {
+            int candidate = GetGradientControlPercent(position);
+            if (candidate > completionPercent)
+            {
+                return candidate;
+            }
+        }
+        return GetGradientControlPercent(positionCount - 1);
+    }
+
+    for (int position = positionCount - 1; position >= 0; position--)
+    {
+        int candidate = GetGradientControlPercent(position);
+        if (candidate < completionPercent)
+        {
+            return candidate;
+        }
+    }
+    return GetGradientControlPercent(0);
 }
 
 bool Filters_CanUseListCommand(int client)
@@ -2376,10 +2534,17 @@ static bool IsRainbowNamePattern(const char[] pattern)
     return StrEqual(pattern, NAME_PATTERN_RAINBOW, false);
 }
 
-static bool ParseGradientNamePattern(const char[] pattern, char[] firstColor, int firstLen, char[] secondColor, int secondLen)
+static bool ParseGradientNamePattern(
+    const char[] pattern,
+    char[] firstColor,
+    int firstLen,
+    char[] secondColor,
+    int secondLen,
+    int &completionPercent)
 {
     firstColor[0] = '\0';
     secondColor[0] = '\0';
+    completionPercent = NAME_GRADIENT_DEFAULT_COMPLETION;
     if (StrContains(pattern, NAME_PATTERN_GRADIENT_PREFIX, false) != 0)
     {
         return false;
@@ -2388,14 +2553,37 @@ static bool ParseGradientNamePattern(const char[] pattern, char[] firstColor, in
     char colors[NAME_PATTERN_MAX];
     strcopy(colors, sizeof(colors), pattern[strlen(NAME_PATTERN_GRADIENT_PREFIX)]);
     int separator = FindCharInString(colors, ':');
-    if (separator <= 0 || !colors[separator + 1] || FindCharInString(colors[separator + 1], ':') != -1)
+    if (separator <= 0 || !colors[separator + 1])
     {
         return false;
     }
 
     colors[separator] = '\0';
     strcopy(firstColor, firstLen, colors);
-    strcopy(secondColor, secondLen, colors[separator + 1]);
+
+    char remainder[NAME_PATTERN_MAX];
+    strcopy(remainder, sizeof(remainder), colors[separator + 1]);
+    int percentageSeparator = FindCharInString(remainder, ':');
+    if (percentageSeparator == -1)
+    {
+        strcopy(secondColor, secondLen, remainder);
+    }
+    else
+    {
+        remainder[percentageSeparator] = '\0';
+        strcopy(secondColor, secondLen, remainder);
+
+        char percentageText[8];
+        strcopy(percentageText, sizeof(percentageText), remainder[percentageSeparator + 1]);
+        int parsedLength = StringToIntEx(percentageText, completionPercent);
+        if (parsedLength <= 0
+            || percentageText[parsedLength] != '\0'
+            || completionPercent <= 0
+            || completionPercent > NAME_GRADIENT_MAX_COMPLETION)
+        {
+            return false;
+        }
+    }
     TrimString(firstColor);
     TrimString(secondColor);
     ToLowercase(firstColor);
@@ -2410,7 +2598,8 @@ static bool IsGradientNamePattern(const char[] pattern)
 {
     char firstColor[32];
     char secondColor[32];
-    return ParseGradientNamePattern(pattern, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor));
+    int completionPercent;
+    return ParseGradientNamePattern(pattern, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor), completionPercent);
 }
 
 static bool IsValidNamePattern(const char[] pattern)
@@ -2446,7 +2635,13 @@ static bool GetNamedColorRgb(const char[] colorName, int &rgb)
     return GetTrieValue(CTrie, colorName, rgb);
 }
 
-static void BuildGradientName(const char[] name, const char[] firstColor, const char[] secondColor, char[] output, int maxlen)
+static void BuildGradientName(
+    const char[] name,
+    const char[] firstColor,
+    const char[] secondColor,
+    int completionPercent,
+    char[] output,
+    int maxlen)
 {
     output[0] = '\0';
 
@@ -2473,13 +2668,20 @@ static void BuildGradientName(const char[] name, const char[] firstColor, const 
     int secondBlue = secondRgb & 0xFF;
     int stepCount = charCount < NAME_GRADIENT_MAX_STEPS ? charCount : NAME_GRADIENT_MAX_STEPS;
     int denominator = stepCount > 1 ? stepCount - 1 : 1;
+    int completionIndex = charCount > 1
+        ? RoundToCeil(float(charCount - 1) * float(completionPercent) / 100.0)
+        : 1;
     int currentStep = -1;
     int charIndex = 0;
     int byteIndex = 0;
 
     while (name[byteIndex] != '\0')
     {
-        int step = charCount > 1 ? charIndex * (stepCount - 1) / (charCount - 1) : 0;
+        int step = charCount > 1 ? charIndex * (stepCount - 1) / completionIndex : 0;
+        if (step >= stepCount)
+        {
+            step = stepCount - 1;
+        }
         if (step != currentStep)
         {
             int red = (firstRed * (denominator - step) + secondRed * step + denominator / 2) / denominator;
@@ -2687,9 +2889,10 @@ static void BuildRenderedClientName(int client, char[] output, int maxlen)
 
         char firstColor[32];
         char secondColor[32];
-        if (ParseGradientNamePattern(pattern, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor)))
+        int completionPercent;
+        if (ParseGradientNamePattern(pattern, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor), completionPercent))
         {
-            BuildGradientName(name, firstColor, secondColor, output, maxlen);
+            BuildGradientName(name, firstColor, secondColor, completionPercent, output, maxlen);
             return;
         }
     }
