@@ -3,7 +3,7 @@
 #endif
 #define _points_store_dailies_included
 
-#define DAILY_CLASS_ALL 0
+#define DAILY_CLASS_ALL BP_REWARD_CLASS_ALL
 
 static const char g_DailyGemTypes[][] =
 {
@@ -46,21 +46,6 @@ static const char g_DailyGemTypes[][] =
     "killstreak_end_20_plus"
 };
 
-static const int g_DailyGemClasses[] =
-{
-    TFClass_Scout, TFClass_Scout, TFClass_Scout, TFClass_Scout,
-    TFClass_Soldier, TFClass_Soldier,
-    TFClass_Pyro, TFClass_Pyro,
-    TFClass_DemoMan, TFClass_DemoMan,
-    TFClass_Medic, TFClass_Medic, TFClass_Medic,
-    TFClass_Sniper, TFClass_Sniper, TFClass_Sniper,
-    TFClass_Spy, TFClass_Spy, TFClass_Spy, TFClass_Spy,
-    DAILY_CLASS_ALL, DAILY_CLASS_ALL, DAILY_CLASS_ALL, DAILY_CLASS_ALL,
-    DAILY_CLASS_ALL, DAILY_CLASS_ALL, DAILY_CLASS_ALL, DAILY_CLASS_ALL,
-    DAILY_CLASS_ALL, DAILY_CLASS_ALL, DAILY_CLASS_ALL, DAILY_CLASS_ALL,
-    DAILY_CLASS_ALL, DAILY_CLASS_ALL, DAILY_CLASS_ALL, DAILY_CLASS_ALL, DAILY_CLASS_ALL
-};
-
 void Dailies_OnPluginStart()
 {
     RegConsoleCmd("sm_dailies", Command_Dailies, "Show gameplay Gem limits for this map.");
@@ -100,13 +85,12 @@ int GetDailyClassProgress(int client, int classId)
     int progress = 0;
     for (int i = 0; i < sizeof(g_DailyGemTypes); i++)
     {
-        if (g_DailyGemClasses[i] != classId)
+        RewardDefinition reward;
+        if (!GetRewardDefinition(g_DailyGemTypes[i], reward))
         {
             continue;
         }
-
-        RewardDefinition reward;
-        if (!GetRewardDefinition(g_DailyGemTypes[i], reward))
+        if (reward.classId != classId)
         {
             continue;
         }
@@ -125,13 +109,12 @@ void PrintDailyClassGroup(int client, int classId)
     int entryCount = 0;
     for (int i = 0; i < sizeof(g_DailyGemTypes); i++)
     {
-        if (g_DailyGemClasses[i] != classId)
+        RewardDefinition reward;
+        if (!GetRewardDefinition(g_DailyGemTypes[i], reward))
         {
             continue;
         }
-
-        RewardDefinition reward;
-        if (!GetRewardDefinition(g_DailyGemTypes[i], reward))
+        if (reward.classId != classId)
         {
             continue;
         }
@@ -163,12 +146,6 @@ public Action Command_Dailies(int client, int args)
     }
 
     int currentClass = view_as<int>(TF2_GetPlayerClass(client));
-    if (currentClass > 0)
-    {
-        PrintDailyClassGroup(client, currentClass);
-    }
-    PrintDailyClassGroup(client, DAILY_CLASS_ALL);
-
     int classOrder[] =
     {
         TFClass_Scout,
@@ -207,6 +184,12 @@ public Action Command_Dailies(int client, int args)
         }
         printed[bestIndex] = true;
         PrintDailyClassGroup(client, classOrder[bestIndex]);
+    }
+
+    PrintDailyClassGroup(client, DAILY_CLASS_ALL);
+    if (currentClass > 0)
+    {
+        PrintDailyClassGroup(client, currentClass);
     }
     return Plugin_Handled;
 }
