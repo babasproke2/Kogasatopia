@@ -141,7 +141,7 @@ void PrintDailyClassGroup(int client, int classId)
             used = reward.perMapLimit;
         }
         CPrintToChat(client,
-            "{default}%s {gold}(%d/%d){default} - {limegreen}+%d{default}",
+            "{default}%s {gold}(%d/%d){default} {limegreen}+%d{default}",
             reward.longName,
             used,
             reward.perMapLimit,
