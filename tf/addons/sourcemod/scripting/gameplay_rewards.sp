@@ -76,6 +76,11 @@ public void OnDropShot(int attacker, int victim)
 	}
 }
 
+public void OnTelefrag(int attacker, int victim)
+{
+	AwardGameplayReward(attacker, "telefrag_kill", victim);
+}
+
 public void OnTopScoringPlayerRoundEnd(const char[] steamId64)
 {
 	if (steamId64[0] != '\0')

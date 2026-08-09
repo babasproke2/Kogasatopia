@@ -179,3 +179,6 @@ forward void OnUberDeployed(int medic, int ubersThisLife);
 forward void OnReflectKill(int attacker, int victim, bool directHit);
 forward void OnJuggle(int attacker, int victim);
 forward void OnDropShot(int attacker, int victim);
+
+/** Fired when a client kills an enemy with a telefrag. */
+forward void OnTelefrag(int attacker, int victim);
