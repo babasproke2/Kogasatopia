@@ -22,6 +22,7 @@
 
 #include "include/steam_identity.inc"
 #include "include/buildings.inc"
+#include "include/duel_detection.inc"
 #include "include/statistics.inc"
 
 native int FilterAlerts_SuppressTeamAlertWindow(float seconds);
@@ -104,9 +105,6 @@ bool g_bLastRoundHadScramble = false;
 int g_iRoundStartTimestamp = 0;
 int g_iScrambleRespawnAttempts[MAXPLAYERS + 1];
 int g_iScrambleRespawnExpectedTeam[MAXPLAYERS + 1];
-Handle g_hDuelGameConf = null;
-Handle g_hIsInDuel = null;
-bool g_bDuelDetectionAvailable = false;
 
 #define TEAM_RED  2
 #define TEAM_BLU  3
@@ -158,7 +156,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 public void OnPluginStart()
 {
     UpdateNativeVotes();
-    SetupDuelDetection();
+    DuelDetection_Initialize();
     g_hLogEnabled = CreateConVar("sm_whalescramble_log", "1", "Enable whalescramble debug logging.", _, true, 0.0, true, 1.0);
     PluginStats_Init("whalescramble_statistics_events");
     LogWhale("Plugin started.");
@@ -259,7 +257,7 @@ public void OnPluginEnd()
     ResetVotes();
     ClearScrambleCooldown();
     ClearAutoScramblePending();
-    CloseDuelDetection();
+    DuelDetection_Shutdown();
     LogWhale("Plugin ended.");
     PluginStats_Shutdown();
 }
@@ -1602,7 +1600,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
     {
         if (!IsClientInGame(i)) continue;
         if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue)) continue;
-        if (IsClientInDuel(i)) continue;
+        if (DuelDetection_IsClientInDuel(i)) continue;
 
         int team = GetClientTeam(i);
         if (team != TEAM_RED && team != TEAM_BLU) continue;
@@ -1645,7 +1643,7 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
         {
             if (!IsClientInGame(i)) continue;
             if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue)) continue;
-            if (IsClientInDuel(i)) continue;
+            if (DuelDetection_IsClientInDuel(i)) continue;
 
             int team = GetClientTeam(i);
             if (team != TEAM_RED && team != TEAM_BLU) continue;
@@ -1769,7 +1767,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
     {
         if (!IsClientInGame(i)) continue;
         if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue)) continue;
-        if (IsClientInDuel(i)) continue;
+        if (DuelDetection_IsClientInDuel(i)) continue;
 
         int team = GetClientTeam(i);
         if (team != TEAM_RED && team != TEAM_BLU) continue;
@@ -1811,7 +1809,7 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
         {
             if (!IsClientInGame(i)) continue;
             if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue)) continue;
-            if (IsClientInDuel(i)) continue;
+            if (DuelDetection_IsClientInDuel(i)) continue;
 
             int team = GetClientTeam(i);
             if (team != TEAM_RED && team != TEAM_BLU) continue;
@@ -1956,7 +1954,7 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
             continue;
         if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue))
             continue;
-        if (IsClientInDuel(i))
+        if (DuelDetection_IsClientInDuel(i))
             continue;
 
         int team = GetClientTeam(i);
@@ -2026,7 +2024,7 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
                 continue;
             if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue))
                 continue;
-            if (IsClientInDuel(i))
+            if (DuelDetection_IsClientInDuel(i))
                 continue;
 
             int team = GetClientTeam(i);
@@ -2416,7 +2414,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         if (r <= 0 || b <= 0) continue;
         if (!IsClientInGame(r) || !IsClientInGame(b)) continue;
         if (GetClientTeam(r) != TEAM_RED || GetClientTeam(b) != TEAM_BLU) continue;
-        if (IsClientInDuel(r) || IsClientInDuel(b))
+        if (DuelDetection_IsClientInDuel(r) || DuelDetection_IsClientInDuel(b))
         {
             LogWhale("Skipping scramble pair: duel active before immunity pass (red=%N blu=%N).", r, b);
             LogWhaleStat("immunity_skip", "type=duel|phase=before_immunity|mode=%s", scrambleMode);
@@ -2425,7 +2423,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         if (!ResolveScramblePurchaseImmunity(r, TEAM_RED, redIds, bluIds, swapCount, i, ignoreImmunity)) continue;
         if (!ResolveScramblePurchaseImmunity(b, TEAM_BLU, redIds, bluIds, swapCount, i, ignoreImmunity)) continue;
         if (GetClientTeam(r) != TEAM_RED || GetClientTeam(b) != TEAM_BLU) continue;
-        if (IsClientInDuel(r) || IsClientInDuel(b))
+        if (DuelDetection_IsClientInDuel(r) || DuelDetection_IsClientInDuel(b))
         {
             LogWhale("Skipping scramble pair: duel active after immunity pass (red=%N blu=%N).", r, b);
             LogWhaleStat("immunity_skip", "type=duel|phase=after_immunity|mode=%s", scrambleMode);
@@ -2557,59 +2555,6 @@ static void PlayTeamMoveSaySound()
     SaySounds_PlayCommand(0, TEAM_MOVE_SAYSOUND, true);
 }
 
-static void SetupDuelDetection()
-{
-    //Credit to AW 'Swixel' Stanley for duel detection
-    g_hDuelGameConf = LoadGameConfigFile("duel.tf2");
-    if (g_hDuelGameConf == null)
-    {
-        SetFailState("Missing duel.tf2 gamedata; refusing to run without duel protection.");
-        return;
-    }
-
-    StartPrepSDKCall(SDKCall_Static);
-    if (!PrepSDKCall_SetFromConf(g_hDuelGameConf, SDKConf_Signature, "IsInDuel"))
-    {
-        SetFailState("Missing IsInDuel signature in duel.tf2; refusing to run without duel protection.");
-        return;
-    }
-
-    PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
-    PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_ByValue);
-    g_hIsInDuel = EndPrepSDKCall();
-    if (g_hIsInDuel == null)
-    {
-        SetFailState("Failed to create IsInDuel SDKCall; refusing to run without duel protection.");
-        return;
-    }
-
-    g_bDuelDetectionAvailable = true;
-}
-
-static void CloseDuelDetection()
-{
-    g_bDuelDetectionAvailable = false;
-    delete g_hIsInDuel;
-    g_hIsInDuel = null;
-    delete g_hDuelGameConf;
-    g_hDuelGameConf = null;
-}
-
-static bool IsClientInDuel(int client)
-{
-    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
-    {
-        return false;
-    }
-
-    if (!g_bDuelDetectionAvailable || g_hIsInDuel == null)
-    {
-        return true;
-    }
-
-    return SDKCall(g_hIsInDuel, client) != 0;
-}
-
 static void ClearScrambleRespawnAttempts()
 {
     for (int client = 1; client <= MaxClients; client++)
@@ -2635,7 +2580,7 @@ static bool QueueScrambleRespawn(int client, int expectedTeam)
     {
         return false;
     }
-    if (IsClientInDuel(client))
+    if (DuelDetection_IsClientInDuel(client))
     {
         return false;
     }
@@ -2658,7 +2603,7 @@ public Action Timer_VerifyScrambleRespawn(Handle timer, any userid)
     {
         return Plugin_Stop;
     }
-    if (IsClientInDuel(client))
+    if (DuelDetection_IsClientInDuel(client))
     {
         ClearScrambleRespawnState(client);
         return Plugin_Stop;
@@ -2795,7 +2740,7 @@ static void QueueScrambleRespawnsForActiveTeams(const char[] context)
     int queued = 0;
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsClientInGame(i) || IsClientInDuel(i))
+        if (!IsClientInGame(i) || DuelDetection_IsClientInDuel(i))
         {
             continue;
         }
@@ -2826,7 +2771,7 @@ static void FillSetupMedicUbers()
 {
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsClientInGame(i) || IsClientInDuel(i) || TF2_GetPlayerClass(i) != TFClass_Medic)
+        if (!IsClientInGame(i) || DuelDetection_IsClientInDuel(i) || TF2_GetPlayerClass(i) != TFClass_Medic)
         {
             continue;
         }
@@ -2891,7 +2836,7 @@ static int GetScrambleScore(int client, bool ignoreClass, bool forced)
     {
         return 0;
     }
-    if (IsClientInDuel(client))
+    if (DuelDetection_IsClientInDuel(client))
     {
         return 0;
     }
@@ -2915,7 +2860,7 @@ static bool IsSimpleScrambleEligibleClass(int client, bool forced)
     {
         return false;
     }
-    if (IsClientInDuel(client))
+    if (DuelDetection_IsClientInDuel(client))
     {
         return false;
     }
@@ -3008,7 +2953,7 @@ static int SelectScrambleReplacementForPass(int protectedClient, int team, int r
             continue;
         }
 
-        if (IsClientInDuel(i))
+        if (DuelDetection_IsClientInDuel(i))
         {
             continue;
         }

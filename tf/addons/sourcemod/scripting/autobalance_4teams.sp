@@ -20,6 +20,7 @@
 #define REQUIRE_PLUGIN
 
 #include "include/database.inc"
+#include "include/duel_detection.inc"
 #include "include/steam_identity.inc"
 #include "include/buildings.inc"
 #include "include/statistics.inc"
@@ -61,9 +62,6 @@ int     g_iSavedAutoteamBalance;
 int     g_iSavedUnbalanceLimit;
 Handle  g_hAutoBalanceTimer = INVALID_HANDLE;
 float   g_fImbalanceDetectedAt = 0.0;
-Handle  g_hDuelGameConf = null;
-Handle  g_hIsInDuel = null;
-bool    g_bDuelDetectionAvailable = false;
 int     g_iSwapRequestSenderUserId[MAXPLAYERS + 1];
 int     g_iSwapRequestSenderTeam[MAXPLAYERS + 1];
 int     g_iSwapRequestTargetTeam[MAXPLAYERS + 1];
@@ -116,7 +114,7 @@ public any Native_HasPendingTeamSwap(Handle plugin, int numParams)
 public void OnPluginStart()
 {
     LoadTranslations("common.phrases");
-    SetupDuelDetection();
+    DuelDetection_Initialize();
     g_hLogEnabled = CreateConVar("sm_autobalance_log", "1", "Enable autobalance debug logging.", _, true, 0.0, true, 1.0);
     g_hDiffThreshold = CreateConVar("sm_autobalance_diff", "1", "Autobalance when team size difference is above this value.", _, true, 1.0, true, 10.0);
     g_hActionDelay = CreateConVar("sm_autobalance_action_delay", "10", "Seconds an imbalance must persist before normal autobalance can move a player.", _, true, 0.0, true, 120.0);
@@ -175,7 +173,7 @@ public void OnClientDisconnect(int client)
 public void OnPluginEnd()
 {
     ApplyServerBalanceCvars(false);
-    CloseDuelDetection();
+    DuelDetection_Shutdown();
     ClearAllTeamSwapRequests();
 
     if (g_hAutoBalanceTimer != INVALID_HANDLE)
@@ -277,7 +275,7 @@ public Action Command_AcceptTeamSwap(int client, int args)
         return Plugin_Handled;
     }
 
-    if (IsClientInDuel(sender) || IsClientInDuel(client))
+    if (DuelDetection_IsClientInDuel(sender) || DuelDetection_IsClientInDuel(client))
     {
         CPrintToChat(client, "[Team Swap] Players in a duel cannot swap teams.");
         CPrintToChat(sender, "[Team Swap] Players in a duel cannot swap teams.");
@@ -352,7 +350,7 @@ static void ShowTeamSwapMenu(int client)
     for (int target = 1; target <= MaxClients; target++)
     {
         if (!IsTeamSwapClient(target) || target == client || !IsGameTeam(GetClientTeam(target))
-            || GetClientTeam(target) == clientTeam || IsClientInDuel(target))
+            || GetClientTeam(target) == clientTeam || DuelDetection_IsClientInDuel(target))
         {
             continue;
         }
@@ -408,7 +406,7 @@ static bool SendTeamSwapRequest(int sender, int target)
         return false;
     }
 
-    if (IsClientInDuel(sender) || IsClientInDuel(target))
+    if (DuelDetection_IsClientInDuel(sender) || DuelDetection_IsClientInDuel(target))
     {
         CPrintToChat(sender, "[Team Swap] Players in a duel cannot swap teams.");
         return false;
@@ -879,7 +877,7 @@ public Action Timer_Autobalance(Handle timer)
         return Plugin_Continue;
     }
 
-    if (IsClientInDuel(pick))
+    if (DuelDetection_IsClientInDuel(pick))
     {
         if (loggingEnabled)
         {
@@ -940,59 +938,6 @@ static void PlayTeamMoveSaySound()
     }
 
     SaySounds_PlayCommand(0, TEAM_MOVE_SAYSOUND, true);
-}
-
-static void SetupDuelDetection()
-{
-    //Credit to AW 'Swixel' Stanley for duel detection
-    g_hDuelGameConf = LoadGameConfigFile("duel.tf2");
-    if (g_hDuelGameConf == null)
-    {
-        SetFailState("Missing duel.tf2 gamedata; refusing to run without duel protection.");
-        return;
-    }
-
-    StartPrepSDKCall(SDKCall_Static);
-    if (!PrepSDKCall_SetFromConf(g_hDuelGameConf, SDKConf_Signature, "IsInDuel"))
-    {
-        SetFailState("Missing IsInDuel signature in duel.tf2; refusing to run without duel protection.");
-        return;
-    }
-
-    PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
-    PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_ByValue);
-    g_hIsInDuel = EndPrepSDKCall();
-    if (g_hIsInDuel == null)
-    {
-        SetFailState("Failed to create IsInDuel SDKCall; refusing to run without duel protection.");
-        return;
-    }
-
-    g_bDuelDetectionAvailable = true;
-}
-
-static void CloseDuelDetection()
-{
-    g_bDuelDetectionAvailable = false;
-    delete g_hIsInDuel;
-    g_hIsInDuel = null;
-    delete g_hDuelGameConf;
-    g_hDuelGameConf = null;
-}
-
-static bool IsClientInDuel(int client)
-{
-    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
-    {
-        return false;
-    }
-
-    if (!g_bDuelDetectionAvailable || g_hIsInDuel == null)
-    {
-        return true;
-    }
-
-    return SDKCall(g_hIsInDuel, client) != 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -1066,7 +1011,7 @@ static bool IsBasicBalanceCandidate(int client, int team)
     if (client <= 0 || client > MaxClients) return false;
     if (!IsClientInGame(client) || IsFakeClient(client)) return false;
     if (GetClientTeam(client) != team) return false;
-    if (IsClientInDuel(client)) return false;
+    if (DuelDetection_IsClientInDuel(client)) return false;
     if (ClientHasDecapitationHeads(client)) return false;
 
     return true;
