@@ -22,6 +22,8 @@
 #define REQUIRE_EXTENSIONS
 
 #include "include/steam_identity.inc"
+#include "include/item_indexes.inc"
+#include "include/tf2_classes.inc"
 
 #define FLS_STREAK_TARGET	   2
 #define FLS_STREAK_WINDOW	   4.0
@@ -2193,66 +2195,19 @@ public Action Command_ReloadWeaponRevertsConfig(int client, int args)
 	return Plugin_Handled;
 }
 
-static void WeaponReverts_GetClassKey(TFClassType class, char[] buffer, int maxlen)
-{
-	switch (class)
-	{
-		case TFClass_Scout: strcopy(buffer, maxlen, "scout");
-		case TFClass_Soldier: strcopy(buffer, maxlen, "soldier");
-		case TFClass_Pyro: strcopy(buffer, maxlen, "pyro");
-		case TFClass_DemoMan: strcopy(buffer, maxlen, "demoman");
-		case TFClass_Heavy: strcopy(buffer, maxlen, "heavy");
-		case TFClass_Engineer: strcopy(buffer, maxlen, "engineer");
-		case TFClass_Medic: strcopy(buffer, maxlen, "medic");
-		case TFClass_Sniper: strcopy(buffer, maxlen, "sniper");
-		case TFClass_Spy: strcopy(buffer, maxlen, "spy");
-		default: strcopy(buffer, maxlen, "");
-	}
-}
-
 static bool WeaponReverts_ItemKeyContainsIndex(const char[] itemKey, int index)
 {
-	char token[16];
-	int tokenLen = 0;
-	int keyLen = strlen(itemKey);
-
-	for (int i = 0; i <= keyLen; i++)
+	int indexes[32];
+	int count = ItemIndexes_Parse(itemKey, indexes, sizeof(indexes));
+	for (int i = 0; i < count; i++)
 	{
-		if (itemKey[i] == ',' || itemKey[i] == '\0')
+		if (indexes[i] == index)
 		{
-			token[tokenLen] = '\0';
-			TrimString(token);
-			int tokenIndex;
-			if (WeaponReverts_TryParseItemIndex(token, tokenIndex) && tokenIndex == index)
-				return true;
-
-			tokenLen = 0;
-			continue;
-		}
-
-		if (tokenLen < sizeof(token) - 1)
-		{
-			token[tokenLen++] = itemKey[i];
+			return true;
 		}
 	}
 
 	return false;
-}
-
-static bool WeaponReverts_TryParseItemIndex(const char[] token, int &index)
-{
-	index = 0;
-	if (token[0] == '\0')
-		return false;
-
-	for (int i = 0; token[i] != '\0'; i++)
-	{
-		if (!IsCharNumeric(token[i]))
-			return false;
-	}
-
-	index = StringToInt(token);
-	return index > 0;
 }
 
 static bool WeaponReverts_JumpToConfiguredWeapon(int index)
@@ -2314,7 +2269,7 @@ static bool WeaponReverts_IsAllowedForClient(int client)
 		return true;
 
 	char classKey[16];
-	WeaponReverts_GetClassKey(TF2_GetPlayerClass(client), classKey, sizeof(classKey));
+	TF2Classes_GetKey(TF2_GetPlayerClass(client), classKey, sizeof(classKey));
 
 	bool allowed = false;
 	if (classKey[0] != '\0')

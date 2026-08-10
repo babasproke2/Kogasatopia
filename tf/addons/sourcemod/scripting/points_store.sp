@@ -19,6 +19,7 @@
 #include "include/database.inc"
 #include "include/steam_identity.inc"
 #include "include/statistics.inc"
+#include "include/tf2_classes.inc"
 
 #define BP_TRANS_DB_CONFIG_DEFAULT "default"
 #define BP_TRANS_TABLE "bonuspoints_transactions"
@@ -1534,19 +1535,7 @@ void GetClientLogClass(int client, char[] className, int maxlen)
         return;
     }
 
-    switch (TF2_GetPlayerClass(client))
-    {
-        case TFClass_Scout:     strcopy(className, maxlen, "scout");
-        case TFClass_Soldier:   strcopy(className, maxlen, "soldier");
-        case TFClass_Pyro:      strcopy(className, maxlen, "pyro");
-        case TFClass_DemoMan:   strcopy(className, maxlen, "demoman");
-        case TFClass_Heavy:     strcopy(className, maxlen, "heavy");
-        case TFClass_Engineer:  strcopy(className, maxlen, "engineer");
-        case TFClass_Medic:     strcopy(className, maxlen, "medic");
-        case TFClass_Sniper:    strcopy(className, maxlen, "sniper");
-        case TFClass_Spy:       strcopy(className, maxlen, "spy");
-        default:                strcopy(className, maxlen, "unknown");
-    }
+    TF2Classes_GetKey(TF2_GetPlayerClass(client), className, maxlen, "unknown");
 
     SanitizeLogField(className, maxlen);
 }

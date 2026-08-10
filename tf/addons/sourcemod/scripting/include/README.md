@@ -68,7 +68,7 @@ Statistics tables store occurred_at and created_at as Unix epoch seconds from Ge
 ```text
 scripting/include/
   Public plugin APIs: *_api.inc, saysounds.inc, amplifier.inc, conch_no_speed.inc
-  Repo-private helpers: database.inc, steam_identity.inc, client_validation.inc, buildings.inc
+  Repo-private helpers: database.inc, steam_identity.inc, client_validation.inc, buildings.inc, tf2_classes.inc, item_indexes.inc
   Special integration helpers: statistics.inc
   Legacy / to migrate: addplayerhealth.inc
 ```

@@ -32,6 +32,7 @@
 #include "include/database.inc"
 #include "include/steam_identity.inc"
 #include "include/statistics.inc"
+#include "include/tf2_classes.inc"
 
 #tryinclude <autoversioning/version>
 #if defined __ninjabuild_auto_version_included
@@ -1318,18 +1319,7 @@ void CwxStats_GetWeaponName(const char[] itemUid, char[] buffer, int maxlen) {
 }
 
 void CwxStats_GetClassName(int playerClass, char[] buffer, int maxlen) {
-	switch (view_as<TFClassType>(playerClass)) {
-		case TFClass_Scout: strcopy(buffer, maxlen, "scout");
-		case TFClass_Sniper: strcopy(buffer, maxlen, "sniper");
-		case TFClass_Soldier: strcopy(buffer, maxlen, "soldier");
-		case TFClass_DemoMan: strcopy(buffer, maxlen, "demoman");
-		case TFClass_Medic: strcopy(buffer, maxlen, "medic");
-		case TFClass_Heavy: strcopy(buffer, maxlen, "heavy");
-		case TFClass_Pyro: strcopy(buffer, maxlen, "pyro");
-		case TFClass_Spy: strcopy(buffer, maxlen, "spy");
-		case TFClass_Engineer: strcopy(buffer, maxlen, "engineer");
-		default: strcopy(buffer, maxlen, "unknown");
-	}
+	TF2Classes_GetKey(view_as<TFClassType>(playerClass), buffer, maxlen, "unknown");
 }
 
 void CwxStats_SanitizeField(char[] value, int maxlen) {

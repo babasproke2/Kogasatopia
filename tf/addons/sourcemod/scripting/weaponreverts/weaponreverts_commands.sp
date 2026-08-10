@@ -6,6 +6,9 @@
 #include <weaponreverts_api>
 #define REQUIRE_PLUGIN
 
+#include "../include/item_indexes.inc"
+#include "../include/tf2_classes.inc"
+
 #define WEAPON_REVERTS_CONFIG_PATH "configs/weapons.cfg"
 #define WEAPON_REVERTS_ITEM_CLASSES_SECTION "WeaponRevertsItemClasses"
 
@@ -91,68 +94,6 @@ static void LoadWeaponRevertsItemClassesConfig()
 	}
 }
 
-static void WeaponRevertsItemClasses_GetClassKey(TFClassType class, char[] buffer, int maxlen)
-{
-	switch (class)
-	{
-		case TFClass_Scout: strcopy(buffer, maxlen, "scout");
-		case TFClass_Soldier: strcopy(buffer, maxlen, "soldier");
-		case TFClass_Pyro: strcopy(buffer, maxlen, "pyro");
-		case TFClass_DemoMan: strcopy(buffer, maxlen, "demoman");
-		case TFClass_Heavy: strcopy(buffer, maxlen, "heavy");
-		case TFClass_Engineer: strcopy(buffer, maxlen, "engineer");
-		case TFClass_Medic: strcopy(buffer, maxlen, "medic");
-		case TFClass_Sniper: strcopy(buffer, maxlen, "sniper");
-		case TFClass_Spy: strcopy(buffer, maxlen, "spy");
-		default: strcopy(buffer, maxlen, "");
-	}
-}
-
-static int WeaponRevertsItemClasses_GetFirstItemIndex(const char[] itemKey)
-{
-	char token[16];
-	int tokenLen = 0;
-	int keyLen = strlen(itemKey);
-
-	for (int i = 0; i <= keyLen; i++)
-	{
-		if (itemKey[i] == ',' || itemKey[i] == '\0')
-		{
-			token[tokenLen] = '\0';
-			TrimString(token);
-			int tokenIndex;
-			if (WeaponRevertsItemClasses_TryParseItemIndex(token, tokenIndex))
-				return tokenIndex;
-
-			tokenLen = 0;
-			continue;
-		}
-
-		if (tokenLen < sizeof(token) - 1)
-		{
-			token[tokenLen++] = itemKey[i];
-		}
-	}
-
-	return 0;
-}
-
-static bool WeaponRevertsItemClasses_TryParseItemIndex(const char[] token, int &index)
-{
-	index = 0;
-	if (token[0] == '\0')
-		return false;
-
-	for (int i = 0; token[i] != '\0'; i++)
-	{
-		if (!IsCharNumeric(token[i]))
-			return false;
-	}
-
-	index = StringToInt(token);
-	return index > 0;
-}
-
 static void FormatRevertLine(char[] buffer, int maxlen, const char[] weaponName, const char[] positive, const char[] neutral, const char[] negative)
 {
 	Format(buffer, maxlen, "{default}%s:", weaponName);
@@ -196,7 +137,7 @@ public Action Command_InfoReverts(int client, int args)
 	}
 
 	char classKey[16];
-	WeaponRevertsItemClasses_GetClassKey(TF2_GetPlayerClass(client), classKey, sizeof(classKey));
+	TF2Classes_GetKey(TF2_GetPlayerClass(client), classKey, sizeof(classKey));
 	if (classKey[0] == '\0')
 		return Plugin_Handled;
 
@@ -218,9 +159,10 @@ public Action Command_InfoReverts(int client, int args)
 		{
 			char indexKey[64];
 			g_hWeaponRevertsItemClassesConfig.GetSectionName(indexKey, sizeof(indexKey));
-			int weaponIndex = WeaponRevertsItemClasses_GetFirstItemIndex(indexKey);
-			if (weaponIndex <= 0)
+			int indexes[1];
+			if (ItemIndexes_Parse(indexKey, indexes, sizeof(indexes)) == 0)
 				continue;
+			int weaponIndex = indexes[0];
 
 			char weaponName[128];
 			char positive[256];

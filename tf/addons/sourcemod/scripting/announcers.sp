@@ -20,6 +20,7 @@
 #include "include/steam_identity.inc"
 #include "include/statistics.inc"
 #include "include/strings.inc"
+#include "include/tf2_classes.inc"
 
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
 #define WHALE_MULTIKILL_MIN_LEVEL 2
@@ -1770,19 +1771,7 @@ void LogMultikillEvent(int client, int kills, const char[] label)
 
 void GetClientClassName(int client, char[] buffer, int maxlen)
 {
-    switch (TF2_GetPlayerClass(client))
-    {
-        case TFClass_Scout:     strcopy(buffer, maxlen, "scout");
-        case TFClass_Soldier:   strcopy(buffer, maxlen, "soldier");
-        case TFClass_Pyro:      strcopy(buffer, maxlen, "pyro");
-        case TFClass_DemoMan:   strcopy(buffer, maxlen, "demoman");
-        case TFClass_Heavy:     strcopy(buffer, maxlen, "heavy");
-        case TFClass_Engineer:  strcopy(buffer, maxlen, "engineer");
-        case TFClass_Medic:     strcopy(buffer, maxlen, "medic");
-        case TFClass_Sniper:    strcopy(buffer, maxlen, "sniper");
-        case TFClass_Spy:       strcopy(buffer, maxlen, "spy");
-        default:                strcopy(buffer, maxlen, "unknown");
-    }
+    TF2Classes_GetKey(TF2_GetPlayerClass(client), buffer, maxlen, "unknown");
 }
 
 bool Announcer_ServerCapacityCheck()
