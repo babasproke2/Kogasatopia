@@ -3,7 +3,9 @@
 
 #include <sourcemod>
 
-#include <sdktools>
+#include <sdktools_voice>
+
+#include "include/client_validation.inc"
 
 #define PLUGIN_VERSION "1.9.3"
 
@@ -42,14 +44,9 @@ public void MuteCheck_OnTagChanged(ConVar convar, const char[] oldValue, const c
     convar.GetString(g_Tag, sizeof(g_Tag));
 }
 
-static bool MuteCheck_IsRealClient(int client)
-{
-    return client > 0 && client <= MaxClients && IsClientInGame(client) && !IsFakeClient(client);
-}
-
 static int MuteCheck_CountMutedClients(int listener)
 {
-    if (!MuteCheck_IsRealClient(listener))
+    if (!Client_IsHumanInGame(listener))
     {
         return 0;
     }
@@ -57,7 +54,7 @@ static int MuteCheck_CountMutedClients(int listener)
     int count = 0;
     for (int target = 1; target <= MaxClients; target++)
     {
-        if (target == listener || !MuteCheck_IsRealClient(target))
+        if (target == listener || !Client_IsHumanInGame(target))
         {
             continue;
         }
@@ -94,7 +91,7 @@ static void MuteCheck_ReplyForTarget(int client, int target)
 
     for (int listener = 1; listener <= MaxClients; listener++)
     {
-        if (!MuteCheck_IsRealClient(listener))
+        if (!Client_IsHumanInGame(listener))
         {
             continue;
         }

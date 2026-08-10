@@ -5,9 +5,9 @@
 
 #include <sdktools>
 
-#undef REQUIRE_PLUGIN
 #include <whaletracker_api>
-#define REQUIRE_PLUGIN
+
+#include "include/client_validation.inc"
 
 #define PLUGIN_VERSION "1.26"
 
@@ -59,7 +59,7 @@ public Action Player_Decal(const char[] name, const int[] clients, int count, fl
 
 	int client = TE_ReadNum("m_nPlayer");
 
-	if (IsValidClient(client))
+	if (Client_IsInGame(client) && !IsClientReplay(client) && !IsClientSourceTV(client))
 	{
 		int requiredKills = GetConVarInt(g_hCVarsKills);
 		bool statsLoaded = WhaleTracker_AreStatsLoaded(client);
@@ -83,9 +83,4 @@ public Action Player_Decal(const char[] name, const int[] clients, int count, fl
 	}
 
 	return Plugin_Handled;
-}
-
-bool IsValidClient(int client)
-{
-	return (client > 0 && client <= MaxClients && IsClientInGame(client) && !IsClientReplay(client) && !IsClientSourceTV(client));
 }

@@ -13,6 +13,8 @@
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
+#include "include/client_validation.inc"
+
 #define REWARD_CHANCE_ALWAYS 1.0
 
 ConVar g_GameplayRewardDelay = null;
@@ -45,7 +47,7 @@ float GameplayRewardDelay()
 
 void AwardGameplayReward(int client, const char[] type, int target, float delay = -1.0)
 {
-	if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
+	if (!Client_IsHumanInGame(client))
 	{
 		return;
 	}

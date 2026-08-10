@@ -10,6 +10,8 @@
 #include <dgm_api>
 #define REQUIRE_PLUGIN
 
+#include "include/client_validation.inc"
+
 public Plugin myinfo =
 {
 	name = "AFK Manager",
@@ -82,10 +84,7 @@ public void OnGameFrame() {
 	int idx;
 	int buttons;
 	for (idx = 1; idx <= MaxClients; idx++) {
-		if (
-			IsClientInGame(idx) &&
-			!IsFakeClient(idx)
-		) {
+		if (Client_IsHumanInGame(idx)) {
 			buttons = GetEntProp(idx, Prop_Data, "m_nButtons");
 
 			if (
@@ -124,6 +123,10 @@ Action AfkDaemon(Handle timer, any data) {
 }
 
 void ClientPressedButton(int client) {
+	if (client <= 0 || client > MaxClients) {
+		return;
+	}
+
 	g_iLastPressTime[client] = g_iCurrentTime;
 	g_bMovedToSpec[client] = false;
 }
@@ -156,10 +159,7 @@ void AfkManage() {
 	bool low_count = GetClientCount(true) < min_count;
 
 	for (idx = 1; idx <= MaxClients; idx++) {
-		if (
-			IsClientInGame(idx) &&
-			!IsFakeClient(idx)
-		) {
+		if (Client_IsHumanInGame(idx)) {
 			// reset this var on low counts constantly
 			// so that counting only "begins" when threshold reached
 			if (low_count) {

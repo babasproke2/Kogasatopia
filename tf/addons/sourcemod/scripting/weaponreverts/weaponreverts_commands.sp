@@ -7,6 +7,7 @@
 #define REQUIRE_PLUGIN
 
 #include "../include/item_indexes.inc"
+#include "../include/client_validation.inc"
 #include "../include/tf2_classes.inc"
 
 #define WEAPON_REVERTS_CONFIG_PATH "configs/weapons.cfg"
@@ -70,11 +71,6 @@ public void OnPluginEnd()
 	}
 }
 
-static bool WeaponRevertsItemClasses_IsUsableClient(int client)
-{
-	return client > 0 && client <= MaxClients && IsClientInGame(client);
-}
-
 static void LoadWeaponRevertsItemClassesConfig()
 {
 	if (g_hWeaponRevertsItemClassesConfig != null)
@@ -127,7 +123,7 @@ static void AppendRevertLinePart(char[] buffer, int maxlen, const char[] color, 
 
 public Action Command_InfoReverts(int client, int args)
 {
-	if (!WeaponRevertsItemClasses_IsUsableClient(client))
+	if (!Client_IsInGame(client))
 		return Plugin_Handled;
 
 	if (!g_bWeaponRevertsAvailable)

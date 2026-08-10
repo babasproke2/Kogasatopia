@@ -4,6 +4,8 @@
 #include <sourcemod>
 #include <morecolors>
 
+#include "include/client_validation.inc"
+
 #define CHANGELOG_CONFIG "configs/changelog.cfg"
 #define CHANGELOG_DATE_KEY_LENGTH 16
 #define CHANGELOG_DATE_LONG_LENGTH 64
@@ -26,7 +28,7 @@ public void OnPluginStart()
 
 public Action Command_Changelog(int client, int args)
 {
-    if (client <= 0 || !IsClientInGame(client))
+    if (!Client_IsInGame(client))
     {
         return Plugin_Handled;
     }
@@ -115,7 +117,7 @@ public int MenuHandler_Changelog(Menu menu, MenuAction action, int client, int i
         return 0;
     }
 
-    if (action != MenuAction_Select || client <= 0 || !IsClientInGame(client))
+    if (action != MenuAction_Select || !Client_IsInGame(client))
     {
         return 0;
     }

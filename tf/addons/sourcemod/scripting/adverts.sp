@@ -9,6 +9,8 @@
 #include <mapchooser>
 #define REQUIRE_PLUGIN
 
+#include "include/client_validation.inc"
+
 #define PL_VERSION "3.0.0"
 
 public Plugin myinfo =
@@ -140,7 +142,7 @@ public Action Timer_DisplayAd(Handle timer)
 		PrintToServer("[Advertisements] %s", lines[n]);
 		}
 		for (int i = 1; i <= MaxClients; i++) {
-			if (!CanSeeAd(i)) {
+			if (!Client_IsHumanInGame(i)) {
 				continue;
 			}
 			for (int n = 0; n < count; n++) {
@@ -159,11 +161,6 @@ public Action Timer_DisplayAd(Handle timer)
 		}
 	}
 	return Plugin_Continue;
-}
-
-bool CanSeeAd(int client)
-{
-	return IsClientInGame(client) && !IsFakeClient(client);
 }
 
 void LoadAdvertisements()
