@@ -20,9 +20,9 @@
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
-#include "include/kogasa_steam_identity.inc"
-#include "include/kogasa_tf2.inc"
-#include "include/plugin_statistics.inc"
+#include "include/steam_identity.inc"
+#include "include/buildings.inc"
+#include "include/statistics.inc"
 
 native int FilterAlerts_SuppressTeamAlertWindow(float seconds);
 

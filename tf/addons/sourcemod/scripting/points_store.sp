@@ -14,9 +14,9 @@
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
-#include "include/kogasa_sql.inc"
-#include "include/kogasa_steam_identity.inc"
-#include "include/plugin_statistics.inc"
+#include "include/database.inc"
+#include "include/steam_identity.inc"
+#include "include/statistics.inc"
 
 #define BP_TRANS_DB_CONFIG_DEFAULT "default"
 #define BP_TRANS_TABLE "bonuspoints_transactions"

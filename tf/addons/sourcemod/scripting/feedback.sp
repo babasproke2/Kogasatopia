@@ -3,7 +3,7 @@
 
 #include <sourcemod>
 
-#include "include/kogasa_sql.inc"
+#include "include/database.inc"
 
 #define FEEDBACK_DB_CONFIG "default"
 #define FEEDBACK_TABLE "whaletracker_feedback"

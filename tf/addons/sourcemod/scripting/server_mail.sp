@@ -15,7 +15,7 @@
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
-#include "include/kogasa_steam_identity.inc"
+#include "include/steam_identity.inc"
 
 #define MAIL_DB_CONFIG "server_mail"
 #define MAIL_TABLE "mail"

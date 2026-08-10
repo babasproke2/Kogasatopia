@@ -1,7 +1,7 @@
-#if defined _kogasa_sql_included
+#if defined _kogasa_database_helper_included
     #endinput
 #endif
-#define _kogasa_sql_included
+#define _kogasa_database_helper_included
 
 #define KOGASA_SQL_DEFAULT_CONFIG "default"
 #define KOGASA_SQL_RECONNECT_DELAY 10.0

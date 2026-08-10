@@ -1,7 +1,7 @@
-#if defined _kogasa_steam_identity_included
+#if defined _kogasa_steam_identity_helper_included
     #endinput
 #endif
-#define _kogasa_steam_identity_included
+#define _kogasa_steam_identity_helper_included
 
 #define KOGASA_STEAMID_MAX 32
 #define KOGASA_STEAM64_BASE "76561197960265728"

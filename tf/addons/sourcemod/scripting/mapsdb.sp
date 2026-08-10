@@ -7,7 +7,7 @@
 #include <dgm_api>
 #define REQUIRE_PLUGIN
 
-#include "include/kogasa_sql.inc"
+#include "include/database.inc"
 
 #define MAPSDB_DEFAULT_CFG "default"
 #define MAPSDB_SECRET_CFG "secrets"

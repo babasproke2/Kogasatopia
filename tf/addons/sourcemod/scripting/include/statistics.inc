@@ -1,14 +1,14 @@
-#if defined _plugin_statistics_included
+#if defined _kogasa_statistics_helper_included
     #endinput
 #endif
-#define _plugin_statistics_included
+#define _kogasa_statistics_helper_included
 
 #if defined REQUIRE_EXTENSIONS
     #define PLUGIN_STATS_RESTORE_REQUIRE_EXTENSIONS
     #undef REQUIRE_EXTENSIONS
 #endif
 #include <socket>
-#include "kogasa_sql.inc"
+#include "database.inc"
 #if defined PLUGIN_STATS_RESTORE_REQUIRE_EXTENSIONS
     #define REQUIRE_EXTENSIONS
     #undef PLUGIN_STATS_RESTORE_REQUIRE_EXTENSIONS

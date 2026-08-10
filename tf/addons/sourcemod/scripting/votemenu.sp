@@ -12,9 +12,9 @@
 #include <points_store_api>
 #define REQUIRE_PLUGIN
 
-#include "include/kogasa_sql.inc"
-#include "include/kogasa_steam_identity.inc"
-#include "include/plugin_statistics.inc"
+#include "include/database.inc"
+#include "include/steam_identity.inc"
+#include "include/statistics.inc"
 
 // Configuration locations
 #define VOTEMENU_CONFIG      "configs/votemenu.cfg"

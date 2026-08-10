@@ -13,8 +13,8 @@
 #include <filters_api>
 #define REQUIRE_PLUGIN
 
-#include "include/kogasa_sql.inc"
-#include "include/kogasa_steam_identity.inc"
+#include "include/database.inc"
+#include "include/steam_identity.inc"
 
 	public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 	{

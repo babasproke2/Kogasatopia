@@ -8,8 +8,8 @@
 #include <custom_hats_api>
 #define REQUIRE_PLUGIN
 
-#include "include/kogasa_sql.inc"
-#include "include/kogasa_steam_identity.inc"
+#include "include/database.inc"
+#include "include/steam_identity.inc"
 
 #define PLUGIN_NAME "Tags"
 #define PLUGIN_AUTHOR "Codex"

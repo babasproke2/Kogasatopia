@@ -14,8 +14,8 @@
 #include <dgm_api>
 #define REQUIRE_PLUGIN
 
-#include "include/kogasa_steam_identity.inc"
-#include "include/plugin_statistics.inc"
+#include "include/steam_identity.inc"
+#include "include/statistics.inc"
 
 #define CONFIG_FILE "configs/saysounds.cfg"
 #define MAX_COMMAND_NAME 64

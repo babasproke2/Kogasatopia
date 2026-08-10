@@ -1,12 +1,12 @@
-#if defined _kogasa_tf2_included
+#if defined _kogasa_buildings_helper_included
     #endinput
 #endif
-#define _kogasa_tf2_included
+#define _kogasa_buildings_helper_included
 
 #include <sdktools>
 #include <tf2_stocks>
 
-#include "kogasa_clients.inc"
+#include "clients.inc"
 
 stock bool Kogasa_ClientOwnsBuilding(int client, const char[] classname)
 {

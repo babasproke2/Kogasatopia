@@ -16,8 +16,8 @@
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
-#include "include/kogasa_steam_identity.inc"
-#include "include/plugin_statistics.inc"
+#include "include/steam_identity.inc"
+#include "include/statistics.inc"
 
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
 #define WHALE_MULTIKILL_MIN_LEVEL 2

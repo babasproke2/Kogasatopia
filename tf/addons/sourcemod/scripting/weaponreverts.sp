@@ -21,7 +21,7 @@
 #include <scattergun_pellets>
 #define REQUIRE_EXTENSIONS
 
-#include "include/kogasa_steam_identity.inc"
+#include "include/steam_identity.inc"
 
 #define FLS_STREAK_TARGET	   2
 #define FLS_STREAK_WINDOW	   4.0

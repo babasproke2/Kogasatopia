@@ -1,7 +1,7 @@
-#if defined _kogasa_clients_included
+#if defined _kogasa_clients_helper_included
     #endinput
 #endif
-#define _kogasa_clients_included
+#define _kogasa_clients_helper_included
 
 stock bool Kogasa_IsValidClientIndex(int client)
 {

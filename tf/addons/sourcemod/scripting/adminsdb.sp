@@ -7,8 +7,8 @@
 
 #include <morecolors>
 
-#include "include/kogasa_sql.inc"
-#include "include/kogasa_steam_identity.inc"
+#include "include/database.inc"
+#include "include/steam_identity.inc"
 
 #define ADMIN_DB_CONFIG "default"
 #define ADMIN_TABLE_NAME "admins"

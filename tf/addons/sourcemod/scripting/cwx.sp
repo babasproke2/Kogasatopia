@@ -29,9 +29,9 @@
 #define CWX_INCLUDE_SHAREDDEFS_ONLY
 #include <cwx>
 
-#include "include/kogasa_sql.inc"
-#include "include/kogasa_steam_identity.inc"
-#include "include/plugin_statistics.inc"
+#include "include/database.inc"
+#include "include/steam_identity.inc"
+#include "include/statistics.inc"
 
 #tryinclude <autoversioning/version>
 #if defined __ninjabuild_auto_version_included

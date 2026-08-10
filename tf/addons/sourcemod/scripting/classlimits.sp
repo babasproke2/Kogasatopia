@@ -14,8 +14,8 @@
 #include <dgm_api>
 #define REQUIRE_PLUGIN
 
-#include "include/kogasa_steam_identity.inc"
-#include "include/plugin_statistics.inc"
+#include "include/steam_identity.inc"
+#include "include/statistics.inc"
 
 #define PL_VERSION "1.0.2"
 #define CLASSLIMITS_STATS_TABLE "classlimits_statistics_events"

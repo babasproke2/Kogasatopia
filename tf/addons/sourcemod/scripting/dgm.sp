@@ -21,7 +21,7 @@
 #define PLUGIN_VERSION "4.3"
 
 #include "include/dgm_api.inc"
-#include "include/plugin_statistics.inc"
+#include "include/statistics.inc"
 #define DGM_MAX_CONTROL_POINTS 8
 #define DGM_MAX_CAPTURE_INTERVALS 64
 #define DGM_SETUP_START_CHECK_INTERVAL 0.25
