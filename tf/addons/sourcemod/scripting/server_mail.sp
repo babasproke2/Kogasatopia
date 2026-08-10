@@ -706,24 +706,6 @@ bool EscapeMailSql(const char[] input, char[] output, int maxlen)
         && g_MailDatabase.Escape(input, output, maxlen);
 }
 
-bool IsValidSteamId64(const char[] steamId)
-{
-    int length = strlen(steamId);
-    if (length < 16 || length >= MAIL_STEAMID_MAX)
-    {
-        return false;
-    }
-
-    for (int i = 0; i < length; i++)
-    {
-        if (!IsCharNumeric(steamId[i]))
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
 bool GetMailClientIdentity(int client, char[] steamId, int steamLen, char[] name, int nameLen)
 {
     steamId[0] = '\0';
@@ -744,11 +726,6 @@ bool GetMailClientIdentity(int client, char[] steamId, int steamLen, char[] name
 
     TrimString(name);
     return name[0] != '\0';
-}
-
-int FindMailClientBySteamId(const char[] steamId)
-{
-    return Kogasa_FindClientBySteamId64(steamId, true);
 }
 
 void BuildColoredMailName(int client, const char[] steamId, const char[] fallbackName, char[] output, int maxlen)
@@ -1768,7 +1745,7 @@ bool QueueMailInsert(
     int senderCost = 0)
 {
     if (!g_MailDatabaseReady || g_MailDatabase == null
-        || !IsValidSteamId64(receiverSteamId)
+        || !Kogasa_IsSteamId64(receiverSteamId)
         || senderName[0] == '\0' || receiverName[0] == '\0'
         || title[0] == '\0' || contents[0] == '\0' || gems < 0 || senderCost < 0
         || (attachmentType[0] != '\0'
@@ -1780,7 +1757,7 @@ bool QueueMailInsert(
         return false;
     }
 
-    if (senderSteamId[0] != '\0' && !IsValidSteamId64(senderSteamId))
+    if (senderSteamId[0] != '\0' && !Kogasa_IsSteamId64(senderSteamId))
     {
         return false;
     }
@@ -1939,8 +1916,8 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
         return;
     }
 
-    int receiver = FindMailClientBySteamId(receiverSteamId);
-    int liveSender = FindMailClientBySteamId(senderSteamId);
+    int receiver = Kogasa_FindClientBySteamId64(receiverSteamId);
+    int liveSender = Kogasa_FindClientBySteamId64(senderSteamId);
     if (gems > 0 && StrContains(requestKey, "server_mail:gift:", false) == 0)
     {
         char coloredSender[256];
@@ -2284,7 +2261,7 @@ public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] 
     {
         MarkMailRead(mailId);
 
-        int sender = FindMailClientBySteamId(senderSteamId);
+        int sender = Kogasa_FindClientBySteamId64(senderSteamId);
         char coloredSender[256];
         BuildColoredMailName(sender, senderSteamId, senderName, coloredSender, sizeof(coloredSender));
         CPrintToChatEx(client,
@@ -2304,7 +2281,7 @@ public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] 
         return;
     }
 
-    int receiver = FindMailClientBySteamId(receiverSteamId);
+    int receiver = Kogasa_FindClientBySteamId64(receiverSteamId);
     char coloredReceiver[256];
     BuildColoredMailName(receiver, receiverSteamId, receiverName, coloredReceiver, sizeof(coloredReceiver));
     CPrintToChatEx(client,
@@ -2923,7 +2900,7 @@ bool QueueSteamNativeMail(int numParams, bool customTitle, bool currency)
     GetNativeString(2, senderName, sizeof(senderName));
     GetNativeString(3, receiverSteam, sizeof(receiverSteam));
 
-    int receiver = FindMailClientBySteamId(receiverSteam);
+    int receiver = Kogasa_FindClientBySteamId64(receiverSteam);
     strcopy(receiverName, sizeof(receiverName), receiverSteam);
     if (IsMailClient(receiver))
     {

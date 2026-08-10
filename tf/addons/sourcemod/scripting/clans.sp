@@ -737,16 +737,11 @@ bool GetClientSteam64(int client, char[] steamid64, int maxlen)
     return Kogasa_GetClientSteamId64(client, steamid64, maxlen, true);
 }
 
-int FindClientBySteam64(const char[] steamid64)
-{
-    return Kogasa_FindClientBySteamId64(steamid64, true);
-}
-
 void ResolvePlayerDisplayName(const char[] steamid64, char[] buffer, int maxlen)
 {
     buffer[0] = '\0';
 
-    int client = FindClientBySteam64(steamid64);
+    int client = Kogasa_FindClientBySteamId64(steamid64);
     if (client > 0)
     {
         GetClientName(client, buffer, maxlen);
@@ -2395,7 +2390,7 @@ public void SQL_OnAnnounceClanInviteToMembers(Database db, DBResultSet results, 
         char memberSteam[STEAMID64_MAXLEN];
         results.FetchString(0, memberSteam, sizeof(memberSteam));
 
-        int member = FindClientBySteam64(memberSteam);
+        int member = Kogasa_FindClientBySteamId64(memberSteam);
         if (member <= 0 || !IsClientInGame(member))
         {
             continue;
@@ -2435,7 +2430,7 @@ public void SQL_OnAnnounceClanInviteAcceptedToMembers(Database db, DBResultSet r
         char memberSteam[STEAMID64_MAXLEN];
         results.FetchString(0, memberSteam, sizeof(memberSteam));
 
-        int member = FindClientBySteam64(memberSteam);
+        int member = Kogasa_FindClientBySteamId64(memberSteam);
         if (member <= 0 || !IsClientInGame(member))
         {
             continue;
@@ -8021,7 +8016,7 @@ public int MenuHandler_ClanInviteTarget(Menu menu, MenuAction action, int param1
         char steamid64[STEAMID64_MAXLEN];
         menu.GetItem(param2, steamid64, sizeof(steamid64));
 
-        int target = FindClientBySteam64(steamid64);
+        int target = Kogasa_FindClientBySteamId64(steamid64);
         if (target <= 0)
         {
             PrintToChat(param1, "[Clans] That player is no longer available.");
@@ -8265,7 +8260,7 @@ void StartClanKickSteam64(int client, const char[] targetSteam)
         return;
     }
 
-    int target = FindClientBySteam64(targetSteam);
+    int target = Kogasa_FindClientBySteamId64(targetSteam);
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
@@ -8361,7 +8356,7 @@ public void SQL_OnClanKickMenuMembers(Database db, DBResultSet results, const ch
         char memberSteam[STEAMID64_MAXLEN];
         results.FetchString(0, memberSteam, sizeof(memberSteam));
 
-        if (FindClientBySteam64(memberSteam) == client)
+        if (Kogasa_FindClientBySteamId64(memberSteam) == client)
         {
             continue;
         }
@@ -8768,7 +8763,7 @@ public void SQL_OnClanKickSuccess(Database db, any data, int numQueries, DBResul
     int target = GetClientOfUserId(targetUserId);
     if (target <= 0 || !IsClientInGame(target))
     {
-        target = FindClientBySteam64(targetSteam);
+        target = Kogasa_FindClientBySteamId64(targetSteam);
     }
 
     char targetName[MAX_NAME_LENGTH];

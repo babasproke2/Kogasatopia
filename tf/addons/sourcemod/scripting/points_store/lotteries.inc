@@ -840,7 +840,7 @@ public void SQLTxn_OnEqualLotteryTicketsRefunded(
     {
         steamIds.GetString(i, steamId, sizeof(steamId));
         int amount = amounts.Get(i);
-        int client = FindClientBySteamId64(steamId);
+        int client = Kogasa_FindClientBySteamId64(steamId);
         int balanceAfter = -1;
         if (IsClientAuthorizedHuman(client))
         {
@@ -3257,7 +3257,7 @@ void GetLotteryShortHash(const char[] hash, char[] buffer, int maxlen)
 
 void ResolveLotteryWinnerName(const char[] steamId, const char[] storedName, char[] buffer, int maxlen)
 {
-    int client = FindClientBySteamId64(steamId);
+    int client = Kogasa_FindClientBySteamId64(steamId);
     if (client > 0)
     {
         BuildPurchaseDisplayName(client, buffer, maxlen);
@@ -3332,7 +3332,7 @@ public void SQL_OnLotteryDirectCredit(Database db, DBResultSet results, const ch
         return;
     }
 
-    int client = FindClientBySteamId64(steamId);
+    int client = Kogasa_FindClientBySteamId64(steamId);
     int balanceAfter = -1;
     if (client > 0 && g_ClientBonusPointsLoaded[client])
     {

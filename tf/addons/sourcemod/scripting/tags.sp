@@ -193,14 +193,9 @@ public void SQL_OnSchemaCreated(Database db, DBResultSet results, const char[] e
     g_Database.Query(SQL_OnSourceColumnReady, "ALTER TABLE tags_selected ADD COLUMN source VARCHAR(32) NOT NULL DEFAULT 'literal'");
 }
 
-static bool IsDuplicateColumnError(const char[] error)
-{
-    return KogasaSql_IsDuplicateColumnError(error);
-}
-
 public void SQL_OnSourceColumnReady(Database db, DBResultSet results, const char[] error, any data)
 {
-    if (error[0] != '\0' && !IsDuplicateColumnError(error))
+    if (error[0] != '\0' && !KogasaSql_IsDuplicateColumnError(error))
     {
         LogError("[Tags] Failed to add source column: %s", error);
         if (KogasaSql_IsTransientError(error))
@@ -215,7 +210,7 @@ public void SQL_OnSourceColumnReady(Database db, DBResultSet results, const char
 
 public void SQL_OnSourceKeyColumnReady(Database db, DBResultSet results, const char[] error, any data)
 {
-    if (error[0] != '\0' && !IsDuplicateColumnError(error))
+    if (error[0] != '\0' && !KogasaSql_IsDuplicateColumnError(error))
     {
         LogError("[Tags] Failed to add source_key column: %s", error);
         if (KogasaSql_IsTransientError(error))

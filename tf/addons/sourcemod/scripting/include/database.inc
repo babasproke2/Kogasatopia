@@ -63,14 +63,14 @@ stock bool KogasaSql_IsDuplicateColumnError(const char[] error)
         || StrContains(error, "1060", false) != -1;
 }
 
-stock void KogasaSql_Escape(Database db, const char[] input, char[] output, int maxlen, const char[] pluginName)
+stock bool KogasaSql_Escape(Database db, const char[] input, char[] output, int maxlen, const char[] pluginName)
 {
     output[0] = '\0';
 
     if (db == null)
     {
         strcopy(output, maxlen, input);
-        return;
+        return false;
     }
 
     int written = 0;
@@ -78,5 +78,8 @@ stock void KogasaSql_Escape(Database db, const char[] input, char[] output, int 
     {
         LogError("[%s] Failed to escape SQL string of length %d.", pluginName, strlen(input));
         strcopy(output, maxlen, input);
+        return false;
     }
+
+    return true;
 }

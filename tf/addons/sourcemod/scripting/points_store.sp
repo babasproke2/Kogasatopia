@@ -437,7 +437,7 @@ public void SQL_OnPurchaseSchemaReady(Database db, DBResultSet results, const ch
 
 public void SQL_OnPurchaseExpiryColumnReady(Database db, DBResultSet results, const char[] error, any data)
 {
-    if (error[0] != '\0' && !IsDuplicateColumnError(error))
+    if (error[0] != '\0' && !KogasaSql_IsDuplicateColumnError(error))
     {
         LogError("[points_store] Purchase expiry schema update failed: %s", error);
         return;
@@ -462,7 +462,7 @@ public void SQL_OnPurchaseExpiryColumnReady(Database db, DBResultSet results, co
 
 public void SQL_OnPurchaseUsesColumnReady(Database db, DBResultSet results, const char[] error, any data)
 {
-    if (error[0] != '\0' && !IsDuplicateColumnError(error))
+    if (error[0] != '\0' && !KogasaSql_IsDuplicateColumnError(error))
     {
         LogError("[points_store] Purchase uses schema update failed: %s", error);
         return;
@@ -475,11 +475,6 @@ public void SQL_OnPurchaseUsesColumnReady(Database db, DBResultSet results, cons
     }
 
     EnsureBalanceSchema();
-}
-
-bool IsDuplicateColumnError(const char[] error)
-{
-    return KogasaSql_IsDuplicateColumnError(error);
 }
 
 void EnsureBalanceSchema()
@@ -751,11 +746,6 @@ public Action CommandListener_PointsStoreChatAlias(int client, const char[] comm
     }
 
     return Plugin_Continue;
-}
-
-int FindClientBySteamId64(const char[] steamId)
-{
-    return Kogasa_FindClientBySteamId64(steamId, true);
 }
 
 public void SQL_OnIgnoredResult(Database db, DBResultSet results, const char[] error, any data)
@@ -1925,7 +1915,7 @@ public void SQL_OnBonusPointsSteamIdDeltaSaved(Database db, DBResultSet results,
         return;
     }
 
-    int client = FindClientBySteamId64(steamId);
+    int client = Kogasa_FindClientBySteamId64(steamId);
     int balanceAfter = -1;
     if (client > 0 && g_ClientBonusPointsLoaded[client])
     {
@@ -1968,7 +1958,7 @@ void FireIdempotentAwardResult(const char[] awardKey, bool success, bool newlyAp
 
 void ApplyIdempotentAwardToCache(const char[] steamId, int amount, const char[] type)
 {
-    int client = FindClientBySteamId64(steamId);
+    int client = Kogasa_FindClientBySteamId64(steamId);
     int balanceAfter = -1;
     if (client > 0 && g_ClientBonusPointsLoaded[client])
     {
@@ -2616,7 +2606,7 @@ bool ApplyBonusPointsSteamId(const char[] steamId, int points, bool playSound = 
         return false;
     }
 
-    int client = FindClientBySteamId64(steamId);
+    int client = Kogasa_FindClientBySteamId64(steamId);
     if (client > 0 && AreBonusPointsReady(client))
     {
         return ApplyBonusPointsNow(client, points, playSound, chatAlert, 1.0, type, 0, perMap, "", announceMilestone);

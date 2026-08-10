@@ -636,7 +636,7 @@ bool Stimulus_ParseRequestKey(
         || !StrEqual(parts[1], "stimulus")
         || StringToIntEx(parts[2], deploymentId) == 0
         || deploymentId <= 0
-        || !IsValidSteamId64(parts[3]))
+        || !Kogasa_IsSteamId64(parts[3]))
     {
         return false;
     }
@@ -654,7 +654,7 @@ void Stimulus_OnMailInsertResult(const char[] requestKey, bool success, int mail
         return;
     }
 
-    int client = FindMailClientBySteamId(steamId);
+    int client = Kogasa_FindClientBySteamId64(steamId);
     if (!success || mailId <= 0)
     {
         if (IsMailClient(client))
@@ -717,7 +717,7 @@ public void SQL_OnStimulusRecipientAwarded(Database db, DBResultSet results, con
     }
 
     LogError("[server_mail] Failed to mark Stimulus Check awarded for %s: %s", steamId, error);
-    int client = FindMailClientBySteamId(steamId);
+    int client = Kogasa_FindClientBySteamId64(steamId);
     if (IsMailClient(client))
     {
         g_MailStimulusChecked[client] = false;

@@ -339,7 +339,7 @@ public void SQL_OnAutomaticBountyCandidateSelected(Database db, DBResultSet rows
     }
     rows.FetchString(0, steamId, sizeof(steamId));
 
-    int target = FindClientBySteamId64(steamId);
+    int target = Kogasa_FindClientBySteamId64(steamId);
     int team = Client_IsHumanInGame(target) ? GetClientTeam(target) : 0;
     if ((team != 2 && team != 3) || !AreBonusPointsReady(target)
         || GetCachedBonusPoints(target) <= BOUNTY_AUTOMATIC_MIN_BALANCE)
@@ -890,7 +890,7 @@ public int MenuHandler_BountySearchResults(Menu menu, MenuAction action, int cli
 
     char targetSteamId[BOUNTY_STEAMID_MAX];
     menu.GetItem(item, targetSteamId, sizeof(targetSteamId));
-    if (!Client_IsHumanInGame(FindClientBySteamId64(targetSteamId)))
+    if (!Client_IsHumanInGame(Kogasa_FindClientBySteamId64(targetSteamId)))
     {
         CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
         return 0;
@@ -989,7 +989,7 @@ void ShowBountyConsentMenu(int client)
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
     GetCurrencyColorTag(currencyColor, sizeof(currencyColor));
 
-    int target = FindClientBySteamId64(g_BountyPendingTargetSteamId[client]);
+    int target = Kogasa_FindClientBySteamId64(g_BountyPendingTargetSteamId[client]);
     if (!Client_IsHumanInGame(target))
     {
         CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
@@ -1079,7 +1079,7 @@ public int MenuHandler_BountyConsent(Menu menu, MenuAction action, int client, i
             (cooldownRemaining + 59) / 60);
         return 0;
     }
-    if (!Client_IsHumanInGame(FindClientBySteamId64(g_BountyPendingTargetSteamId[client])))
+    if (!Client_IsHumanInGame(Kogasa_FindClientBySteamId64(g_BountyPendingTargetSteamId[client])))
     {
         CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
         return 0;
@@ -1115,7 +1115,7 @@ void QueueBountyPlacement(int client)
     }
 
     int now = GetTime();
-    int target = FindClientBySteamId64(g_BountyPendingTargetSteamId[client]);
+    int target = Kogasa_FindClientBySteamId64(g_BountyPendingTargetSteamId[client]);
     if (!Client_IsHumanInGame(target))
     {
         CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
@@ -1290,7 +1290,7 @@ public void SQLTxn_OnBountyPlaced(Database db, any data, int numQueries, DBResul
         g_BountyLastPlacementAt[client] = GetTime();
     }
 
-    int target = FindClientBySteamId64(targetSteamId);
+    int target = Kogasa_FindClientBySteamId64(targetSteamId);
     char senderDisplay[256];
     char targetDisplay[256];
     if (Client_IsHumanInGame(client))
@@ -1404,7 +1404,7 @@ public void SQL_OnBountyListLoaded(Database db, DBResultSet rows, const char[] e
         rows.FetchString(0, steamId, sizeof(steamId));
         rows.FetchString(1, name, sizeof(name));
         int amount = rows.FetchInt(2);
-        int target = FindClientBySteamId64(steamId);
+        int target = Kogasa_FindClientBySteamId64(steamId);
         if (target > 0)
         {
             GetClientName(target, name, sizeof(name));
@@ -1443,7 +1443,7 @@ void MarkActiveBountyTarget(const char[] steamId)
     g_ActiveBountyTargets.SetValue(steamId, 1, true);
     if (!wasActive)
     {
-        int target = FindClientBySteamId64(steamId);
+        int target = Kogasa_FindClientBySteamId64(steamId);
         if (target > 0)
         {
             g_BountyMedicAssistsLife[target] = 0;
@@ -1760,7 +1760,7 @@ public void SQL_OnDisconnectedBountiesLoaded(Database db, DBResultSet rows, cons
     {
         int bountyId = rows.FetchInt(0);
         rows.FetchString(1, targetSteamId, sizeof(targetSteamId));
-        int target = FindClientBySteamId64(targetSteamId);
+        int target = Kogasa_FindClientBySteamId64(targetSteamId);
         if (Client_IsHumanInGame(target))
         {
             ClearBountyDisconnectForClient(target);
@@ -1869,7 +1869,7 @@ public void SQLTxn_OnDisconnectedBountiesRefunded(Database db, any data, int num
 
             refundTotal += amount;
             refundCount++;
-            int sender = FindClientBySteamId64(senderSteamId);
+            int sender = Kogasa_FindClientBySteamId64(senderSteamId);
             if (sender > 0 && g_ClientBonusPointsLoaded[sender])
             {
                 int balanceBefore = g_ClientBonusPoints[sender];
@@ -2079,7 +2079,7 @@ public void SQLTxn_OnBountyClaimed(Database db, any data, int numQueries, DBResu
     {
         strcopy(attackerDisplay, sizeof(attackerDisplay), attackerName);
     }
-    int victim = FindClientBySteamId64(victimSteamId);
+    int victim = Kogasa_FindClientBySteamId64(victimSteamId);
     if (victim > 0)
     {
         BuildPurchaseDisplayName(victim, victimDisplay, sizeof(victimDisplay));
@@ -2216,7 +2216,7 @@ public void SQLTxn_OnBountiesExpired(Database db, any data, int numQueries, DBRe
             {
                 totalRefunded += amount;
             }
-            int sender = FindClientBySteamId64(senderSteamId);
+            int sender = Kogasa_FindClientBySteamId64(senderSteamId);
             if (!systemBounty && sender > 0 && g_ClientBonusPointsLoaded[sender])
             {
                 int balanceBefore = g_ClientBonusPoints[sender];
@@ -2261,7 +2261,7 @@ public void SQLTxn_OnBountyExpiryFailed(Database db, any data, int numQueries, c
 
 void BuildBountyDisplayName(const char[] steamId, const char[] fallbackName, char[] buffer, int maxlen)
 {
-    int client = FindClientBySteamId64(steamId);
+    int client = Kogasa_FindClientBySteamId64(steamId);
     if (client > 0)
     {
         BuildPurchaseDisplayName(client, buffer, maxlen);
@@ -2320,7 +2320,7 @@ public void SQL_OnBountyProgressTargetsLoaded(Database db, DBResultSet rows, con
     while (rows != null && rows.FetchRow())
     {
         rows.FetchString(0, targetSteamId, sizeof(targetSteamId));
-        int target = FindClientBySteamId64(targetSteamId);
+        int target = Kogasa_FindClientBySteamId64(targetSteamId);
         if (!Client_IsHumanInGame(target))
         {
             continue;
@@ -2485,7 +2485,7 @@ public void SQLTxn_OnBountiesSurvived(Database db, any data, int numQueries, DBR
             BuildBountyDisplayName(targetSteamId, targetName, targetDisplay, sizeof(targetDisplay));
             GetCurrencyShortLabelForAmount(amount, currencyName, sizeof(currencyName));
 
-            int target = FindClientBySteamId64(targetSteamId);
+            int target = Kogasa_FindClientBySteamId64(targetSteamId);
             for (int recipient = 1; recipient <= MaxClients; recipient++)
             {
                 if (Client_IsHumanInGame(recipient))
@@ -2518,7 +2518,7 @@ public void SQLTxn_OnBountiesSurvived(Database db, any data, int numQueries, DBR
             int payout = results[summaryQueryIndex].FetchInt(2);
             resolvedAny = true;
 
-            int target = FindClientBySteamId64(targetSteamId);
+            int target = Kogasa_FindClientBySteamId64(targetSteamId);
             if (target > 0 && g_ClientBonusPointsLoaded[target])
             {
                 int balanceBefore = g_ClientBonusPoints[target];
