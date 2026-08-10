@@ -46,7 +46,7 @@ public void OnPluginStart()
     g_cvMiniCrump = CreateConVar("sm_minicrumps", "1", "Replace crit pumpkin boost with mini crits", _, true, 0.0, true, 1.0);
     g_cvBetterPumpkins = CreateConVar("sm_betterpumpkins", "1", "Limit pumpkin bomb damage while maintaining launch velocity", _, true, 0.0, true, 1.0);
     g_cvNoPumpkins = CreateConVar("sm_nopumpkins", "0", "Disable exploding pumpkins", _, true, 0.0, true, 1.0);
-    g_cvNerfBosses = CreateConVar("sm_nerfbosses", "1", "Multiply damage to Monoculus/Horsemann by 10", _, true, 0.0, true, 1.0);
+    g_cvNerfBosses = CreateConVar("sm_nerfbosses", "1", "Scale damage to Halloween bosses", _, true, 0.0, true, 1.0);
     g_cvBossNerfScale = CreateConVar("sm_bossnerfscale", "4", "Multiply damage to Monoculus/Horsemann/Merasmus by this value", _, true, 0.0, true, 10.0);
     g_cvHalloween = CreateConVar("sm_halloween", "0", "Reference for other plugins to check halloween status", _, true, 0.0, true, 1.0);
     AutoExecConfig(true, "nerfhalloweengimmicks");
@@ -105,35 +105,40 @@ public Action OnTakeDamage(int entity, int &attacker, int &inflictor, float &dam
     if (!g_cvHalloween.BoolValue)
         return Plugin_Continue;
 
-    // Handle pumpkin bomb damage modification
-    if (IsValidEntity(inflictor))
+    char classname[64];
+    GetEntityClassname(inflictor, classname, sizeof(classname));
+    if (StrEqual(classname, "tf_pumpkin_bomb") && g_cvBetterPumpkins.BoolValue)
     {
-        char classname[64];
-        GetEntityClassname(inflictor, classname, sizeof(classname));
-
-        if (StrEqual(classname, "tf_pumpkin_bomb"))
+        damage *= 0.5;
+        if (attacker == entity)
         {
-            if (g_cvBetterPumpkins.BoolValue)
+            int melee = GetPlayerWeaponSlot(entity, 2);
+            if (melee > MaxClients && IsValidEntity(melee))
             {
-                damage *= 0.5; // Base damage and therefore velocity reduced by 50% regardless
-                if (attacker == entity) // If the player shot the pumpkin himself
-                {
-                    int weapon3 = GetPlayerWeaponSlot(entity, 2); // We're gonna give the client a gunboats bonus on their melee weapon for this frame
-                    TF2Attrib_SetByName(weapon3, "rocket jump damage reduction HIDDEN", 0.40); // Gunboats bonus
-                }
-                return Plugin_Changed;
+                TF2Attrib_SetByName(melee, "rocket jump damage reduction HIDDEN", 0.40);
+                RequestFrame(Frame_RemovePumpkinDamageReduction, EntIndexToEntRef(melee));
             }
         }
+        return Plugin_Changed;
     }
 
     // Handle boss damage scaling
     if (g_cvNerfBosses.BoolValue && IsValidEntity(entity) && IsHalloweenBoss(entity))
     {
-        damage *= GetConVarFloat(g_cvBossNerfScale);
+        damage *= g_cvBossNerfScale.FloatValue;
         return Plugin_Changed;
     }
 
     return Plugin_Continue;
+}
+
+void Frame_RemovePumpkinDamageReduction(any entityRef)
+{
+    int weapon = EntRefToEntIndex(entityRef);
+    if (weapon != INVALID_ENT_REFERENCE && IsValidEntity(weapon))
+    {
+        TF2Attrib_RemoveByName(weapon, "rocket jump damage reduction HIDDEN");
+    }
 }
 
 public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast)
