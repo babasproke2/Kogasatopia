@@ -14,6 +14,8 @@
 #include <points_store_api>
 #define REQUIRE_PLUGIN
 
+#include "include/clients.inc"
+
 #define CONFIG_FILE "configs/custom_hats.cfg"
 #define DEFAULT_SCOUT_MODEL "models/uma_musume/player/items/scout/mercenary_derby.mdl"
 #define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
@@ -314,7 +316,7 @@ public void OnClientConnected(int client)
 
 public void OnClientCookiesCached(int client)
 {
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 	{
 		return;
 	}
@@ -362,7 +364,7 @@ public void OnClientDisconnect(int client)
 
 public Action Command_Hats(int client, int args)
 {
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 	{
 		return Plugin_Handled;
 	}
@@ -379,7 +381,7 @@ public Action Command_Hats(int client, int args)
 
 public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemDefinitionIndex, int itemLevel, int itemQuality, int entityIndex)
 {
-	if (!IsValidClient(client) || g_bHatApplyPending[client])
+	if (!Client_IsInGame(client) || g_bHatApplyPending[client])
 	{
 		return 0;
 	}
@@ -404,7 +406,7 @@ public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemD
 public void Event_PostInventory(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 	{
 		return;
 	}
@@ -454,7 +456,7 @@ public Action Timer_PostInventoryRefresh(Handle timer, any client)
 		return Plugin_Stop;
 	}
 	g_hPostInventoryTimer[index] = INVALID_HANDLE;
-	if (!IsValidClient(index))
+	if (!Client_IsInGame(index))
 	{
 		return Plugin_Stop;
 	}
@@ -490,7 +492,7 @@ public Action Timer_PostInventoryRefresh(Handle timer, any client)
 public void ApplyHatFrame(any userid)
 {
 	int client = GetClientOfUserId(userid);
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 	{
 		return;
 	}
@@ -1151,7 +1153,7 @@ static bool CanClientAccessHat(int client, int hatIndex)
 	{
 		return true;
 	}
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 	{
 		return false;
 	}
@@ -1171,7 +1173,7 @@ static bool CanClientUseHatForClass(int client, int hatIndex, TFClassType player
 
 static void PrintHatLockedMessage(int client, int hatIndex)
 {
-	if (!IsValidClient(client) || !IsHatIndexValid(hatIndex))
+	if (!Client_IsInGame(client) || !IsHatIndexValid(hatIndex))
 	{
 		return;
 	}
@@ -1882,11 +1884,6 @@ void CreateDefaultConfig(const char[] path)
 	delete file;
 }
 
-bool IsValidClient(int client)
-{
-	return (client > 0 && client <= MaxClients && IsClientInGame(client));
-}
-
 static bool GetHatPrefixForClientTeam(int client, int hatIndex, char[] buffer, int maxlen)
 {
 	buffer[0] = '\0';
@@ -1941,7 +1938,7 @@ static bool GetClientHatPrefixes(int client, char[] buffer, int maxlen)
 {
 	buffer[0] = '\0';
 
-	if (!IsValidClient(client) || !HasClientEnabledHats(client))
+	if (!Client_IsInGame(client) || !HasClientEnabledHats(client))
 	{
 		return false;
 	}
@@ -1977,7 +1974,7 @@ static bool GetClientHatTagChoices(int client, char[] buffer, int maxlen)
 {
 	buffer[0] = '\0';
 
-	if (!IsValidClient(client) || !HasClientEnabledHats(client))
+	if (!Client_IsInGame(client) || !HasClientEnabledHats(client))
 	{
 		return false;
 	}
@@ -2013,7 +2010,7 @@ static bool ResolveClientHatTag(int client, const char[] hatId, char[] buffer, i
 {
 	buffer[0] = '\0';
 
-	if (!IsValidClient(client) || !HasClientEnabledHats(client) || !hatId[0])
+	if (!Client_IsInGame(client) || !HasClientEnabledHats(client) || !hatId[0])
 	{
 		return false;
 	}
@@ -2037,7 +2034,7 @@ static bool FindClientHatTagSource(int client, const char[] prefix, char[] hatId
 {
 	hatId[0] = '\0';
 
-	if (!IsValidClient(client) || !HasClientEnabledHats(client) || !prefix[0])
+	if (!Client_IsInGame(client) || !HasClientEnabledHats(client) || !prefix[0])
 	{
 		return false;
 	}

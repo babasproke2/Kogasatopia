@@ -17,6 +17,7 @@
 #define REQUIRE_PLUGIN
 
 
+#include "include/clients.inc"
 #include "include/database.inc"
 #include "include/steam_identity.inc"
 
@@ -377,7 +378,7 @@ public void OnClientDisconnect(int client)
 
 public void OnClientPostAdminCheck(int client)
 {
-    if (!IsPlayableClient(client))
+    if (!Client_IsHumanInGame(client))
     {
         return;
     }
@@ -724,16 +725,11 @@ bool Clans_IsRoundRunning()
     return GameRules_GetRoundState() == RoundState_RoundRunning;
 }
 
-bool IsPlayableClient(int client)
-{
-    return (client > 0 && client <= MaxClients && IsClientInGame(client) && !IsFakeClient(client));
-}
-
 bool GetClientSteam64(int client, char[] steamid64, int maxlen)
 {
     steamid64[0] = '\0';
 
-    if (!IsPlayableClient(client))
+    if (!Client_IsHumanInGame(client))
     {
         return false;
     }
@@ -773,7 +769,7 @@ int FindClientByNameQuery(const char[] query)
 
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (!IsPlayableClient(client))
+        if (!Client_IsHumanInGame(client))
         {
             continue;
         }
@@ -838,7 +834,7 @@ static bool TryGetSelectedTag(int client, const char[] steamid64, char[] buffer,
 
 static void TrySetClanJoinSelectedTag(int client, const char[] clanTag)
 {
-    if (!IsPlayableClient(client))
+    if (!Client_IsHumanInGame(client))
     {
         return;
     }
@@ -926,7 +922,7 @@ static void ResolveClientTeamColorTag(int client, char[] buffer, int maxlen)
 
 static bool IsConnectedClientInClan(int client, int clanId)
 {
-    if (!IsPlayableClient(client))
+    if (!Client_IsHumanInGame(client))
     {
         return false;
     }
@@ -1570,7 +1566,7 @@ void ClearClientClanTagsCache(int client, bool loaded = false)
 
 void RequestClientClanTagsLoad(int client, bool force = false)
 {
-    if (!IsPlayableClient(client))
+    if (!Client_IsHumanInGame(client))
     {
         return;
     }
@@ -1704,7 +1700,7 @@ public any Native_Clans_GetTags(Handle plugin, int numParams)
     buffer[0] = '\0';
 
     bool found = false;
-    if (IsPlayableClient(client))
+    if (Client_IsHumanInGame(client))
     {
         if (g_bClientClanTagsLoaded[client] && g_sClientClanTags[client][0])
         {
@@ -1790,7 +1786,7 @@ bool GetLoadedClientClanId(int client, int &clanId)
 {
     clanId = 0;
 
-    if (!IsPlayableClient(client))
+    if (!Client_IsHumanInGame(client))
     {
         return false;
     }
@@ -1909,7 +1905,7 @@ void RemoveClanIdCacheMembers(int clanId)
 
 int GetSameTeamClanMemberCount(int client, int team = 0)
 {
-    if (!IsPlayableClient(client))
+    if (!Client_IsHumanInGame(client))
     {
         return 0;
     }
@@ -1938,7 +1934,7 @@ int GetSameTeamClanMemberCount(int client, int team = 0)
     int count = 0;
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsPlayableClient(i) || GetClientTeam(i) != team)
+        if (!Client_IsHumanInGame(i) || GetClientTeam(i) != team)
         {
             continue;
         }
@@ -1962,7 +1958,7 @@ bool ResolveClientClanIdForTeamGuard(int client, int &clanId)
 {
     clanId = 0;
 
-    if (!IsPlayableClient(client))
+    if (!Client_IsHumanInGame(client))
     {
         return false;
     }
@@ -1998,7 +1994,7 @@ bool ResolveClientClanIdForTeamGuard(int client, int &clanId)
 
 void RequestClientClanIdLoad(int client)
 {
-    if (!EnsureDatabaseReady() || !IsPlayableClient(client))
+    if (!EnsureDatabaseReady() || !Client_IsHumanInGame(client))
     {
         return;
     }
@@ -2080,7 +2076,7 @@ bool GetLoadedClientClanContext(int client, char[] steamid64, int steamidLen, in
     clanName[0] = '\0';
     clanTag[0] = '\0';
 
-    if (!IsPlayableClient(client) || !g_bClientClanLoaded[client] || !GetClientSteam64(client, steamid64, steamidLen))
+    if (!Client_IsHumanInGame(client) || !g_bClientClanLoaded[client] || !GetClientSteam64(client, steamid64, steamidLen))
     {
         return false;
     }
@@ -2103,7 +2099,7 @@ bool GetCachedOnlineClanSummary(int clanId, char[] clanName, int clanNameLen, ch
     bool hasRepresentative = false;
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (!IsPlayableClient(client) || !g_bClientClanLoaded[client] || g_iClientClanId[client] != clanId)
+        if (!Client_IsHumanInGame(client) || !g_bClientClanLoaded[client] || g_iClientClanId[client] != clanId)
         {
             continue;
         }
@@ -2134,7 +2130,7 @@ void SetClientClanIdBySteam64(const char[] steamid64, int clanId)
 
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (!IsPlayableClient(client))
+        if (!Client_IsHumanInGame(client))
         {
             continue;
         }
@@ -2181,7 +2177,7 @@ void ClearConnectedClanId(int clanId)
 
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (!IsPlayableClient(client))
+        if (!Client_IsHumanInGame(client))
         {
             continue;
         }
@@ -5391,7 +5387,7 @@ void ShowClanWarTargetMenu(int client, int actorClanId)
 
         for (int target = 1; target <= MaxClients; target++)
         {
-            if (!IsPlayableClient(target) || target == client)
+            if (!Client_IsHumanInGame(target) || target == client)
             {
                 continue;
             }

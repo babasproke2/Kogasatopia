@@ -12,6 +12,8 @@
 #include <morecolors>
 #include <tf_custom_attributes>
 
+#include "include/clients.inc"
+
 //Define version number in a needlessly complex way
 #define MAJOR	"1"
 #define MINOR	"1"
@@ -290,7 +292,7 @@ public void OnClientDisconnect(int iClient)
 public void PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
 	int iClient = GetClientOfUserId(event.GetInt("userid"));
-	if (IsValidClient(iClient))
+	if (Client_IsInGame(iClient))
 		OnClientPostAdminCheck(iClient);
 }
 
@@ -321,7 +323,7 @@ public void ObjectDeflected(Event event, const char[] name, bool dontBroadcast)
 	int iOwner = GetClientOfUserId(event.GetInt("ownerid"));
 	int iWeapon = event.GetInt("weaponid");
 	
-	if (!iWeapon && IsValidClient(iOwner) && Pad_IsPlayerInCond(iOwner, PadCond_Boost))		//0 means ownerid was airblasted
+	if (!iWeapon && Client_IsInGame(iOwner) && Pad_IsPlayerInCond(iOwner, PadCond_Boost))		//0 means ownerid was airblasted
 	{
 		g_flPlayerBoostEndTime[iOwner] = 0.0;
 	}
@@ -429,7 +431,7 @@ public Action EurekaTeleport(int iClient, const char[] szCommand, int nArgs)
 	if (cvarPads[PadsEnabled].IntValue == EngiPads_Disabled || !cvarPads[BlockEureka].BoolValue)
 		return Plugin_Continue;
 	
-	if (IsValidClient(iClient) && IsPlayerAlive(iClient))
+	if (Client_IsInGame(iClient) && IsPlayerAlive(iClient))
 	{
 		char arg[8]; GetCmdArg(1, arg, sizeof(arg));
 		int iDest = StringToInt(arg);
@@ -557,7 +559,7 @@ void OnPadThink(int iPad)
 
 public Action OnPadTouch(int iPad, int iToucher)
 {
-	if (IsValidClient(iToucher))
+	if (Client_IsInGame(iToucher))
 	{		
 		if (TF2_GetBuildingState(iPad) != TELEPORTER_STATE_READY)
 			return Plugin_Continue;
@@ -746,7 +748,7 @@ void LaunchPlayer(int iClient)
 
 public Action OnPlayerTakeDamage(int iClient, int &iAttacker, int &iInflictor, float &flDamage, int &iDamageType, int &iWeapon, float flDamageForce[3], float flDamagePosition[3], int iDamageCustom)
 {
-	if (!IsValidClient(iClient))
+	if (!Client_IsInGame(iClient))
 		return Plugin_Continue;
 	
 	if (iDamageType & DMG_FALL && Pad_IsPlayerInCond(iClient, PadCond_NoFallDmg))
@@ -1008,7 +1010,7 @@ stock void TF2_SetMatchingTeleporter(int iTele, int iMatch)	//Set the matching t
 
 stock void TF2_SayTeleportResponse(int iClient) //Plays the appropriate ThanksForTheTeleporter response line.
 {
-	if (IsValidClient(iClient) && IsPlayerAlive(iClient))
+	if (Client_IsInGame(iClient) && IsPlayerAlive(iClient))
 	{
 		char szVO[512];
 		
@@ -1062,7 +1064,7 @@ stock void TF2_SayTeleportResponse(int iClient) //Plays the appropriate ThanksFo
 /* Returns true if player has condition */
 stock bool Pad_IsPlayerInCond(int iClient, PadCond fCond)
 {
-	if (IsValidClient(iClient))
+	if (Client_IsInGame(iClient))
 	{
 		if (Pad_GetConds(iClient) & fCond) //Check if player has specified custom condition flag
 			return true;
@@ -1073,7 +1075,7 @@ stock bool Pad_IsPlayerInCond(int iClient, PadCond fCond)
 /* Returns true if condition was added to player (as in, not already present) */
 stock bool Pad_AddCond(int iClient, PadCond fCond)
 {
-	if (IsValidClient(iClient))
+	if (Client_IsInGame(iClient))
 	{
 		if (!Pad_IsPlayerInCond(iClient, fCond))
 		{
@@ -1087,7 +1089,7 @@ stock bool Pad_AddCond(int iClient, PadCond fCond)
 /* Returns true if condition was removed from player */
 stock bool Pad_RemoveCond(int iClient, PadCond fCond)
 {
-	if (IsValidClient(iClient))
+	if (Client_IsInGame(iClient))
 	{
 		if (Pad_IsPlayerInCond(iClient, fCond))
 		{
@@ -1186,7 +1188,7 @@ stock void PrintPadTypeNameToClient(int iObjType, int iClient)
 
 stock bool GetClientPadsEnabled(int iClient)
 {
-	if (!IsValidClient(iClient)) return false;
+	if (!Client_IsInGame(iClient)) return false;
 	if (IsFakeClient(iClient)) return cvarPads[BotsCanBuild].BoolValue;
 	if (!AreClientCookiesCached(iClient)) return false;
 	char szToggle[3];
@@ -1205,17 +1207,12 @@ stock bool GetClientEngipadsAttribute(int iClient, int slot)
 
 stock void SetClientPadsEnabled(int iClient, bool bEnabled)
 {
-	if (!IsValidClient(iClient)) return;
+	if (!Client_IsInGame(iClient)) return;
 	if (IsFakeClient(iClient)) return;
 	if (!AreClientCookiesCached(iClient)) return;
 	char szToggle[3];
 	IntToString(view_as<int>(bEnabled), szToggle, sizeof(szToggle));
 	SetClientCookie(iClient, g_hPadCookie, szToggle);
-}
-
-stock bool IsValidClient(int iClient)
-{
-	return (0 < iClient && iClient <= MaxClients && IsClientInGame(iClient));
 }
 
 stock int SpawnParticle(char[] szParticleType)
@@ -1237,7 +1234,7 @@ stock void SetParent(int iParent, int iChild, char[] szAttachPoint = "")
 	
 	if (szAttachPoint[0] != '\0')
 	{
-		if (IsValidClient(iParent) && IsPlayerAlive(iParent))
+		if (Client_IsInGame(iParent) && IsPlayerAlive(iParent))
 		{
 			SetVariantString(szAttachPoint);
 			AcceptEntityInput(iChild, "SetParentAttachmentMaintainOffset", iChild, iChild, 0);

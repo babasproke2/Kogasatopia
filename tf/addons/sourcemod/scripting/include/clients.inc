@@ -3,22 +3,12 @@
 #endif
 #define _kogasa_clients_helper_included
 
-stock bool Kogasa_IsValidClientIndex(int client)
+stock bool Client_IsInGame(int client)
 {
-    return client > 0 && client <= MaxClients;
+    return client > 0 && client <= MaxClients && IsClientInGame(client);
 }
 
-stock bool Kogasa_IsClientInGame(int client)
+stock bool Client_IsHumanInGame(int client)
 {
-    return Kogasa_IsValidClientIndex(client) && IsClientInGame(client);
-}
-
-stock bool Kogasa_IsHumanClientInGame(int client)
-{
-    return Kogasa_IsClientInGame(client) && !IsFakeClient(client);
-}
-
-stock bool Kogasa_IsAuthorizedHuman(int client)
-{
-    return Kogasa_IsHumanClientInGame(client) && IsClientAuthorized(client);
+    return Client_IsInGame(client) && !IsFakeClient(client);
 }

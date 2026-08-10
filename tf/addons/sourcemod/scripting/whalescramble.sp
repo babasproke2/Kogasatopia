@@ -2900,7 +2900,7 @@ static int GetScrambleScore(int client, bool ignoreClass, bool forced)
     {
         TFClassType cls = TF2_GetPlayerClass(client);
         if (cls == TFClass_Spy
-            || (forced && (IsEngineerWithBuildings(client) || cls == TFClass_Medic)))
+            || (forced && (Kogasa_IsEngineerWithBuildings(client) || cls == TFClass_Medic)))
         {
             return 0;
         }
@@ -2921,12 +2921,7 @@ static bool IsSimpleScrambleEligibleClass(int client, bool forced)
     }
 
     TFClassType cls = TF2_GetPlayerClass(client);
-    return !forced || (!IsEngineerWithBuildings(client) && cls != TFClass_Medic);
-}
-
-static bool IsEngineerWithBuildings(int client)
-{
-    return Kogasa_IsEngineerWithBuildings(client);
+    return !forced || (!Kogasa_IsEngineerWithBuildings(client) && cls != TFClass_Medic);
 }
 
 static bool SelectRandomPlayers(const int candidates[MAXPLAYERS + 1], int candidateCount, int selected[MAX_SWAP_BUFFER], int selectedCount)

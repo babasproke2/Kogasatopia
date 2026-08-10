@@ -21,6 +21,7 @@
 #define PLUGIN_VERSION "4.3"
 
 #include "include/dgm_api.inc"
+#include "include/clients.inc"
 #include "include/statistics.inc"
 #define DGM_MAX_CONTROL_POINTS 8
 #define DGM_MAX_CAPTURE_INTERVALS 64
@@ -97,7 +98,7 @@ int DGM_CountRealTeamPlayers(int team)
     int count = 0;
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (!IsValidClient(client) || IsFakeClient(client) || GetClientTeam(client) != team)
+        if (!Client_IsInGame(client) || IsFakeClient(client) || GetClientTeam(client) != team)
         {
             continue;
         }
@@ -1217,7 +1218,7 @@ bool DGM_RedHasEngineer()
 {
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (!IsValidClient(client)
+        if (!Client_IsInGame(client)
             || IsFakeClient(client)
             || GetClientTeam(client) != view_as<int>(TFTeam_Red)
             || TF2_GetPlayerClass(client) != TFClass_Engineer)
@@ -1634,11 +1635,6 @@ public void AdjustByPlayerCount(any data)
     } else {
         ServerCommand(playerCount > threshhold ? "exec d_highpop.cfg" : "exec d_lowpop.cfg");
     }
-}
-
-bool IsValidClient(int client)
-{
-    return (client >= 1 && client <= MaxClients) && IsClientInGame(client);
 }
 
 void DetectGameMode()
@@ -2154,7 +2150,7 @@ int DGM_RespawnDeadClients()
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsValidClient(i) || IsPlayerAlive(i) || GetClientTeam(i) <= view_as<int>(TFTeam_Spectator))
+        if (!Client_IsInGame(i) || IsPlayerAlive(i) || GetClientTeam(i) <= view_as<int>(TFTeam_Spectator))
         {
             continue;
         }
@@ -2179,7 +2175,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
             return;
         }
         int client = GetClientOfUserId(GetEventInt(event, "userid"));
-        if (!(IsValidClient(client))) return;
+        if (!(Client_IsInGame(client))) return;
 
         float baseRespawn = GetConVarFloat(g_cvRespawnTime);
         if (FloatCompare(baseRespawn, DGM_RESPAWN_DISABLED_TIME) == 0)
@@ -2214,7 +2210,7 @@ public Action Timer_RespawnClient(Handle timer, int client)
         return Plugin_Stop;
     }
 
-    if (IsValidClient(client) && !IsPlayerAlive(client) && GetClientTeam(client) > 1) {
+    if (Client_IsInGame(client) && !IsPlayerAlive(client) && GetClientTeam(client) > 1) {
         TF2_RespawnPlayer(client);
     }
     return Plugin_Stop;

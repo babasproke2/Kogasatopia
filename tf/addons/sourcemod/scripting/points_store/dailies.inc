@@ -140,7 +140,7 @@ void PrintDailyClassGroup(int client, int classId)
 
 public Action Command_Dailies(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }

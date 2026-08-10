@@ -190,7 +190,7 @@ public void SQL_OnBountyPlacementCooldownLoaded(Database db, DBResultSet rows, c
 
 public Action Command_BountyHelp(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -278,7 +278,7 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
 
     for (int client = 1; client <= MaxClients; client++)
     {
-        int team = IsClientInGameHuman(client) ? GetClientTeam(client) : 0;
+        int team = Client_IsHumanInGame(client) ? GetClientTeam(client) : 0;
         if ((team != 2 && team != 3) || !AreBonusPointsReady(client)
             || GetCachedBonusPoints(client) <= BOUNTY_AUTOMATIC_MIN_BALANCE
             || !GetClientSteamId64(client, steamId, sizeof(steamId))
@@ -340,7 +340,7 @@ public void SQL_OnAutomaticBountyCandidateSelected(Database db, DBResultSet rows
     rows.FetchString(0, steamId, sizeof(steamId));
 
     int target = FindClientBySteamId64(steamId);
-    int team = IsClientInGameHuman(target) ? GetClientTeam(target) : 0;
+    int team = Client_IsHumanInGame(target) ? GetClientTeam(target) : 0;
     if ((team != 2 && team != 3) || !AreBonusPointsReady(target)
         || GetCachedBonusPoints(target) <= BOUNTY_AUTOMATIC_MIN_BALANCE)
     {
@@ -436,7 +436,7 @@ public void SQL_OnAutomaticBountyPlaced(Database db, DBResultSet results, const 
     GetCurrencyShortLabelForAmount(BOUNTY_AUTOMATIC_AMOUNT, currencyName, sizeof(currencyName));
     for (int recipient = 1; recipient <= MaxClients; recipient++)
     {
-        if (IsClientInGameHuman(recipient))
+        if (Client_IsHumanInGame(recipient))
         {
             CPrintToChatEx(recipient, target > 0 ? target : recipient,
                 "%s A bounty has been placed on %s! Dominate him to receive %s%d %s{default}!",
@@ -457,7 +457,7 @@ public void SQL_OnAutomaticBountyPlaced(Database db, DBResultSet results, const 
 
 void PrintBountyTargetInstructions(int target)
 {
-    if (!IsClientInGameHuman(target))
+    if (!Client_IsHumanInGame(target))
     {
         return;
     }
@@ -659,7 +659,7 @@ void FinishBountySchemaColumnCheck(bool success)
     ClearConnectedBountyDisconnects();
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             LoadBountyPlacementCooldown(client);
         }
@@ -680,7 +680,7 @@ public Action Timer_BountyMaintenance(Handle timer)
 
 public Action Command_PlaceBounty(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -795,7 +795,7 @@ void RequestBountyPlayerSearch(int client)
     BountySearchResult entry;
     for (int target = 1; target <= MaxClients; target++)
     {
-        if (!IsClientInGameHuman(target) || target == client)
+        if (!Client_IsHumanInGame(target) || target == client)
         {
             continue;
         }
@@ -883,14 +883,14 @@ public int MenuHandler_BountySearchResults(Menu menu, MenuAction action, int cli
         delete menu;
         return 0;
     }
-    if (action != MenuAction_Select || !IsClientInGameHuman(client))
+    if (action != MenuAction_Select || !Client_IsHumanInGame(client))
     {
         return 0;
     }
 
     char targetSteamId[BOUNTY_STEAMID_MAX];
     menu.GetItem(item, targetSteamId, sizeof(targetSteamId));
-    if (!IsClientInGameHuman(FindClientBySteamId64(targetSteamId)))
+    if (!Client_IsHumanInGame(FindClientBySteamId64(targetSteamId)))
     {
         CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
         return 0;
@@ -962,7 +962,7 @@ public int MenuHandler_BountyAmount(Menu menu, MenuAction action, int client, in
         delete menu;
         return 0;
     }
-    if (action != MenuAction_Select || !IsClientInGameHuman(client))
+    if (action != MenuAction_Select || !Client_IsHumanInGame(client))
     {
         return 0;
     }
@@ -990,7 +990,7 @@ void ShowBountyConsentMenu(int client)
     GetCurrencyColorTag(currencyColor, sizeof(currencyColor));
 
     int target = FindClientBySteamId64(g_BountyPendingTargetSteamId[client]);
-    if (!IsClientInGameHuman(target))
+    if (!Client_IsHumanInGame(target))
     {
         CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
         return;
@@ -1027,7 +1027,7 @@ public int MenuHandler_BountyConsent(Menu menu, MenuAction action, int client, i
         delete menu;
         return 0;
     }
-    if (action != MenuAction_Select || !IsClientInGameHuman(client))
+    if (action != MenuAction_Select || !Client_IsHumanInGame(client))
     {
         return 0;
     }
@@ -1079,7 +1079,7 @@ public int MenuHandler_BountyConsent(Menu menu, MenuAction action, int client, i
             (cooldownRemaining + 59) / 60);
         return 0;
     }
-    if (!IsClientInGameHuman(FindClientBySteamId64(g_BountyPendingTargetSteamId[client])))
+    if (!Client_IsHumanInGame(FindClientBySteamId64(g_BountyPendingTargetSteamId[client])))
     {
         CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
         return 0;
@@ -1116,7 +1116,7 @@ void QueueBountyPlacement(int client)
 
     int now = GetTime();
     int target = FindClientBySteamId64(g_BountyPendingTargetSteamId[client]);
-    if (!IsClientInGameHuman(target))
+    if (!Client_IsHumanInGame(target))
     {
         CPrintToChat(client, "%s That player is no longer online.", g_BountyPrefix);
         return;
@@ -1258,7 +1258,7 @@ public void SQLTxn_OnBountyPlaced(Database db, any data, int numQueries, DBResul
     }
     if (!placed)
     {
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             LoadClientBonusPoints(client);
             CPrintToChat(client,
@@ -1272,7 +1272,7 @@ public void SQLTxn_OnBountyPlaced(Database db, any data, int numQueries, DBResul
     MarkActiveBountyTarget(targetSteamId);
     RefreshActiveBountyTargets();
 
-    if (IsClientInGameHuman(client))
+    if (Client_IsHumanInGame(client))
     {
         char currentSteamId[BOUNTY_STEAMID_MAX];
         if (GetClientSteamId64(client, currentSteamId, sizeof(currentSteamId))
@@ -1293,7 +1293,7 @@ public void SQLTxn_OnBountyPlaced(Database db, any data, int numQueries, DBResul
     int target = FindClientBySteamId64(targetSteamId);
     char senderDisplay[256];
     char targetDisplay[256];
-    if (IsClientInGameHuman(client))
+    if (Client_IsHumanInGame(client))
     {
         BuildPurchaseDisplayName(client, senderDisplay, sizeof(senderDisplay));
     }
@@ -1316,9 +1316,9 @@ public void SQLTxn_OnBountyPlaced(Database db, any data, int numQueries, DBResul
     GetCurrencyShortLabelForAmount(amount, currencyName, sizeof(currencyName));
     for (int recipient = 1; recipient <= MaxClients; recipient++)
     {
-        if (IsClientInGameHuman(recipient))
+        if (Client_IsHumanInGame(recipient))
         {
-            CPrintToChatEx(recipient, IsClientInGameHuman(client) ? client : recipient,
+            CPrintToChatEx(recipient, Client_IsHumanInGame(client) ? client : recipient,
                 "%s %s placed a %s%d %s{default} bounty on %s! Dominate him to get the gems!",
                 g_BountyPrefix,
                 senderDisplay,
@@ -1347,7 +1347,7 @@ public void SQLTxn_OnBountyPlacementFailed(Database db, any data, int numQueries
         g_BountyPlacementPending[client] = false;
     }
     LogError("[points_store] Bounty placement failed at query %d: %s", failIndex, error);
-    if (IsClientInGameHuman(client))
+    if (Client_IsHumanInGame(client))
     {
         LoadClientBonusPoints(client);
         CPrintToChat(client, "%s Could not place that bounty.", g_BountyPrefix);
@@ -1356,7 +1356,7 @@ public void SQLTxn_OnBountyPlacementFailed(Database db, any data, int numQueries
 
 public Action Command_ShowBounties(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -1380,7 +1380,7 @@ public Action Command_ShowBounties(int client, int args)
 public void SQL_OnBountyListLoaded(Database db, DBResultSet rows, const char[] error, any userId)
 {
     int client = GetClientOfUserId(userId);
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return;
     }
@@ -1504,7 +1504,7 @@ public void SQL_OnActiveBountyTargetsLoaded(Database db, DBResultSet rows, const
 
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (IsClientInGameHuman(client) && !IsClientActiveBountyTarget(client))
+        if (Client_IsHumanInGame(client) && !IsClientActiveBountyTarget(client))
         {
             g_BountyMedicAssistsLife[client] = 0;
         }
@@ -1523,12 +1523,12 @@ public void Event_BountyPlayerDeath(Event event, const char[] name, bool dontBro
     int victim = GetClientOfUserId(event.GetInt("userid"));
     int assister = GetClientOfUserId(event.GetInt("assister"));
 
-    if (IsClientInGameHuman(victim))
+    if (Client_IsHumanInGame(victim))
     {
         g_BountyMedicAssistsLife[victim] = 0;
     }
 
-    if (IsClientInGameHuman(assister) && assister != victim)
+    if (Client_IsHumanInGame(assister) && assister != victim)
     {
         if (TF2_GetPlayerClass(assister) == TFClass_Medic && IsClientActiveBountyTarget(assister))
         {
@@ -1545,7 +1545,7 @@ public void Event_BountyPlayerDeath(Event event, const char[] name, bool dontBro
         }
     }
 
-    if (!IsClientInGameHuman(attacker) || !IsClientInGameHuman(victim) || attacker == victim)
+    if (!Client_IsHumanInGame(attacker) || !Client_IsHumanInGame(victim) || attacker == victim)
     {
         return;
     }
@@ -1717,7 +1717,7 @@ void ClearConnectedBountyDisconnects()
 {
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             ClearBountyDisconnectForClient(client);
         }
@@ -1761,7 +1761,7 @@ public void SQL_OnDisconnectedBountiesLoaded(Database db, DBResultSet rows, cons
         int bountyId = rows.FetchInt(0);
         rows.FetchString(1, targetSteamId, sizeof(targetSteamId));
         int target = FindClientBySteamId64(targetSteamId);
-        if (IsClientInGameHuman(target))
+        if (Client_IsHumanInGame(target))
         {
             ClearBountyDisconnectForClient(target);
             continue;
@@ -1889,7 +1889,7 @@ public void SQLTxn_OnDisconnectedBountiesRefunded(Database db, any data, int num
 
             for (int recipient = 1; recipient <= MaxClients; recipient++)
             {
-                if (IsClientInGameHuman(recipient))
+                if (Client_IsHumanInGame(recipient))
                 {
                     CPrintToChatEx(recipient, sender > 0 ? sender : recipient,
                         "%s %s has been disconnected for {gold}%d minutes{default}; %s%d %s{default} has been refunded!",
@@ -2055,7 +2055,7 @@ public void SQLTxn_OnBountyClaimed(Database db, any data, int numQueries, DBResu
 
     RefreshActiveBountyTargets();
 
-    if (IsClientInGameHuman(attacker))
+    if (Client_IsHumanInGame(attacker))
     {
         char currentSteamId[BOUNTY_STEAMID_MAX];
         if (GetClientSteamId64(attacker, currentSteamId, sizeof(currentSteamId))
@@ -2071,7 +2071,7 @@ public void SQLTxn_OnBountyClaimed(Database db, any data, int numQueries, DBResu
 
     char attackerDisplay[256];
     char victimDisplay[256];
-    if (IsClientInGameHuman(attacker))
+    if (Client_IsHumanInGame(attacker))
     {
         BuildPurchaseDisplayName(attacker, attackerDisplay, sizeof(attackerDisplay));
     }
@@ -2095,9 +2095,9 @@ public void SQLTxn_OnBountyClaimed(Database db, any data, int numQueries, DBResu
     GetCurrencyShortLabelForAmount(amount, currencyName, sizeof(currencyName));
     for (int recipient = 1; recipient <= MaxClients; recipient++)
     {
-        if (IsClientInGameHuman(recipient))
+        if (Client_IsHumanInGame(recipient))
         {
-            CPrintToChatEx(recipient, IsClientInGameHuman(attacker) ? attacker : recipient,
+            CPrintToChatEx(recipient, Client_IsHumanInGame(attacker) ? attacker : recipient,
                 "%s %s received %s%d %s{default} for dominating %s!",
                 g_BountyPrefix,
                 attackerDisplay,
@@ -2230,7 +2230,7 @@ public void SQLTxn_OnBountiesExpired(Database db, any data, int numQueries, DBRe
             BuildBountyDisplayName(targetSteamId, targetName, targetDisplay, sizeof(targetDisplay));
             for (int recipient = 1; recipient <= MaxClients; recipient++)
             {
-                if (IsClientInGameHuman(recipient))
+                if (Client_IsHumanInGame(recipient))
                 {
                     CPrintToChatEx(recipient, sender > 0 ? sender : recipient,
                         "%s %s's bounty on %s expired due to one week without resolution!",
@@ -2321,7 +2321,7 @@ public void SQL_OnBountyProgressTargetsLoaded(Database db, DBResultSet rows, con
     {
         rows.FetchString(0, targetSteamId, sizeof(targetSteamId));
         int target = FindClientBySteamId64(targetSteamId);
-        if (!IsClientInGameHuman(target))
+        if (!Client_IsHumanInGame(target))
         {
             continue;
         }
@@ -2488,7 +2488,7 @@ public void SQLTxn_OnBountiesSurvived(Database db, any data, int numQueries, DBR
             int target = FindClientBySteamId64(targetSteamId);
             for (int recipient = 1; recipient <= MaxClients; recipient++)
             {
-                if (IsClientInGameHuman(recipient))
+                if (Client_IsHumanInGame(recipient))
                 {
                     CPrintToChatEx(recipient, target > 0 ? target : recipient,
                         "%s %s's bounty is now %s%d %s{default} and expires in {gold}%d minutes{default}!",
@@ -2533,7 +2533,7 @@ public void SQLTxn_OnBountiesSurvived(Database db, any data, int numQueries, DBR
             GetCurrencyShortLabelForAmount(payout, currencyName, sizeof(currencyName));
             for (int recipient = 1; recipient <= MaxClients; recipient++)
             {
-                if (IsClientInGameHuman(recipient))
+                if (Client_IsHumanInGame(recipient))
                 {
                     CPrintToChatEx(recipient, target > 0 ? target : recipient,
                         "%s %s received %s%d %s{default} for surviving a bounty hunt!",

@@ -1102,7 +1102,7 @@ bool IsLotteryReadyForClient(int client, bool needTicketLoaded = true)
 
 public Action Command_Lottery(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -1139,7 +1139,7 @@ public Action Command_Lottery(int client, int args)
 
 public Action Command_LotteryAll(int client, int args)
 {
-    if (!IsClientInGameHuman(client) || !IsLotteryReadyForClient(client))
+    if (!Client_IsHumanInGame(client) || !IsLotteryReadyForClient(client))
     {
         return Plugin_Handled;
     }
@@ -1155,7 +1155,7 @@ public Action CommandListener_LotteryAllAlias(int client, const char[] command, 
 
 public Action CommandListener_LotteryAllChatAlias(int client, const char[] command, int argc)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Continue;
     }
@@ -1174,7 +1174,7 @@ public Action CommandListener_LotteryAllChatAlias(int client, const char[] comma
 
 public Action Command_LotteryRefund(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -1195,7 +1195,7 @@ public Action CommandListener_LotteryRefundAlias(int client, const char[] comman
 
 public Action Command_LotteryTime(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -1243,7 +1243,7 @@ int SecondsUntilNextLotteryDraw(int timestamp)
 
 public Action Command_LotteryPrizePool(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -1259,7 +1259,7 @@ public Action Command_LotteryPrizePool(int client, int args)
 
 public Action Command_LotteryHistory(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -1293,7 +1293,7 @@ public void SQL_OnLotteryHistoryLoaded(Database db, DBResultSet results, const c
     delete pack;
 
     int client = GetClientOfUserId(userId);
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return;
     }
@@ -1446,7 +1446,7 @@ void StripMenuColorTags(const char[] input, char[] output, int maxlen)
 
 public Action Command_ViewLotteryTicket(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -1620,7 +1620,7 @@ public int MenuHandler_LotteryBuy(Menu menu, MenuAction action, int client, int 
         return 0;
     }
 
-    if (action != MenuAction_Select || !IsClientInGameHuman(client))
+    if (action != MenuAction_Select || !Client_IsHumanInGame(client))
     {
         return 0;
     }
@@ -1655,7 +1655,7 @@ public int MenuHandler_LotteryOwned(Menu menu, MenuAction action, int client, in
         return 0;
     }
 
-    if (action != MenuAction_Select || !IsClientInGameHuman(client))
+    if (action != MenuAction_Select || !Client_IsHumanInGame(client))
     {
         return 0;
     }
@@ -2076,7 +2076,7 @@ public void SQLTxn_OnLotteryTicketReplaced(Database db, any data, int numQueries
 
     if (numQueries <= 0 || results[0] == null || results[0].AffectedRows <= 0)
     {
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             CPrintToChat(client, "%s[Lottery]{default} Your existing ticket could not be replaced. Try again in a moment.", colorTag);
             LoadClientLotteryTicket(client);
@@ -2136,7 +2136,7 @@ public void SQLTxn_OnLotteryTicketReplaceFailure(Database db, any data, int numQ
     FinishLotteryTicketWrite(steamId);
 
     int client = GetClientOfUserId(userId);
-    if (IsClientInGameHuman(client))
+    if (Client_IsHumanInGame(client))
     {
         char colorTag[BP_CURRENCY_COLOR_MAX + 2];
         GetCurrencyColorTag(colorTag, sizeof(colorTag));
@@ -2168,7 +2168,7 @@ public void SQL_OnLotteryTicketInserted(Database db, DBResultSet results, const 
     {
         LogError("[points_store] Failed to insert lottery ticket for %s: %s", steamId, error);
         CreditSteamId64BonusPoints(steamId, amount, "lottery_ticket_save_refund", lotteryId);
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             char colorTag[BP_CURRENCY_COLOR_MAX + 2];
             GetCurrencyColorTag(colorTag, sizeof(colorTag));
@@ -2292,7 +2292,7 @@ public void SQL_OnLotteryTicketRefunded(Database db, DBResultSet results, const 
     if (error[0] != '\0')
     {
         LogError("[points_store] Failed to refund lottery ticket for %s: %s", steamId, error);
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             CPrintToChat(client, "%s[Lottery]{default} Could not refund your ticket.", colorTag);
         }
@@ -2302,7 +2302,7 @@ public void SQL_OnLotteryTicketRefunded(Database db, DBResultSet results, const 
     if (results == null || results.AffectedRows <= 0)
     {
         LogError("[points_store] Lottery refund skipped for %s because the cached ticket was stale.", steamId);
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             CPrintToChat(client, "%s[Lottery]{default} Your ticket changed. Try again in a moment.", colorTag);
             LoadClientLotteryTicket(client);
@@ -2317,7 +2317,7 @@ public void SQL_OnLotteryTicketRefunded(Database db, DBResultSet results, const 
         g_ClientLotteryTicketLoaded[client] = true;
     }
 
-    if (IsClientInGameHuman(client))
+    if (Client_IsHumanInGame(client))
     {
         CPrintToChatAllEx(client, "{default}%s refunded his lottery ticket! %s(%d){default}", displayName, colorTag, amount);
     }
@@ -2355,7 +2355,7 @@ public void SQL_OnLotteryPrizePoolLoaded(Database db, DBResultSet results, const
     delete pack;
 
     int client = GetClientOfUserId(userId);
-    if (!IsClientInGameHuman(client) || lotteryId != g_CurrentLotteryId)
+    if (!Client_IsHumanInGame(client) || lotteryId != g_CurrentLotteryId)
     {
         return;
     }
@@ -3344,7 +3344,7 @@ public void SQL_OnLotteryDirectCredit(Database db, DBResultSet results, const ch
         balanceAfter = g_ClientBonusPoints[client];
     }
 
-    if (IsClientInGameHuman(client))
+    if (Client_IsHumanInGame(client))
     {
         if (StrEqual(reason, "lottery_main_payout", false))
         {

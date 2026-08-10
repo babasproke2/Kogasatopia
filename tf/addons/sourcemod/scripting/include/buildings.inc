@@ -10,7 +10,7 @@
 
 stock bool Kogasa_ClientOwnsBuilding(int client, const char[] classname)
 {
-    if (!Kogasa_IsClientInGame(client))
+    if (!Client_IsInGame(client))
     {
         return false;
     }
@@ -30,7 +30,7 @@ stock bool Kogasa_ClientOwnsBuilding(int client, const char[] classname)
 
 stock bool Kogasa_IsEngineerWithBuildings(int client)
 {
-    if (!Kogasa_IsClientInGame(client) || TF2_GetPlayerClass(client) != TFClass_Engineer)
+    if (!Client_IsInGame(client) || TF2_GetPlayerClass(client) != TFClass_Engineer)
     {
         return false;
     }

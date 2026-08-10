@@ -16,6 +16,7 @@
 #include <tf_custom_attributes>
 #include <conch_no_speed>
 
+#include "include/clients.inc"
 
 #define MAX_AMPLIFIER_CLIENTS (MAXPLAYERS + 1)
 #define MAX_AMPLIFIER_ENTITIES 2048
@@ -312,7 +313,7 @@ public void OnMapEnd()
 
 public void OnClientPostAdminCheck(int client)
 {
-	if (!IsValidClient(client) || IsFakeClient(client))
+	if (!Client_IsInGame(client) || IsFakeClient(client))
 	{
 		return;
 	}
@@ -327,7 +328,7 @@ public void OnClientPostAdminCheck(int client)
 
 public void OnClientCookiesCached(int client)
 {
-	if (!IsValidClient(client) || IsFakeClient(client))
+	if (!Client_IsInGame(client) || IsFakeClient(client))
 	{
 		return;
 	}
@@ -342,7 +343,7 @@ public void OnClientDisconnect(int client)
 
 void LoadClientPreferences(int client)
 {
-	if (!IsValidClient(client) || !AreClientCookiesCached(client))
+	if (!Client_IsInGame(client) || !AreClientCookiesCached(client))
 	{
 		return;
 	}
@@ -364,7 +365,7 @@ void LoadClientPreferences(int client)
 
 void SaveClientPreferences(int client)
 {
-	if (!IsValidClient(client) || !AreClientCookiesCached(client)) return;
+	if (!Client_IsInGame(client) || !AreClientCookiesCached(client)) return;
 
 	char szValue[8];
 
@@ -410,7 +411,7 @@ bool ShouldClientBuildAmplifier(int client, bool isDispenser, bool isSentry, boo
 	effectiveForceAmplifier = 0;
 	playerRequestedAmplifier = false;
 
-	if ((!isDispenser && !isSentry) || !IsValidClient(client))
+	if ((!isDispenser && !isSentry) || !Client_IsInGame(client))
 	{
 		return false;
 	}
@@ -516,7 +517,7 @@ bool GetDestroyCommandForBuilding(const char[] buildingClass, char[] destroyCmd,
 
 void RemoveBuilding(int client, const char[] buildingClass)
 {
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 	{
 		return;
 	}
@@ -571,7 +572,7 @@ public int AmpHelpPanelH(Handle menu, MenuAction action, int param1, int param2)
 
 public Action HelpPanel(int client, int args)
 {
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 	{
 		return Plugin_Continue;
 	}
@@ -593,7 +594,7 @@ public Action HelpPanel(int client, int args)
 
 public Action PadHelpPanel(int client, int args)
 {
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 	{
 		return Plugin_Continue;
 	}
@@ -613,7 +614,7 @@ public Action PadHelpPanel(int client, int args)
 
 public Action CallPanel(int client, int args)
 {
-	if (!NativeControl && IsValidClient(client))
+	if (!NativeControl && Client_IsInGame(client))
 	{
 		ShowAmplifierMenu(client);
 	}
@@ -622,7 +623,7 @@ public Action CallPanel(int client, int args)
 
 void ShowAmplifierMenu(int client)
 {
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 		return;
 
 	Handle menu = CreateMenu(MenuHandler_Amplifier);
@@ -651,7 +652,7 @@ void ShowAmplifierMenu(int client)
 // Engipads attachment
 bool GetClientCookieBool(int client, Handle cookie)
 {
-	if (!IsValidClient(client) || !IsValidCookieHandle(cookie) || !AreClientCookiesCached(client))
+	if (!Client_IsInGame(client) || !IsValidCookieHandle(cookie) || !AreClientCookiesCached(client))
 	{
 		return false;
 	}
@@ -663,7 +664,7 @@ bool GetClientCookieBool(int client, Handle cookie)
 
 void SetClientCookieBool(int client, Handle cookie, bool value)
 {
-	if (!IsValidClient(client) || !IsValidCookieHandle(cookie) || !AreClientCookiesCached(client))
+	if (!Client_IsInGame(client) || !IsValidCookieHandle(cookie) || !AreClientCookiesCached(client))
 	{
 		return;
 	}
@@ -675,7 +676,7 @@ void SetClientCookieBool(int client, Handle cookie, bool value)
 
 void ToggleAmplifierBuildingPreference(int client, bool sentry)
 {
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 	{
 		return;
 	}
@@ -720,7 +721,7 @@ public int MenuHandler_Amplifier(Handle menu, MenuAction action, int param1, int
 {
 	if (action == MenuAction_Select)
 	{
-		if (!IsValidClient(param1))
+		if (!Client_IsInGame(param1))
 		{
 			return 0;
 		}
@@ -1137,7 +1138,7 @@ void ApplyAmplifierEffectsToPlayers(int activeAmps[ME], int activeCount, int max
 {
 	for (int client = 1; client <= MaxClients; client++)
 	{
-		if (!IsValidClient(client))
+		if (!Client_IsInGame(client))
 			continue;
 
 		g_PlayerState[client].nearAmplifier = false;
@@ -1360,7 +1361,7 @@ void CheckBuilding(int ent)
 	bool isDispenser = IsDispenserClass(classname);
 	bool isSentry = IsSentryClass(classname);
 
-	if ((!isDispenser && !isSentry) || !IsValidClient(Client)) return;
+	if ((!isDispenser && !isSentry) || !Client_IsInGame(Client)) return;
 
 	ResetAmplifierBuildingState(ent);
 	BuildingRef[ent] = EntIndexToEntRef(ent);
@@ -1633,7 +1634,7 @@ public Action Timer_RemoveAmplifierEffect(Handle timer, int userid)
 
 stock int CheckAmpAttributesDisp(int client)
 {
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 		return 0;
 
 	int weapon = GetPlayerWeaponSlot(client, 4);
@@ -1645,7 +1646,7 @@ stock int CheckAmpAttributesDisp(int client)
 
 stock int CheckAmpAttributesSentry(int client)
 {
-	if (!IsValidClient(client))
+	if (!Client_IsInGame(client))
 		return 0;
 
 	int weapon = GetPlayerWeaponSlot(client, 4);
@@ -1800,15 +1801,9 @@ public any Native_WouldReplaceBuilding(Handle plugin, int numParams)
 	return WouldObjectTypeBecomeAmplifier(client, objectType);
 }
 
-// Utility Functions
-stock bool IsValidClient(int client)
-{
-	return IsValidPlayerIndex(client) && client <= MaxClients && IsClientInGame(client);
-}
-
 void DealElectricDamage(int client, int builder, const float amplifierPos[3], float damage, float maxDistance)
 {
-    if (!IsValidClient(client) || !IsPlayerAlive(client) || maxDistance <= 0.0)
+    if (!Client_IsInGame(client) || !IsPlayerAlive(client) || maxDistance <= 0.0)
         return;
 
     float clientPos[3];
@@ -1822,7 +1817,7 @@ void DealElectricDamage(int client, int builder, const float amplifierPos[3], fl
     float damageFinal = damage * (1.0 - (dist / maxDistance));
     if (damageFinal < 0.0) damageFinal = 0.0;
 
-	int attacker = IsValidClient(builder) ? builder : 0;
+	int attacker = Client_IsInGame(builder) ? builder : 0;
     SDKHooks_TakeDamage(client, attacker, attacker, damageFinal, DMG_SHOCK);
 }
 
@@ -1850,7 +1845,7 @@ void CreateAmplifierExplosion(float position[3], int attacker = 0, bool entwasbu
     TeleportEntity(explosion, position, NULL_VECTOR, NULL_VECTOR);
 
     // Set attacker if valid
-    bool validAttacker = IsValidClient(attacker);
+    bool validAttacker = Client_IsInGame(attacker);
     if (validAttacker)
     {
         SetEntPropEnt(explosion, Prop_Send, "m_hOwnerEntity", attacker);

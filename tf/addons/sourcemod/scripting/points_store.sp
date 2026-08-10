@@ -14,6 +14,7 @@
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
+#include "include/clients.inc"
 #include "include/database.inc"
 #include "include/steam_identity.inc"
 #include "include/statistics.inc"
@@ -728,7 +729,7 @@ public Action CommandListener_ShowBonusPointsAlias(int client, const char[] comm
 
 public Action CommandListener_PointsStoreChatAlias(int client, const char[] command, int argc)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Continue;
     }
@@ -944,14 +945,6 @@ bool IsClientAuthorizedHuman(int client)
         && client <= MaxClients
         && IsClientConnected(client)
         && IsClientAuthorized(client)
-        && !IsFakeClient(client);
-}
-
-bool IsClientInGameHuman(int client)
-{
-    return client > 0
-        && client <= MaxClients
-        && IsClientInGame(client)
         && !IsFakeClient(client);
 }
 
@@ -1310,7 +1303,7 @@ int ConsumeCachedPurchaseUse(int client, const char[] itemKey)
 
 void BroadcastPurchaseRanOut(int client, const char[] itemKey)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return;
     }
@@ -1405,7 +1398,7 @@ public void SQL_OnPurchaseUsesUpdated(Database db, DBResultSet results, const ch
 
 bool AreBonusPointsReady(int client)
 {
-    return IsClientInGameHuman(client) && g_ClientBonusPointsLoaded[client];
+    return Client_IsHumanInGame(client) && g_ClientBonusPointsLoaded[client];
 }
 
 int GetCachedBonusPoints(int client)
@@ -2325,7 +2318,7 @@ bool CrossedBonusPointsMilestone(int balanceBefore, int balanceAfter)
 
 void AnnounceBonusPointsMilestone(int client, int balance)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return;
     }
@@ -2449,9 +2442,9 @@ void BuildPerMapAwardSuffix(int perMapUsed, int perMap, char[] suffix, int maxle
 
 bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool chatAlert = true, float randomChance = 1.0, const char[] type = "", int target = 0, int perMap = 0, const char[] targetNameSnapshot = "", bool announceMilestone = false)
 {
-    if (!IsClientInGameHuman(client) || points == 0)
+    if (!Client_IsHumanInGame(client) || points == 0)
     {
-        LogBonusPointsRejected(!IsClientInGameHuman(client) ? "invalid_client" : "zero_delta", client, points, type, target, 0, randomChance, 0.0);
+        LogBonusPointsRejected(!Client_IsHumanInGame(client) ? "invalid_client" : "zero_delta", client, points, type, target, 0, randomChance, 0.0);
         return false;
     }
 
@@ -2578,9 +2571,9 @@ bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool ch
         return ApplyBonusPointsNow(client, points, playSound, chatAlert, randomChance, type, target, perMap, "", announceMilestone);
     }
 
-    if (!IsClientInGameHuman(client) || points == 0)
+    if (!Client_IsHumanInGame(client) || points == 0)
     {
-        LogBonusPointsRejected(!IsClientInGameHuman(client) ? "deferred_invalid_client" : "deferred_zero_delta", client, points, type, target, 0, randomChance, 0.0);
+        LogBonusPointsRejected(!Client_IsHumanInGame(client) ? "deferred_invalid_client" : "deferred_zero_delta", client, points, type, target, 0, randomChance, 0.0);
         return false;
     }
 
@@ -2602,11 +2595,11 @@ bool ApplyBonusPoints(int client, int points = 1, bool playSound = true, bool ch
     }
     else
     {
-        if (IsClientInGameHuman(target))
+        if (Client_IsHumanInGame(target))
         {
             BuildPurchaseDisplayName(target, targetNameSnapshot, sizeof(targetNameSnapshot));
         }
-        pack.WriteCell(IsClientInGameHuman(target) ? GetClientUserId(target) : 0);
+        pack.WriteCell(Client_IsHumanInGame(target) ? GetClientUserId(target) : 0);
     }
     pack.WriteString(targetNameSnapshot);
     pack.WriteCell(announceMilestone ? 1 : 0);
@@ -2664,7 +2657,7 @@ int StealBonusPointsWithContext(int victim, int recipient, int points, const cha
         return 0;
     }
 
-    if (!IsClientInGameHuman(victim) || !IsClientInGameHuman(recipient))
+    if (!Client_IsHumanInGame(victim) || !Client_IsHumanInGame(recipient))
     {
         return 0;
     }
@@ -2774,7 +2767,7 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
     char perMapSuffix[24];
     BuildPerMapAwardSuffix(perMapUsed, perMap, perMapSuffix, sizeof(perMapSuffix));
 
-    if (StrEqual(type, "points_diff", false) && IsClientInGameHuman(target))
+    if (StrEqual(type, "points_diff", false) && Client_IsHumanInGame(target))
     {
         char targetName[256];
         BuildPurchaseDisplayName(target, targetName, sizeof(targetName));
@@ -2787,7 +2780,7 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
         return;
     }
 
-    if (StrEqual(type, "top_score_kill", false) && IsClientInGameHuman(target))
+    if (StrEqual(type, "top_score_kill", false) && Client_IsHumanInGame(target))
     {
         char targetName[256];
         BuildPurchaseDisplayName(target, targetName, sizeof(targetName));
@@ -2800,13 +2793,13 @@ void PrintBonusPointsDelta(int client, int points, const char[] type, int target
         return;
     }
 
-    if (StrEqual(type, "player_dom", false) && IsClientInGameHuman(target))
+    if (StrEqual(type, "player_dom", false) && Client_IsHumanInGame(target))
     {
         CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Dominating{default} %N%s", prefix, sign, points, target, perMapSuffix);
         return;
     }
 
-    if (StrEqual(type, "player_revenge", false) && IsClientInGameHuman(target))
+    if (StrEqual(type, "player_revenge", false) && Client_IsHumanInGame(target))
     {
         CPrintToChat(client, "%s {limegreen}%s%i{default} for {gold}Revenge{default} on %N%s", prefix, sign, points, target, perMapSuffix);
         return;
@@ -2909,7 +2902,7 @@ void NormalizeLeaderboardColorTag(char[] colorTag, int maxlen)
 
 public Action Command_ShowCurrencyLeaderboard(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -2981,7 +2974,7 @@ public void PointsStore_ShowCurrencyLeaderboardCallback(Database db, DBResultSet
     int page = pack.ReadCell();
     delete pack;
 
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return;
     }
@@ -3037,7 +3030,7 @@ public void PointsStore_ShowCurrencyLeaderboardCallback(Database db, DBResultSet
 
 public Action Command_Shop(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -3061,7 +3054,7 @@ public Action Command_Shop(int client, int args)
 
 public Action Command_ShowBonusPoints(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -3080,7 +3073,7 @@ public Action Command_ShowBonusPoints(int client, int args)
         if (targetArg[0])
         {
             int candidate = FindTarget(client, targetArg, true, false);
-            if (candidate > 0 && IsClientInGameHuman(candidate))
+            if (candidate > 0 && Client_IsHumanInGame(candidate))
             {
                 target = candidate;
             }
@@ -3119,7 +3112,7 @@ public Action Command_ShowBonusPoints(int client, int args)
 
 public Action Command_SendBonusPoints(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -3149,7 +3142,7 @@ public Action Command_SendBonusPoints(int client, int args)
     TrimString(targetArg);
 
     int target = FindTarget(client, targetArg, true, false);
-    if (target <= 0 || !IsClientInGameHuman(target))
+    if (target <= 0 || !Client_IsHumanInGame(target))
     {
         CPrintToChat(client, "%s Could not find player '%s'.", prefix, targetArg);
         return Plugin_Handled;
@@ -3219,7 +3212,7 @@ public Action Command_SendBonusPoints(int client, int args)
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsClientInGameHuman(i))
+        if (!Client_IsHumanInGame(i))
         {
             continue;
         }
@@ -3236,7 +3229,7 @@ public Action CommandListener_WelfareAlias(int client, const char[] command, int
 
 public Action CommandListener_WelfareChatAlias(int client, const char[] command, int argc)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Continue;
     }
@@ -3257,7 +3250,7 @@ public Action CommandListener_WelfareChatAlias(int client, const char[] command,
 
 public Action Command_Welfare(int client, int args)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return Plugin_Handled;
     }
@@ -3357,7 +3350,7 @@ public void SQL_OnWelfarePoolDebited(Database db, DBResultSet results, const cha
     if (error[0] != '\0')
     {
         LogError("[points_store] Welfare pool debit failed: %s", error);
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             CPrintToChat(client, "%s Could not collect welfare right now.", prefix);
         }
@@ -3367,7 +3360,7 @@ public void SQL_OnWelfarePoolDebited(Database db, DBResultSet results, const cha
     if (results == null || results.AffectedRows <= 0)
     {
         LoadEconomyState();
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             CPrintToChat(client, "%s Welfare pool is empty right now.", prefix);
         }
@@ -3380,12 +3373,12 @@ public void SQL_OnWelfarePoolDebited(Database db, DBResultSet results, const cha
         g_WelfarePoolBalance = 0;
     }
 
-    if (!IsClientInGameHuman(client) || !ApplyBonusPoints(client, amount, false, false, 1.0, "welfare", 0, 0.0, 1))
+    if (!Client_IsHumanInGame(client) || !ApplyBonusPoints(client, amount, false, false, 1.0, "welfare", 0, 0.0, 1))
     {
         QueueEconomyDelta(BP_ECONOMY_WELFARE_POOL_KEY, amount);
         g_WelfarePoolBalance += amount;
         LogEconomyEvent("welfare_pool_refund", client, amount, "welfare", 0, g_WelfarePoolBalance, g_CumulativeSpentBalance);
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             CPrintToChat(client, "%s Could not collect welfare right now.", prefix);
         }
@@ -3479,7 +3472,7 @@ public int MenuHandler_Shop(Menu menu, MenuAction action, int client, int item)
         return 0;
     }
 
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return 0;
     }
@@ -3492,7 +3485,7 @@ public int MenuHandler_Shop(Menu menu, MenuAction action, int client, int item)
 
 void ShowShopItemMenu(int client, const char[] itemKey)
 {
-    if (!IsClientInGameHuman(client))
+    if (!Client_IsHumanInGame(client))
     {
         return;
     }
@@ -3542,14 +3535,14 @@ public int MenuHandler_ShopItem(Menu menu, MenuAction action, int client, int it
 
     if (action == MenuAction_Cancel && item == MenuCancel_ExitBack)
     {
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             ShowShopMenu(client);
         }
         return 0;
     }
 
-    if (action != MenuAction_Select || !IsClientInGameHuman(client))
+    if (action != MenuAction_Select || !Client_IsHumanInGame(client))
     {
         return 0;
     }
@@ -3761,7 +3754,7 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
         LogError("[bonuspoints_transactions] Failed to insert purchase for %s/%s: %s", expectedSteamId, itemKey, error);
         LogPurchaseEvent("purchase_save_failed", error, client, itemKey, itemName, price, GetCachedBonusPoints(client));
         RemoveCachedPurchase(client, itemKey);
-        if (IsClientInGameHuman(client))
+        if (Client_IsHumanInGame(client))
         {
             PrintToChat(client, "[Shop] Your purchase could not be saved. Contact an admin.");
         }
@@ -3772,7 +3765,7 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
     g_ClientPurchaseExpiresAt[client].SetValue(itemKey, expiresAt);
     g_ClientPurchaseUsesRemaining[client].SetValue(itemKey, useCount);
     LogPurchaseEvent("purchase_success", "ok", client, itemKey, itemName, price, GetCachedBonusPoints(client));
-    if (IsClientInGameHuman(client))
+    if (Client_IsHumanInGame(client))
     {
         char colorTag[BP_CURRENCY_COLOR_MAX + 2];
         char currencyShort[BP_CURRENCY_SHORT_MAX];

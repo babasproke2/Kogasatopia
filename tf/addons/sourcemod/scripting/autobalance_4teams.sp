@@ -1086,7 +1086,7 @@ static bool ClientHasDecapitationHeads(int client)
 static bool IsProtectedBalanceCandidate(int client, int team, bool clanProtectionAvailable)
 {
     if (IsMedicWithProtectedUber(client)) return true;
-    if (IsEngineerWithBuildings(client)) return true;
+    if (Kogasa_IsEngineerWithBuildings(client)) return true;
     if (IsClientImmune(client)) return true;
     if (HasClanTeammateProtection(client, team, clanProtectionAvailable)) return true;
 
@@ -1137,7 +1137,7 @@ static int GetSimpleSelectionPriority(int client)
         priority += 2;
     }
 
-    if (!IsEngineerWithBuildings(client))
+    if (!Kogasa_IsEngineerWithBuildings(client))
     {
         priority += 1;
     }
@@ -1184,7 +1184,7 @@ static bool IsVolunteerCandidate(int client, int team)
     if (!IsClientVolunteer(client)) return false;
     if (IsClientImmune(client)) return false;
     if (HasAutobalancePurchaseImmunity(client)) return false;
-    if (IsEngineerWithBuildings(client)) return false;
+    if (Kogasa_IsEngineerWithBuildings(client)) return false;
     if (IsMedicWithProtectedUber(client)) return false;
 
     return true;
@@ -1307,11 +1307,6 @@ static int SelectAutobalanceReplacementForPass(int protectedClient, int team, bo
     }
 
     return bestClient;
-}
-
-static bool IsEngineerWithBuildings(int client)
-{
-    return Kogasa_IsEngineerWithBuildings(client);
 }
 
 static bool IsClientPersistentlyImmune(int client)
