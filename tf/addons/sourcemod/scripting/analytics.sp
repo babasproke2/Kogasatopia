@@ -20,13 +20,12 @@
 #define ANALYTICS_FLUSH_INTERVAL 30.0
 #define ANALYTICS_SQL_MAX 8192
 
-char g_sQuickStatsPath[PLATFORM_MAX_PATH];
-
 Database g_hDb = null;
 ArrayList g_hEventQueue = null;
 Handle g_hFlushTimer = null;
 Handle g_hDatabaseReconnectTimer = null;
 bool g_bDbReady = false;
+ConVar g_cvHostname = null;
 
 bool g_bClientIsAdmin[MAXPLAYERS + 1] = { false, ... };
 bool g_bClientConnected[MAXPLAYERS + 1] = { false, ... };
@@ -86,6 +85,7 @@ public void OnPluginStart()
     CreateConVar("sm_log_connections_version", PLUGIN_VERSION, "Log Connections version.", FCVAR_NOTIFY | FCVAR_DONTRECORD);
 
     InitializeLogPath(CONNECTION_LOG_PATH);
+    g_cvHostname = FindConVar("hostname");
     g_hEventQueue = new ArrayList(sizeof(AnalyticsEvent));
     g_hFlushTimer = CreateTimer(ANALYTICS_FLUSH_INTERVAL, Timer_FlushAnalyticsEvents, _, TIMER_REPEAT);
 
@@ -205,8 +205,7 @@ void QueueClientEvent(int client, bool isConnecting, const char[] disconnectReas
         strcopy(event.SteamId, sizeof(event.SteamId), "Unknown");
     }
 
-    char rawIp[64];
-    GetClientNetworkInfo(client, rawIp, sizeof(rawIp), event.IpSubnet, sizeof(event.IpSubnet), event.Country, sizeof(event.Country));
+    GetClientNetworkInfo(client, event.IpSubnet, sizeof(event.IpSubnet), event.Country, sizeof(event.Country));
     event.IsAdmin = g_bClientIsAdmin[client];
     event.ConnectionMinutes = isConnecting ? 0 : RoundToCeil(GetClientTime(client) / 60.0);
     strcopy(event.Reason, sizeof(event.Reason), disconnectReason);
@@ -445,37 +444,27 @@ public void SQL_OnSchemaComplete(Database db, DBResultSet results, const char[] 
 
 public Action UpdateQuickStats(Handle timer)
 {
+    int hostPort = ServerContext_GetHostPort();
     char serverPort[10];
-    ConVar cvarPort = FindConVar("hostport");
-    if (cvarPort != null)
-    {
-        cvarPort.GetString(serverPort, sizeof(serverPort));
-    }
-    else
-    {
-        strcopy(serverPort, sizeof(serverPort), "0");
-    }
+    IntToString(hostPort, serverPort, sizeof(serverPort));
 
-    char hostname[100];
-    ConVar cvarHost = FindConVar("hostname");
-    if (cvarHost != null)
+    char hostname[100] = "Unknown";
+    if (g_cvHostname != null)
     {
-        cvarHost.GetString(hostname, sizeof(hostname));
-    }
-    else
-    {
-        strcopy(hostname, sizeof(hostname), "Unknown");
+        g_cvHostname.GetString(hostname, sizeof(hostname));
     }
 
     char mapName[100];
     ServerContext_GetCurrentMapName(mapName, sizeof(mapName));
 
     int playerLimit = GetQuickStatsCapacity();
-    int playerCount = GetQuickStatsPlayerCount();
+    int playerCount = GetClientCount(false);
 
     char filename[64];
-    Format(filename, sizeof(filename), StrEqual(serverPort, "27015") ? "quickstats.txt" : "server%s_quickstats.txt", serverPort);
-    BuildPath(Path_SM, g_sQuickStatsPath, sizeof(g_sQuickStatsPath), "/logs/connections/%s", filename);
+    Format(filename, sizeof(filename), hostPort == 27015 ? "quickstats.txt" : "server%s_quickstats.txt", serverPort);
+
+    char quickStatsPath[PLATFORM_MAX_PATH];
+    BuildPath(Path_SM, quickStatsPath, sizeof(quickStatsPath), "/logs/connections/%s", filename);
 
     char fileContent[8192];
     int pos = 0;
@@ -511,7 +500,7 @@ public Action UpdateQuickStats(Handle timer)
             stats.Time);
     }
 
-    File file = OpenFile(g_sQuickStatsPath, "w");
+    File file = OpenFile(quickStatsPath, "w");
     if (file != null)
     {
         WriteFileString(file, fileContent, false);
@@ -519,7 +508,7 @@ public Action UpdateQuickStats(Handle timer)
     }
     else
     {
-        LogError("Failed to open quickstats file: %s", g_sQuickStatsPath);
+        LogError("Failed to open quickstats file: %s", quickStatsPath);
     }
 
     return Plugin_Continue;
@@ -596,11 +585,6 @@ int GetQuickStatsCapacity()
     return GetVisibleMaxPlayers();
 }
 
-int GetQuickStatsPlayerCount()
-{
-    return GetClientCount(false);
-}
-
 int CountConnectedHumans()
 {
     int count = 0;
@@ -631,11 +615,11 @@ int GetVisibleMaxPlayers()
     return MaxClients;
 }
 
-void GetClientNetworkInfo(int client, char[] rawIp, int rawLen, char[] maskedIp, int maskedLen, char[] country, int countryLen)
+void GetClientNetworkInfo(int client, char[] maskedIp, int maskedLen, char[] country, int countryLen)
 {
-    if (!GetClientIP(client, rawIp, rawLen, false))
+    char rawIp[64];
+    if (!GetClientIP(client, rawIp, sizeof(rawIp), false))
     {
-        strcopy(rawIp, rawLen, "Unknown");
         strcopy(maskedIp, maskedLen, "Unknown");
         strcopy(country, countryLen, "Unknown");
         return;
