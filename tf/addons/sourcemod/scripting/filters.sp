@@ -2829,7 +2829,10 @@ static void BuildPaletteName(const char[] name, const int[] colors, int colorCou
 
 static void BuildAmericaName(const char[] name, char[] output, int maxlen)
 {
-    int colors[] = {0xFF4040, 0xFFFFFF, 0x1E90FF};
+    int colors[] = {
+        0xFFFFFF, 0x1E90FF, 0xFFFFFF, 0x1E90FF, 0xFFFFFF, 0x1E90FF,
+        0xFF4040, 0xFF4040, 0xFFFFFF, 0xFFFFFF, 0xFF4040, 0xFF4040
+    };
     BuildPaletteName(name, colors, sizeof(colors), output, maxlen);
 }
 
