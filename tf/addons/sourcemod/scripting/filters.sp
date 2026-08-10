@@ -2835,7 +2835,7 @@ static void BuildAmericaName(const char[] name, char[] output, int maxlen)
 
 static void BuildMapName(const char[] name, char[] output, int maxlen)
 {
-    int colors[] = {0x99CCFF, 0x6495ED, 0xFFFFE0, 0xFFFFFF, 0xFFFFFF, 0xFFFFE0, 0xFFC0CB, 0xFF69B4};
+    int colors[] = {0x6495ED, 0x99CCFF, 0xFFFF5E, 0xFFFFFF, 0xFFFF5E, 0xFFC0CB, 0xFF69B4};
     BuildPaletteName(name, colors, sizeof(colors), output, maxlen);
 }
 
