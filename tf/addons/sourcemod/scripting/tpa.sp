@@ -15,6 +15,8 @@
 #include <saysounds>
 #define REQUIRE_PLUGIN
 
+#include "include/chat_colors.inc"
+
 #define TPA_CURRENCY_SHORT_MAX 32
 #define TPA_TELEPORT_SOUND "tp-enderman"
 #define TPA_DIFFERENT_TEAM_VERTICAL_OFFSET 150.0
@@ -570,35 +572,13 @@ void BuildTeleportDisplayName(int client, char[] buffer, int maxlen)
         && Filters_GetChatName(client, buffer, maxlen)
         && buffer[0] != '\0')
     {
-        ResolveTeamColorTag(client, buffer, maxlen);
+        ChatColors_ResolveTeamTag(client, buffer, maxlen);
         return;
     }
 
     char colorTag[16];
-    BuildTeamColorTag(client, colorTag, sizeof(colorTag));
+    ChatColors_GetTeamTag(client, colorTag, sizeof(colorTag));
     Format(buffer, maxlen, "%s%N", colorTag, client);
-}
-
-void ResolveTeamColorTag(int client, char[] buffer, int maxlen)
-{
-    if (StrContains(buffer, "{teamcolor}", false) == -1)
-    {
-        return;
-    }
-
-    char colorTag[16];
-    BuildTeamColorTag(client, colorTag, sizeof(colorTag));
-    ReplaceString(buffer, maxlen, "{teamcolor}", colorTag, false);
-}
-
-void BuildTeamColorTag(int client, char[] colorTag, int length)
-{
-    switch (GetClientTeam(client))
-    {
-        case 2: strcopy(colorTag, length, "{red}");
-        case 3: strcopy(colorTag, length, "{blue}");
-        default: strcopy(colorTag, length, "{default}");
-    }
 }
 
 void GetTeleportCurrencyShort(char[] buffer, int maxlen)

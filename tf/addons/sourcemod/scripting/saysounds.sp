@@ -16,6 +16,7 @@
 
 #include "include/steam_identity.inc"
 #include "include/statistics.inc"
+#include "include/strings.inc"
 
 #define CONFIG_FILE "configs/saysounds.cfg"
 #define MAX_COMMAND_NAME 64
@@ -287,7 +288,7 @@ Action ChatCommandListener(int client, const char[] command, int argc)
 
     char payload[256];
     strcopy(payload, sizeof(payload), message);
-    ShiftStringLeft(payload, sizeof(payload), 1);
+    Strings_ShiftLeft(payload, sizeof(payload), 1);
     TrimString(payload);
 
     if (!payload[0])
@@ -305,7 +306,7 @@ Action ChatCommandListener(int client, const char[] command, int argc)
         commandName[spaceIndex] = '\0';
 
         strcopy(args, sizeof(args), payload);
-        ShiftStringLeft(args, sizeof(args), spaceIndex + 1);
+        Strings_ShiftLeft(args, sizeof(args), spaceIndex + 1);
         TrimString(args);
     }
     else
@@ -313,7 +314,7 @@ Action ChatCommandListener(int client, const char[] command, int argc)
         args[0] = '\0';
     }
 
-    ToLowercaseInPlace(commandName, sizeof(commandName));
+    Strings_ToLower(commandName, sizeof(commandName));
 
     if (!commandName[0])
     {
@@ -436,7 +437,7 @@ public SMCResult Config_EnterSection(SMCParser parser, const char[] name, bool o
     char sectionName[64];
     strcopy(sectionName, sizeof(sectionName), name);
     TrimString(sectionName);
-    ToLowercaseInPlace(sectionName, sizeof(sectionName));
+    Strings_ToLower(sectionName, sizeof(sectionName));
 
     if (StrEqual(sectionName, ADMIN_ONLY_GROUPS_SECTION)
         || StrEqual(sectionName, "admin_only_groups")
@@ -522,10 +523,10 @@ public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[
 
     if (commandName[0] == '!' || commandName[0] == '/')
     {
-        ShiftStringLeft(commandName, sizeof(commandName), 1);
+        Strings_ShiftLeft(commandName, sizeof(commandName), 1);
     }
 
-    ToLowercaseInPlace(commandName, sizeof(commandName));
+    Strings_ToLower(commandName, sizeof(commandName));
 
     char soundPath[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
@@ -560,7 +561,7 @@ static void Config_AdminOnlyGroup(const char[] key, const char[] value)
     char groupName[MAX_GROUP_NAME];
     strcopy(groupName, sizeof(groupName), key);
     TrimString(groupName);
-    ToLowercaseInPlace(groupName, sizeof(groupName));
+    Strings_ToLower(groupName, sizeof(groupName));
 
     if (!groupName[0] || StrEqual(groupName, DEFAULT_GROUP))
     {
@@ -584,7 +585,7 @@ static void Config_PaidSaysoundGroup(const char[] key, const char[] value)
     char groupName[MAX_GROUP_NAME];
     strcopy(groupName, sizeof(groupName), key);
     TrimString(groupName);
-    ToLowercaseInPlace(groupName, sizeof(groupName));
+    Strings_ToLower(groupName, sizeof(groupName));
 
     if (!groupName[0] || StrEqual(groupName, DEFAULT_GROUP))
     {
@@ -608,12 +609,12 @@ static void Config_GroupAlias(const char[] key, const char[] value)
     char groupName[MAX_GROUP_NAME];
     strcopy(groupName, sizeof(groupName), key);
     TrimString(groupName);
-    ToLowercaseInPlace(groupName, sizeof(groupName));
+    Strings_ToLower(groupName, sizeof(groupName));
 
     char aliasName[MAX_COMMAND_NAME];
     strcopy(aliasName, sizeof(aliasName), value);
     TrimString(aliasName);
-    ToLowercaseInPlace(aliasName, sizeof(aliasName));
+    Strings_ToLower(aliasName, sizeof(aliasName));
 
     if (!groupName[0] || !aliasName[0] || StrEqual(aliasName, DEFAULT_GROUP))
     {
@@ -622,7 +623,7 @@ static void Config_GroupAlias(const char[] key, const char[] value)
 
     if (aliasName[0] == '!' || aliasName[0] == '/')
     {
-        ShiftStringLeft(aliasName, sizeof(aliasName), 1);
+        Strings_ShiftLeft(aliasName, sizeof(aliasName), 1);
     }
 
     EnsureGroupRegistered(groupName);
@@ -666,84 +667,19 @@ int FindCommandIndex(const char[] commandName)
     return -1;
 }
 
-void ToLowercaseInPlace(char[] buffer, int maxlen)
-{
-    for (int i = 0; i < maxlen && buffer[i] != '\0'; i++)
-    {
-        buffer[i] = CharToLower(buffer[i]);
-    }
-}
-
-void ShiftStringLeft(char[] buffer, int maxlen, int positions)
-{
-    int len = strlen(buffer);
-    if (positions <= 0 || len == 0)
-    {
-        return;
-    }
-
-    if (positions >= len || positions >= maxlen)
-    {
-        buffer[0] = '\0';
-        return;
-    }
-
-    for (int i = 0; i <= len - positions; i++)
-    {
-        buffer[i] = buffer[i + positions];
-    }
-}
-
 void NormalizeSoundPath(char[] soundPath, int maxlen)
 {
     ReplaceString(soundPath, maxlen, "\\", "/");
 
     while (soundPath[0] == '/')
     {
-        ShiftStringLeft(soundPath, maxlen, 1);
+        Strings_ShiftLeft(soundPath, maxlen, 1);
     }
 
-    if (StartsWith(soundPath, "sound/"))
+    if (Strings_StartsWith(soundPath, "sound/"))
     {
-        ShiftStringLeft(soundPath, maxlen, 6);
+        Strings_ShiftLeft(soundPath, maxlen, 6);
     }
-}
-
-bool StartsWith(const char[] str, const char[] prefix)
-{
-    int prefixLen = strlen(prefix);
-    for (int i = 0; i < prefixLen; i++)
-    {
-        if (str[i] == '\0' || str[i] != prefix[i])
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static void CopySubstring(const char[] source, int startIndex, char[] dest, int destLen)
-{
-    if (destLen <= 0)
-    {
-        return;
-    }
-
-    int length = strlen(source);
-    if (startIndex >= length)
-    {
-        dest[0] = '\0';
-        return;
-    }
-
-    int written = 0;
-    for (int i = startIndex; i < length && written < destLen - 1; i++)
-    {
-        dest[written++] = source[i];
-    }
-
-    dest[written] = '\0';
 }
 
 static void ParseSoundConfigEntry(const char[] value, char[] soundPath, int soundLen, char[] groupName, int groupLen)
@@ -773,10 +709,10 @@ static void ParseSoundConfigEntry(const char[] value, char[] soundPath, int soun
         strcopy(groupPart, sizeof(groupPart), raw);
         groupPart[delim] = '\0';
         TrimString(groupPart);
-        ToLowercaseInPlace(groupPart, sizeof(groupPart));
+        Strings_ToLower(groupPart, sizeof(groupPart));
 
         char pathPart[PLATFORM_MAX_PATH];
-        CopySubstring(raw, delim + 1, pathPart, sizeof(pathPart));
+        Strings_CopyFrom(raw, delim + 1, pathPart, sizeof(pathPart));
         TrimString(pathPart);
 
         if (groupLen > 0)
@@ -824,7 +760,7 @@ static void EnsureGroupRegistered(const char[] groupName)
     char normalized[MAX_GROUP_NAME];
     strcopy(normalized, sizeof(normalized), groupName);
     TrimString(normalized);
-    ToLowercaseInPlace(normalized, sizeof(normalized));
+    Strings_ToLower(normalized, sizeof(normalized));
 
     if (!normalized[0])
     {
@@ -860,7 +796,7 @@ static bool ResolveKnownGroupName(const char[] inputName, char[] groupName, int 
     char normalized[MAX_GROUP_NAME];
     strcopy(normalized, sizeof(normalized), inputName);
     TrimString(normalized);
-    ToLowercaseInPlace(normalized, sizeof(normalized));
+    Strings_ToLower(normalized, sizeof(normalized));
 
     if (!normalized[0])
     {
@@ -885,7 +821,7 @@ static bool ResolveKnownGroupName(const char[] inputName, char[] groupName, int 
     }
 
     TrimString(groupName);
-    ToLowercaseInPlace(groupName, groupLen);
+    Strings_ToLower(groupName, groupLen);
     return groupName[0] != '\0'
         && (StrEqual(groupName, DEFAULT_GROUP) || FindGroupIndex(groupName) != -1);
 }
@@ -895,7 +831,7 @@ static bool ConfigValueIsEnabled(const char[] value)
     char normalized[16];
     strcopy(normalized, sizeof(normalized), value);
     TrimString(normalized);
-    ToLowercaseInPlace(normalized, sizeof(normalized));
+    Strings_ToLower(normalized, sizeof(normalized));
 
     if (!normalized[0])
     {
@@ -1014,7 +950,7 @@ static bool IsSaySoundInputPaid(const char[] inputName)
     char normalizedName[MAX_COMMAND_NAME];
     strcopy(normalizedName, sizeof(normalizedName), inputName);
     TrimString(normalizedName);
-    ToLowercaseInPlace(normalizedName, sizeof(normalizedName));
+    Strings_ToLower(normalizedName, sizeof(normalizedName));
 
     if (!normalizedName[0])
     {
@@ -1047,7 +983,7 @@ static bool GetSaySoundInputGroup(const char[] inputName, char[] groupName, int 
     char normalizedName[MAX_COMMAND_NAME];
     strcopy(normalizedName, sizeof(normalizedName), inputName);
     TrimString(normalizedName);
-    ToLowercaseInPlace(normalizedName, sizeof(normalizedName));
+    Strings_ToLower(normalizedName, sizeof(normalizedName));
 
     if (!normalizedName[0])
     {
@@ -1201,7 +1137,7 @@ static void ParseDisabledGroupCookieValue(int client, const char[] rawValue)
     char working[MAX_GROUP_PREF_VALUE];
     strcopy(working, sizeof(working), rawValue);
     TrimString(working);
-    ToLowercaseInPlace(working, sizeof(working));
+    Strings_ToLower(working, sizeof(working));
 
     if (!working[0])
     {
@@ -1236,7 +1172,7 @@ static void ParseDisabledGroupCookieValue(int client, const char[] rawValue)
             token[tokenLen] = '\0';
 
             TrimString(token);
-            ToLowercaseInPlace(token, sizeof(token));
+            Strings_ToLower(token, sizeof(token));
 
             if (token[0] && !StrEqual(token, DEFAULT_GROUP) && IsKnownGroup(token))
             {
@@ -1335,7 +1271,7 @@ public Action Command_ToggleSoundOpt(int client, int args)
         char arg[MAX_GROUP_NAME];
         GetCmdArg(1, arg, sizeof(arg));
         TrimString(arg);
-        ToLowercaseInPlace(arg, sizeof(arg));
+        Strings_ToLower(arg, sizeof(arg));
 
         if (StrEqual(arg, "off") || StrEqual(arg, "mute") || StrEqual(arg, "none"))
         {
@@ -1539,12 +1475,12 @@ static bool PreferenceListHasCommand(const char[] preferenceValue, const char[] 
     char working[MAX_COMMAND_NAME * 4];
     strcopy(working, sizeof(working), preferenceValue);
     TrimString(working);
-    ToLowercaseInPlace(working, sizeof(working));
+    Strings_ToLower(working, sizeof(working));
 
     char normalizedCommand[MAX_COMMAND_NAME];
     strcopy(normalizedCommand, sizeof(normalizedCommand), commandName);
     TrimString(normalizedCommand);
-    ToLowercaseInPlace(normalizedCommand, sizeof(normalizedCommand));
+    Strings_ToLower(normalizedCommand, sizeof(normalizedCommand));
 
     char token[MAX_COMMAND_NAME];
     int start = 0;
@@ -1574,7 +1510,7 @@ static bool PreferenceListHasCommand(const char[] preferenceValue, const char[] 
             token[tokenLen] = '\0';
 
             TrimString(token);
-            ToLowercaseInPlace(token, sizeof(token));
+            Strings_ToLower(token, sizeof(token));
 
             if (StrEqual(token, normalizedCommand))
             {
@@ -1604,7 +1540,7 @@ static int CountSelectedPreferenceCommands(const char[] preferenceValue)
     char working[MAX_COMMAND_NAME * 4];
     strcopy(working, sizeof(working), preferenceValue);
     TrimString(working);
-    ToLowercaseInPlace(working, sizeof(working));
+    Strings_ToLower(working, sizeof(working));
 
     int start = 0;
     int len = strlen(working);
@@ -1844,14 +1780,14 @@ static bool GetSoundPreferenceGroupFromMenuItem(const char[] itemInfo, char[] gr
 {
     groupName[0] = '\0';
 
-    if (!StartsWith(itemInfo, SOUND_PREF_GROUP_ITEM_PREFIX))
+    if (!Strings_StartsWith(itemInfo, SOUND_PREF_GROUP_ITEM_PREFIX))
     {
         return false;
     }
 
-    CopySubstring(itemInfo, strlen(SOUND_PREF_GROUP_ITEM_PREFIX), groupName, groupLen);
+    Strings_CopyFrom(itemInfo, strlen(SOUND_PREF_GROUP_ITEM_PREFIX), groupName, groupLen);
     TrimString(groupName);
-    ToLowercaseInPlace(groupName, groupLen);
+    Strings_ToLower(groupName, groupLen);
     return groupName[0] != '\0';
 }
 
@@ -2135,7 +2071,7 @@ public int Native_PlaySoundToOptedIn(Handle plugin, int numParams)
     {
         GetNativeString(2, groupName, sizeof(groupName));
         TrimString(groupName);
-        ToLowercaseInPlace(groupName, sizeof(groupName));
+        Strings_ToLower(groupName, sizeof(groupName));
     }
     else
     {
@@ -2185,7 +2121,7 @@ public int Native_PlayCommand(Handle plugin, int numParams)
     char commandName[MAX_COMMAND_NAME * 4];
     GetNativeString(2, commandName, sizeof(commandName));
     TrimString(commandName);
-    ToLowercaseInPlace(commandName, sizeof(commandName));
+    Strings_ToLower(commandName, sizeof(commandName));
 
     if (!commandName[0])
     {
@@ -2241,7 +2177,7 @@ public int Native_PlayCommandAs(Handle plugin, int numParams)
     char commandName[MAX_COMMAND_NAME * 4];
     GetNativeString(3, commandName, sizeof(commandName));
     TrimString(commandName);
-    ToLowercaseInPlace(commandName, sizeof(commandName));
+    Strings_ToLower(commandName, sizeof(commandName));
 
     if (!commandName[0])
     {
@@ -2280,7 +2216,7 @@ public int Native_CanClientUseCommand(Handle plugin, int numParams)
     char commandName[MAX_COMMAND_NAME * 4];
     GetNativeString(2, commandName, sizeof(commandName));
     TrimString(commandName);
-    ToLowercaseInPlace(commandName, sizeof(commandName));
+    Strings_ToLower(commandName, sizeof(commandName));
 
     bool bypassAdminOnly = true;
     if (numParams >= 3)
@@ -2296,7 +2232,7 @@ public int Native_IsCommandPaid(Handle plugin, int numParams)
     char commandName[MAX_COMMAND_NAME * 4];
     GetNativeString(1, commandName, sizeof(commandName));
     TrimString(commandName);
-    ToLowercaseInPlace(commandName, sizeof(commandName));
+    Strings_ToLower(commandName, sizeof(commandName));
 
     return IsSaySoundInputPaid(commandName);
 }
@@ -2306,7 +2242,7 @@ public int Native_GetCommandGroup(Handle plugin, int numParams)
     char commandName[MAX_COMMAND_NAME * 4];
     GetNativeString(1, commandName, sizeof(commandName));
     TrimString(commandName);
-    ToLowercaseInPlace(commandName, sizeof(commandName));
+    Strings_ToLower(commandName, sizeof(commandName));
 
     char groupName[MAX_GROUP_NAME];
     bool found = GetSaySoundInputGroup(commandName, groupName, sizeof(groupName));
@@ -2465,7 +2401,7 @@ static bool BuildSoundPreferenceList(int client, const char[] input, char[] aggr
             token[tokenLen] = '\0';
 
             TrimString(token);
-            ToLowercaseInPlace(token, sizeof(token));
+            Strings_ToLower(token, sizeof(token));
 
             if (token[0])
             {
@@ -2518,7 +2454,7 @@ public Action Command_SetDeathSound(int client, int args)
     char buffer[256];
     GetCmdArgString(buffer, sizeof(buffer));
     TrimString(buffer);
-    ToLowercaseInPlace(buffer, sizeof(buffer));
+    Strings_ToLower(buffer, sizeof(buffer));
 
     if (!buffer[0] || StrEqual(buffer, "none") || StrEqual(buffer, "off"))
     {
@@ -2568,7 +2504,7 @@ public Action Command_SetKillSound(int client, int args)
     char buffer[256];
     GetCmdArgString(buffer, sizeof(buffer));
     TrimString(buffer);
-    ToLowercaseInPlace(buffer, sizeof(buffer));
+    Strings_ToLower(buffer, sizeof(buffer));
 
     if (!buffer[0] || StrEqual(buffer, "none") || StrEqual(buffer, "off"))
     {
@@ -2619,7 +2555,7 @@ public Action Command_PlaySpecificSound(int client, int args)
     GetCmdArgString(arg, sizeof(arg));
     StripQuotes(arg);
     TrimString(arg);
-    ToLowercaseInPlace(arg, sizeof(arg));
+    Strings_ToLower(arg, sizeof(arg));
 
     if (!arg[0])
     {
@@ -2821,7 +2757,7 @@ static bool GetCommandSoundData(const char[] commandName, char[] soundPath, int 
     char working[MAX_COMMAND_NAME * 4];
     strcopy(working, sizeof(working), commandName);
     TrimString(working);
-    ToLowercaseInPlace(working, sizeof(working));
+    Strings_ToLower(working, sizeof(working));
 
     if (!working[0])
     {
@@ -2864,7 +2800,7 @@ static bool GetCommandSoundData(const char[] commandName, char[] soundPath, int 
                 token[tokenLen] = '\0';
 
                 TrimString(token);
-                ToLowercaseInPlace(token, sizeof(token));
+                Strings_ToLower(token, sizeof(token));
 
                 if (token[0])
                 {
@@ -2986,7 +2922,7 @@ static bool GetCommandOptionForClientEx(int client, const char[] inputName, char
     char normalizedName[MAX_COMMAND_NAME];
     strcopy(normalizedName, sizeof(normalizedName), inputName);
     TrimString(normalizedName);
-    ToLowercaseInPlace(normalizedName, sizeof(normalizedName));
+    Strings_ToLower(normalizedName, sizeof(normalizedName));
 
     if (!normalizedName[0])
     {
@@ -3064,7 +3000,7 @@ static bool GetCommandSoundDataForClientEx(int client, const char[] commandNames
     char working[MAX_COMMAND_NAME * 4];
     strcopy(working, sizeof(working), commandNames);
     TrimString(working);
-    ToLowercaseInPlace(working, sizeof(working));
+    Strings_ToLower(working, sizeof(working));
 
     if (!working[0])
     {
@@ -3120,7 +3056,7 @@ static bool GetCommandSoundDataForClientEx(int client, const char[] commandNames
             token[tokenLen] = '\0';
 
             TrimString(token);
-            ToLowercaseInPlace(token, sizeof(token));
+            Strings_ToLower(token, sizeof(token));
 
             if (token[0])
             {
@@ -3253,7 +3189,7 @@ void LoadDeathSoundPreference(int client)
     char value[MAX_COMMAND_NAME * 4];
     GetClientCookie(client, g_hDeathCookie, value, sizeof(value));
     TrimString(value);
-    ToLowercaseInPlace(value, sizeof(value));
+    Strings_ToLower(value, sizeof(value));
 
     if (!value[0])
     {
@@ -3283,7 +3219,7 @@ void LoadKillSoundPreference(int client)
     char value[MAX_COMMAND_NAME * 4];
     GetClientCookie(client, g_hKillCookie, value, sizeof(value));
     TrimString(value);
-    ToLowercaseInPlace(value, sizeof(value));
+    Strings_ToLower(value, sizeof(value));
 
     if (!value[0])
     {
@@ -3413,7 +3349,7 @@ static bool GetWeaponKillSaySoundCommand(int attacker, char[] commandName, int m
 
     TF2CustAttr_GetString(weapon, SAYSOUND_ON_KILL_ATTR, commandName, maxlen);
     TrimString(commandName);
-    ToLowercaseInPlace(commandName, maxlen);
+    Strings_ToLower(commandName, maxlen);
 
     return commandName[0] != '\0';
 }

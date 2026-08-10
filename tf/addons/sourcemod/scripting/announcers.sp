@@ -16,8 +16,10 @@
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
+#include "include/chat_colors.inc"
 #include "include/steam_identity.inc"
 #include "include/statistics.inc"
+#include "include/strings.inc"
 
 #define WHALE_KILLSTREAK_BONUS_INTERVAL 5
 #define WHALE_MULTIKILL_MIN_LEVEL 2
@@ -919,35 +921,13 @@ void BuildDisplayName(int client, char[] buffer, int maxlen)
         && Filters_GetChatName(client, buffer, maxlen)
         && buffer[0] != '\0')
     {
-        ResolveTeamColorTag(client, buffer, maxlen);
+        ChatColors_ResolveTeamTag(client, buffer, maxlen);
         return;
     }
 
     char colorTag[16];
-    BuildTeamColorTag(client, colorTag, sizeof(colorTag));
+    ChatColors_GetTeamTag(client, colorTag, sizeof(colorTag));
     Format(buffer, maxlen, "%s%N{default}", colorTag, client);
-}
-
-void ResolveTeamColorTag(int client, char[] buffer, int maxlen)
-{
-    if (StrContains(buffer, "{teamcolor}", false) == -1)
-    {
-        return;
-    }
-
-    char colorTag[16];
-    BuildTeamColorTag(client, colorTag, sizeof(colorTag));
-    ReplaceString(buffer, maxlen, "{teamcolor}", colorTag, false);
-}
-
-void BuildTeamColorTag(int client, char[] colorTag, int length)
-{
-    switch (GetClientTeam(client))
-    {
-        case 2: strcopy(colorTag, length, "{red}");
-        case 3: strcopy(colorTag, length, "{blue}");
-        default: strcopy(colorTag, length, "{default}");
-    }
 }
 
 bool Announcer_ShouldPlaySound(bool playSound)
@@ -1019,7 +999,7 @@ public SMCResult AnnouncerConfig_EnterSection(SMCParser parser, const char[] nam
     char sectionName[ANNOUNCER_MAX_COMMAND_NAME];
     strcopy(sectionName, sizeof(sectionName), name);
     TrimString(sectionName);
-    ToLowercaseInPlace(sectionName, sizeof(sectionName));
+    Strings_ToLower(sectionName, sizeof(sectionName));
 
     if (g_ConfigDepth == 2)
     {
@@ -1138,7 +1118,7 @@ void GetConfigCommandName(const char[] key, const char[] value, char[] commandNa
     strcopy(valueText, sizeof(valueText), value);
     TrimString(valueText);
 
-    if (valueText[0] && StartsWith(commandName, "sound"))
+    if (valueText[0] && Strings_StartsWith(commandName, "sound"))
     {
         strcopy(commandName, commandLen, valueText);
         TrimString(commandName);
@@ -1146,10 +1126,10 @@ void GetConfigCommandName(const char[] key, const char[] value, char[] commandNa
 
     if (commandName[0] == '!' || commandName[0] == '/')
     {
-        ShiftStringLeft(commandName, commandLen, 1);
+        Strings_ShiftLeft(commandName, commandLen, 1);
     }
 
-    ToLowercaseInPlace(commandName, commandLen);
+    Strings_ToLower(commandName, commandLen);
 }
 
 void AddAnnouncerSoundCommand(StringMap map, int level, const char[] commandName)
@@ -1553,7 +1533,7 @@ void ParseAnnouncerGroupPreferenceValue(int client, const char[] rawValue)
     char working[ANNOUNCER_GROUP_PREF_VALUE];
     strcopy(working, sizeof(working), rawValue);
     TrimString(working);
-    ToLowercaseInPlace(working, sizeof(working));
+    Strings_ToLower(working, sizeof(working));
 
     char token[ANNOUNCER_MAX_GROUP_NAME];
     int start = 0;
@@ -1638,7 +1618,7 @@ bool IsAnnouncerGroupDisabled(int client, const char[] groupName)
     char normalized[ANNOUNCER_MAX_GROUP_NAME];
     strcopy(normalized, sizeof(normalized), groupName);
     TrimString(normalized);
-    ToLowercaseInPlace(normalized, sizeof(normalized));
+    Strings_ToLower(normalized, sizeof(normalized));
 
     int disabled = 0;
     return g_DisabledAnnouncerGroups[client].GetValue(normalized, disabled) && disabled != 0;
@@ -1656,7 +1636,7 @@ void SetAnnouncerGroupDisabled(int client, const char[] groupName, bool disabled
     char normalized[ANNOUNCER_MAX_GROUP_NAME];
     strcopy(normalized, sizeof(normalized), groupName);
     TrimString(normalized);
-    ToLowercaseInPlace(normalized, sizeof(normalized));
+    Strings_ToLower(normalized, sizeof(normalized));
 
     if (!normalized[0])
     {
@@ -1670,48 +1650,6 @@ void SetAnnouncerGroupDisabled(int client, const char[] groupName, bool disabled
     else
     {
         g_DisabledAnnouncerGroups[client].Remove(normalized);
-    }
-}
-
-void ShiftStringLeft(char[] buffer, int maxlen, int positions)
-{
-    int len = strlen(buffer);
-    if (positions <= 0 || len == 0)
-    {
-        return;
-    }
-
-    if (positions >= len || positions >= maxlen)
-    {
-        buffer[0] = '\0';
-        return;
-    }
-
-    for (int i = 0; i <= len - positions; i++)
-    {
-        buffer[i] = buffer[i + positions];
-    }
-}
-
-bool StartsWith(const char[] str, const char[] prefix)
-{
-    int prefixLen = strlen(prefix);
-    for (int i = 0; i < prefixLen; i++)
-    {
-        if (str[i] == '\0' || str[i] != prefix[i])
-        {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-void ToLowercaseInPlace(char[] buffer, int maxlen)
-{
-    for (int i = 0; i < maxlen && buffer[i] != '\0'; i++)
-    {
-        buffer[i] = CharToLower(buffer[i]);
     }
 }
 

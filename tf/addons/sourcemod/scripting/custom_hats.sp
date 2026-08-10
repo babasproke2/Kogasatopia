@@ -15,6 +15,7 @@
 #define REQUIRE_PLUGIN
 
 #include "include/clients.inc"
+#include "include/strings.inc"
 
 #define CONFIG_FILE "configs/custom_hats.cfg"
 #define DEFAULT_SCOUT_MODEL "models/uma_musume/player/items/scout/mercenary_derby.mdl"
@@ -1295,7 +1296,7 @@ int ParseClassMask(const char[] list)
 	char buffer[128];
 	strcopy(buffer, sizeof(buffer), list);
 	TrimString(buffer);
-	ToLowercaseInPlace(buffer, sizeof(buffer));
+	Strings_ToLower(buffer, sizeof(buffer));
 
 	if (!buffer[0])
 	{
@@ -1312,7 +1313,7 @@ int ParseClassMask(const char[] list)
 	for (int i = 0; i < count; i++)
 	{
 		TrimString(parts[i]);
-		ToLowercaseInPlace(parts[i], sizeof(parts[i]));
+		Strings_ToLower(parts[i], sizeof(parts[i]));
 		if (!parts[i][0])
 		{
 			continue;
@@ -1378,14 +1379,6 @@ bool IsClassAllowedForHat(int hatIndex, TFClassType class)
 		return false;
 	}
 	return (g_Hats[hatIndex].classMask & g_ClassMaskByIndex[classIndex]) != 0;
-}
-
-void ToLowercaseInPlace(char[] str, int maxlen)
-{
-	for (int i = 0; i < maxlen && str[i] != '\0'; i++)
-	{
-		str[i] = CharToLower(str[i]);
-	}
 }
 
 bool ParseBoolString(const char[] value, bool defaultValue)

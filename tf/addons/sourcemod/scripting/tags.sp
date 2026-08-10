@@ -10,6 +10,7 @@
 
 #include "include/database.inc"
 #include "include/steam_identity.inc"
+#include "include/strings.inc"
 
 #define PLUGIN_NAME "Tags"
 #define PLUGIN_AUTHOR "Codex"
@@ -392,29 +393,6 @@ public void SQL_OnSaveCompleted(Database db, DBResultSet results, const char[] e
     }
 }
 
-static void CopySubstring(const char[] source, int startIndex, char[] dest, int destLen)
-{
-    if (destLen <= 0)
-    {
-        return;
-    }
-
-    int length = strlen(source);
-    if (startIndex >= length)
-    {
-        dest[0] = '\0';
-        return;
-    }
-
-    int written = 0;
-    for (int i = startIndex; i < length && written < destLen - 1; i++)
-    {
-        dest[written++] = source[i];
-    }
-
-    dest[written] = '\0';
-}
-
 static void BuildTagChoiceInfo(const char[] source, const char[] key, char[] info, int infoLen)
 {
     FormatEx(info, infoLen, "%s:%s", source, key);
@@ -433,7 +411,7 @@ static bool ParseTagChoiceInfo(const char[] info, char[] source, int sourceLen, 
 
     strcopy(source, sourceLen, info);
     source[separator] = '\0';
-    CopySubstring(info, separator + 1, key, keyLen);
+    Strings_CopyFrom(info, separator + 1, key, keyLen);
     TrimString(source);
     TrimString(key);
     return source[0] != '\0' && key[0] != '\0';
@@ -523,7 +501,7 @@ static void AddJoinedCustomHatTags(ArrayList sources, ArrayList keys, ArrayList 
                 char display[TAG_VALUE_MAXLEN];
                 strcopy(key, sizeof(key), current);
                 key[separator] = '\0';
-                CopySubstring(current, separator + 1, display, sizeof(display));
+                Strings_CopyFrom(current, separator + 1, display, sizeof(display));
                 AddUniqueTagChoice(sources, keys, displays, TAG_SOURCE_CUSTOM_HAT, key, display);
             }
 
