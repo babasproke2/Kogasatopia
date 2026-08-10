@@ -8,9 +8,20 @@
 #include <tf2>
 #include <tf2_stocks>
 #include <tf2attributes>
-#include <tf2items>
 
 #define PLUGIN_VERSION "1.1"
+#define HALLOWEEN_CLEANUP_STUNS 0
+#define HALLOWEEN_CLEANUP_SPELLS 1
+#define HALLOWEEN_CLEANUP_PUMPKINS 2
+#define HALLOWEEN_CLEANUP_COUNT 3
+
+static const char g_HalloweenCleanupClassnames[][] =
+{
+    "trigger_stun",
+    "tf_spell_pickup",
+    "tf_pumpkin_bomb"
+};
+
 ConVar g_cvDisableStuns;
 ConVar g_cvDisableSpells;
 ConVar g_cvMiniCrump;
@@ -43,10 +54,9 @@ public void OnPluginStart()
     HookEvent("teamplay_round_active", Event_RoundActive, EventHookMode_Post);
 }
 
-public void OnClientPutInServer(int client) {
-if (IsClientInGame(client) && (GetConVarInt(g_cvHalloween))) {
-	SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
-  }
+public void OnClientPutInServer(int client)
+{
+    SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 }
 
 public void OnConfigsExecuted()
@@ -58,41 +68,33 @@ public void OnConfigsExecuted()
 
 public void OnEntityCreated(int entity, const char[] classname)
 {
-    if (!GetConVarInt(g_cvHalloween)) return;
     if (!IsValidEntity(entity)) return;
 
-    // Hook the bosses too
     if (IsHalloweenBoss(entity))
     {
         SDKHook(entity, SDKHook_OnTakeDamage, OnTakeDamage);
     }
 
-    if (GetConVarInt(g_cvDisableStuns))
+    if (!g_cvHalloween.BoolValue) return;
+
+    int cleanupType = -1;
+    if (g_cvDisableStuns.BoolValue && StrEqual(classname, g_HalloweenCleanupClassnames[HALLOWEEN_CLEANUP_STUNS], false))
     {
-        if (StrEqual(classname, "trigger_stun", false))
-        {
-            CreateTimer(0.1, Timer_DisableStuns, _, TIMER_FLAG_NO_MAPCHANGE);
-            return;
-        }
+        cleanupType = HALLOWEEN_CLEANUP_STUNS;
+    }
+    else if (g_cvDisableSpells.BoolValue && StrEqual(classname, g_HalloweenCleanupClassnames[HALLOWEEN_CLEANUP_SPELLS], false))
+    {
+        cleanupType = HALLOWEEN_CLEANUP_SPELLS;
+    }
+    else if (g_cvNoPumpkins.BoolValue && StrEqual(classname, g_HalloweenCleanupClassnames[HALLOWEEN_CLEANUP_PUMPKINS], false))
+    {
+        cleanupType = HALLOWEEN_CLEANUP_PUMPKINS;
     }
 
-    if (GetConVarInt(g_cvDisableSpells))
+    if (cleanupType != -1)
     {
-        if (StrEqual(classname, "tf_spell_pickup", false))
-        {
-            CreateTimer(0.1, Timer_KillSpellPickups, _, TIMER_FLAG_NO_MAPCHANGE);
-            return;
-        }
+        CreateTimer(0.1, Timer_RemoveHalloweenEntities, cleanupType, TIMER_FLAG_NO_MAPCHANGE);
     }
-    if (GetConVarInt(g_cvNoPumpkins))
-    {
-        if (StrEqual(classname, "tf_pumpkin_bomb", false))
-        {
-            CreateTimer(0.1, Timer_KillPumpkinBombs, _, TIMER_FLAG_NO_MAPCHANGE);
-            return;
-        }
-    }
-
 }
 
 public Action OnTakeDamage(int entity, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
@@ -100,7 +102,7 @@ public Action OnTakeDamage(int entity, int &attacker, int &inflictor, float &dam
     if (!IsValidEntity(inflictor) || !IsValidEntity(attacker))
         return Plugin_Continue;
 
-    if (!GetConVarInt(g_cvHalloween))
+    if (!g_cvHalloween.BoolValue)
         return Plugin_Continue;
 
     // Handle pumpkin bomb damage modification
@@ -111,7 +113,7 @@ public Action OnTakeDamage(int entity, int &attacker, int &inflictor, float &dam
 
         if (StrEqual(classname, "tf_pumpkin_bomb"))
         {
-            if (GetConVarInt(g_cvBetterPumpkins))
+            if (g_cvBetterPumpkins.BoolValue)
             {
                 damage *= 0.5; // Base damage and therefore velocity reduced by 50% regardless
                 if (attacker == entity) // If the player shot the pumpkin himself
@@ -125,7 +127,7 @@ public Action OnTakeDamage(int entity, int &attacker, int &inflictor, float &dam
     }
 
     // Handle boss damage scaling
-    if (GetConVarInt(g_cvNerfBosses) && IsValidEntity(entity) && IsHalloweenBoss(entity))
+    if (g_cvNerfBosses.BoolValue && IsValidEntity(entity) && IsHalloweenBoss(entity))
     {
         damage *= GetConVarFloat(g_cvBossNerfScale);
         return Plugin_Changed;
@@ -137,95 +139,62 @@ public Action OnTakeDamage(int entity, int &attacker, int &inflictor, float &dam
 public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast)
 {
     CheckHalloweenStatus();
-    if (GetConVarInt(g_cvHalloween))
+    if (g_cvHalloween.BoolValue)
     {
-        if (GetConVarInt(g_cvDisableStuns))
+        if (g_cvDisableStuns.BoolValue)
         {
-            // Timer to disable trigger_stun entities
-            CreateTimer(0.1, Timer_DisableStuns, _, TIMER_FLAG_NO_MAPCHANGE);
+            CreateTimer(0.1, Timer_RemoveHalloweenEntities, HALLOWEEN_CLEANUP_STUNS, TIMER_FLAG_NO_MAPCHANGE);
         }
 
-        if (GetConVarInt(g_cvDisableSpells))
+        if (g_cvDisableSpells.BoolValue)
         {
-            // Timer to kill tf_spell_pickup entities
-            CreateTimer(0.1, Timer_KillSpellPickups, _, TIMER_FLAG_NO_MAPCHANGE);
+            CreateTimer(0.1, Timer_RemoveHalloweenEntities, HALLOWEEN_CLEANUP_SPELLS, TIMER_FLAG_NO_MAPCHANGE);
         }
-        if (GetConVarInt(g_cvNoPumpkins))
+        if (g_cvNoPumpkins.BoolValue)
         {
-            // Timer to kill tf_spell_pickup entities
-            CreateTimer(0.1, Timer_KillPumpkinBombs, _, TIMER_FLAG_NO_MAPCHANGE);
+            CreateTimer(0.1, Timer_RemoveHalloweenEntities, HALLOWEEN_CLEANUP_PUMPKINS, TIMER_FLAG_NO_MAPCHANGE);
         }
     }
 }
 
 public void CheckHalloweenStatus()
 {
-    int entity = -1;
-    bool found = false;
-
-    // Check for any of these Halloween-related entities
-    entity = FindEntityByClassname(entity, "tf_logic_holiday");
-    if (entity != -1) found = true;
-    entity = FindEntityByClassname(entity, "tf_halloween_gift_spawn_location");
-    if (entity != -1) found = true;
+    bool found = FindEntityByClassname(-1, "tf_logic_holiday") != -1
+        || FindEntityByClassname(-1, "tf_halloween_gift_spawn_location") != -1;
+    g_cvHalloween.SetBool(found);
 
     if (found)
     {
         PrintToServer("[HalloweenLimiter] Halloween map detected");
-        SetConVarInt(g_cvHalloween, 1);
     }
 }
 
-
-// Crit pumpkins aka crumpkins
-
-public void TF2_OnConditionAdded(int client, TFCond condition) {      
-    if (GetConVarInt(g_cvMiniCrump))
-    {
-        if (g_cvHalloween)
-        {
-            if (condition == TFCond_HalloweenCritCandy) //If gas is applied
-            {
-                TF2_RemoveCondition(client, TFCond_HalloweenCritCandy); //Remove it
-                TF2_AddCondition(client, TFCond_CritCola, 4.0); //Replace it with this
-            }
-        }
-    }
-}
-
-// Timers
-
-public Action Timer_DisableStuns(Handle timer, any data)
+public void TF2_OnConditionAdded(int client, TFCond condition)
 {
+    if (g_cvMiniCrump.BoolValue
+        && g_cvHalloween.BoolValue
+        && condition == TFCond_HalloweenCritCandy)
+    {
+        TF2_RemoveCondition(client, TFCond_HalloweenCritCandy);
+        TF2_AddCondition(client, TFCond_CritCola, 4.0);
+    }
+}
+
+public Action Timer_RemoveHalloweenEntities(Handle timer, any data)
+{
+    int cleanupType = data;
+    if (cleanupType < 0 || cleanupType >= HALLOWEEN_CLEANUP_COUNT)
+    {
+        return Plugin_Stop;
+    }
+
     int entity = -1;
-    while ((entity = FindEntityByClassname(entity, "trigger_stun")) != -1)
+    while ((entity = FindEntityByClassname(entity, g_HalloweenCleanupClassnames[cleanupType])) != -1)
     {
         AcceptEntityInput(entity, "Kill");
     }
     return Plugin_Stop;
 }
-
-public Action Timer_KillSpellPickups(Handle timer, any data)
-{
-    int entity = -1;
-    while ((entity = FindEntityByClassname(entity, "tf_spell_pickup")) != -1)
-    {
-        AcceptEntityInput(entity, "Kill");
-    }
-    return Plugin_Stop;
-}
-
-public Action Timer_KillPumpkinBombs(Handle timer, any data)
-{
-    int entity = -1;
-    while ((entity = FindEntityByClassname(entity, "tf_pumpkin_bomb")) != -1)
-    {
-        AcceptEntityInput(entity, "Kill");
-    }
-    return Plugin_Stop;
-}
-
-// Self explanatory
 
 bool IsHalloweenBoss(int entity)
 {
