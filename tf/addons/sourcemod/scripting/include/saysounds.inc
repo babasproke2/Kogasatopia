@@ -36,6 +36,15 @@ native void SaySounds_PlaySoundToOptedIn(const char[] soundPath, const char[] gr
 native bool SaySounds_PlayCommand(int client, const char[] commandName, bool force = false, bool bypassAdminOnly = true);
 
 /**
+ * Plays a configured command only when the optional SaySounds native is available.
+ */
+stock bool SaySounds_TryPlayCommand(int client, const char[] commandName, bool force = false, bool bypassAdminOnly = true)
+{
+    return GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") == FeatureStatus_Available
+        && SaySounds_PlayCommand(client, commandName, force, bypassAdminOnly);
+}
+
+/**
  * Plays a configured say sound command using sourceClient for admin/paid access
  * checks and targetClient for delivery.
  *

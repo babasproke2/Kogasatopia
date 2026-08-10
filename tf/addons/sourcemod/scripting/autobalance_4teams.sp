@@ -915,7 +915,7 @@ public Action Timer_Autobalance(Handle timer)
     }
     SetClientMapImmunity(pick, true);
     g_fImbalanceDetectedAt = 0.0;
-    PlayTeamMoveSaySound();
+    SaySounds_TryPlayCommand(0, TEAM_MOVE_SAYSOUND, true);
 
     CPrintToChatAllEx(
         pick,
@@ -928,16 +928,6 @@ public Action Timer_Autobalance(Handle timer)
     CPrintToChatEx(pick, pick, "{lightgreen}[Server]{default} You've been autobalanced to %s{default}!", teamColorName);
 
     return Plugin_Continue;
-}
-
-static void PlayTeamMoveSaySound()
-{
-    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
-    {
-        return;
-    }
-
-    SaySounds_PlayCommand(0, TEAM_MOVE_SAYSOUND, true);
 }
 
 // ---------------------------------------------------------------------------

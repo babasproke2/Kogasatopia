@@ -2532,10 +2532,7 @@ public void SQL_OnMailMarkedRedeemed(Database db, DBResultSet results, const cha
             title);
     }
 
-    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") == FeatureStatus_Available)
-    {
-        SaySounds_PlayCommand(0, "xp_levelup", true);
-    }
+    SaySounds_TryPlayCommand(0, "xp_levelup", true);
 }
 
 void BuildMailAttachmentKey(int mailId, char[] key, int maxlen)

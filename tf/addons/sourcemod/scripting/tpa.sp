@@ -185,14 +185,14 @@ public Action Command_AcceptRequest(int client, int args)
     if (requestType == TpaRequest_Goto)
     {
         TeleportClientToClient(sender, client);
-        PlayTeleportSound();
+        SaySounds_TryPlayCommand(0, TPA_TELEPORT_SOUND, true);
         PrintToChat(client, "[TPA] Accepted %N's teleport request.", sender);
         PrintToChat(sender, "[TPA] Teleported to %N.", client);
     }
     else if (requestType == TpaRequest_Here)
     {
         TeleportClientToClient(client, sender);
-        PlayTeleportSound();
+        SaySounds_TryPlayCommand(0, TPA_TELEPORT_SOUND, true);
         PrintToChat(client, "[TPA] Accepted %N's teleport request.", sender);
         PrintToChat(sender, "[TPA] Teleported %N to you.", client);
     }
@@ -538,16 +538,6 @@ int GetTeleportCost()
 bool IsPointsStoreAvailable()
 {
     return GetFeatureStatus(FeatureType_Native, "PointsStore_SpendBonusPoints") == FeatureStatus_Available;
-}
-
-void PlayTeleportSound()
-{
-    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
-    {
-        return;
-    }
-
-    SaySounds_PlayCommand(0, TPA_TELEPORT_SOUND, true);
 }
 
 void AnnounceTeleportSpend(int sender, int cost)

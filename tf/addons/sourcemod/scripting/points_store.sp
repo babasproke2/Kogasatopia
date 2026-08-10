@@ -2275,30 +2275,17 @@ void RecordCurrencySpend(int client, int amount, const char[] type, int target)
 
 void PlayBonusPointsSound(int client, bool force)
 {
-    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
-    {
-        return;
-    }
-
-    SaySounds_PlayCommand(client, BP_SOUND_COMMAND, force);
+    SaySounds_TryPlayCommand(client, BP_SOUND_COMMAND, force);
 }
 
 void PlayWelfareSound()
 {
-    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
-    {
-        return;
-    }
-
-    SaySounds_PlayCommand(0, BP_WELFARE_SOUND_COMMAND, false);
+    SaySounds_TryPlayCommand(0, BP_WELFARE_SOUND_COMMAND);
 }
 
 void PlayLevelUpSound(int client)
 {
-    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") == FeatureStatus_Available)
-    {
-        SaySounds_PlayCommand(client, BP_LEVEL_UP_SOUND_COMMAND, true);
-    }
+    SaySounds_TryPlayCommand(client, BP_LEVEL_UP_SOUND_COMMAND, true);
 }
 
 bool CrossedBonusPointsMilestone(int balanceBefore, int balanceAfter)
@@ -3772,12 +3759,7 @@ public void SQL_OnPurchaseInserted(Database db, DBResultSet results, const char[
 
 static void PlayPurchaseSound()
 {
-    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
-    {
-        return;
-    }
-
-    SaySounds_PlayCommand(0, "xp_gain", false);
+    SaySounds_TryPlayCommand(0, "xp_gain");
 }
 
 void BuildPurchaseDisplayName(int client, char[] buffer, int maxlen)

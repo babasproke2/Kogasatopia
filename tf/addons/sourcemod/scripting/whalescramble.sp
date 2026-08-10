@@ -1380,7 +1380,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
                         totalVotes);
                     StartScrambleCooldown();
                     ServerCommand("mp_scrambleteams");
-                    PlayTeamMoveSaySound();
+                    SaySounds_TryPlayCommand(0, TEAM_MOVE_SAYSOUND, true);
                     success = true;
                 }
                 else
@@ -2464,7 +2464,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         ResetSurrenderVotes("whalescramble_execute");
         StartScrambleCooldown();
         CPrintToChatAll("{tomato}[{purple}Gap{tomato}]{default} {gold}Whalescrambling{default} %d players!", moved);
-        PlayTeamMoveSaySound();
+        SaySounds_TryPlayCommand(0, TEAM_MOVE_SAYSOUND, true);
         LogWhale("Scramble executed: moved=%d pairs=%d suppressRespawn=%d.", moved, pairCount, suppressRespawn ? 1 : 0);
         LogWhaleStat("scramble_result", "mode=%s|result=executed|moved=%d|pairs=%d|suppress_respawn=%d|setup=%d|ignore_immunity=%d", scrambleMode, moved, pairCount, suppressRespawn ? 1 : 0, setupScramble ? 1 : 0, ignoreImmunity ? 1 : 0);
         if (suppressRespawn)
@@ -2543,16 +2543,6 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         LogWhaleStat("scramble_result", "mode=%s|result=aborted|reason=no_eligible_pairs|swap=%d|ignore_immunity=%d", scrambleMode, swapCount, ignoreImmunity ? 1 : 0);
     }
     return Plugin_Stop;
-}
-
-static void PlayTeamMoveSaySound()
-{
-    if (GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") != FeatureStatus_Available)
-    {
-        return;
-    }
-
-    SaySounds_PlayCommand(0, TEAM_MOVE_SAYSOUND, true);
 }
 
 static void ClearScrambleRespawnAttempts()
