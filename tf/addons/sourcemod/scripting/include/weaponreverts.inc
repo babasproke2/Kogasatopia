@@ -22,11 +22,6 @@ stock bool WR_IsClientInGame(int client)
     return (WR_IsValidPlayerIndex(client) && IsClientInGame(client));
 }
 
-stock bool WR_IsLivingClient(int client)
-{
-    return (WR_IsClientInGame(client) && IsPlayerAlive(client));
-}
-
 stock bool WR_IsValidWeaponEntity(int weapon)
 {
     return (weapon > MaxClients && IsValidEntity(weapon));
