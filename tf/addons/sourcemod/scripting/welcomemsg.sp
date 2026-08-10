@@ -221,7 +221,8 @@ public void OnPluginStart()
     RegConsoleCmd("sm_commands", Command_cmds, "Lists highlighted server commands to the client");
 	RegConsoleCmd("sm_rules", Command_Rules, "Lists the rules to the client");
 	RegConsoleCmd("sm_steam", Command_Steam, "Prints the steam group URL to the client");
-    RegConsoleCmd("sm_chat", Command_chat, "Steam chat link");
+    RegConsoleCmd("sm_steamchat", Command_chat, "Steam chat link");
+    RegConsoleCmd("sm_chatlink", Command_chat, "Steam chat link");
     RegConsoleCmd("sm_welcome", Command_Welcome, "Reprints the welcome message.");
     RegConsoleCmd("sm_diamond", Command_DiamondPickaxe, "Prints Diamond Pickaxe info.");
     RegConsoleCmd("sm_diamondpickaxe", Command_DiamondPickaxe, "Prints Diamond Pickaxe info.");
@@ -428,7 +429,7 @@ static const char g_CommandInfo[][] = {
     "{lightgreen}Engineer:{default} {gold}!amp !a !pads !p !ah{default}",
     "{lightgreen}Voting:{default} {gold}!rtv !nominate !whalescramble !surrender{default}",
     "{lightgreen}Social:{default} {gold}!hug !rape !feed !leaderboard !duel{default}",
-    "{lightgreen}Server:{default} {gold}!steam !chat !info !rules !voice !git !repo !feedback{default}"
+    "{lightgreen}Server:{default} {gold}!steam !chatlink !info !rules !voice !git !repo !feedback{default}"
 };
 
 public Action Command_cmds(int client, int args)
