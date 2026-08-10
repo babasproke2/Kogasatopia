@@ -127,6 +127,7 @@ void Lotteries_OnPluginStart()
     RegConsoleCmd("sm_time", Command_LotteryTime, "Show time until the next lottery draw.");
     RegConsoleCmd("sm_pool", Command_LotteryPrizePool, "Show the lottery prize pool.");
     RegConsoleCmd("sm_prizepool", Command_LotteryPrizePool, "Show the lottery prize pool.");
+    AddCommandListener(CommandListener_LotteryPoolAlias, "pool");
     RegConsoleCmd("sm_ticket", Command_ViewLotteryTicket, "View your current lottery ticket.");
     RegConsoleCmd("sm_viewticket", Command_ViewLotteryTicket, "View your current lottery ticket.");
     RegConsoleCmd("sm_lottorefund", Command_LotteryRefund, "Refund your current lottery ticket.");
@@ -1255,6 +1256,11 @@ public Action Command_LotteryPrizePool(int client, int args)
 
     PrintLotteryPrizePool(client);
     return Plugin_Handled;
+}
+
+public Action CommandListener_LotteryPoolAlias(int client, const char[] command, int argc)
+{
+    return Command_LotteryPrizePool(client, 0);
 }
 
 public Action Command_LotteryHistory(int client, int args)

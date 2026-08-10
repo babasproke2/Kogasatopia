@@ -746,6 +746,11 @@ public Action CommandListener_PointsStoreChatAlias(int client, const char[] comm
         return Command_LotteryRefund(client, 0);
     }
 
+    if (StrEqual(text, "pool", false))
+    {
+        return Command_LotteryPrizePool(client, 0);
+    }
+
     return Plugin_Continue;
 }
 

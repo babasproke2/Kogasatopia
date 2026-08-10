@@ -89,6 +89,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 public void OnPluginStart()
 {
     RegConsoleCmd("sm_votemenu", Command_VoteMenu, "Open the vote menu");
+    AddCommandListener(CommandListener_VoteMenuAlias, "votemenu");
     AddCommandListener(CommandListener_VoteOption, "say");
     AddCommandListener(CommandListener_VoteOption, "say_team");
     g_CvarShop = CreateConVar("sm_votemenu_shop", "1", "Require points_store currency to start a votemenu vote when points_store is available.", _, true, 0.0, true, 1.0);
@@ -198,6 +199,11 @@ public Action Command_VoteMenu(int client, int args)
     return Plugin_Handled;
 }
 
+public Action CommandListener_VoteMenuAlias(int client, const char[] command, int argc)
+{
+    return Command_VoteMenu(client, 0);
+}
+
 public int VoteMenuHandler(Menu menu, MenuAction action, int param1, int param2)
 {
     if (action == MenuAction_End)
@@ -231,6 +237,11 @@ public Action CommandListener_VoteOption(int client, const char[] command, int a
     GetCmdArgString(text, sizeof(text));
     StripQuotes(text);
     TrimString(text);
+    if (StrEqual(text, "votemenu", false))
+    {
+        return Command_VoteMenu(client, 0);
+    }
+
     if (text[0] == '!' || text[0] == '/')
     {
         strcopy(text, sizeof(text), text[1]);
