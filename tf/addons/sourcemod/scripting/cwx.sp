@@ -181,6 +181,8 @@ public void OnPluginStart() {
 	RegAdminCmd("sm_weps", DisplayItems, 0);
 	RegAdminCmd("sm_equip", DisplayItems, 0);
 	RegAdminCmd("sm_c", DisplayItemDescriptions, 0);
+	RegAdminCmd("sm_cp", DisplayItemDescriptions, 0);
+	RegAdminCmd("sm_c2", DisplayItemDescriptions, 0);
 	AddCommandListener(DisplayItemsCompat, "sm_cus");
 	
 	mp_stalemate_meleeonly = FindConVar("mp_stalemate_meleeonly");
