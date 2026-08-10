@@ -21,7 +21,7 @@
 #define PLUGIN_VERSION "4.3"
 
 #include "include/dgm_api.inc"
-#include "include/clients.inc"
+#include "include/client_validation.inc"
 #include "include/statistics.inc"
 #define DGM_MAX_CONTROL_POINTS 8
 #define DGM_MAX_CAPTURE_INTERVALS 64

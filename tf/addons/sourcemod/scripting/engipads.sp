@@ -12,7 +12,7 @@
 #include <morecolors>
 #include <tf_custom_attributes>
 
-#include "include/clients.inc"
+#include "include/client_validation.inc"
 
 //Define version number in a needlessly complex way
 #define MAJOR	"1"

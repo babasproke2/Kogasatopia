@@ -17,7 +17,7 @@
 #define REQUIRE_PLUGIN
 
 
-#include "include/clients.inc"
+#include "include/client_validation.inc"
 #include "include/database.inc"
 #include "include/steam_identity.inc"
 

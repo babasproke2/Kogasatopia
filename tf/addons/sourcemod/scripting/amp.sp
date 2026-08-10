@@ -16,7 +16,7 @@
 #include <tf_custom_attributes>
 #include <conch_no_speed>
 
-#include "include/clients.inc"
+#include "include/client_validation.inc"
 
 #define MAX_AMPLIFIER_CLIENTS (MAXPLAYERS + 1)
 #define MAX_AMPLIFIER_ENTITIES 2048

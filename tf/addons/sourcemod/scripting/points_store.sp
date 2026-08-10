@@ -14,7 +14,7 @@
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
-#include "include/clients.inc"
+#include "include/client_validation.inc"
 #include "include/chat_colors.inc"
 #include "include/database.inc"
 #include "include/steam_identity.inc"

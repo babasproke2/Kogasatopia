@@ -14,7 +14,7 @@
 #include <points_store_api>
 #define REQUIRE_PLUGIN
 
-#include "include/clients.inc"
+#include "include/client_validation.inc"
 #include "include/strings.inc"
 
 #define CONFIG_FILE "configs/custom_hats.cfg"

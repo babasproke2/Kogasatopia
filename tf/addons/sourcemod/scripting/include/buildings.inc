@@ -6,7 +6,7 @@
 #include <sdktools>
 #include <tf2_stocks>
 
-#include "clients.inc"
+#include "client_validation.inc"
 
 stock bool Kogasa_ClientOwnsBuilding(int client, const char[] classname)
 {
