@@ -3202,18 +3202,6 @@ bool HandleEnabledChat(int client, const char[] message, const ChatContext conte
     }
     else
     {
-        /*int randomChance = GetRandomInt(1, 20);
-        if (randomChance == 1)
-        {
-            if (teamChatOnly)
-            {
-                CPrintToChatTeam(GetClientTeam(client), message);
-            }
-            else
-            {
-                CPrintToChatAllEx(client, "%s", message);
-            }
-        }*/
         for (int i = 1; i <= MaxClients; i++)
         {
             if (!IsClientInGame(i))

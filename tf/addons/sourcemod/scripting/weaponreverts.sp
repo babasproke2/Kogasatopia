@@ -1871,40 +1871,6 @@ public Action OnTraceAttack(int victim, int &attacker, int &inflictor, float &da
     return Plugin_Continue;
 }
 
-/*public Action OnPlayerRunCmd(
-	int client, int& buttons, int& impulse, float vel[3], float angles[3],
-	int& weapon, int& subtype, int& cmdnum, int& tickcount, int& seed, int mouse[2]
-) {
-	int primary = GetPlayerWeaponSlot(client, TFWeaponSlot_Primary);
-
-	if (primary != -1 && TF2CustAttr_GetInt(primary, "original babyface attributes") == 1) {
-		// Original babyface boost reset on jump
-		if (buttons & IN_JUMP != 0)
-		{
-			if (!tf2_players[client].holdingJump)
-			{
-				if (
-					GetEntPropFloat(client, Prop_Send, "m_flHypeMeter") > 0.0 && 
-					GetEntProp(client, Prop_Data, "m_nWaterLevel") <= 1 && // don't reset if swimming 
-					buttons & IN_DUCK == 0 && // don't reset if crouching
-					(GetEntityFlags(client) & FL_ONGROUND) != 0 // don't reset if airborne, the attribute will handle air jumps
-				) {
-					SetEntPropFloat(client, Prop_Send, "m_flHypeMeter", 0.0);
-					// apply the following so movespeed gets reset immediately
-					TF2Attrib_AddCustomPlayerAttribute(client, "move speed penalty", 0.99, 0.001);
-				}
-				tf2_players[client].holdingJump = true;
-			}
-		}
-		else
-		{
-			tf2_players[client].holdingJump = false;
-		}
-	}
-	
-	return Plugin_Continue;
-}*/
-
 public Action OnTakeDamageAlive(
 	int victim, int& attacker, int& inflictor, float& damage, int& damage_type,
 	int& weapon, float damage_force[3], float damage_position[3], int damage_custom
