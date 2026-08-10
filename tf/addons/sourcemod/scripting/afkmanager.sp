@@ -72,43 +72,36 @@ public void OnPluginStart()
 
 public void OnMapStart() {
 	for (int idx = 1; idx <= MaxClients; idx++) {
-		ClientPressedButton(idx);
+		MarkClientActive(idx);
 	}
 }
 
 public void OnClientConnected(int client) {
-	ClientPressedButton(client);
+	MarkClientActive(client);
 }
 
 public void OnGameFrame() {
-	int idx;
-	int buttons;
-	for (idx = 1; idx <= MaxClients; idx++) {
-		if (Client_IsHumanInGame(idx)) {
-			buttons = GetEntProp(idx, Prop_Data, "m_nButtons");
-
-			if (
-				(buttons & ACTION_BUTTONS > 0)
-			) {
-				ClientPressedButton(idx);
-			}
+	for (int client = 1; client <= MaxClients; client++) {
+		if (Client_IsHumanInGame(client)
+			&& (GetEntProp(client, Prop_Data, "m_nButtons") & ACTION_BUTTONS) != 0) {
+			MarkClientActive(client);
 		}
 	}
 }
 
 public void OnClientSpeaking(int client) {
-	ClientPressedButton(client);
+	MarkClientActive(client);
 }
 
 Action OnSpecChanged(int client, const char[] command, int argc) {
 	// spectators moving cameras is not covered by button checks (annoyingly!)
-	ClientPressedButton(client);
+	MarkClientActive(client);
 	return Plugin_Continue;
 }
 
 Action OnGameEvent(Event event, const char[] name, bool dontbroadcast) {
 	int client = GetClientOfUserId(GetEventInt(event, "userid"));
-	ClientPressedButton(client);
+	MarkClientActive(client);
 	return Plugin_Continue;
 }
 
@@ -122,7 +115,7 @@ Action AfkDaemon(Handle timer, any data) {
     return Plugin_Continue;
 }
 
-void ClientPressedButton(int client) {
+void MarkClientActive(int client) {
 	if (client <= 0 || client > MaxClients) {
 		return;
 	}
@@ -145,87 +138,68 @@ bool Kick(int client) {
 
 void AfkManage() {
 	int action = g_cvAfkAction.IntValue;
-	int alive_time = g_cvAfkAliveTime.IntValue;
-	int spec_time = g_cvAfkSpecTime.IntValue;
-	int spec_moved_time = g_cvAfkSpecMovedTime.IntValue;
-	int min_count = g_cvMinPlayerCount.IntValue;
-	int kick_spec_min_count = g_cvKickSpecMinPlayerCount.IntValue;
-	bool can_kick_specs = CanKickAfkSpectators(kick_spec_min_count);
-	int client_time;
-	int elapsed;
-	int idx;
-	TFTeam team;
+	int aliveTime = g_cvAfkAliveTime.IntValue;
+	int spectatorTime = g_cvAfkSpecTime.IntValue;
+	int movedSpectatorTime = g_cvAfkSpecMovedTime.IntValue;
+	bool belowMinimum = GetClientCount(true) < g_cvMinPlayerCount.IntValue;
+	bool canKickSpectators = CanKickAfkSpectators(g_cvKickSpecMinPlayerCount.IntValue);
 
-	bool low_count = GetClientCount(true) < min_count;
+	for (int client = 1; client <= MaxClients; client++) {
+		if (!Client_IsHumanInGame(client)) {
+			continue;
+		}
 
-	for (idx = 1; idx <= MaxClients; idx++) {
-		if (Client_IsHumanInGame(idx)) {
-			// reset this var on low counts constantly
-			// so that counting only "begins" when threshold reached
-			if (low_count) {
-				ClientPressedButton(idx);
+		if (belowMinimum) {
+			MarkClientActive(client);
+			continue;
+		}
+
+		int lastActivity = g_iLastPressTime[client];
+		if (lastActivity == 0) {
+			continue;
+		}
+
+		int elapsed = g_iCurrentTime - lastActivity;
+		TFTeam team = TF2_GetClientTeam(client);
+		if (team == TFTeam_Unassigned || team == TFTeam_Spectator) {
+			if (!canKickSpectators) {
+				MarkClientActive(client);
 				continue;
 			}
 
-			client_time = g_iLastPressTime[idx];
-
-			if (client_time == 0) {
-				continue;
+			int timeout = g_bMovedToSpec[client] ? movedSpectatorTime : spectatorTime;
+			bool shouldKick = (action == 0 && elapsed > spectatorTime)
+				|| (action == 1 && elapsed > timeout);
+			if (shouldKick && !Kick(client)) {
+				MarkClientActive(client);
 			}
+			continue;
+		}
 
-			elapsed = g_iCurrentTime - client_time;
+		if (team != TFTeam_Red && team != TFTeam_Blue) {
+			continue;
+		}
 
-			team = TF2_GetClientTeam(idx);
-			
-				if (
-				    team == TFTeam_Unassigned ||
-				    team == TFTeam_Spectator 
-				) {
-				    if (!can_kick_specs) {
-				        ClientPressedButton(idx);
-				        continue;
-				    }
-				if (action==0) {
-					if (elapsed > spec_time) {
-						// reset last pressed time when a plugin is tring to block it
-						if (!Kick(idx)) {
-							ClientPressedButton(idx);
-						}
-					}
-				} else if (action==1) {
-					if (
-						(g_bMovedToSpec[idx] && elapsed > spec_moved_time) ||
-						(!g_bMovedToSpec[idx] && elapsed > spec_time)
-					) {
-						if (!Kick(idx)) {
-							ClientPressedButton(idx);
-						}
-					}
-				}
-			} else if (
-				team == TFTeam_Red ||
-				team == TFTeam_Blue
-			) {
-				if (!IsPlayerAlive(idx) && TF2_GetPlayerClass(idx) != TFClass_Unknown) {
-					// don't count time spent dead
-					// but do count class select time
-					g_iLastPressTime[idx]++;
-					continue;
-				}
-				if (elapsed > alive_time) {
-					if (action==0) {
-						if (!Kick(idx)) {
-							ClientPressedButton(idx);
-						}
-					} else if (action==1) {
-						TF2_ChangeClientTeam(idx, TFTeam_Spectator);
-						ClientPressedButton(idx);
-						g_bMovedToSpec[idx] = true;
-					} else if (action==2) {
-						TF2_ChangeClientTeam(idx, TFTeam_Spectator);
-					}
-				}
+		if (!IsPlayerAlive(client) && TF2_GetPlayerClass(client) != TFClass_Unknown) {
+			// Do not count dead time, but keep counting while the class menu is open.
+			g_iLastPressTime[client]++;
+			continue;
+		}
+
+		if (elapsed <= aliveTime) {
+			continue;
+		}
+
+		if (action == 0) {
+			if (!Kick(client)) {
+				MarkClientActive(client);
 			}
+		} else if (action == 1) {
+			TF2_ChangeClientTeam(client, TFTeam_Spectator);
+			MarkClientActive(client);
+			g_bMovedToSpec[client] = true;
+		} else if (action == 2) {
+			TF2_ChangeClientTeam(client, TFTeam_Spectator);
 		}
 	}
 }
