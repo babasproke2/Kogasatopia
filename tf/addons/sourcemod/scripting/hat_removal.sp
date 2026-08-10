@@ -15,9 +15,7 @@
 
 static int currMode;
 static bool bHatsOff[MAXPLAYERS+1] = { false, ... };
-static bool bRecentPrint[MAXPLAYERS+1] = { false, ... };
 static Handle g_hHatToggleCookie = INVALID_HANDLE;
-static ConVar g_hHatRemovalAlert = null;
 
 public Plugin myinfo =
 {
@@ -36,13 +34,10 @@ public void OnPluginStart()
 	HookConVarChange(hMode, cbCvarChange);
 
 	g_hHatToggleCookie = RegClientCookie("hatremoval_toggle", "Hat visibility toggle (0/1)", CookieAccess_Public);
-	g_hHatRemovalAlert = CreateConVar("hatremoval_alert", "0", "Enable Hat Removal spawn alert (0/1).", FCVAR_NONE, true, 0.0, true, 1.0);
 	
 	RegConsoleCmd("sm_togglehat", cbToggleHat, "Toggles hat visibility");
 	RegConsoleCmd("sm_nohats", cbToggleHat, "Toggles hat visibility");
 	RegConsoleCmd("sm_nohat", cbToggleHat, "Toggles hat visibility");
-	
-	HookEvent("player_spawn", EventSpawn);
 }
 
 public void OnClientPutInServer(int Client)
@@ -59,7 +54,6 @@ public void OnClientCookiesCached(int Client)
 public void OnClientDisconnect(int Client)
 {
 	bHatsOff[Client] = false;
-	bRecentPrint[Client] = false;
 }
 
 public void OnEntityCreated(int entity, const char[] Classname)
@@ -86,41 +80,6 @@ public Action timerHookDelay(Handle Timer, any entityRef)
 	}
 
 	return Plugin_Stop;
-}
-
-public void EventSpawn(Event event, const char[] Name, bool dontBroadcast)
-{
-	int Client = GetClientOfUserId(event.GetInt("userid"));
-	if (!Client_IsInGame(Client))
-	{
-		return;
-	}
-	
-	if( !bRecentPrint[Client] )
-	{
-		if (g_hHatRemovalAlert != INVALID_HANDLE && GetConVarInt(g_hHatRemovalAlert) == 1)
-		{
-			if(currMode == 2)
-				CPrintToChat(Client, "{axis}[HatRemoval]{default} This server is running Hat Removal, type !togglehat or /togglehat in chat to toggle hat visibility.");
-			else
-				if(currMode == 1)
-					CPrintToChat(Client, "{axis}[HatRemoval]{default} This server is running Hat Removal, all hats have been removed.");
-		}
-				
-		//This is to have less spam when switching classes/round start.
-		bRecentPrint[Client] = true;
-		CreateTimer(20.0, timerResetRecentPrint, GetClientUserId(Client));
-	}
-}
-
-public Action timerResetRecentPrint(Handle Timer, any userId)
-{
-	int Client = GetClientOfUserId(userId);
-	if (Client_IsInGame(Client))
-	{
-		bRecentPrint[Client] = false;
-	}
-	return Plugin_Handled;
 }
 
 static void LoadHatToggleCookie(int Client)

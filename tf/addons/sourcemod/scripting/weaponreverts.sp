@@ -1192,10 +1192,6 @@ public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname
 	velocity[1] -= push * Sine(yaw);
 	velocity[2] -= 280.0 * Sine(pitch);
 
-	//int health = GetClientHealth(client);
-	//float rounded = float(RoundFloat(float(health) * 0.10));
-	//SDKHooks_TakeDamage(client, client, client, rounded, DMG_CLUB, 0);
-
 	TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
 	return Plugin_Changed;
 }
@@ -1212,7 +1208,6 @@ public Action Timer_HealTimer(Handle timer)
         {
             tf2_players[client].healCount--;
             AddPlayerHealth(client, 4, 1.0, false, true);
-			//EmitAmbientSound(SOUND_DISPENSER_METAL, damagePosition, client, SNDLEVEL_NORMAL);
         }
 
         // Shock charge refill runs independently
@@ -1227,21 +1222,6 @@ public Action Timer_HealTimer(Handle timer)
     }
     return Plugin_Continue;
 }
-
-// Damage distance multiplier attribute, now unused since we're giving Pom/Bison a larger hitbox
-/*float GetDistanceMultiplier(float posVic[3], float posAtt[3])
-{
-	float distance = GetVectorDistance(posVic, posAtt);
-
-	// Distance-based rampup
-	// Example: base at 300 units, scales linearly, capped at +100% (2.0) or adjust as needed
-	float rampup = (distance - 300.0) * 0.001; // scaling facto
-	rampup = clamp(rampup, 0.0, 1.0);		   // cap at +100%
-
-	float calculated = 1.0 + rampup;		   // final multiplie
-
-	return calculated;
-}*/
 
 static bool TryApplyHolsterReload(int weapon)
 {

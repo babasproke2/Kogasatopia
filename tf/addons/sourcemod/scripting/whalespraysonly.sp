@@ -27,14 +27,13 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
-	ConVar g_hCVarsVer = CreateConVar("sm_aso_version", PLUGIN_VERSION, "Admin Sprays Only plugin version", FCVAR_DONTRECORD|FCVAR_NOTIFY);
+	CreateConVar("sm_aso_version", PLUGIN_VERSION, "Admin Sprays Only plugin version", FCVAR_DONTRECORD|FCVAR_NOTIFY);
 	g_hCVarsEnabled = CreateConVar("sm_aso_enabled", "1", "Enables/disables Admin Sprays Only", FCVAR_NONE, true, 0.0, true, 1.0);
 	g_hCVarsKills = CreateConVar("sm_aso_kills", "50", "Minimum WhaleTracker cumulative kills needed to be able to spray", FCVAR_NONE, true, 0.0);
 	g_hCVarsWarn = CreateConVar("sm_aso_warn", "1", "Enables/disables chat warning messages", FCVAR_NONE, true, 0.0, true, 1.0);
 	g_hCVarsReason = CreateConVar("sm_aso_warning", "You are not allowed to spray", "Warning displayed when a player below the kill requirement tries to spray", FCVAR_NONE);
 	EnabledChanged(g_hCVarsEnabled, "", "");
 	HookConVarChange(g_hCVarsEnabled, EnabledChanged);
-	SetConVarString(g_hCVarsVer, PLUGIN_VERSION);
 	AutoExecConfig(true, "Admin_Sprays_Only");
 }
 
