@@ -3,6 +3,7 @@
 
 #include <sourcemod>
 
+#include <entity_prop_stocks>
 #include <sdktools_voice>
 
 #include <tf2_stocks>
@@ -21,9 +22,7 @@ public Plugin myinfo =
 	url = "http://castaway.tf"
 };
 
-// only look for relevant buttons when performing button checks
-// do not check for 32!
-#define ACTION_BUTTONS (1 + 2 + 4 + 8 + 16 + 512 + 1024 + 2048 + 8192 + 65536)
+#define ACTION_BUTTONS (IN_ATTACK | IN_JUMP | IN_DUCK | IN_FORWARD | IN_BACK | IN_MOVELEFT | IN_MOVERIGHT | IN_ATTACK2 | IN_RELOAD | IN_SCORE)
 
 int g_iLastPressTime[MAXPLAYERS+1];
 bool g_bMovedToSpec[MAXPLAYERS+1];
@@ -48,7 +47,7 @@ public APLRes AskPluginLoad2(Handle plugin, bool late, char[] error, int err_max
 public void OnPluginStart()
 {
 	g_cvEnabled = CreateConVar("sm_afkmanager_enabled","1","Enable AFK Manager", _, true, 0.0, true, 1.0);
-    g_cvAfkAction = CreateConVar("sm_afkmanager_afk_action", "1", "What action to take upon AFK players.\n0 = Kick immediately\n1 = Move to spectator, and kick AFK specators\n2 = Move to spectator, but don't kick spectators");
+    g_cvAfkAction = CreateConVar("sm_afkmanager_afk_action", "1", "What action to take upon AFK players.\n0 = Kick immediately\n1 = Move to spectator, and kick AFK spectators\n2 = Move to spectator, but don't kick spectators", _, true, 0.0, true, 2.0);
     g_cvAfkAliveTime = CreateConVar("sm_afkmanager_alive_time", "60", "How long a player must be AFK for for action to be taken upon them, in seconds.", _, true, 60.0);
     g_cvAfkSpecTime = CreateConVar("sm_afkmanager_spec_time", "300", "How long a player must be AFK in spectator before they are kicked, in seconds.", _, true, 60.0);
     g_cvAfkSpecMovedTime = CreateConVar("sm_afkmanager_spec_moved_time", "180", "How long a player must be AFK in spectator for, after being moved to it due to being afk, before they are kicked, in seconds.", _, true, 60.0);
@@ -65,28 +64,34 @@ public void OnPluginStart()
 	AddCommandListener(OnSpecChanged,"spec_next");
 	AddCommandListener(OnSpecChanged,"spec_prev");
 
-	FindConVar("mp_idledealmethod").SetInt(0);
+	ConVar idleMethod = FindConVar("mp_idledealmethod");
+	if (idleMethod != null) {
+		idleMethod.SetInt(0);
+	}
 
+	g_iCurrentTime = GetTime();
     CreateTimer(1.0, AfkDaemon,_,TIMER_REPEAT);
 }
 
 public void OnMapStart() {
 	for (int idx = 1; idx <= MaxClients; idx++) {
-		MarkClientActive(idx);
+		ResetClientState(idx);
 	}
 }
 
 public void OnClientConnected(int client) {
-	MarkClientActive(client);
+	ResetClientState(client);
 }
 
-public void OnGameFrame() {
-	for (int client = 1; client <= MaxClients; client++) {
-		if (Client_IsHumanInGame(client)
-			&& (GetEntProp(client, Prop_Data, "m_nButtons") & ACTION_BUTTONS) != 0) {
-			MarkClientActive(client);
-		}
+public Action OnPlayerRunCmd(
+	int client, int &buttons, int &impulse, float velocity[3], float angles[3],
+	int &weapon, int &subtype, int &cmdnum, int &tickcount, int &seed, int mouse[2]
+) {
+	if (Client_IsHumanInGame(client)
+		&& ((buttons & ACTION_BUTTONS) != 0 || mouse[0] != 0 || mouse[1] != 0)) {
+		MarkClientActive(client);
 	}
+	return Plugin_Continue;
 }
 
 public void OnClientSpeaking(int client) {
@@ -102,6 +107,10 @@ Action OnSpecChanged(int client, const char[] command, int argc) {
 Action OnGameEvent(Event event, const char[] name, bool dontbroadcast) {
 	int client = GetClientOfUserId(GetEventInt(event, "userid"));
 	MarkClientActive(client);
+	if (client > 0 && StrEqual(name, "player_team")
+		&& GetEventInt(event, "team") >= view_as<int>(TFTeam_Red)) {
+		g_bMovedToSpec[client] = false;
+	}
 	return Plugin_Continue;
 }
 
@@ -116,6 +125,14 @@ Action AfkDaemon(Handle timer, any data) {
 }
 
 void MarkClientActive(int client) {
+	if (client <= 0 || client > MaxClients) {
+		return;
+	}
+
+	g_iLastPressTime[client] = g_iCurrentTime;
+}
+
+void ResetClientState(int client) {
 	if (client <= 0 || client > MaxClients) {
 		return;
 	}
