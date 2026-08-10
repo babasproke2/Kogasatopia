@@ -9,6 +9,8 @@
 
 #include <morecolors>
 
+#include "include/client_validation.inc"
+
 #define VERSION "1.1a"
 
 static int currMode;
@@ -62,14 +64,16 @@ public void OnClientDisconnect(int Client)
 
 public void OnEntityCreated(int entity, const char[] Classname)
 {
-	//The delay is present so m_ModelName is set
-	if(StrEqual(Classname, "tf_wearable"))
-			CreateTimer( 0.1, timerHookDelay, entity);
+	if (StrEqual(Classname, "tf_wearable"))
+	{
+		CreateTimer(0.1, timerHookDelay, EntIndexToEntRef(entity), TIMER_FLAG_NO_MAPCHANGE);
+	}
 }
 
-public Action timerHookDelay(Handle Timer, any entity)
+public Action timerHookDelay(Handle Timer, any entityRef)
 {
-	if(IsValidEdict(entity))
+	int entity = EntRefToEntIndex(entityRef);
+	if (entity != INVALID_ENT_REFERENCE && IsValidEdict(entity))
 	{
 		//Hook transmit
 		//Unless it's a The Razorback, Darwin's Danger Shield or Gunboats
@@ -86,7 +90,11 @@ public Action timerHookDelay(Handle Timer, any entity)
 
 public void EventSpawn(Event event, const char[] Name, bool dontBroadcast)
 {
-	int Client = GetClientOfUserId(GetEventInt(event, "userid"));
+	int Client = GetClientOfUserId(event.GetInt("userid"));
+	if (!Client_IsInGame(Client))
+	{
+		return;
+	}
 	
 	if( !bRecentPrint[Client] )
 	{
@@ -101,13 +109,17 @@ public void EventSpawn(Event event, const char[] Name, bool dontBroadcast)
 				
 		//This is to have less spam when switching classes/round start.
 		bRecentPrint[Client] = true;
-		CreateTimer( 20.0, timerResetRecentPrint, Client);
+		CreateTimer(20.0, timerResetRecentPrint, GetClientUserId(Client));
 	}
 }
 
-public Action timerResetRecentPrint(Handle Timer, any Client)
+public Action timerResetRecentPrint(Handle Timer, any userId)
 {
-	bRecentPrint[Client] = false;
+	int Client = GetClientOfUserId(userId);
+	if (Client_IsInGame(Client))
+	{
+		bRecentPrint[Client] = false;
+	}
 	return Plugin_Handled;
 }
 
@@ -136,6 +148,11 @@ static void LoadHatToggleCookie(int Client)
 
 public Action cbToggleHat(int Client, int Args)
 {
+	if (!Client_IsInGame(Client))
+	{
+		return Plugin_Handled;
+	}
+
 	//Plugin isn't on
 	if(currMode == 0)
 	{
@@ -184,6 +201,11 @@ public void cbCvarChange(ConVar convar, const char[] oldValue, const char[] newV
 
 public Action cbTransmit(int Entity, int Client)
 {
+	if (!Client_IsInGame(Client))
+	{
+		return Plugin_Continue;
+	}
+
 	//Transmit when plugin's off OR if the player didn't turn it on
 	if(currMode == 0 || (currMode == 2 && !bHatsOff[Client]) )
 		return Plugin_Continue;
