@@ -113,8 +113,8 @@ public void OnPluginStart()
 public void OnPluginEnd()
 {
     PluginStats_Shutdown();
-    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
-    KogasaSql_Close(g_Database, g_DatabaseReady);
+    Db_CancelTimer(g_hDatabaseReconnectTimer);
+    Db_Close(g_Database, g_DatabaseReady);
 }
 
 public void OnMapStart()
@@ -333,13 +333,13 @@ public void SQL_OnVoteMenuDatabaseConnected(Handle owner, Handle hndl, const cha
 
     g_Database = view_as<Database>(hndl);
     g_DatabaseReady = true;
-    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
+    Db_CancelTimer(g_hDatabaseReconnectTimer);
 }
 
 static void ConnectVoteMenuDatabase()
 {
-    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
-    KogasaSql_Close(g_Database, g_DatabaseReady);
+    Db_CancelTimer(g_hDatabaseReconnectTimer);
+    Db_Close(g_Database, g_DatabaseReady);
 
     char dbConfig[64];
     if (g_CvarDatabase != null)
@@ -352,7 +352,7 @@ static void ConnectVoteMenuDatabase()
         strcopy(dbConfig, sizeof(dbConfig), VOTEMENU_DB_CONFIG_DEFAULT);
     }
 
-    if (!KogasaSql_CheckConfigOrLog("votemenu", dbConfig))
+    if (!Db_CheckConfigOrLog("votemenu", dbConfig))
     {
         return;
     }
@@ -360,7 +360,7 @@ static void ConnectVoteMenuDatabase()
     SQL_TConnect(SQL_OnVoteMenuDatabaseConnected, dbConfig);
 }
 
-static void ScheduleVoteMenuDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+static void ScheduleVoteMenuDatabaseReconnect(float delay = DB_RECONNECT_DELAY)
 {
     g_DatabaseReady = false;
     if (g_hDatabaseReconnectTimer == null)
@@ -526,7 +526,7 @@ static bool PrepareVoteMenuCharge(int client)
     }
 
     int cost = GetVoteMenuCost();
-    if (!KogasaSql_IsReady(g_Database, g_DatabaseReady))
+    if (!Db_IsReady(g_Database, g_DatabaseReady))
     {
         CPrintToChat(client, "{red}[Vote]{default} Vote payments are not ready yet.");
         ConnectVoteMenuDatabase();

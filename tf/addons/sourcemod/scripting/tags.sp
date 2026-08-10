@@ -81,8 +81,8 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
-    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
-    KogasaSql_Close(g_Database, g_bDatabaseReady);
+    Db_CancelTimer(g_hDatabaseReconnectTimer);
+    Db_Close(g_Database, g_bDatabaseReady);
 }
 
 public void OnClientPostAdminCheck(int client)
@@ -119,13 +119,13 @@ void ConnectDatabase()
     TrimString(configName);
     if (!configName[0])
     {
-        strcopy(configName, sizeof(configName), KOGASA_SQL_DEFAULT_CONFIG);
+        strcopy(configName, sizeof(configName), DB_DEFAULT_CONFIG);
     }
 
-    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
-    KogasaSql_Close(g_Database, g_bDatabaseReady);
+    Db_CancelTimer(g_hDatabaseReconnectTimer);
+    Db_Close(g_Database, g_bDatabaseReady);
 
-    if (!KogasaSql_CheckConfigOrLog("Tags", configName))
+    if (!Db_CheckConfigOrLog("Tags", configName))
     {
         return;
     }
@@ -133,7 +133,7 @@ void ConnectDatabase()
     Database.Connect(SQL_OnDatabaseConnected, configName);
 }
 
-void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+void ScheduleDatabaseReconnect(float delay = DB_RECONNECT_DELAY)
 {
     g_bDatabaseReady = false;
     if (g_hDatabaseReconnectTimer == null)
@@ -160,7 +160,7 @@ public void SQL_OnDatabaseConnected(Database db, const char[] error, any data)
 
     g_Database = db;
     g_bDatabaseReady = false;
-    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
+    Db_CancelTimer(g_hDatabaseReconnectTimer);
 
     if (!g_Database.SetCharset("utf8mb4"))
     {
@@ -183,9 +183,9 @@ public void SQL_OnSchemaCreated(Database db, DBResultSet results, const char[] e
     if (error[0] != '\0')
     {
         LogError("[Tags] Schema creation failed: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         return;
     }
@@ -195,12 +195,12 @@ public void SQL_OnSchemaCreated(Database db, DBResultSet results, const char[] e
 
 public void SQL_OnSourceColumnReady(Database db, DBResultSet results, const char[] error, any data)
 {
-    if (error[0] != '\0' && !KogasaSql_IsDuplicateColumnError(error))
+    if (error[0] != '\0' && !Db_IsDuplicateColumnError(error))
     {
         LogError("[Tags] Failed to add source column: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         return;
     }
@@ -210,12 +210,12 @@ public void SQL_OnSourceColumnReady(Database db, DBResultSet results, const char
 
 public void SQL_OnSourceKeyColumnReady(Database db, DBResultSet results, const char[] error, any data)
 {
-    if (error[0] != '\0' && !KogasaSql_IsDuplicateColumnError(error))
+    if (error[0] != '\0' && !Db_IsDuplicateColumnError(error))
     {
         LogError("[Tags] Failed to add source_key column: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         return;
     }
@@ -235,7 +235,7 @@ public void SQL_OnSourceKeyColumnReady(Database db, DBResultSet results, const c
 
 bool EnsureDatabaseReady(int client = 0)
 {
-    if (KogasaSql_IsReady(g_Database, g_bDatabaseReady))
+    if (Db_IsReady(g_Database, g_bDatabaseReady))
     {
         return true;
     }
@@ -264,7 +264,7 @@ void EscapeSql(const char[] input, char[] output, int maxlen)
 {
     output[0] = '\0';
 
-    KogasaSql_Escape(g_Database, input, output, maxlen, "Tags");
+    Db_Escape(g_Database, input, output, maxlen, "Tags");
 }
 
 void LoadClientSelectedTag(int client)
@@ -314,9 +314,9 @@ public void SQL_OnClientTagLoaded(Database db, DBResultSet results, const char[]
     if (error[0] != '\0')
     {
         LogError("[Tags] Failed to load selected tag: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         return;
     }
@@ -381,9 +381,9 @@ public void SQL_OnSaveCompleted(Database db, DBResultSet results, const char[] e
     if (error[0] != '\0')
     {
         LogError("[Tags] Failed to save selected tag: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
     }
 }
@@ -575,9 +575,9 @@ static bool QueryStoredTagBySteam64(const char[] steamid64, char[] buffer, int m
         char error[256];
         SQL_GetError(g_Database, error, sizeof(error));
         LogError("[Tags] Failed to query stored tag for %s: %s", steamid64, error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         return false;
     }

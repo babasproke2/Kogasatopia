@@ -182,7 +182,7 @@ public void OnPluginEnd()
         g_hAutoBalanceTimer = INVALID_HANDLE;
     }
 
-    KogasaSql_CancelTimer(g_hImmunityDbReconnectTimer);
+    Db_CancelTimer(g_hImmunityDbReconnectTimer);
     g_bImmunityDbReady = false;
     g_bVolunteerDbReady = false;
 
@@ -1354,17 +1354,17 @@ static void SetPersistentVolunteerCache(const char[] steamId, bool volunteer)
 
 static void ConnectImmunityDatabase()
 {
-    KogasaSql_CancelTimer(g_hImmunityDbReconnectTimer);
+    Db_CancelTimer(g_hImmunityDbReconnectTimer);
 
     char configName[64];
     g_hDatabaseConfig.GetString(configName, sizeof(configName));
     TrimString(configName);
     if (!configName[0])
     {
-        strcopy(configName, sizeof(configName), KOGASA_SQL_DEFAULT_CONFIG);
+        strcopy(configName, sizeof(configName), DB_DEFAULT_CONFIG);
     }
 
-    if (!KogasaSql_CheckConfigOrLog("autobalance_4teams", configName))
+    if (!Db_CheckConfigOrLog("autobalance_4teams", configName))
     {
         return;
     }
@@ -1372,7 +1372,7 @@ static void ConnectImmunityDatabase()
     Database.Connect(SQL_OnImmunityDatabaseConnected, configName);
 }
 
-static void ScheduleImmunityDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+static void ScheduleImmunityDatabaseReconnect(float delay = DB_RECONNECT_DELAY)
 {
     g_bImmunityDbReady = false;
     g_bVolunteerDbReady = false;
@@ -1407,7 +1407,7 @@ public void SQL_OnImmunityDatabaseConnected(Database db, const char[] error, any
     g_bImmunityDbReady = false;
     g_bVolunteerDbReady = false;
     g_iPersistentVolunteerCount = 0;
-    KogasaSql_CancelTimer(g_hImmunityDbReconnectTimer);
+    Db_CancelTimer(g_hImmunityDbReconnectTimer);
 
     if (!g_hImmunityDb.SetCharset("utf8mb4"))
     {
@@ -1425,9 +1425,9 @@ public void SQL_OnImmunitySchemaReady(Database db, DBResultSet results, const ch
     if (error[0])
     {
         LogError("[autobalance_4teams] Immunity schema creation failed: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleImmunityDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleImmunityDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         return;
     }
@@ -1451,9 +1451,9 @@ public void SQL_OnPersistentImmunityLoaded(Database db, DBResultSet results, con
     if (error[0])
     {
         LogError("[autobalance_4teams] Persistent immunity preload failed: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleImmunityDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleImmunityDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         return;
     }
@@ -1491,9 +1491,9 @@ public void SQL_OnVolunteerSchemaReady(Database db, DBResultSet results, const c
     if (error[0])
     {
         LogError("[autobalance_4teams] Volunteer schema creation failed: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleImmunityDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleImmunityDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         return;
     }
@@ -1513,9 +1513,9 @@ public void SQL_OnPersistentVolunteersLoaded(Database db, DBResultSet results, c
     if (error[0])
     {
         LogError("[autobalance_4teams] Persistent volunteer preload failed: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleImmunityDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleImmunityDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         return;
     }
@@ -1553,7 +1553,7 @@ public void SQL_OnPersistentVolunteersLoaded(Database db, DBResultSet results, c
 static void AB_EscapeSql(const char[] input, char[] output, int maxlen)
 {
     output[0] = '\0';
-    KogasaSql_Escape(g_hImmunityDb, input, output, maxlen, "autobalance_4teams");
+    Db_Escape(g_hImmunityDb, input, output, maxlen, "autobalance_4teams");
 }
 
 public Action Command_Volunteer(int client, int args)
@@ -1669,9 +1669,9 @@ public void SQL_OnPersistentVolunteerToggled(Database db, DBResultSet results, c
         }
 
         LogError("[autobalance_4teams] Persistent volunteer toggle failed for %s: %s", steamId, error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleImmunityDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleImmunityDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         return;
     }

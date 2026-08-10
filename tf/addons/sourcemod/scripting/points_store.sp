@@ -262,8 +262,8 @@ public void OnPluginEnd()
         g_ClientPurchaseUsesRemaining[i] = null;
     }
 
-    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
-    KogasaSql_Close(g_Database, g_DatabaseReady);
+    Db_CancelTimer(g_hDatabaseReconnectTimer);
+    Db_Close(g_Database, g_DatabaseReady);
     PluginStats_Shutdown();
 }
 
@@ -303,8 +303,8 @@ public void OnClientDisconnect(int client)
 
 void ConnectDatabase()
 {
-    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
-    KogasaSql_Close(g_Database, g_DatabaseReady);
+    Db_CancelTimer(g_hDatabaseReconnectTimer);
+    Db_Close(g_Database, g_DatabaseReady);
     g_IdempotentAwardsReady = false;
     g_BountyDatabaseReady = false;
     g_BountyExpiryPending = false;
@@ -322,7 +322,7 @@ void ConnectDatabase()
         strcopy(dbConfig, sizeof(dbConfig), BP_TRANS_DB_CONFIG_DEFAULT);
     }
 
-    if (!KogasaSql_CheckConfigOrLog("points_store", dbConfig))
+    if (!Db_CheckConfigOrLog("points_store", dbConfig))
     {
         return;
     }
@@ -345,12 +345,12 @@ public void SQL_OnDatabaseConnected(Handle owner, Handle hndl, const char[] erro
     DBDriver driver = g_Database.Driver;
     driver.GetIdentifier(driverIdent, sizeof(driverIdent));
     g_IsMySql = StrEqual(driverIdent, "mysql", false);
-    KogasaSql_CancelTimer(g_hDatabaseReconnectTimer);
+    Db_CancelTimer(g_hDatabaseReconnectTimer);
 
     EnsureSchema();
 }
 
-void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+void ScheduleDatabaseReconnect(float delay = DB_RECONNECT_DELAY)
 {
     g_DatabaseReady = false;
     g_IdempotentAwardsReady = false;
@@ -438,7 +438,7 @@ public void SQL_OnPurchaseSchemaReady(Database db, DBResultSet results, const ch
 
 public void SQL_OnPurchaseExpiryColumnReady(Database db, DBResultSet results, const char[] error, any data)
 {
-    if (error[0] != '\0' && !KogasaSql_IsDuplicateColumnError(error))
+    if (error[0] != '\0' && !Db_IsDuplicateColumnError(error))
     {
         LogError("[points_store] Purchase expiry schema update failed: %s", error);
         return;
@@ -463,7 +463,7 @@ public void SQL_OnPurchaseExpiryColumnReady(Database db, DBResultSet results, co
 
 public void SQL_OnPurchaseUsesColumnReady(Database db, DBResultSet results, const char[] error, any data)
 {
-    if (error[0] != '\0' && !KogasaSql_IsDuplicateColumnError(error))
+    if (error[0] != '\0' && !Db_IsDuplicateColumnError(error))
     {
         LogError("[points_store] Purchase uses schema update failed: %s", error);
         return;

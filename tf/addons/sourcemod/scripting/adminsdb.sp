@@ -59,8 +59,8 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
-    KogasaSql_CancelTimer(g_hReconnectTimer);
-    KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
+    Db_CancelTimer(g_hReconnectTimer);
+    Db_Close(g_hDatabase, g_bDatabaseReady);
 
     if (g_WhitelistLevels != null)
     {
@@ -84,10 +84,10 @@ public void OnClientDisconnect(int client)
 
 void ConnectToDatabase()
 {
-    KogasaSql_CancelTimer(g_hReconnectTimer);
-    KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
+    Db_CancelTimer(g_hReconnectTimer);
+    Db_Close(g_hDatabase, g_bDatabaseReady);
 
-    if (!KogasaSql_CheckConfigOrLog("AdminsDB", ADMIN_DB_CONFIG))
+    if (!Db_CheckConfigOrLog("AdminsDB", ADMIN_DB_CONFIG))
     {
         return;
     }
@@ -106,14 +106,14 @@ public void SQL_OnDatabaseConnected(Handle owner, Handle hndl, const char[] erro
 
     g_hDatabase = view_as<Database>(hndl);
     g_bDatabaseReady = true;
-    KogasaSql_CancelTimer(g_hReconnectTimer);
+    Db_CancelTimer(g_hReconnectTimer);
     EnsureAdminTable();
     EnsureWhitelistTable();
     SyncAdmins();
     LoadWhitelistLevels();
 }
 
-void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+void ScheduleDatabaseReconnect(float delay = DB_RECONNECT_DELAY)
 {
     g_bDatabaseReady = false;
     if (g_hReconnectTimer == null)
@@ -131,7 +131,7 @@ public Action Timer_ReconnectDatabase(Handle timer, any data)
 
 void EnsureAdminTable()
 {
-    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    if (!Db_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         return;
     }
@@ -143,7 +143,7 @@ void EnsureAdminTable()
 
 void EnsureWhitelistTable()
 {
-    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    if (!Db_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         return;
     }
@@ -155,7 +155,7 @@ void EnsureWhitelistTable()
 
 void LoadWhitelistLevels()
 {
-    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    if (!Db_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         return;
     }
@@ -201,7 +201,7 @@ public void SQL_OnWhitelistLevelsLoaded(Database db, DBResultSet results, const 
 
 void SyncAdmins()
 {
-    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    if (!Db_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         LogError("[AdminsDB] Cannot sync admins: no database connection");
         return;
@@ -532,9 +532,9 @@ public void SQLErrorCheckCallback(Database db, DBResultSet results, const char[]
     if (error[0])
     {
         LogError("[AdminsDB] SQL error: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
     }
 }
@@ -673,7 +673,7 @@ Action RunClearWhitelistLevelCommand(int client, int args, const char[] commandN
 
 void SetTargetWhitelistLevel(int admin, int target, int level)
 {
-    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    if (!Db_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         ReplyToCommand(admin, "[AdminsDB] Whitelist database is not ready.");
         ConnectToDatabase();
@@ -694,7 +694,7 @@ void SetTargetWhitelistLevel(int admin, int target, int level)
     }
 
     char escapedSteam[64];
-    KogasaSql_Escape(g_hDatabase, steamId64, escapedSteam, sizeof(escapedSteam), "AdminsDB");
+    Db_Escape(g_hDatabase, steamId64, escapedSteam, sizeof(escapedSteam), "AdminsDB");
 
     char query[256];
     if (level == 0)
@@ -773,7 +773,7 @@ public Action Command_ListBlacklists(int client, int args)
 
 Action RunWhitelistLevelListCommand(int client, bool whitelist)
 {
-    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    if (!Db_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         ReplyToCommand(client, "[AdminsDB] Whitelist database is not ready.");
         ConnectToDatabase();

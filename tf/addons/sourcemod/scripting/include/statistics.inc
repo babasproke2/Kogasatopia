@@ -1,7 +1,7 @@
-#if defined _kogasa_statistics_helper_included
+#if defined _statistics_helper_included
     #endinput
 #endif
-#define _kogasa_statistics_helper_included
+#define _statistics_helper_included
 
 #if defined REQUIRE_EXTENSIONS
     #define PLUGIN_STATS_RESTORE_REQUIRE_EXTENSIONS
@@ -18,7 +18,7 @@
 
 #define PLUGIN_STATS_DB_CONFIG_DEFAULT "default"
 #define PLUGIN_STATS_FLUSH_INTERVAL 30.0
-#define PLUGIN_STATS_FLUSH_INTERVAL_CVAR "sm_mapsdb_plugin_statistics_flush_interval"
+#define PLUGIN_STATS_FLUSH_INTERVAL_CVAR "sm_plugin_statistics_flush_interval"
 #define PLUGIN_STATS_QUERY_MAX 8192
 #define PLUGIN_STATS_EVENT_NAME_MAX 64
 #define PLUGIN_STATS_MESSAGE_MAX 512
@@ -69,6 +69,7 @@ static ConVar g_PluginStatsRustServerId = null;
 static ConVar g_PluginStatsRustAuthToken = null;
 static ConVar g_PluginStatsRustFallbackSql = null;
 static ConVar g_PluginStatsRustDebug = null;
+static ConVar g_PluginStatsFlushInterval = null;
 
 stock void PluginStats_Init(const char[] tableName, const char[] dbConfig = PLUGIN_STATS_DB_CONFIG_DEFAULT)
 {
@@ -100,7 +101,7 @@ stock void PluginStats_Shutdown()
 {
     PluginStats_Flush();
 
-    KogasaSql_CancelTimer(g_PluginStatsFlushTimer);
+    Db_CancelTimer(g_PluginStatsFlushTimer);
 
 	    delete g_PluginStatsQueue;
 	    g_PluginStatsQueue = null;
@@ -109,9 +110,9 @@ stock void PluginStats_Shutdown()
 	    g_PluginStatsInflight = null;
 
 	    PluginStats_RustDisconnectSocket();
-	    KogasaSql_CancelTimer(g_PluginStatsRustReconnectTimer);
+	    Db_CancelTimer(g_PluginStatsRustReconnectTimer);
 
-	    KogasaSql_Close(g_PluginStatsDb, g_PluginStatsDbReady);
+	    Db_Close(g_PluginStatsDb, g_PluginStatsDbReady);
 }
 
 stock void PluginStats_OnMapStart()
@@ -169,13 +170,12 @@ stock void PluginStats_ScheduleFlushTimer()
 
 stock float PluginStats_GetFlushInterval()
 {
-    ConVar interval = FindConVar(PLUGIN_STATS_FLUSH_INTERVAL_CVAR);
-    if (interval == null)
+    if (g_PluginStatsFlushInterval == null)
     {
         return PLUGIN_STATS_FLUSH_INTERVAL;
     }
 
-    float value = interval.FloatValue;
+    float value = g_PluginStatsFlushInterval.FloatValue;
     if (value < 1.0)
     {
         return 1.0;
@@ -186,15 +186,16 @@ stock float PluginStats_GetFlushInterval()
 
 stock void PluginStats_InitConVars()
 {
-    g_PluginStatsRustEnabled = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_rust", "1", "Send plugin statistics events to kogasa-statistics-rust when available.");
-    g_PluginStatsRustHost = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_rust_host", "127.0.0.1", "kogasa-statistics-rust TCP host.");
-    g_PluginStatsRustPort = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_rust_port", "28019", "kogasa-statistics-rust TCP port.");
-    g_PluginStatsRustQueueMax = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_queue_max", "5000", "Maximum queued plugin statistics events before dropping oldest events.");
-    g_PluginStatsRustBatchMax = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_batch_max", "128", "Maximum plugin statistics events sent per Rust batch.");
-    g_PluginStatsRustServerId = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_server_id", "", "Optional server identifier sent to kogasa-statistics-rust.");
-    g_PluginStatsRustAuthToken = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_rust_auth_token", "", "Optional auth token sent to kogasa-statistics-rust.");
-    g_PluginStatsRustFallbackSql = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_fallback_sql", "1", "Use SourceMod SQL writes when kogasa-statistics-rust is unavailable.");
-    g_PluginStatsRustDebug = PluginStats_FindOrCreateConVar("sm_kogasa_statistics_debug", "0", "Enable verbose kogasa-statistics-rust bridge logging.");
+    g_PluginStatsFlushInterval = PluginStats_FindOrCreateConVar(PLUGIN_STATS_FLUSH_INTERVAL_CVAR, "30.0", "Seconds between plugin statistics queue flushes.");
+    g_PluginStatsRustEnabled = PluginStats_FindOrCreateConVar("sm_plugin_statistics_rust", "1", "Send plugin statistics events to plugin-statistics-rust when available.");
+    g_PluginStatsRustHost = PluginStats_FindOrCreateConVar("sm_plugin_statistics_rust_host", "127.0.0.1", "plugin-statistics-rust TCP host.");
+    g_PluginStatsRustPort = PluginStats_FindOrCreateConVar("sm_plugin_statistics_rust_port", "28019", "plugin-statistics-rust TCP port.");
+    g_PluginStatsRustQueueMax = PluginStats_FindOrCreateConVar("sm_plugin_statistics_queue_max", "5000", "Maximum queued plugin statistics events before dropping oldest events.");
+    g_PluginStatsRustBatchMax = PluginStats_FindOrCreateConVar("sm_plugin_statistics_batch_max", "128", "Maximum plugin statistics events sent per Rust batch.");
+    g_PluginStatsRustServerId = PluginStats_FindOrCreateConVar("sm_plugin_statistics_server_id", "", "Optional server identifier sent to plugin-statistics-rust.");
+    g_PluginStatsRustAuthToken = PluginStats_FindOrCreateConVar("sm_plugin_statistics_rust_auth_token", "", "Optional auth token sent to plugin-statistics-rust.");
+    g_PluginStatsRustFallbackSql = PluginStats_FindOrCreateConVar("sm_plugin_statistics_fallback_sql", "1", "Use SourceMod SQL writes when plugin-statistics-rust is unavailable.");
+    g_PluginStatsRustDebug = PluginStats_FindOrCreateConVar("sm_plugin_statistics_debug", "0", "Enable verbose plugin-statistics-rust bridge logging.");
 }
 
 stock ConVar PluginStats_FindOrCreateConVar(const char[] name, const char[] defaultValue, const char[] description)
@@ -278,7 +279,7 @@ stock void PluginStats_Flush()
 	        return;
 	    }
 
-	    if (!KogasaSql_IsReady(g_PluginStatsDb, g_PluginStatsDbReady))
+	    if (!Db_IsReady(g_PluginStatsDb, g_PluginStatsDbReady))
 	    {
 	        PluginStats_ConnectDatabase();
 	        return;
@@ -337,11 +338,11 @@ stock void PluginStats_FormatValues(PluginStatsEvent event, char[] output, int m
     char eventName[128];
     char message[1024];
 
-    KogasaSql_Escape(g_PluginStatsDb, event.MapSessionId, mapSessionId, sizeof(mapSessionId), "plugin_statistics");
-    KogasaSql_Escape(g_PluginStatsDb, event.MapName, mapName, sizeof(mapName), "plugin_statistics");
-    KogasaSql_Escape(g_PluginStatsDb, event.Gamemode, gamemode, sizeof(gamemode), "plugin_statistics");
-    KogasaSql_Escape(g_PluginStatsDb, event.EventName, eventName, sizeof(eventName), "plugin_statistics");
-    KogasaSql_Escape(g_PluginStatsDb, event.Message, message, sizeof(message), "plugin_statistics");
+    Db_Escape(g_PluginStatsDb, event.MapSessionId, mapSessionId, sizeof(mapSessionId), "plugin_statistics");
+    Db_Escape(g_PluginStatsDb, event.MapName, mapName, sizeof(mapName), "plugin_statistics");
+    Db_Escape(g_PluginStatsDb, event.Gamemode, gamemode, sizeof(gamemode), "plugin_statistics");
+    Db_Escape(g_PluginStatsDb, event.EventName, eventName, sizeof(eventName), "plugin_statistics");
+    Db_Escape(g_PluginStatsDb, event.Message, message, sizeof(message), "plugin_statistics");
 
     FormatEx(output, maxlen,
         "(%d, %d, '%s', '%s', '%s', '%s', '%s', %d, %d, 0, NULL, NULL, %d)",
@@ -359,8 +360,8 @@ stock void PluginStats_FormatValues(PluginStatsEvent event, char[] output, int m
 
 stock void PluginStats_ConnectDatabase()
 {
-    KogasaSql_Close(g_PluginStatsDb, g_PluginStatsDbReady);
-    if (!KogasaSql_CheckConfigOrLog("plugin_statistics", g_PluginStatsDbConfig))
+    Db_Close(g_PluginStatsDb, g_PluginStatsDbReady);
+    if (!Db_CheckConfigOrLog("plugin_statistics", g_PluginStatsDbConfig))
     {
         return;
     }
@@ -377,7 +378,7 @@ stock void PluginStats_OnConnect(Handle owner, Handle hndl, const char[] error, 
         return;
     }
 
-    KogasaSql_Close(g_PluginStatsDb, g_PluginStatsDbReady);
+    Db_Close(g_PluginStatsDb, g_PluginStatsDbReady);
 
     g_PluginStatsDb = view_as<Database>(hndl);
     g_PluginStatsDbReady = true;
@@ -423,7 +424,7 @@ stock void PluginStats_OnSchemaComplete(Database db, DBResultSet results, const 
     if (error[0])
     {
         LogError("[plugin_statistics] Schema update failed for %s: %s", g_PluginStatsTable, error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
             g_PluginStatsDbReady = false;
             PluginStats_ConnectDatabase();
@@ -439,7 +440,7 @@ stock void PluginStats_OnWriteComplete(Database db, DBResultSet results, const c
     }
 
     LogError("[plugin_statistics] Write failed for %s: %s", g_PluginStatsTable, error);
-    if (KogasaSql_IsTransientError(error))
+    if (Db_IsTransientError(error))
     {
         g_PluginStatsDbReady = false;
         PluginStats_ConnectDatabase();
@@ -668,7 +669,7 @@ stock void PluginStats_RustConnectSocket()
 
     if (g_PluginStatsRustReconnectTimer != null)
     {
-        KogasaSql_CancelTimer(g_PluginStatsRustReconnectTimer);
+        Db_CancelTimer(g_PluginStatsRustReconnectTimer);
     }
 
     PluginStats_RustDisconnectSocket();
@@ -696,7 +697,7 @@ stock void PluginStats_RustConnectSocket()
 
     if (PluginStats_RustDebugEnabled())
     {
-        LogMessage("[plugin_statistics] connecting %s to kogasa-statistics-rust at %s:%d", g_PluginStatsTable, host, port);
+        LogMessage("[plugin_statistics] connecting %s to plugin-statistics-rust at %s:%d", g_PluginStatsTable, host, port);
     }
 
     g_PluginStatsRustSocket.Connect(PluginStats_RustOnSocketConnected, PluginStats_RustOnSocketReceive, PluginStats_RustOnSocketDisconnected, host, port);
@@ -825,13 +826,13 @@ public void PluginStats_RustOnSocketConnected(Socket socket, any arg)
         }
     }
 
-    int len = FormatEx(hello, sizeof(hello), "{\"type\":\"hello\",\"service\":\"kogasa_plugin_statistics\",\"proto\":1,\"server_id\":\"%s\",\"ts\":%d%s}\n", escapedServerId, GetTime(), authJson);
+    int len = FormatEx(hello, sizeof(hello), "{\"type\":\"hello\",\"service\":\"plugin_statistics\",\"proto\":1,\"server_id\":\"%s\",\"ts\":%d%s}\n", escapedServerId, GetTime(), authJson);
     socket.Send(hello, len);
     socket.SetSendqueueEmptyCallback(PluginStats_RustOnSocketSendqueueEmpty);
 
     if (PluginStats_RustDebugEnabled())
     {
-        LogMessage("[plugin_statistics] connected %s to kogasa-statistics-rust", g_PluginStatsTable);
+        LogMessage("[plugin_statistics] connected %s to plugin-statistics-rust", g_PluginStatsTable);
     }
 
     PluginStats_RustFlushBatch();

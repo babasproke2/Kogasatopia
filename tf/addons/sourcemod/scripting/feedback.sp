@@ -30,16 +30,16 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
-    KogasaSql_CancelTimer(g_hReconnectTimer);
-    KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
+    Db_CancelTimer(g_hReconnectTimer);
+    Db_Close(g_hDatabase, g_bDatabaseReady);
 }
 
 void ConnectToDatabase()
 {
-    KogasaSql_CancelTimer(g_hReconnectTimer);
-    KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
+    Db_CancelTimer(g_hReconnectTimer);
+    Db_Close(g_hDatabase, g_bDatabaseReady);
 
-    if (!KogasaSql_CheckConfigOrLog("Feedback", FEEDBACK_DB_CONFIG))
+    if (!Db_CheckConfigOrLog("Feedback", FEEDBACK_DB_CONFIG))
     {
         return;
     }
@@ -54,7 +54,7 @@ public Action Timer_ReconnectDatabase(Handle timer, any data)
     return Plugin_Stop;
 }
 
-void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+void ScheduleDatabaseReconnect(float delay = DB_RECONNECT_DELAY)
 {
     g_bDatabaseReady = false;
     if (g_hReconnectTimer == null)
@@ -74,13 +74,13 @@ public void SQL_OnDatabaseConnected(Handle owner, Handle hndl, const char[] erro
 
     g_hDatabase = view_as<Database>(hndl);
     g_bDatabaseReady = true;
-    KogasaSql_CancelTimer(g_hReconnectTimer);
+    Db_CancelTimer(g_hReconnectTimer);
     EnsureFeedbackTable();
 }
 
 void EnsureFeedbackTable()
 {
-    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    if (!Db_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         return;
     }
@@ -103,9 +103,9 @@ public void SQL_OnSchemaOpComplete(Database db, DBResultSet results, const char[
     if (error[0])
     {
         LogError("[Feedback] Failed to ensure table: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
     }
 }
@@ -121,7 +121,7 @@ public void SQL_OnSchemaOpComplete(Database db, DBResultSet results, const char[
 
 void OpenFeedbackBrowser(int client, int page)
 {
-    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    if (!Db_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         PrintToChat(client, "[Kogasa] Feedback database is unavailable right now.");
         return;
@@ -152,9 +152,9 @@ public void SQL_OnFeedbackBrowse(Database db, DBResultSet results, const char[] 
     if (error[0])
     {
         LogError("[Feedback] Failed to fetch feedback: %s", error);
-        if (KogasaSql_IsTransientError(error))
+        if (Db_IsTransientError(error))
         {
-            ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         PrintToChat(client, "[Kogasa] Could not load feedback right now.");
         return;
@@ -264,7 +264,7 @@ public Action Command_Feedback(int client, int args)
         return Plugin_Handled;
     }
 
-    if (!KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady))
+    if (!Db_IsReady(g_hDatabase, g_bDatabaseReady))
     {
         ReplyToCommand(client, "[Kogasa] Feedback database is unavailable right now.");
         return Plugin_Handled;
@@ -299,8 +299,8 @@ public Action Command_Feedback(int client, int args)
 
     char escapedName[(MAX_NAME_LENGTH * 2) + 1];
     char escapedMessage[(FEEDBACK_MAX_MESSAGE * 2) + 1];
-    KogasaSql_Escape(g_hDatabase, name, escapedName, sizeof(escapedName), "Feedback");
-    KogasaSql_Escape(g_hDatabase, message, escapedMessage, sizeof(escapedMessage), "Feedback");
+    Db_Escape(g_hDatabase, name, escapedName, sizeof(escapedName), "Feedback");
+    Db_Escape(g_hDatabase, message, escapedMessage, sizeof(escapedMessage), "Feedback");
 
     char query[2048];
     Format(query, sizeof(query),
@@ -330,8 +330,8 @@ public void SQL_OnFeedbackInserted(Database db, DBResultSet results, const char[
 
     LogError("[Feedback] Failed to save feedback: %s", error);
 
-    if (KogasaSql_IsTransientError(error))
+    if (Db_IsTransientError(error))
     {
-        ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+        ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
     }
 }

@@ -214,8 +214,8 @@ public void OnPluginStart() {
 
 public void OnPluginEnd() {
 	PluginStats_Shutdown();
-	KogasaSql_CancelTimer(g_hCwxStatsDbReconnectTimer);
-	KogasaSql_Close(g_CwxStatsDb, g_CwxStatsDbReady);
+	Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
+	Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
 }
 
 public void OnAllPluginsLoaded() {
@@ -903,8 +903,8 @@ void OnCwxStatisticsEnabledChanged(ConVar convar, const char[] oldValue, const c
 	if (StringToInt(newValue)) {
 		ConnectCwxStatisticsDatabase();
 	} else {
-		KogasaSql_CancelTimer(g_hCwxStatsDbReconnectTimer);
-		KogasaSql_Close(g_CwxStatsDb, g_CwxStatsDbReady);
+		Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
+		Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
 	}
 }
 
@@ -917,12 +917,12 @@ bool CwxStats_IsEnabled() {
 }
 
 bool CwxStats_CanWriteState() {
-	return CwxStats_IsEnabled() && KogasaSql_IsReady(g_CwxStatsDb, g_CwxStatsDbReady);
+	return CwxStats_IsEnabled() && Db_IsReady(g_CwxStatsDb, g_CwxStatsDbReady);
 }
 
 void ConnectCwxStatisticsDatabase() {
-	KogasaSql_CancelTimer(g_hCwxStatsDbReconnectTimer);
-	KogasaSql_Close(g_CwxStatsDb, g_CwxStatsDbReady);
+	Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
+	Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
 
 	if (!CwxStats_IsEnabled()) {
 		return;
@@ -935,7 +935,7 @@ void ConnectCwxStatisticsDatabase() {
 		strcopy(dbConfig, sizeof(dbConfig), CWX_STATS_DB_CONFIG_DEFAULT);
 	}
 
-	if (!KogasaSql_CheckConfigOrLog("cwx", dbConfig)) {
+	if (!Db_CheckConfigOrLog("cwx", dbConfig)) {
 		return;
 	}
 
@@ -950,7 +950,7 @@ public void CwxStats_OnDatabaseConnected(Handle owner, Handle hndl, const char[]
 		return;
 	}
 
-	KogasaSql_Close(g_CwxStatsDb, g_CwxStatsDbReady);
+	Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
 	g_CwxStatsDb = view_as<Database>(hndl);
 
 	char driverIdent[32];
@@ -964,7 +964,7 @@ public void CwxStats_OnDatabaseConnected(Handle owner, Handle hndl, const char[]
 	EnsureCwxStatsSchema();
 }
 
-void ScheduleCwxStatsDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY) {
+void ScheduleCwxStatsDatabaseReconnect(float delay = DB_RECONNECT_DELAY) {
 	g_CwxStatsDbReady = false;
 	if (g_hCwxStatsDbReconnectTimer == null) {
 		g_hCwxStatsDbReconnectTimer = CreateTimer(delay, Timer_ReconnectCwxStatsDatabase,
@@ -1034,14 +1034,14 @@ void EnsureCwxStatsSchema() {
 public void CwxStats_OnSchemaReady(Database db, DBResultSet results, const char[] error, any data) {
 	if (error[0]) {
 		LogError("[CWX] Failed to create statistics schema: %s", error);
-		if (KogasaSql_IsTransientError(error)) {
+		if (Db_IsTransientError(error)) {
 			ScheduleCwxStatsDatabaseReconnect();
 		}
 		return;
 	}
 
 	g_CwxStatsDbReady = true;
-	KogasaSql_CancelTimer(g_hCwxStatsDbReconnectTimer);
+	Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
 	if (!g_CwxStatsIsMySql) {
 		g_CwxStatsDb.Query(CwxStats_OnQueryComplete,
 				"CREATE INDEX IF NOT EXISTS idx_cwx_weapon_equipped "
@@ -1062,8 +1062,8 @@ public void CwxStats_OnQueryComplete(Database db, DBResultSet results, const cha
 	}
 
 	LogError("[CWX] Statistics query failed: %s", error);
-	if (KogasaSql_IsTransientError(error)) {
-		ScheduleCwxStatsDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+	if (Db_IsTransientError(error)) {
+		ScheduleCwxStatsDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
 	}
 }
 
@@ -1211,7 +1211,7 @@ void CwxStats_ClearSlotState(const char[] steamId64, int playerClass, int itemSl
 	}
 
 	char escapedSteam[64];
-	KogasaSql_Escape(g_CwxStatsDb, steamId64, escapedSteam, sizeof(escapedSteam), "cwx");
+	Db_Escape(g_CwxStatsDb, steamId64, escapedSteam, sizeof(escapedSteam), "cwx");
 
 	int now = GetTime();
 	char query[1024];
@@ -1252,11 +1252,11 @@ void CwxStats_UpsertEquipState(const char[] steamId64, const char[] playerName,
 	CwxStats_GetClassName(playerClass, className, sizeof(className));
 
 	char escapedSteam[64], escapedName[256], escapedClass[64], escapedUid[128], escapedWeapon[256];
-	KogasaSql_Escape(g_CwxStatsDb, steamId64, escapedSteam, sizeof(escapedSteam), "cwx");
-	KogasaSql_Escape(g_CwxStatsDb, playerName, escapedName, sizeof(escapedName), "cwx");
-	KogasaSql_Escape(g_CwxStatsDb, className, escapedClass, sizeof(escapedClass), "cwx");
-	KogasaSql_Escape(g_CwxStatsDb, itemUid, escapedUid, sizeof(escapedUid), "cwx");
-	KogasaSql_Escape(g_CwxStatsDb, weaponName, escapedWeapon, sizeof(escapedWeapon), "cwx");
+	Db_Escape(g_CwxStatsDb, steamId64, escapedSteam, sizeof(escapedSteam), "cwx");
+	Db_Escape(g_CwxStatsDb, playerName, escapedName, sizeof(escapedName), "cwx");
+	Db_Escape(g_CwxStatsDb, className, escapedClass, sizeof(escapedClass), "cwx");
+	Db_Escape(g_CwxStatsDb, itemUid, escapedUid, sizeof(escapedUid), "cwx");
+	Db_Escape(g_CwxStatsDb, weaponName, escapedWeapon, sizeof(escapedWeapon), "cwx");
 
 	int now = GetTime();
 	int updateIncrement = incrementEquipCount ? 1 : 0;

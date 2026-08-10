@@ -558,7 +558,7 @@ void EnsureClanWarMemberKillsSchema()
 
 bool IsDatabaseConnectionLostError(const char[] error)
 {
-    return KogasaSql_IsTransientError(error);
+    return Db_IsTransientError(error);
 }
 
 bool ValidateDatabaseHandle(Database db)
@@ -790,7 +790,7 @@ int FindClientByNameQuery(const char[] query)
 void EscapeSql(const char[] input, char[] output, int maxlen)
 {
     output[0] = '\0';
-    KogasaSql_Escape(g_Database, input, output, maxlen, "Clans");
+    Db_Escape(g_Database, input, output, maxlen, "Clans");
 }
 
 void GetClanRankLabel(ClanRank rank, char[] buffer, int maxlen)

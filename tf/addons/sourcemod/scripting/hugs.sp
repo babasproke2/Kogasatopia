@@ -207,8 +207,8 @@ enum HugsLeaderboardKind
 
 		char steamEsc[96];
 		char nameEsc[(MAX_NAME_LENGTH * 2) + 1];
-		if (!KogasaSql_Escape(g_hDatabase, senderSteam2, steamEsc, sizeof(steamEsc), "Hugs")
-			|| !KogasaSql_Escape(g_hDatabase, senderName, nameEsc, sizeof(nameEsc), "Hugs"))
+		if (!Db_Escape(g_hDatabase, senderSteam2, steamEsc, sizeof(steamEsc), "Hugs")
+			|| !Db_Escape(g_hDatabase, senderName, nameEsc, sizeof(nameEsc), "Hugs"))
 		{
 			return false;
 		}
@@ -339,8 +339,8 @@ enum HugsLeaderboardKind
 		{
 			ClearRapeProtection(i, true);
 		}
-		KogasaSql_CancelTimer(g_hDbReconnectTimer);
-		KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
+		Db_CancelTimer(g_hDbReconnectTimer);
+		Db_Close(g_hDatabase, g_bDatabaseReady);
 	}
 
 	void EnsureRedlistCookie()
@@ -1462,11 +1462,11 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 		char winnerSteamEsc[65], loserSteamEsc[65];
 		char winnerNameEsc[(MAX_NAME_LENGTH * 2) + 1], loserNameEsc[(MAX_NAME_LENGTH * 2) + 1];
 		char resultEsc[65];
-		if (!KogasaSql_Escape(g_hDatabase, g_szDuelSteamIds[winnerSlot], winnerSteamEsc, sizeof(winnerSteamEsc), "Hugs")
-			|| !KogasaSql_Escape(g_hDatabase, g_szDuelSteamIds[loserSlot], loserSteamEsc, sizeof(loserSteamEsc), "Hugs")
-			|| !KogasaSql_Escape(g_hDatabase, g_szDuelNames[winnerSlot], winnerNameEsc, sizeof(winnerNameEsc), "Hugs")
-			|| !KogasaSql_Escape(g_hDatabase, g_szDuelNames[loserSlot], loserNameEsc, sizeof(loserNameEsc), "Hugs")
-			|| !KogasaSql_Escape(g_hDatabase, resultType, resultEsc, sizeof(resultEsc), "Hugs"))
+		if (!Db_Escape(g_hDatabase, g_szDuelSteamIds[winnerSlot], winnerSteamEsc, sizeof(winnerSteamEsc), "Hugs")
+			|| !Db_Escape(g_hDatabase, g_szDuelSteamIds[loserSlot], loserSteamEsc, sizeof(loserSteamEsc), "Hugs")
+			|| !Db_Escape(g_hDatabase, g_szDuelNames[winnerSlot], winnerNameEsc, sizeof(winnerNameEsc), "Hugs")
+			|| !Db_Escape(g_hDatabase, g_szDuelNames[loserSlot], loserNameEsc, sizeof(loserNameEsc), "Hugs")
+			|| !Db_Escape(g_hDatabase, resultType, resultEsc, sizeof(resultEsc), "Hugs"))
 		{
 			return;
 		}
@@ -1956,7 +1956,7 @@ public Action Timer_MultiplierReminder(Handle timer, any data)
 			}
 
 			char steamEsc[64];
-			KogasaSql_Escape(g_hDatabase, g_szClientSteamId[target], steamEsc, sizeof(steamEsc), "Hugs");
+			Db_Escape(g_hDatabase, g_szClientSteamId[target], steamEsc, sizeof(steamEsc), "Hugs");
 
 			char query[256];
 			Format(query, sizeof(query),
@@ -2287,7 +2287,7 @@ void ResetClientStats(int client)
 
 	bool IsDatabaseReady()
 	{
-		return KogasaSql_IsReady(g_hDatabase, g_bDatabaseReady);
+		return Db_IsReady(g_hDatabase, g_bDatabaseReady);
 	}
 
 	void AttemptLoadClientStats(int client)
@@ -2313,7 +2313,7 @@ void ResetClientStats(int client)
 		}
 
 		char steamEsc[96];
-		KogasaSql_Escape(g_hDatabase, g_szClientSteamId[client], steamEsc, sizeof(steamEsc), "Hugs");
+		Db_Escape(g_hDatabase, g_szClientSteamId[client], steamEsc, sizeof(steamEsc), "Hugs");
 
 	char query[768];
 	Format(query, sizeof(query), "SELECT hugs_given, hugs_received, feeds_given, feeds_received, rapes_given, rapes_received, last_hugger1, last_hugger2, last_hugger3, last_hugger4, last_hugger5, last_feeder1, last_feeder2, last_feeder3, last_feeder4, last_feeder5, last_rapists FROM %s WHERE steamid = '%s'", HUGS_DB_TABLE, steamEsc);
@@ -2340,9 +2340,9 @@ void ResetClientStats(int client)
 	if (error[0])
 	{
 		LogError("[Hugs] Failed to load stats: %s", error);
-		if (KogasaSql_IsTransientError(error))
+		if (Db_IsTransientError(error))
 		{
-			ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+			ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
 		}
 		ScheduleStatsRetry(client);
 		return;
@@ -2416,22 +2416,22 @@ void ResetClientStats(int client)
 		}
 
 		char steamEsc[96];
-		KogasaSql_Escape(g_hDatabase, g_szClientSteamId[client], steamEsc, sizeof(steamEsc), "Hugs");
+		Db_Escape(g_hDatabase, g_szClientSteamId[client], steamEsc, sizeof(steamEsc), "Hugs");
 
 		char name[MAX_NAME_LENGTH];
 		GetClientName(client, name, sizeof(name));
 		char nameEsc[MAX_NAME_LENGTH * 2 + 1];
-		KogasaSql_Escape(g_hDatabase, name, nameEsc, sizeof(nameEsc), "Hugs");
+		Db_Escape(g_hDatabase, name, nameEsc, sizeof(nameEsc), "Hugs");
 
 	char rapistsEsc[HISTORY_STRING_LEN * 2 + 1];
 	char huggerEscaped[MAX_HISTORY_ENTRIES][MAX_NAME_LENGTH * 2 + 1];
 	char feederEscaped[MAX_HISTORY_ENTRIES][MAX_NAME_LENGTH * 2 + 1];
 	for (int i = 0; i < MAX_HISTORY_ENTRIES; i++)
 	{
-		KogasaSql_Escape(g_hDatabase, g_szLastHuggers[client][i], huggerEscaped[i], sizeof(huggerEscaped[]), "Hugs");
-		KogasaSql_Escape(g_hDatabase, g_szLastFeeders[client][i], feederEscaped[i], sizeof(feederEscaped[]), "Hugs");
+		Db_Escape(g_hDatabase, g_szLastHuggers[client][i], huggerEscaped[i], sizeof(huggerEscaped[]), "Hugs");
+		Db_Escape(g_hDatabase, g_szLastFeeders[client][i], feederEscaped[i], sizeof(feederEscaped[]), "Hugs");
 	}
-	KogasaSql_Escape(g_hDatabase, g_szLastRapists[client], rapistsEsc, sizeof(rapistsEsc), "Hugs");
+	Db_Escape(g_hDatabase, g_szLastRapists[client], rapistsEsc, sizeof(rapistsEsc), "Hugs");
 
     char query[3072];
     Format(query, sizeof(query), "REPLACE INTO %s (steamid, name, hugs_given, hugs_received, feeds_given, feeds_received, rapes_given, rapes_received, last_hugger1, last_hugger2, last_hugger3, last_hugger4, last_hugger5, last_feeder1, last_feeder2, last_feeder3, last_feeder4, last_feeder5, last_rapists) VALUES ('%s', '%s', %d, %d, %d, %d, %d, %d, '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s')",
@@ -2447,9 +2447,9 @@ void ResetClientStats(int client)
 		if (error[0])
 		{
 			LogError("[Hugs] Failed to save stats: %s", error);
-			if (KogasaSql_IsTransientError(error))
+			if (Db_IsTransientError(error))
 			{
-				ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+				ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
 			}
 		}
 	}
@@ -2459,19 +2459,19 @@ void ResetClientStats(int client)
 		if (error[0])
 		{
 			LogError("[Hugs] Failed to update rapes_given: %s", error);
-			if (KogasaSql_IsTransientError(error))
+			if (Db_IsTransientError(error))
 			{
-				ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+				ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
 			}
 		}
 	}
 
 	void ConnectToDatabase()
 	{
-		KogasaSql_CancelTimer(g_hDbReconnectTimer);
-		KogasaSql_Close(g_hDatabase, g_bDatabaseReady);
+		Db_CancelTimer(g_hDbReconnectTimer);
+		Db_Close(g_hDatabase, g_bDatabaseReady);
 
-		if (!KogasaSql_CheckConfigOrLog("Hugs", HUGS_DB_CONFIG))
+		if (!Db_CheckConfigOrLog("Hugs", HUGS_DB_CONFIG))
 		{
 			return;
 		}
@@ -2486,7 +2486,7 @@ void ResetClientStats(int client)
 		return Plugin_Stop;
 	}
 
-	void ScheduleDatabaseReconnect(float delay = KOGASA_SQL_RECONNECT_DELAY)
+	void ScheduleDatabaseReconnect(float delay = DB_RECONNECT_DELAY)
 	{
 		g_bDatabaseReady = false;
 		if (g_hDbReconnectTimer == null)
@@ -2506,7 +2506,7 @@ void ResetClientStats(int client)
 
 		g_hDatabase = view_as<Database>(hndl);
 		g_bDatabaseReady = true;
-		KogasaSql_CancelTimer(g_hDbReconnectTimer);
+		Db_CancelTimer(g_hDbReconnectTimer);
 		EnsureStatsTable();
 	}
 
@@ -2596,9 +2596,9 @@ void ResetClientStats(int client)
 		if (error[0])
 		{
 			LogError("[Hugs] SQL error: %s", error);
-			if (KogasaSql_IsTransientError(error))
+			if (Db_IsTransientError(error))
 			{
-				ScheduleDatabaseReconnect(KOGASA_SQL_RECONNECT_FAST_DELAY);
+				ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
 			}
 		}
 
