@@ -9,7 +9,9 @@
 #define REQUIRE_PLUGIN
 
 #include "include/database.inc"
+#include "include/server_context.inc"
 #include "include/steam_identity.inc"
+#include "include/timestamps.inc"
 
 #define PLUGIN_VERSION "1.5"
 
@@ -215,14 +217,14 @@ void QueueClientEvent(int client, bool isConnecting, const char[] disconnectReas
 void PopulateBaseEvent(AnalyticsEvent event, const char[] eventType)
 {
     event.OccurredAt = GetTime();
-    event.HostPort = GetHostPort();
+    event.HostPort = ServerContext_GetHostPort();
     event.ConnectionMinutes = 0;
     event.IsAdmin = false;
 
     strcopy(event.EventType, sizeof(event.EventType), eventType);
-    GetAnalyticsMapName(event.MapName, sizeof(event.MapName));
-    GetAnalyticsGamemode(event.Gamemode, sizeof(event.Gamemode));
-    GetWeekdayHour(event.OccurredAt, event.Weekday, event.HourOfDay);
+    ServerContext_GetCurrentMapName(event.MapName, sizeof(event.MapName));
+    ServerContext_GetGamemodeKey(event.Gamemode, sizeof(event.Gamemode));
+    Timestamps_GetWeekdayHour(event.OccurredAt, event.Weekday, event.HourOfDay);
 }
 
 void QueueAnalyticsEvent(AnalyticsEvent event)
@@ -466,7 +468,7 @@ public Action UpdateQuickStats(Handle timer)
     }
 
     char mapName[100];
-    GetAnalyticsMapName(mapName, sizeof(mapName));
+    ServerContext_GetCurrentMapName(mapName, sizeof(mapName));
 
     int playerLimit = GetQuickStatsCapacity();
     int playerCount = GetQuickStatsPlayerCount();
@@ -580,30 +582,6 @@ void BuildPlayerStats(int client, PlayerStats stats)
     stats.Damage = 0;
 }
 
-void GetAnalyticsMapName(char[] mapName, int maxLen)
-{
-    if (GetFeatureStatus(FeatureType_Native, "DGM_CurrentNormalizedMap") == FeatureStatus_Available
-        && DGM_CurrentNormalizedMap(mapName, maxLen))
-    {
-        return;
-    }
-
-    GetCurrentMap(mapName, maxLen);
-    if (GetFeatureStatus(FeatureType_Native, "DGM_NormalizeMapName") == FeatureStatus_Available)
-    {
-        DGM_NormalizeMapName(mapName, mapName, maxLen);
-    }
-}
-
-void GetAnalyticsGamemode(char[] gamemode, int maxLen)
-{
-    strcopy(gamemode, maxLen, "default");
-    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") == FeatureStatus_Available)
-    {
-        DGM_GetGameModeKey(gamemode, maxLen);
-    }
-}
-
 int GetQuickStatsCapacity()
 {
     if (GetFeatureStatus(FeatureType_Native, "DGM_GetServerCapacity") == FeatureStatus_Available)
@@ -651,17 +629,6 @@ int GetVisibleMaxPlayers()
     }
 
     return MaxClients;
-}
-
-int GetHostPort()
-{
-    ConVar hostPort = FindConVar("hostport");
-    if (hostPort == null)
-    {
-        return 0;
-    }
-
-    return hostPort.IntValue;
 }
 
 void GetClientNetworkInfo(int client, char[] rawIp, int rawLen, char[] maskedIp, int maskedLen, char[] country, int countryLen)
@@ -731,17 +698,6 @@ void GetFormattedTime(int seconds, char[] buffer, int maxLen)
     int minutes = (seconds % 3600) / 60;
     int secs = seconds % 60;
     Format(buffer, maxLen, "%02d:%02d:%02d", hours, minutes, secs);
-}
-
-void GetWeekdayHour(int timestamp, int &weekday, int &hourOfDay)
-{
-    char buffer[8];
-
-    FormatTime(buffer, sizeof(buffer), "%w", timestamp);
-    weekday = StringToInt(buffer);
-
-    FormatTime(buffer, sizeof(buffer), "%H", timestamp);
-    hourOfDay = StringToInt(buffer);
 }
 
 void InitializeLogPath(const char[] path)

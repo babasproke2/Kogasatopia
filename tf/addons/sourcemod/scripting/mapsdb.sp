@@ -8,6 +8,8 @@
 #define REQUIRE_PLUGIN
 
 #include "include/database.inc"
+#include "include/server_context.inc"
+#include "include/timestamps.inc"
 
 #define MAPSDB_DEFAULT_CFG "default"
 #define MAPSDB_SECRET_CFG "secrets"
@@ -120,7 +122,7 @@ public void OnMapStart()
     g_iLeavingPlayers = 0;
     g_bRoundRunning = false;
 
-    UpdateCurrentMapName(g_sCurrentMap, sizeof(g_sCurrentMap));
+    ServerContext_GetCurrentMapName(g_sCurrentMap, sizeof(g_sCurrentMap));
     UpdateGamemodeKey();
     BuildMapSessionId(g_sMapSessionId, sizeof(g_sMapSessionId));
 
@@ -219,7 +221,7 @@ public Action Timer_RecordPopularitySample(Handle timer)
     }
 
     char mapName[128];
-    UpdateCurrentMapName(mapName, sizeof(mapName));
+    ServerContext_GetCurrentMapName(mapName, sizeof(mapName));
 
     if (!mapName[0])
     {
@@ -265,7 +267,7 @@ public Action Timer_RecordPopulationSample(Handle timer)
     }
 
     char mapName[128];
-    UpdateCurrentMapName(mapName, sizeof(mapName));
+    ServerContext_GetCurrentMapName(mapName, sizeof(mapName));
     if (!mapName[0])
     {
         strcopy(mapName, sizeof(mapName), "unknown");
@@ -293,7 +295,7 @@ public Action Timer_RecordPopulationSample(Handle timer)
     bool roundRunning = IsRoundRunning();
     int mapElapsed = GetMapElapsedSeconds(now);
     int roundElapsed = GetRoundElapsedSeconds(now, roundRunning);
-    int hostPort = GetHostPort();
+    int hostPort = ServerContext_GetHostPort();
     int sampleSequence = ++g_iSampleSequence;
     int sampleDelta = GetPopulationSampleDeltaSeconds(now);
     int playerSecondsDelta = playerCount * sampleDelta;
@@ -301,7 +303,7 @@ public Action Timer_RecordPopulationSample(Handle timer)
     int leavingPlayers = g_iLeavingPlayers;
     int weekday;
     int hourOfDay;
-    GetWeekdayHour(now, weekday, hourOfDay);
+    Timestamps_GetWeekdayHour(now, weekday, hourOfDay);
 
     g_iJoiningPlayers = 0;
     g_iLeavingPlayers = 0;
@@ -615,7 +617,7 @@ static void FinalizeCurrentMapSession(const char[] reason)
     }
 
     int now = GetTime();
-    int hostPort = GetHostPort();
+    int hostPort = ServerContext_GetHostPort();
 
     char escapedSessionId[128];
     char escapedReason[64];
@@ -761,17 +763,6 @@ static int GetRoundElapsedSeconds(int now, bool roundRunning)
     return now - g_iRoundStartedAt;
 }
 
-static int GetHostPort()
-{
-    ConVar hostPort = FindConVar("hostport");
-    if (hostPort == null)
-    {
-        return 0;
-    }
-
-    return hostPort.IntValue;
-}
-
 static void BuildMapSessionId(char[] output, int maxlen)
 {
     int mapStartedAt = g_iMapStartedAt;
@@ -780,36 +771,12 @@ static void BuildMapSessionId(char[] output, int maxlen)
         mapStartedAt = GetTime();
     }
 
-    Format(output, maxlen, "%d-%d", GetHostPort(), mapStartedAt);
-}
-
-static void GetWeekdayHour(int timestamp, int &weekday, int &hourOfDay)
-{
-    char buffer[8];
-
-    FormatTime(buffer, sizeof(buffer), "%w", timestamp);
-    weekday = StringToInt(buffer);
-
-    FormatTime(buffer, sizeof(buffer), "%H", timestamp);
-    hourOfDay = StringToInt(buffer);
+    Format(output, maxlen, "%d-%d", ServerContext_GetHostPort(), mapStartedAt);
 }
 
 static bool IsSampleDebugEnabled()
 {
     return g_cvSampleDebug != null && g_cvSampleDebug.BoolValue;
-}
-
-static void UpdateCurrentMapName(char[] output, int outputLen)
-{
-    if (GetFeatureStatus(FeatureType_Native, "DGM_CurrentNormalizedMap") == FeatureStatus_Available
-        && DGM_CurrentNormalizedMap(output, outputLen))
-    {
-        return;
-    }
-
-    char rawMap[PLATFORM_MAX_PATH];
-    GetCurrentMap(rawMap, sizeof(rawMap));
-    UpdateNormalizedMapName(rawMap, output, outputLen);
 }
 
 static int CountHumanPlayers()
@@ -854,26 +821,10 @@ static int CountSpectatorPlayers()
     return CountHumanPlayersOnTeam(1, true);
 }
 
-static void UpdateNormalizedMapName(const char[] input, char[] output, int outputLen)
-{
-    if (GetFeatureStatus(FeatureType_Native, "DGM_NormalizeMapName") == FeatureStatus_Available
-        && DGM_NormalizeMapName(input, output, outputLen))
-    {
-        return;
-    }
-
-    strcopy(output, outputLen, input);
-    TrimString(output);
-}
-
 static void UpdateGamemodeKey()
 {
-    strcopy(g_sCurrentGamemode, sizeof(g_sCurrentGamemode), "default");
-    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") == FeatureStatus_Available)
-    {
-        DGM_GetGameModeKey(g_sCurrentGamemode, sizeof(g_sCurrentGamemode));
-        ResolveMapsDbConfigName(g_sCurrentGamemode, g_sCurrentGamemode, sizeof(g_sCurrentGamemode));
-    }
+    ServerContext_GetGamemodeKey(g_sCurrentGamemode, sizeof(g_sCurrentGamemode));
+    ResolveMapsDbConfigName(g_sCurrentGamemode, g_sCurrentGamemode, sizeof(g_sCurrentGamemode));
 }
 
 static void ExecMapsDbConfig(const char[] configName)

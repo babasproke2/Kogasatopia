@@ -59,6 +59,10 @@ Repo-private stock/helper includes should be named for their responsibility, hav
 
 Large integration plugins may have large include blocks, but only when each dependency is actually used. These files should not be copied as templates for smaller plugins.
 
+## Statistics timestamps
+
+Statistics tables store occurred_at and created_at as Unix epoch seconds from GetTime(). Derive weekday and hour fields with Timestamps_GetWeekdayHour.
+
 ## Current layout
 
 ```text

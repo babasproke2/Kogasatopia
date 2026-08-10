@@ -9,6 +9,8 @@
 #endif
 #include <socket>
 #include "database.inc"
+#include "server_context.inc"
+#include "timestamps.inc"
 #if defined PLUGIN_STATS_RESTORE_REQUIRE_EXTENSIONS
     #define REQUIRE_EXTENSIONS
     #undef PLUGIN_STATS_RESTORE_REQUIRE_EXTENSIONS
@@ -133,10 +135,10 @@ stock void PluginStats_LogMessage(const char[] message)
 
     PluginStatsEvent event;
     event.OccurredAt = GetTime();
-    event.HostPort = PluginStats_GetHostPort();
-    PluginStats_GetWeekdayHour(event.OccurredAt, event.Weekday, event.HourOfDay);
-    PluginStats_GetMapName(event.MapName, sizeof(event.MapName));
-    PluginStats_GetGamemode(event.Gamemode, sizeof(event.Gamemode));
+    event.HostPort = ServerContext_GetHostPort();
+    Timestamps_GetWeekdayHour(event.OccurredAt, event.Weekday, event.HourOfDay);
+    ServerContext_GetCurrentMapName(event.MapName, sizeof(event.MapName));
+    ServerContext_GetGamemodeKey(event.Gamemode, sizeof(event.Gamemode));
     PluginStats_GetMapSessionId(event.MapSessionId, sizeof(event.MapSessionId));
     PluginStats_DeriveEventName(message, event.EventName, sizeof(event.EventName));
     strcopy(event.Message, sizeof(event.Message), message);
@@ -517,7 +519,7 @@ stock void PluginStats_RustBuildServerId(char[] buffer, int maxlen)
         strcopy(hostname, sizeof(hostname), "unknown");
     }
 
-    FormatEx(buffer, maxlen, "%s:%d", hostname, PluginStats_GetHostPort());
+    FormatEx(buffer, maxlen, "%s:%d", hostname, ServerContext_GetHostPort());
 }
 
 stock void PluginStats_BuildEventId(char[] buffer, int maxlen, int occurredAt)
@@ -534,7 +536,7 @@ stock void PluginStats_BuildEventId(char[] buffer, int maxlen, int occurredAt)
         g_PluginStatsNextEventId = 1;
     }
 
-    FormatEx(buffer, maxlen, "%d-%d-%d-%d", PluginStats_GetHostPort(), mapStartedAt, occurredAt, sequence);
+    FormatEx(buffer, maxlen, "%d-%d-%d-%d", ServerContext_GetHostPort(), mapStartedAt, occurredAt, sequence);
 }
 
 stock bool PluginStats_RustExtractJsonInt(const char[] line, const char[] key, int &value)
@@ -975,12 +977,6 @@ stock void PluginStats_RustHandleBackendLine(const char[] line)
     }
 }
 
-stock int PluginStats_GetHostPort()
-{
-    ConVar hostPort = FindConVar("hostport");
-    return hostPort == null ? 0 : hostPort.IntValue;
-}
-
 stock void PluginStats_GetMapSessionId(char[] output, int maxlen)
 {
     int startedAt = g_PluginStatsMapStartedAt;
@@ -988,40 +984,7 @@ stock void PluginStats_GetMapSessionId(char[] output, int maxlen)
     {
         startedAt = GetTime();
     }
-    Format(output, maxlen, "%d-%d", PluginStats_GetHostPort(), startedAt);
-}
-
-stock void PluginStats_GetMapName(char[] output, int maxlen)
-{
-    if (GetFeatureStatus(FeatureType_Native, "DGM_CurrentNormalizedMap") == FeatureStatus_Available
-        && DGM_CurrentNormalizedMap(output, maxlen))
-    {
-        return;
-    }
-
-    GetCurrentMap(output, maxlen);
-    if (GetFeatureStatus(FeatureType_Native, "DGM_NormalizeMapName") == FeatureStatus_Available)
-    {
-        DGM_NormalizeMapName(output, output, maxlen);
-    }
-}
-
-stock void PluginStats_GetGamemode(char[] output, int maxlen)
-{
-    strcopy(output, maxlen, "default");
-    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") == FeatureStatus_Available)
-    {
-        DGM_GetGameModeKey(output, maxlen);
-    }
-}
-
-stock void PluginStats_GetWeekdayHour(int timestamp, int &weekday, int &hourOfDay)
-{
-    char buffer[8];
-    FormatTime(buffer, sizeof(buffer), "%w", timestamp);
-    weekday = StringToInt(buffer);
-    FormatTime(buffer, sizeof(buffer), "%H", timestamp);
-    hourOfDay = StringToInt(buffer);
+    Format(output, maxlen, "%d-%d", ServerContext_GetHostPort(), startedAt);
 }
 
 stock void PluginStats_DeriveEventName(const char[] message, char[] output, int maxlen)
