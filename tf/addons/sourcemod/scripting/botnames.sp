@@ -27,41 +27,32 @@ public void OnPluginStart()
 	HookEvent("player_changename", Event_OnNameChange, EventHookMode_Pre);
 }
 
-public void OnPlayerSpawn(Event hEvent, const char[] strEventName, bool bDontBroadcast)
+public void OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 {
-	int iClient = GetClientOfUserId(GetEventInt(hEvent, "userid"));
-	
-	if (IsClientInGame(iClient) && IsFakeClient(iClient))
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (client <= 0 || !IsClientInGame(client) || !IsFakeClient(client))
 	{
-		TFClassType class = TF2_GetPlayerClass(iClient);
-		if (GetClientTeam(iClient) == 3) // Blue
-		{
-			switch(class)
-			{
-				case TFClass_Scout:		SetClientInfo(iClient, "name", "Shameimaru Aya");
-				case TFClass_Soldier:	SetClientInfo(iClient, "name", "Hakurei Reimu");
-				case TFClass_DemoMan:	SetClientInfo(iClient, "name", "Ibuki Suika");
-				case TFClass_Medic:		SetClientInfo(iClient, "name", "Yagokoro Eirin");
-				case TFClass_Pyro:		SetClientInfo(iClient, "name", "Fujiwara no Mokou");
-				case TFClass_Spy:		SetClientInfo(iClient, "name", "Komeiji Koishi");
-				case TFClass_Engineer:	SetClientInfo(iClient, "name", "Kawashiro Nitori");
-				case TFClass_Sniper:	SetClientInfo(iClient, "name", "Alice Margatroid");
-				case TFClass_Heavy:		SetClientInfo(iClient, "name", "Kirisame Marisa");
-			}
-		} else {
-                        switch(class)
-                        {
-                                case TFClass_Scout:             SetClientInfo(iClient, "name", "Himekaidou Hatate");
-                                case TFClass_Soldier:   SetClientInfo(iClient, "name", "Kochiya Sanae");
-                                case TFClass_DemoMan:   SetClientInfo(iClient, "name", "Okunoda Miyoi");
-                                case TFClass_Medic:             SetClientInfo(iClient, "name", "Reisen Udongein Inaba");
-                                case TFClass_Pyro:              SetClientInfo(iClient, "name", "Flandre Scarlet");
-                                case TFClass_Spy:               SetClientInfo(iClient, "name", "Hata no Kokoro");
-                                case TFClass_Engineer:  SetClientInfo(iClient, "name", "Yamashiro Takane");
-                                case TFClass_Sniper:    SetClientInfo(iClient, "name", "Patchouli Knowledge");
-                                case TFClass_Heavy:             SetClientInfo(iClient, "name", "Kazami Yuuka");
-                        }
-		}
+		return;
+	}
+
+	bool blue = GetClientTeam(client) == 3;
+	char botName[MAX_NAME_LENGTH];
+	switch (TF2_GetPlayerClass(client))
+	{
+		case TFClass_Scout:     strcopy(botName, sizeof(botName), blue ? "Shameimaru Aya" : "Himekaidou Hatate");
+		case TFClass_Soldier:   strcopy(botName, sizeof(botName), blue ? "Hakurei Reimu" : "Kochiya Sanae");
+		case TFClass_DemoMan:   strcopy(botName, sizeof(botName), blue ? "Ibuki Suika" : "Okunoda Miyoi");
+		case TFClass_Medic:     strcopy(botName, sizeof(botName), blue ? "Yagokoro Eirin" : "Reisen Udongein Inaba");
+		case TFClass_Pyro:      strcopy(botName, sizeof(botName), blue ? "Fujiwara no Mokou" : "Flandre Scarlet");
+		case TFClass_Spy:       strcopy(botName, sizeof(botName), blue ? "Komeiji Koishi" : "Hata no Kokoro");
+		case TFClass_Engineer:  strcopy(botName, sizeof(botName), blue ? "Kawashiro Nitori" : "Yamashiro Takane");
+		case TFClass_Sniper:    strcopy(botName, sizeof(botName), blue ? "Alice Margatroid" : "Patchouli Knowledge");
+		case TFClass_Heavy:     strcopy(botName, sizeof(botName), blue ? "Kirisame Marisa" : "Kazami Yuuka");
+	}
+
+	if (botName[0])
+	{
+		SetClientInfo(client, "name", botName);
 	}
 }
 

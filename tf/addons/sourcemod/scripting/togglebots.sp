@@ -5,6 +5,7 @@
 #include <files>
 
 ConVar g_cvManualBotQuota;
+ConVar g_cvGameBotQuota;
 
 public Plugin myinfo = {
     name = "TF2 Bot Toggle Command",
@@ -20,10 +21,14 @@ public void OnPluginStart()
         "Manually control bot quotas with Sourcemod, e.g. leaving an entry per-map or per-gamemode file",
         _, true, 0.0, true, 32.0);
 
-    // Hook convar change
     HookConVarChange(g_cvManualBotQuota, OnBotQuotaChanged);
 
     RegConsoleCmd("sm_bots", Command_BotToggle, "Allows players to toggle bots on and off with a convenient command");
+    g_cvGameBotQuota = FindConVar("tf_bot_quota");
+    if (g_cvGameBotQuota == null)
+    {
+        SetFailState("Required convar tf_bot_quota was not found.");
+    }
 
     // Build absolute paths relative to tf/cfg/
     char botsCfg[PLATFORM_MAX_PATH];
@@ -35,14 +40,13 @@ public void OnPluginStart()
     BotConfigFiles(botsCfg, noBotsCfg);
 
     HookEvent("player_connect", Event_PlayerConnect, EventHookMode_Pre);
-    HookEvent("player_connect_client", Event_PlayerConnectClient, EventHookMode_Pre);
+    HookEvent("player_connect_client", Event_PlayerConnect, EventHookMode_Pre);
     HookEvent("player_changename", Event_PlayerChangeName, EventHookMode_Pre);
 }
 
-// Called whenever sm_tf_bot_quota changes
 public void OnBotQuotaChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-    int quota = GetConVarInt(g_cvManualBotQuota);
+    int quota = g_cvManualBotQuota.IntValue;
     ServerCommand("tf_bot_quota %i", quota);
     LogMessage("[Bots] sm_tf_bot_quota changed from %s to %s (executed tf_bot_quota %i)", oldValue, newValue, quota);
 }
@@ -52,8 +56,7 @@ public Action Command_BotToggle(int client, int args)
     if (client == 0)
         return Plugin_Continue;
 
-    ConVar botQuota = FindConVar("tf_bot_quota");
-    int quota = botQuota.IntValue;
+    int quota = g_cvGameBotQuota.IntValue;
 
     if (quota > 0)
     {
@@ -62,7 +65,7 @@ public Action Command_BotToggle(int client, int args)
     }
     else
     {
-        int smQuota = GetConVarInt(g_cvManualBotQuota);
+        int smQuota = g_cvManualBotQuota.IntValue;
         if (smQuota != 8)
         {
             ServerCommand("tf_bot_quota %i", smQuota);
@@ -76,24 +79,6 @@ public Action Command_BotToggle(int client, int args)
 }
 
 public Action Event_PlayerConnect(Event event, const char[] name, bool dontBroadcast)
-{
-    bool isBot = GetEventBool(event, "bot");
-    int client = GetClientOfUserId(GetEventInt(event, "userid"));
-    if (!isBot && client > 0 && IsClientInGame(client))
-    {
-        isBot = IsFakeClient(client);
-    }
-
-    if (isBot)
-    {
-        SetEventBroadcast(event, true);
-        return Plugin_Handled;
-    }
-
-    return Plugin_Continue;
-}
-
-public Action Event_PlayerConnectClient(Event event, const char[] name, bool dontBroadcast)
 {
     bool isBot = GetEventBool(event, "bot");
     int client = GetClientOfUserId(GetEventInt(event, "userid"));
