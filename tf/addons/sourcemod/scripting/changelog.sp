@@ -165,24 +165,7 @@ void PrintChangelogEntry(int client, const char[] dateKey)
 bool MoveToDateSection(KeyValues changelog, const char[] dateKey)
 {
     changelog.Rewind();
-    if (!changelog.GotoFirstSubKey())
-    {
-        return false;
-    }
-
-    do
-    {
-        char currentDate[CHANGELOG_DATE_KEY_LENGTH];
-        changelog.GetSectionName(currentDate, sizeof(currentDate));
-        if (StrEqual(currentDate, dateKey))
-        {
-            return true;
-        }
-    }
-    while (changelog.GotoNextKey());
-
-    changelog.Rewind();
-    return false;
+    return changelog.JumpToKey(dateKey, false);
 }
 
 KeyValues LoadChangelog()

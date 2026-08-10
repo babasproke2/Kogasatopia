@@ -13,9 +13,6 @@
 #define WEAPON_REVERTS_CONFIG_PATH "configs/weapons.cfg"
 #define WEAPON_REVERTS_ITEM_CLASSES_SECTION "WeaponRevertsItemClasses"
 
-KeyValues g_hWeaponRevertsItemClassesConfig = null;
-bool g_bWeaponRevertsAvailable = false;
-
 public Plugin myinfo =
 {
 	name = "WeaponReverts Item Classes",
@@ -27,7 +24,6 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
-	LoadWeaponRevertsItemClassesConfig();
 	RegConsoleCmd("sm_reverts", Command_InfoReverts, "Lists weapon revert data to the client");
 	RegConsoleCmd("sm_revert", Command_InfoReverts, "Lists weapon revert data to the client");
 	RegConsoleCmd("sm_r", Command_InfoReverts, "Lists weapon revert data to the client");
@@ -37,57 +33,23 @@ public void OnPluginStart()
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 {
 	MarkNativeAsOptional("WeaponReverts_GetWeaponInfo");
-	MarkNativeAsOptional("WeaponReverts_CanClassUseWeapon");
 	return APLRes_Success;
 }
 
-public void OnAllPluginsLoaded()
+static KeyValues LoadWeaponRevertsItemClassesConfig()
 {
-	g_bWeaponRevertsAvailable = LibraryExists("weaponreverts");
-}
-
-public void OnLibraryAdded(const char[] name)
-{
-	if (StrEqual(name, "weaponreverts"))
-	{
-		g_bWeaponRevertsAvailable = true;
-	}
-}
-
-public void OnLibraryRemoved(const char[] name)
-{
-	if (StrEqual(name, "weaponreverts"))
-	{
-		g_bWeaponRevertsAvailable = false;
-	}
-}
-
-public void OnPluginEnd()
-{
-	if (g_hWeaponRevertsItemClassesConfig != null)
-	{
-		delete g_hWeaponRevertsItemClassesConfig;
-		g_hWeaponRevertsItemClassesConfig = null;
-	}
-}
-
-static void LoadWeaponRevertsItemClassesConfig()
-{
-	if (g_hWeaponRevertsItemClassesConfig != null)
-	{
-		delete g_hWeaponRevertsItemClassesConfig;
-		g_hWeaponRevertsItemClassesConfig = null;
-	}
-
-	g_hWeaponRevertsItemClassesConfig = new KeyValues("WeaponReverts");
+	KeyValues config = new KeyValues("WeaponReverts");
 
 	char path[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, path, sizeof(path), WEAPON_REVERTS_CONFIG_PATH);
 
-	if (!g_hWeaponRevertsItemClassesConfig.ImportFromFile(path))
+	if (!config.ImportFromFile(path))
 	{
 		LogError("[weaponreverts_item_classes] Failed to load %s", path);
+		delete config;
+		return null;
 	}
+	return config;
 }
 
 static void FormatRevertLine(char[] buffer, int maxlen, const char[] weaponName, const char[] positive, const char[] neutral, const char[] negative)
@@ -126,7 +88,8 @@ public Action Command_InfoReverts(int client, int args)
 	if (!Client_IsInGame(client))
 		return Plugin_Handled;
 
-	if (!g_bWeaponRevertsAvailable)
+	if (!LibraryExists("weaponreverts")
+		|| GetFeatureStatus(FeatureType_Native, "WeaponReverts_GetWeaponInfo") != FeatureStatus_Available)
 	{
 		CPrintToChat(client, "{green}[Info] {default}No weapon revert data available on this server.");
 		return Plugin_Handled;
@@ -137,24 +100,23 @@ public Action Command_InfoReverts(int client, int args)
 	if (classKey[0] == '\0')
 		return Plugin_Handled;
 
-	if (g_hWeaponRevertsItemClassesConfig == null)
-		LoadWeaponRevertsItemClassesConfig();
-
-	g_hWeaponRevertsItemClassesConfig.Rewind();
-	if (!g_hWeaponRevertsItemClassesConfig.JumpToKey(WEAPON_REVERTS_ITEM_CLASSES_SECTION, false) || !g_hWeaponRevertsItemClassesConfig.JumpToKey(classKey, false))
+	KeyValues config = LoadWeaponRevertsItemClassesConfig();
+	if (config == null
+		|| !config.JumpToKey(WEAPON_REVERTS_ITEM_CLASSES_SECTION, false)
+		|| !config.JumpToKey(classKey, false))
 	{
 		CPrintToChat(client, "{green}[Info] {default}No weapon revert data available for your class.");
-		g_hWeaponRevertsItemClassesConfig.Rewind();
+		delete config;
 		return Plugin_Handled;
 	}
 
 	StringMap printed = new StringMap();
-	if (g_hWeaponRevertsItemClassesConfig.GotoFirstSubKey(false))
+	if (config.GotoFirstSubKey(false))
 	{
 		do
 		{
 			char indexKey[64];
-			g_hWeaponRevertsItemClassesConfig.GetSectionName(indexKey, sizeof(indexKey));
+			config.GetSectionName(indexKey, sizeof(indexKey));
 			int indexes[1];
 			if (ItemIndexes_Parse(indexKey, indexes, sizeof(indexes)) == 0)
 				continue;
@@ -179,12 +141,10 @@ public Action Command_InfoReverts(int client, int args)
 			FormatRevertLine(line, sizeof(line), weaponName, positive, neutral, negative);
 			CPrintToChat(client, "%s", line);
 		}
-		while (g_hWeaponRevertsItemClassesConfig.GotoNextKey(false));
-
-		g_hWeaponRevertsItemClassesConfig.GoBack();
+		while (config.GotoNextKey(false));
 	}
 
 	delete printed;
-	g_hWeaponRevertsItemClassesConfig.Rewind();
+	delete config;
 	return Plugin_Handled;
 }

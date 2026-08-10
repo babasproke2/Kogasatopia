@@ -49,9 +49,9 @@ public void OnPluginStart()
 	g_CvarRandom = CreateConVar("sm_adverts_random", "1", "Enable/disable random advertisements.");
 	g_CvarPrefix = CreateConVar("sm_adverts_prefix", "{gold}[Server]", "Prefix added before each prefixed chat advertisement ({default} and a space are appended automatically).");
 
-	g_CvarFile.AddChangeHook(CvarChanged_File);
-	g_CvarRandom.AddChangeHook(CvarChanged_Reload);
-	g_CvarInterval.AddChangeHook(CvarChanged_Timer);
+	g_CvarFile.AddChangeHook(CvarChanged_Settings);
+	g_CvarRandom.AddChangeHook(CvarChanged_Settings);
+	g_CvarInterval.AddChangeHook(CvarChanged_Settings);
 
 	g_Ads = new ArrayList(sizeof(Advertisement));
 	RegServerCmd("sm_adverts_reload", Command_ReloadAds, "Reload the advertisements");
@@ -84,22 +84,12 @@ public void OnPluginEnd()
 	delete g_Ads;
 }
 
-public void CvarChanged_Reload(ConVar convar, const char[] oldValue, const char[] newValue)
+public void CvarChanged_Settings(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-	LoadAdvertisements();
-	RestartTimer();
-}
-
-public void CvarChanged_File(ConVar convar, const char[] oldValue, const char[] newValue)
-{
-	LoadAdvertisements();
-	RestartTimer();
-}
-
-public void CvarChanged_Timer(ConVar convar, const char[] oldValue, const char[] newValue)
-{
-	if (!g_Ads.Length) {
+	if (convar == g_CvarFile || !g_Ads.Length) {
 		LoadAdvertisements();
+	} else if (convar == g_CvarRandom) {
+		g_AdIndex = 0;
 	}
 	RestartTimer();
 }
@@ -109,11 +99,6 @@ public Action Command_ReloadAds(int args)
 	LoadAdvertisements();
 	RestartTimer();
 	return Plugin_Handled;
-}
-
-public int MenuHandler_Noop(Menu menu, MenuAction action, int param1, int param2)
-{
-	return 0;
 }
 
 public Action Timer_DisplayAd(Handle timer)

@@ -7,10 +7,21 @@
 
 #define CONFIG_FILE "configs/precachefiles.cfg"
 
-ArrayList g_ModelList;
-ArrayList g_MaterialList;
-ArrayList g_SoundList;
-ArrayList g_GenericList;
+#define PRECACHE_ASSET_MODEL 0
+#define PRECACHE_ASSET_MATERIAL 1
+#define PRECACHE_ASSET_SOUND 2
+#define PRECACHE_ASSET_GENERIC 3
+#define PRECACHE_ASSET_COUNT 4
+
+static const char g_PrecacheSections[][] =
+{
+    "models",
+    "materials",
+    "sounds",
+    "generic"
+};
+
+ArrayList g_PrecacheLists[PRECACHE_ASSET_COUNT];
 ConVar g_CvarAddDownloads;
 bool g_AddDownloads = true;
 
@@ -25,10 +36,10 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
-    g_ModelList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
-    g_MaterialList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
-    g_SoundList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
-    g_GenericList = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    for (int type = 0; type < PRECACHE_ASSET_COUNT; type++)
+    {
+        g_PrecacheLists[type] = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    }
 
     g_CvarAddDownloads = CreateConVar(
         "sm_precachefiles_add_downloads",
@@ -57,12 +68,20 @@ public void OnMapStart()
     AddConfiguredDownloads();
 }
 
+public void OnPluginEnd()
+{
+    for (int type = 0; type < PRECACHE_ASSET_COUNT; type++)
+    {
+        delete g_PrecacheLists[type];
+    }
+}
+
 static void LoadPrecacheConfig()
 {
-    g_ModelList.Clear();
-    g_MaterialList.Clear();
-    g_SoundList.Clear();
-    g_GenericList.Clear();
+    for (int type = 0; type < PRECACHE_ASSET_COUNT; type++)
+    {
+        g_PrecacheLists[type].Clear();
+    }
 
     char path[PLATFORM_MAX_PATH];
     BuildPath(Path_SM, path, sizeof(path), CONFIG_FILE);
@@ -82,140 +101,58 @@ static void LoadPrecacheConfig()
         return;
     }
 
-    if (kv.JumpToKey("models"))
+    for (int type = 0; type < PRECACHE_ASSET_COUNT; type++)
     {
-        if (kv.GotoFirstSubKey(false))
-        {
-            do
-            {
-                char value[PLATFORM_MAX_PATH];
-                kv.GetString(NULL_STRING, value, sizeof(value));
-                TrimString(value);
-                if (value[0])
-                {
-                    g_ModelList.PushString(value);
-                }
-            }
-            while (kv.GotoNextKey(false));
-            kv.GoBack();
-        }
-        kv.GoBack();
-    }
-
-    if (kv.JumpToKey("materials"))
-    {
-        if (kv.GotoFirstSubKey(false))
-        {
-            do
-            {
-                char value[PLATFORM_MAX_PATH];
-                kv.GetString(NULL_STRING, value, sizeof(value));
-                TrimString(value);
-                if (value[0])
-                {
-                    g_MaterialList.PushString(value);
-                }
-            }
-            while (kv.GotoNextKey(false));
-            kv.GoBack();
-        }
-        kv.GoBack();
-    }
-
-    if (kv.JumpToKey("sounds"))
-    {
-        if (kv.GotoFirstSubKey(false))
-        {
-            do
-            {
-                char value[PLATFORM_MAX_PATH];
-                kv.GetString(NULL_STRING, value, sizeof(value));
-                TrimString(value);
-                if (value[0])
-                {
-                    g_SoundList.PushString(value);
-                }
-            }
-            while (kv.GotoNextKey(false));
-            kv.GoBack();
-        }
-        kv.GoBack();
-    }
-
-    if (kv.JumpToKey("generic"))
-    {
-        if (kv.GotoFirstSubKey(false))
-        {
-            do
-            {
-                char value[PLATFORM_MAX_PATH];
-                kv.GetString(NULL_STRING, value, sizeof(value));
-                TrimString(value);
-                if (value[0])
-                {
-                    g_GenericList.PushString(value);
-                }
-            }
-            while (kv.GotoNextKey(false));
-            kv.GoBack();
-        }
-        kv.GoBack();
+        LoadPrecacheSection(kv, g_PrecacheSections[type], g_PrecacheLists[type]);
     }
 
     delete kv;
+}
+
+static void LoadPrecacheSection(KeyValues kv, const char[] section, ArrayList output)
+{
+    kv.Rewind();
+    if (!kv.JumpToKey(section, false) || !kv.GotoFirstSubKey(false))
+    {
+        return;
+    }
+
+    do
+    {
+        char value[PLATFORM_MAX_PATH];
+        kv.GetString(NULL_STRING, value, sizeof(value));
+        TrimString(value);
+        if (value[0])
+        {
+            output.PushString(value);
+        }
+    }
+    while (kv.GotoNextKey(false));
 }
 
 static void AddConfiguredDownloads()
 {
     char path[PLATFORM_MAX_PATH];
 
-    for (int i = 0; i < g_ModelList.Length; i++)
+    for (int type = 0; type < PRECACHE_ASSET_COUNT; type++)
     {
-        g_ModelList.GetString(i, path, sizeof(path));
-        if (!path[0])
-            continue;
-
-        if (g_AddDownloads)
+        ArrayList assets = g_PrecacheLists[type];
+        for (int i = 0; i < assets.Length; i++)
         {
-            AddFileToDownloadsTable(path);
-        }
-        PrecacheModel(path, true);
-    }
+            assets.GetString(i, path, sizeof(path));
+            if (g_AddDownloads)
+            {
+                AddFileToDownloadsTable(path);
+            }
 
-    for (int i = 0; i < g_MaterialList.Length; i++)
-    {
-        g_MaterialList.GetString(i, path, sizeof(path));
-        if (!path[0])
-            continue;
-
-        if (g_AddDownloads)
-        {
-            AddFileToDownloadsTable(path);
-        }
-    }
-
-    for (int i = 0; i < g_SoundList.Length; i++)
-    {
-        g_SoundList.GetString(i, path, sizeof(path));
-        if (!path[0])
-            continue;
-
-        if (g_AddDownloads)
-        {
-            AddFileToDownloadsTable(path);
-        }
-        PrecacheSound(path, true);
-    }
-
-    for (int i = 0; i < g_GenericList.Length; i++)
-    {
-        g_GenericList.GetString(i, path, sizeof(path));
-        if (!path[0])
-            continue;
-
-        if (g_AddDownloads)
-        {
-            AddFileToDownloadsTable(path);
+            if (type == PRECACHE_ASSET_MODEL)
+            {
+                PrecacheModel(path, true);
+            }
+            else if (type == PRECACHE_ASSET_SOUND)
+            {
+                PrecacheSound(path, true);
+            }
         }
     }
 }
