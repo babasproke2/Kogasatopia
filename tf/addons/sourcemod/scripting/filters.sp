@@ -46,6 +46,7 @@
 #define NAME_PATTERN_TRANS "trans"
 #define NAME_PATTERN_RAINBOW "rainbow"
 #define NAME_PATTERN_GRADIENT_PREFIX "gradient:"
+#define NAME_PATTERN_TRIPLE_GRADIENT_PREFIX "gradient3:"
 #define NAME_PATTERN_MAX 96
 #define NAME_GRADIENT_MAX_STEPS 8
 #define NAME_GRADIENT_DEFAULT_COMPLETION 50
@@ -55,6 +56,7 @@
 #define TRANS_NAME_ACCESS_ITEM "trans_flag_name"
 #define RAINBOW_NAME_ACCESS_ITEM "rainbow_name_access"
 #define GRADIENT_NAME_ACCESS_ITEM "gradient_name_access"
+#define TRIPLE_GRADIENT_ACCESS_ITEM "triple_gradient_upgrade"
 #define CHAT_PREFIX_MAXLEN 128
 
 // Player state structure
@@ -1900,13 +1902,22 @@ static bool HandlePresetNamePatternCommand(int client, const char[] pattern, con
     return true;
 }
 
-static bool ParseGradientCommandColors(const char[] command, int argumentsIndex, char[] firstColor, int firstLen, char[] secondColor, int secondLen)
+static int ParseGradientCommandColors(
+    const char[] command,
+    int argumentsIndex,
+    char[] firstColor,
+    int firstLen,
+    char[] secondColor,
+    int secondLen,
+    char[] thirdColor,
+    int thirdLen)
 {
     firstColor[0] = '\0';
     secondColor[0] = '\0';
+    thirdColor[0] = '\0';
     if (argumentsIndex == -1 || !command[argumentsIndex])
     {
-        return false;
+        return 0;
     }
 
     char arguments[128];
@@ -1915,7 +1926,7 @@ static bool ParseGradientCommandColors(const char[] command, int argumentsIndex,
     int secondIndex = BreakString(arguments, firstColor, firstLen);
     if (secondIndex == -1 || !arguments[secondIndex])
     {
-        return false;
+        return 0;
     }
 
     char remaining[96];
@@ -1924,14 +1935,27 @@ static bool ParseGradientCommandColors(const char[] command, int argumentsIndex,
     int extraIndex = BreakString(remaining, secondColor, secondLen);
     if (extraIndex != -1 && remaining[extraIndex])
     {
-        return false;
+        char trailing[64];
+        strcopy(trailing, sizeof(trailing), remaining[extraIndex]);
+        TrimString(trailing);
+        int fourthIndex = BreakString(trailing, thirdColor, thirdLen);
+        if (fourthIndex != -1 && trailing[fourthIndex])
+        {
+            return 0;
+        }
     }
 
     TrimString(firstColor);
     TrimString(secondColor);
+    TrimString(thirdColor);
     ToLowercase(firstColor);
     ToLowercase(secondColor);
-    return firstColor[0] != '\0' && secondColor[0] != '\0';
+    ToLowercase(thirdColor);
+    if (!firstColor[0] || !secondColor[0])
+    {
+        return 0;
+    }
+    return thirdColor[0] ? 3 : 2;
 }
 
 static bool HandleGradientNameCommand(int client, const char[] command, int argumentsIndex)
@@ -1943,10 +1967,26 @@ static bool HandleGradientNameCommand(int client, const char[] command, int argu
 
     char firstColor[32];
     char secondColor[32];
-    if (!ParseGradientCommandColors(command, argumentsIndex, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor)))
+    char thirdColor[32];
+    int colorCount = ParseGradientCommandColors(
+        command,
+        argumentsIndex,
+        firstColor,
+        sizeof(firstColor),
+        secondColor,
+        sizeof(secondColor),
+        thirdColor,
+        sizeof(thirdColor));
+    if (colorCount == 0)
     {
         CPrintToChat(client,
-            "{default}[Filters] Usage: {gold}!gradient <color1> <color2>{default}. Use {gold}!colors{default} to list colors.");
+            "{default}[Filters] Usage: {gold}!gradient <color1> <color2> [color3]{default}. Use {gold}!colors{default} to list colors.");
+        return true;
+    }
+
+    if (colorCount == 3
+        && !ClientHasNamePatternAccess(client, TRIPLE_GRADIENT_ACCESS_ITEM, "Triple Gradient Upgrade"))
+    {
         return true;
     }
 
@@ -1960,9 +2000,21 @@ static bool HandleGradientNameCommand(int client, const char[] command, int argu
         CPrintToChat(client, "{default}[Filters] Unknown color \"%s\". Use {gold}!colors{default} to list colors.", secondColor);
         return true;
     }
+    if (colorCount == 3 && !CColorExists(thirdColor))
+    {
+        CPrintToChat(client, "{default}[Filters] Unknown color \"%s\". Use {gold}!colors{default} to list colors.", thirdColor);
+        return true;
+    }
 
     char pattern[NAME_PATTERN_MAX];
-    FormatEx(pattern, sizeof(pattern), "%s%s:%s:%d", NAME_PATTERN_GRADIENT_PREFIX, firstColor, secondColor, NAME_GRADIENT_DEFAULT_COMPLETION);
+    if (colorCount == 3)
+    {
+        FormatEx(pattern, sizeof(pattern), "%s%s:%s:%s", NAME_PATTERN_TRIPLE_GRADIENT_PREFIX, firstColor, secondColor, thirdColor);
+    }
+    else
+    {
+        FormatEx(pattern, sizeof(pattern), "%s%s:%s:%d", NAME_PATTERN_GRADIENT_PREFIX, firstColor, secondColor, NAME_GRADIENT_DEFAULT_COMPLETION);
+    }
     if (StrEqual(g_NamePatterns[client], pattern, false))
     {
         CPrintToChat(client, "{default}[Filters] Your name already uses that gradient.");
@@ -1984,6 +2036,11 @@ public Action Command_GradientMenu(int client, int args)
     }
     if (!ClientHasNamePatternAccess(client, GRADIENT_NAME_ACCESS_ITEM, "Gradient Color Name Access"))
     {
+        return Plugin_Handled;
+    }
+    if (IsTripleGradientNamePattern(g_NamePatterns[client]))
+    {
+        CPrintToChat(client, "{default}[Filters] Gradient Control only adjusts two-color gradients.");
         return Plugin_Handled;
     }
 
@@ -2602,13 +2659,74 @@ static bool IsGradientNamePattern(const char[] pattern)
     return ParseGradientNamePattern(pattern, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor), completionPercent);
 }
 
+static bool ParseTripleGradientNamePattern(
+    const char[] pattern,
+    char[] firstColor,
+    int firstLen,
+    char[] secondColor,
+    int secondLen,
+    char[] thirdColor,
+    int thirdLen)
+{
+    firstColor[0] = '\0';
+    secondColor[0] = '\0';
+    thirdColor[0] = '\0';
+    if (StrContains(pattern, NAME_PATTERN_TRIPLE_GRADIENT_PREFIX, false) != 0)
+    {
+        return false;
+    }
+
+    char colors[3][32];
+    int count = ExplodeString(
+        pattern[strlen(NAME_PATTERN_TRIPLE_GRADIENT_PREFIX)],
+        ":",
+        colors,
+        sizeof(colors),
+        sizeof(colors[]));
+    if (count != 3)
+    {
+        return false;
+    }
+
+    for (int i = 0; i < sizeof(colors); i++)
+    {
+        TrimString(colors[i]);
+        ToLowercase(colors[i]);
+        if (!colors[i][0] || !CColorExists(colors[i]))
+        {
+            return false;
+        }
+    }
+
+    strcopy(firstColor, firstLen, colors[0]);
+    strcopy(secondColor, secondLen, colors[1]);
+    strcopy(thirdColor, thirdLen, colors[2]);
+    return true;
+}
+
+static bool IsTripleGradientNamePattern(const char[] pattern)
+{
+    char firstColor[32];
+    char secondColor[32];
+    char thirdColor[32];
+    return ParseTripleGradientNamePattern(
+        pattern,
+        firstColor,
+        sizeof(firstColor),
+        secondColor,
+        sizeof(secondColor),
+        thirdColor,
+        sizeof(thirdColor));
+}
+
 static bool IsValidNamePattern(const char[] pattern)
 {
     return IsAmericaNamePattern(pattern)
         || IsMapNamePattern(pattern)
         || IsTransNamePattern(pattern)
         || IsRainbowNamePattern(pattern)
-        || IsGradientNamePattern(pattern);
+        || IsGradientNamePattern(pattern)
+        || IsTripleGradientNamePattern(pattern);
 }
 
 static bool HasValidNamePattern(int client)
@@ -2714,6 +2832,79 @@ static void BuildGradientName(
         glyph[copyLen] = '\0';
         StrCat(output, maxlen, glyph);
 
+        byteIndex += charBytes;
+        charIndex++;
+    }
+
+    StrCat(output, maxlen, "\x01");
+}
+
+static void BuildTripleGradientName(
+    const char[] name,
+    const char[] firstColor,
+    const char[] secondColor,
+    const char[] thirdColor,
+    char[] output,
+    int maxlen)
+{
+    output[0] = '\0';
+
+    int rgbStops[3];
+    if (!GetNamedColorRgb(firstColor, rgbStops[0])
+        || !GetNamedColorRgb(secondColor, rgbStops[1])
+        || !GetNamedColorRgb(thirdColor, rgbStops[2]))
+    {
+        strcopy(output, maxlen, name);
+        return;
+    }
+
+    int charCount = CountUtf8Chars(name);
+    if (charCount <= 0)
+    {
+        strcopy(output, maxlen, "{default}");
+        return;
+    }
+
+    int stepCount = charCount < NAME_GRADIENT_MAX_STEPS ? charCount : NAME_GRADIENT_MAX_STEPS;
+    int denominator = stepCount > 1 ? stepCount - 1 : 1;
+    int currentStep = -1;
+    int charIndex = 0;
+    int byteIndex = 0;
+
+    while (name[byteIndex] != '\0')
+    {
+        int step = charCount > 1 ? charIndex * (stepCount - 1) / (charCount - 1) : 0;
+        if (step != currentStep)
+        {
+            int scaledStep = step * 2;
+            int firstStop = scaledStep <= denominator ? 0 : 1;
+            int secondStop = firstStop + 1;
+            int blend = firstStop == 0 ? scaledStep : scaledStep - denominator;
+            int fromRgb = rgbStops[firstStop];
+            int toRgb = rgbStops[secondStop];
+            int red = ((((fromRgb >> 16) & 0xFF) * (denominator - blend))
+                + (((toRgb >> 16) & 0xFF) * blend) + denominator / 2) / denominator;
+            int green = ((((fromRgb >> 8) & 0xFF) * (denominator - blend))
+                + (((toRgb >> 8) & 0xFF) * blend) + denominator / 2) / denominator;
+            int blue = (((fromRgb & 0xFF) * (denominator - blend))
+                + ((toRgb & 0xFF) * blend) + denominator / 2) / denominator;
+            AppendRgbColorCode((red << 16) | (green << 8) | blue, output, maxlen);
+            currentStep = step;
+        }
+
+        int charBytes = IsCharMB(name[byteIndex]);
+        if (charBytes <= 0)
+        {
+            charBytes = 1;
+        }
+        char glyph[8];
+        int copyLen = charBytes < sizeof(glyph) ? charBytes : sizeof(glyph) - 1;
+        for (int i = 0; i < copyLen; i++)
+        {
+            glyph[i] = name[byteIndex + i];
+        }
+        glyph[copyLen] = '\0';
+        StrCat(output, maxlen, glyph);
         byteIndex += charBytes;
         charIndex++;
     }
@@ -2892,6 +3083,20 @@ static void BuildRenderedClientName(int client, char[] output, int maxlen)
 
         char firstColor[32];
         char secondColor[32];
+        char thirdColor[32];
+        if (ParseTripleGradientNamePattern(
+            pattern,
+            firstColor,
+            sizeof(firstColor),
+            secondColor,
+            sizeof(secondColor),
+            thirdColor,
+            sizeof(thirdColor)))
+        {
+            BuildTripleGradientName(name, firstColor, secondColor, thirdColor, output, maxlen);
+            return;
+        }
+
         int completionPercent;
         if (ParseGradientNamePattern(pattern, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor), completionPercent))
         {
