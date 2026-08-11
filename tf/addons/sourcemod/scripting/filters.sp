@@ -580,6 +580,7 @@ static void Filters_RegisterCommands()
     RegConsoleCmd("sm_filters_debug", Command_FiltersDebug, "Show debug stats for filters");
     RegConsoleCmd("sm_colors", Command_Colors, "Show available chat colors");
     RegConsoleCmd("sm_colours", Command_Colors, "Show available chat colours");
+    AddCommandListener(Listener_Colors, "colors");
     RegConsoleCmd("sm_gradientmenu", Command_GradientMenu, "Adjust where the second gradient color becomes full.");
     RegConsoleCmd("sm_gm", Command_GradientMenu, "Adjust where the second gradient color becomes full.");
     RegConsoleCmd("sm_prename", Command_Prename, "sm_prename <name_substring|steamid> <newname> (admins) or sm_prename <newname> (self)");
@@ -4627,6 +4628,11 @@ void CPrintToChatTeam(int team, int sender, const char[] message)
             Filters_SendChatToReceiver(client, sender, prefixed);
         }
     }
+}
+
+public Action Listener_Colors(int client, const char[] command, int argc)
+{
+    return Command_Colors(client, argc);
 }
 
 public Action Command_Colors(int client, int args)
