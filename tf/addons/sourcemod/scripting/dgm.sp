@@ -10,6 +10,7 @@
 #include <tf2>
 #include <tf2_stocks>
 #include <controlpoints>
+#include <plugin_statistics>
 
 #undef REQUIRE_EXTENSIONS
 #include <tf2_setuptime>
@@ -22,7 +23,6 @@
 
 #include "include/dgm_api.inc"
 #include "include/client_validation.inc"
-#include "include/statistics.inc"
 #define DGM_MAX_CONTROL_POINTS 8
 #define DGM_MAX_CAPTURE_INTERVALS 64
 #define DGM_SETUP_START_CHECK_INTERVAL 0.25
@@ -1479,7 +1479,7 @@ void DGM_LogCaptureIntervalStats(int winnerTeam, int roundDuration)
             g_iCaptureRoundElapsedSeconds[i],
             roundDuration,
             DGM_CountRealPlayers());
-        PluginStats_LogMessage(message);
+        PluginStats_Record("control_point_capture_interval", message);
     }
 }
 
@@ -1524,7 +1524,7 @@ void DGM_LogRespawnToggle(int client, bool forcedOn, float respawnTime)
         forcedOn ? 1 : 0,
         respawnTime,
         DGM_CountRealPlayers());
-    PluginStats_LogMessage(message);
+    PluginStats_Record("respawn_toggle", message);
 }
 
 void DGM_SetSetupActive(bool setupActive)
@@ -1775,7 +1775,6 @@ void CreateDefaultConfigs()
 
 public void OnPluginStart()
 {
-    PluginStats_Init("dgm_statistics_events");
 
     // The respawn time
     g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 30.0);
@@ -1828,14 +1827,12 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
-    PluginStats_Shutdown();
 }
 
 public void OnMapStart()
 {
     // NO_MAPCHANGE timers are closed by SourceMod during transitions; clear local handles.
     g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
-    PluginStats_OnMapStart();
     DGM_ClearSetupStartTimer();
     g_hSetupStateTimer = INVALID_HANDLE;
     DGM_ResetCaptureIntervalStats(0);

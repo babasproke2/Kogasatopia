@@ -7,7 +7,7 @@ Each plugin must include only the APIs it directly uses. Do not copy a universal
 1. SourceMod/core includes: `sourcemod`, `clientprefs`, `dbi`, `files`, `textparse`, `geoip`, `basecomm`.
 2. SDK/TF2 includes: `sdktools`, `sdkhooks`, `sdktools_sound`, `sdktools_gamerules`, `tf2`, `tf2_stocks`, `tf2utils`.
 3. Public plugin API includes: `points_store_api`, `clans_api`, `saysounds`, `dgm_api`, etc.
-4. Repo-private helper includes: `database.inc`, `steam_identity.inc`, `statistics.inc`.
+4. Repo-private helper includes: `database.inc`, `steam_identity.inc`.
 5. Fragile/extension includes: `dhooks`, `sourcescramble`, `socket`, `nativevotes`, `tf2items`, `tf2attributes`, `tf_custom_attributes`, `scattergun_pellets`.
 
 ## Include order
@@ -61,7 +61,7 @@ Large integration plugins may have large include blocks, but only when each depe
 
 ## Statistics timestamps
 
-Statistics tables store occurred_at and created_at as Unix epoch seconds from GetTime(). Derive weekday and hour fields with Timestamps_GetWeekdayHour.
+The public `plugin_statistics.inc` API defers statistics writes to the Rust provider. The provider stamps Unix epoch timestamps, map-session context, and tickrate fields.
 
 ## Current layout
 
@@ -69,7 +69,7 @@ Statistics tables store occurred_at and created_at as Unix epoch seconds from Ge
 scripting/include/
   Public plugin APIs: *_api.inc, saysounds.inc, amplifier.inc, conch_no_speed.inc
   Repo-private helpers: database.inc, steam_identity.inc, client_validation.inc, buildings.inc, tf2_classes.inc, item_indexes.inc
-  Special integration helpers: statistics.inc
+  Public statistics API: plugin_statistics.inc
   Legacy / to migrate: addplayerhealth.inc
 ```
 

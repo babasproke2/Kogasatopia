@@ -13,12 +13,11 @@
 #undef REQUIRE_PLUGIN
 #include <dgm_api>
 #define REQUIRE_PLUGIN
+#include <plugin_statistics>
 
 #include "include/steam_identity.inc"
-#include "include/statistics.inc"
 
 #define PL_VERSION "1.0.2"
-#define CLASSLIMITS_STATS_TABLE "classlimits_statistics_events"
 #define CLASSLIMITS_STATS_INTERVAL 180.0
 
 #define TF_CLASS_DEMOMAN        4
@@ -106,7 +105,6 @@ public void OnPluginStart()
     RegConsoleCmd("sm_cl",          Command_ShowClassLimits, "Show current class limits.");
     RegAdminCmd("sm_classlimits_historical", Command_RecordClassPopularityHistorical, ADMFLAG_GENERIC, "Record a daily class popularity snapshot.");
 
-    PluginStats_Init(CLASSLIMITS_STATS_TABLE);
     g_hClassStatsTimer = CreateTimer(CLASSLIMITS_STATS_INTERVAL, Timer_RecordClassStats, _, TIMER_REPEAT);
 }
 
@@ -121,8 +119,6 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 
 public void OnMapStart()
 {
-    PluginStats_OnMapStart();
-
     char sSound[32];
     for (int i = 1; i < sizeof(g_sSounds); i++)
     {
@@ -140,7 +136,6 @@ public void OnPluginEnd()
         g_hClassStatsTimer = null;
     }
 
-    PluginStats_Shutdown();
 }
 
 public void OnClientPutInServer(int client)
@@ -173,7 +168,7 @@ public Action Timer_RecordClassStats(Handle timer, any data)
             "event=class_snapshot|steamid64=%s|class=%d",
             steamId,
             classId);
-        PluginStats_LogMessage(message);
+        PluginStats_Record("class_snapshot", message);
     }
 
     return Plugin_Continue;
@@ -214,7 +209,7 @@ public Action Command_RecordClassPopularityHistorical(int client, int args)
         counts[TF_CLASS_MEDIC],
         counts[TF_CLASS_SNIPER],
         counts[TF_CLASS_SPY]);
-    PluginStats_LogMessage(message);
+    PluginStats_Record("class_popularity_daily_snapshot", message);
 
     if (client > 0 && IsClientInGame(client))
     {

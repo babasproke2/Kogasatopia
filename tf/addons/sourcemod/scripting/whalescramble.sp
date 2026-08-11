@@ -19,11 +19,11 @@
 #include <saysounds>
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
+#include <plugin_statistics>
 
 #include "include/steam_identity.inc"
 #include "include/buildings.inc"
 #include "include/duel_detection.inc"
-#include "include/statistics.inc"
 
 native int FilterAlerts_SuppressTeamAlertWindow(float seconds);
 
@@ -158,7 +158,6 @@ public void OnPluginStart()
     UpdateNativeVotes();
     DuelDetection_Initialize();
     g_hLogEnabled = CreateConVar("sm_whalescramble_log", "1", "Enable whalescramble debug logging.", _, true, 0.0, true, 1.0);
-    PluginStats_Init("whalescramble_statistics_events");
     LogWhale("Plugin started.");
     g_hAutoRounds = CreateConVar("whalescramble_rounds", "2", "Automatically start a scramble vote every X rounds. 0/1 disables auto vote.", _, true, 0.0, true, 100.0);
     g_hVoteTime = CreateConVar("whalescramble_votetime", "4", "Scramble vote duration in seconds.", _, true, 1.0, true, 30.0);
@@ -226,7 +225,6 @@ public void OnLibraryRemoved(const char[] name)
 
 public void OnMapStart()
 {
-    PluginStats_OnMapStart();
     ResetVotes();
     ClearScrambleRespawnAttempts();
     ClearScrambleCooldown();
@@ -259,7 +257,6 @@ public void OnPluginEnd()
     ClearAutoScramblePending();
     DuelDetection_Shutdown();
     LogWhale("Plugin ended.");
-    PluginStats_Shutdown();
 }
 
 public void OnClientDisconnect(int client)
@@ -3096,7 +3093,7 @@ static void LogWhaleStat(const char[] eventName, const char[] fmt, any ...)
         Format(message, sizeof(message), "event=%s", eventName);
     }
 
-    PluginStats_LogMessage(message);
+    PluginStats_Record(eventName, message);
 }
 
 static void SanitizeWhaleStatField(char[] value, int maxlen)

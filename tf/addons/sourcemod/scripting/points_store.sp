@@ -13,12 +13,12 @@
 #include <saysounds>
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
+#include <plugin_statistics>
 
 #include "include/client_validation.inc"
 #include "include/chat_colors.inc"
 #include "include/database.inc"
 #include "include/steam_identity.inc"
-#include "include/statistics.inc"
 #include "include/tf2_classes.inc"
 
 #define BP_TRANS_DB_CONFIG_DEFAULT "default"
@@ -171,10 +171,7 @@ public void OnPluginStart()
     }
 
     g_CvarDatabase = CreateConVar("sm_bonuspoints_transactions_database", BP_TRANS_DB_CONFIG_DEFAULT, "Databases.cfg entry for bonuspoints_transactions.");
-    char dbConfig[64];
-    g_CvarDatabase.GetString(dbConfig, sizeof(dbConfig));
-    PluginStats_Init("points_store_statistics_events", dbConfig);
-    g_CvarEventLogging = CreateConVar("sm_points_store_event_logging", "1", "Write structured currency economy events to points_store_statistics_events.", _, true, 0.0, true, 1.0);
+    g_CvarEventLogging = CreateConVar("sm_points_store_event_logging", "1", "Write structured currency economy events through plugin statistics.", _, true, 0.0, true, 1.0);
     g_CvarLogRandomMisses = CreateConVar("sm_points_store_log_random_misses", "0", "Log failed random-chance currency rolls when event logging is enabled.", _, true, 0.0, true, 1.0);
     g_CvarCurrencyShort = CreateConVar("sm_points_store_currency_short", "Gems", "Short currency label used in compact messages, e.g. BP or Gem.");
     g_CvarCurrencyLong = CreateConVar("sm_points_store_currency_long", "Gems", "Long currency label used in menus and prose, e.g. Bonus Points or Gems.");
@@ -241,7 +238,6 @@ public void OnPluginEnd()
 {
     Lotteries_OnPluginEnd();
     Bounties_OnPluginEnd();
-    PluginStats_Flush();
     delete g_IdempotentAwardForward;
 
     delete g_ItemKeys;
@@ -264,12 +260,10 @@ public void OnPluginEnd()
 
     Db_CancelTimer(g_hDatabaseReconnectTimer);
     Db_Close(g_Database, g_DatabaseReady);
-    PluginStats_Shutdown();
 }
 
 public void OnMapStart()
 {
-    PluginStats_OnMapStart();
     Bounties_OnMapStart();
     if (g_PerMapAwardCounts != null)
     {
@@ -279,7 +273,6 @@ public void OnMapStart()
 
 public void OnMapEnd()
 {
-    PluginStats_Flush();
     Lotteries_OnMapEnd();
 }
 
@@ -1584,7 +1577,28 @@ int GetWelfareMinPlayers()
 
 void QueuePointsStoreEvent(const char[] message)
 {
-    PluginStats_LogMessage(message);
+    char eventName[64];
+    GetPointsStoreEventName(message, eventName, sizeof(eventName));
+    PluginStats_Record(eventName, message);
+}
+
+void GetPointsStoreEventName(const char[] message, char[] output, int maxlen)
+{
+    int read = strncmp(message, "event=", 6, false) == 0 ? 6 : 0;
+    int write = 0;
+    while (message[read] && message[read] != '|' && write < maxlen - 1)
+    {
+        char c = message[read++];
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')
+        {
+            output[write++] = c;
+        }
+    }
+    output[write] = '\0';
+    if (!output[0])
+    {
+        strcopy(output, maxlen, "points_store_event");
+    }
 }
 
 void LogPointsStoreEvent(const char[] format, any ...)

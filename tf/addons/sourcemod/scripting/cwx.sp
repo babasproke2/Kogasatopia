@@ -25,13 +25,13 @@
 #include <dgm_api>
 #include <points_store_api>
 #define REQUIRE_PLUGIN
+#include <plugin_statistics>
 
 #define CWX_INCLUDE_SHAREDDEFS_ONLY
 #include <cwx>
 
 #include "include/database.inc"
 #include "include/steam_identity.inc"
-#include "include/statistics.inc"
 #include "include/tf2_classes.inc"
 
 #tryinclude <autoversioning/version>
@@ -67,7 +67,6 @@ public Plugin myinfo = {
 #define NUM_PLAYER_CLASSES 10
 
 #define CWX_STATS_DB_CONFIG_DEFAULT "default"
-#define CWX_STATS_EVENTS_TABLE "cwx_statistics_events"
 #define CWX_STATS_STATE_TABLE "cwx_weapon_popularity"
 
 // we're recycling the following attribute to ensure that the item UID persists across dropped
@@ -164,7 +163,6 @@ public void OnPluginStart() {
 			_, true, 0.0, true, 1.0);
 	sm_cwx_statistics.AddChangeHook(OnCwxStatisticsEnabledChanged);
 	sm_cwx_statistics_database.AddChangeHook(OnCwxStatisticsDatabaseChanged);
-	PluginStats_Init(CWX_STATS_EVENTS_TABLE);
 	ConnectCwxStatisticsDatabase();
 	
 	RegAdminCmd("sm_cwx_export", ExportActiveWeapon, ADMFLAG_ROOT);
@@ -213,7 +211,6 @@ public void OnPluginStart() {
 }
 
 public void OnPluginEnd() {
-	PluginStats_Shutdown();
 	Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
 	Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
 }
@@ -313,7 +310,6 @@ void AppendItemDescriptionPart(char[] buffer, int maxlen, const char[] color, co
 }
 
 public void OnMapStart() {
-	PluginStats_OnMapStart();
 	LoadCustomItemConfig();
 	
 	PrecacheMenuResources();
@@ -1188,7 +1184,7 @@ void CwxStats_LogTransition(const char[] eventName, int client, int playerClass,
 
 	int userid = (client > 0 && client <= MaxClients && IsClientConnected(client))
 			? GetClientUserId(client) : 0;
-	char message[PLUGIN_STATS_MESSAGE_MAX];
+	char message[512];
 	Format(message, sizeof(message),
 			"event=%s|client=%d|userid=%d|steamid64=%s|name=%s|class=%s|class_index=%d|slot=%d|weapon_uid=%s|weapon_name=%s",
 			safeEvent,
@@ -1201,7 +1197,7 @@ void CwxStats_LogTransition(const char[] eventName, int client, int playerClass,
 			itemSlot,
 			safeUid,
 			safeWeaponName);
-	PluginStats_LogMessage(message);
+	PluginStats_Record(safeEvent, message);
 }
 
 void CwxStats_ClearSlotState(const char[] steamId64, int playerClass, int itemSlot,

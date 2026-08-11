@@ -13,9 +13,9 @@
 #include <points_store_api>
 #include <dgm_api>
 #define REQUIRE_PLUGIN
+#include <plugin_statistics>
 
 #include "include/steam_identity.inc"
-#include "include/statistics.inc"
 #include "include/strings.inc"
 
 #define CONFIG_FILE "configs/saysounds.cfg"
@@ -23,7 +23,6 @@
 #define MAX_GROUP_NAME 32
 #define MAX_GROUP_PREF_VALUE 512
 #define DEFAULT_GROUP "all"
-#define SAYSOUNDS_STATS_TABLE "saysounds_statistics_events"
 #define ADMIN_ONLY_GROUPS_SECTION "adminonlygroups"
 #define PAID_SAYSOUND_GROUPS_SECTION "paidsaysoundgroups"
 #define GROUP_ALIASES_SECTION "groupaliases"
@@ -114,7 +113,6 @@ public void OnPluginStart()
     g_hDeathCookie = RegClientCookie("saysounds_death", "Preferred saysound on death", CookieAccess_Public);
     g_hKillCookie = RegClientCookie("saysounds_kill", "Preferred saysound on kill", CookieAccess_Public);
     g_hDisabledGroupsCookie = RegClientCookie("saysounds_disabled_groups", "Disabled saysound groups", CookieAccess_Public);
-    PluginStats_Init(SAYSOUNDS_STATS_TABLE);
 
     RegConsoleCmd("sm_opt", Command_ToggleSoundOpt);
     RegConsoleCmd("sm_opts", Command_ShowGroupOptions);
@@ -158,8 +156,6 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
-    PluginStats_Shutdown();
-
     if (gSoundMap != null)
     {
         delete gSoundMap;
@@ -265,7 +261,6 @@ public void OnConfigsExecuted()
 
 public void OnMapStart()
 {
-    PluginStats_OnMapStart();
     PrecacheConfiguredSounds();
 }
 
@@ -1403,7 +1398,7 @@ static void LogSaySoundUsage(const char[] eventName, int sourceClient, int targe
         safeSourceGroup,
         fromApi ? 1 : 0,
         safeSource);
-    PluginStats_LogMessage(message);
+    PluginStats_Record(eventName, message);
 }
 
 static bool ShouldLogSaySoundUsage()
@@ -1438,7 +1433,11 @@ static void LogSoundPreferenceChange(int client, SaySoundPreferenceType type, co
         GetClientUserId(client),
         safeValue,
         safeValue[0] ? 0 : 1);
-    PluginStats_LogMessage(message);
+    PluginStats_Record(
+        type == SaySoundPreference_Death
+            ? "diesound_preference_changed"
+            : "killsound_preference_changed",
+        message);
 }
 
 static void GetClientSoundPreferenceValue(int client, SaySoundPreferenceType type, char[] value, int valueLen)

@@ -9,7 +9,7 @@ from datetime import datetime
 from kogasa_db import DEFAULT_DB_CONFIG, mysql_args, mysql_query, parse_databases_cfg, sql_literal, table_exists
 
 
-DEFAULT_TABLE = "points_store_statistics_events"
+DEFAULT_TABLE = "plugin_statistics_events"
 
 
 def parse_message(message: str) -> dict[str, str]:
@@ -25,15 +25,17 @@ def parse_message(message: str) -> dict[str, str]:
 
 
 def fetch_rows(args: list[str], password: str, table: str, days: int) -> list[dict[str, object]]:
-    where = ""
+    where = "WHERE events.source_plugin = 'points_store'"
     if days > 0:
-        where = f"WHERE occurred_at >= UNIX_TIMESTAMP() - {days * 86400}"
+        where += f" AND events.occurred_at >= UNIX_TIMESTAMP() - {days * 86400}"
 
     query = f"""
-        SELECT id, occurred_at, event_name, map_name, message, imported, COALESCE(source_file, '')
-        FROM {table}
+        SELECT events.id, events.occurred_at, events.event_name, sessions.map_name,
+               events.message, 0, ''
+        FROM {table} AS events
+        JOIN plugin_statistics_map_sessions AS sessions ON sessions.id = events.session_id
         {where}
-        ORDER BY id;
+        ORDER BY events.id;
     """
     output = mysql_query(args, password, query)
 
@@ -192,7 +194,7 @@ def main() -> int:
     parser.add_argument("--db-config", default=DEFAULT_DB_CONFIG, help="Path to SourceMod databases.cfg")
     parser.add_argument("--db-section", default="default", help="databases.cfg section to use")
     parser.add_argument("--mysql-bin", default="mysql", help="mysql client binary")
-    parser.add_argument("--table", default=DEFAULT_TABLE, help="points_store statistics table")
+    parser.add_argument("--table", default=DEFAULT_TABLE, help="canonical plugin statistics events table")
     parser.add_argument("--days", type=int, default=0, help="Only include rows from the last N days; 0 means all rows")
     parser.add_argument("--limit", type=int, default=10, help="Rows to show per top-list")
     args = parser.parse_args()

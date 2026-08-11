@@ -18,12 +18,12 @@
 #include <saysounds>
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
+#include <plugin_statistics>
 
 #include "include/database.inc"
 #include "include/duel_detection.inc"
 #include "include/steam_identity.inc"
 #include "include/buildings.inc"
-#include "include/statistics.inc"
 
 native int FilterAlerts_MarkAutobalance(int client);
 
@@ -123,9 +123,6 @@ public void OnPluginStart()
     g_hSimpleSelection = CreateConVar("sm_autobalance_simple_selection", "1", "If enabled, autobalance prefers the most recently joined dead player without Engineer buildings on the oversized team, then falls back to lower-priority eligible players by userID.", _, true, 0.0, true, 1.0);
     g_hIgnoreWinning = CreateConVar("sm_autobalance_ignore_winning", "3", "0 disables. 1 blocks losing-to-winning moves. Values above 1 allow losing-to-winning moves when value is >= current team-size diff.", _, true, 0.0);
     g_hDatabaseConfig = CreateConVar("sm_autobalance_database", "default", "Database config name from databases.cfg to use for persistent autobalance immunity.");
-    char dbConfig[64];
-    g_hDatabaseConfig.GetString(dbConfig, sizeof(dbConfig));
-    PluginStats_Init("autobalance_statistics_events", dbConfig);
     RegAdminCmd("sm_immune", Command_Immune, ADMFLAG_GENERIC, "sm_immune <name> - Toggle persistent autobalance immunity for a player.");
     RegConsoleCmd("sm_volunteer", Command_Volunteer, "sm_volunteer [name] - Toggle autobalance volunteer status.");
     RegConsoleCmd("sm_swap", Command_RequestTeamSwap, "sm_swap [name] - Request a team swap with an enemy player.");
@@ -144,7 +141,6 @@ public void OnPluginStart()
 
 public void OnMapStart()
 {
-    PluginStats_OnMapStart();
     ClearAllTeamSwapRequests();
     if (g_hAutoBalanceTimer != INVALID_HANDLE)
     {
@@ -210,7 +206,6 @@ public void OnPluginEnd()
         g_hVolunteers = null;
     }
 
-    PluginStats_Shutdown();
 }
 
 // ---------------------------------------------------------------------------
@@ -1956,7 +1951,60 @@ static void LogBalance(const char[] fmt, any ...)
 
     char buffer[512];
     VFormat(buffer, sizeof(buffer), fmt, 2);
-    PluginStats_LogMessage(buffer);
+    char eventName[64];
+    DeriveBalanceEventName(buffer, eventName, sizeof(eventName));
+    PluginStats_Record(eventName, buffer);
+}
+
+static void DeriveBalanceEventName(const char[] message, char[] output, int maxlen)
+{
+    int start = strncmp(message, "[autobalance_4teams] ", 21, false) == 0 ? 21 : 0;
+    if (strncmp(message[start], "Autobalancing ", 14, false) == 0)
+    {
+        strcopy(output, maxlen, "autobalance_move");
+        return;
+    }
+    if (strncmp(message[start], "Imbalance:", 10, false) == 0)
+    {
+        strcopy(output, maxlen, "imbalance_detected");
+        return;
+    }
+    if (strncmp(message[start], "Skip balance", 12, false) == 0)
+    {
+        strcopy(output, maxlen, "balance_skipped");
+        return;
+    }
+
+    int write = 0;
+    for (int read = start; message[read] && write < maxlen - 1; read++)
+    {
+        char c = message[read];
+        if (c == ':' || c == '.' || c == '(')
+        {
+            break;
+        }
+        if (c >= 'A' && c <= 'Z')
+        {
+            c += 32;
+        }
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
+        {
+            output[write++] = c;
+        }
+        else if ((c == ' ' || c == '-' || c == '_') && write > 0 && output[write - 1] != '_')
+        {
+            output[write++] = '_';
+        }
+    }
+    while (write > 0 && output[write - 1] == '_')
+    {
+        write--;
+    }
+    output[write] = '\0';
+    if (!output[0])
+    {
+        strcopy(output, maxlen, "autobalance_event");
+    }
 }
 
 static void ApplyServerBalanceCvars(bool pluginLoaded)

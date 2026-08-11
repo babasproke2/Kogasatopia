@@ -15,10 +15,10 @@
 #include <saysounds>
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
+#include <plugin_statistics>
 
 #include "include/chat_colors.inc"
 #include "include/steam_identity.inc"
-#include "include/statistics.inc"
 #include "include/strings.inc"
 #include "include/tf2_classes.inc"
 
@@ -123,11 +123,10 @@ public void OnPluginStart()
     RegConsoleCmd("sm_announcers", Command_Announcers, "Configure paid announcer sound packs.");
     RegConsoleCmd("sm_announcer", Command_Announcers, "Configure paid announcer sound packs.");
 
-    PluginStats_Init("announcers_statistics_events");
     g_cvStatisticsLogging = CreateConVar(
         "announcers_statistics_logging",
         "1",
-        "Write structured announcer events to announcers_statistics_events.",
+        "Write structured announcer events through plugin statistics.",
         FCVAR_NONE,
         true,
         0.0,
@@ -323,18 +322,11 @@ public void OnPluginEnd()
         }
     }
 
-    PluginStats_Shutdown();
-}
-
-public void OnMapStart()
-{
-    PluginStats_OnMapStart();
 }
 
 public void OnMapEnd()
 {
     ClearAllMultikillRollups();
-    PluginStats_Flush();
 }
 
 public void OnClientDisconnect(int client)
@@ -1683,7 +1675,7 @@ void LogAnnouncerEvent(int client, int sourceClient, const char[] type, int coun
     int userid = IsValidAnnouncerClient(client) ? GetClientUserId(client) : 0;
     int sourceUserid = IsValidAnnouncerClient(sourceClient) ? GetClientUserId(sourceClient) : 0;
 
-    char message[PLUGIN_STATS_MESSAGE_MAX];
+    char message[512];
     Format(
         message,
         sizeof(message),
@@ -1702,7 +1694,7 @@ void LogAnnouncerEvent(int client, int sourceClient, const char[] type, int coun
         sourceName,
         sourceClass
     );
-    PluginStats_LogMessage(message);
+    PluginStats_Record("announcer_event", message);
 }
 
 void GetAnnouncerLogIdentity(int client, char[] steamId, int steamLen, char[] name, int nameLen, char[] className, int classLen)

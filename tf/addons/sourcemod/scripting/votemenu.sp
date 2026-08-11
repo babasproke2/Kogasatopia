@@ -11,10 +11,10 @@
 #include <dgm_api>
 #include <points_store_api>
 #define REQUIRE_PLUGIN
+#include <plugin_statistics>
 
 #include "include/database.inc"
 #include "include/steam_identity.inc"
-#include "include/statistics.inc"
 
 // Configuration locations
 #define VOTEMENU_CONFIG      "configs/votemenu.cfg"
@@ -23,7 +23,6 @@
 #define VOTEMENU_CURRENCY_SHORT_MAX 32
 #define VOTEMENU_DB_CONFIG_DEFAULT "default"
 #define POINTS_STORE_BALANCE_TABLE "points_store_balances"
-#define VOTEMENU_STATISTICS_TABLE "votemenu_statistics_events"
 
 enum struct VoteOption
 {
@@ -105,14 +104,12 @@ public void OnPluginStart()
     g_VoteOptions = new ArrayList(sizeof(VoteOption));
     g_FailedVoteCooldowns = new StringMap();
     g_MapStartedAt = GetTime();
-    PluginStats_Init(VOTEMENU_STATISTICS_TABLE);
     LoadVoteMenuConfig();
     ConnectVoteMenuDatabase();
 }
 
 public void OnPluginEnd()
 {
-    PluginStats_Shutdown();
     Db_CancelTimer(g_hDatabaseReconnectTimer);
     Db_Close(g_Database, g_DatabaseReady);
 }
@@ -120,7 +117,6 @@ public void OnPluginEnd()
 public void OnMapStart()
 {
     g_MapStartedAt = GetTime();
-    PluginStats_OnMapStart();
     LoadVoteMenuConfig();
     ClearCurrentVoteInitiator();
 }
@@ -1078,7 +1074,7 @@ static void LogVoteMenuVoteStarted(int client, const char[] detail)
         GetVoteMenuMapElapsedSeconds(),
         g_PendingChargeCost,
         g_PendingVoteCharge ? 1 : 0);
-    PluginStats_LogMessage(message);
+    PluginStats_Record("vote_started", message);
 }
 
 static void LogVoteMenuVoteResult(const char[] result, int yesVotes, int noVotes, int totalVotes, float yesRatio)
@@ -1108,7 +1104,7 @@ static void LogVoteMenuVoteResult(const char[] result, int yesVotes, int noVotes
         GetVoteMenuMapElapsedSeconds(),
         g_PendingChargeCost,
         g_PendingVoteCharge ? 1 : 0);
-    PluginStats_LogMessage(message);
+    PluginStats_Record("vote_result", message);
 }
 
 static int FindVoteIndex(const char[] id)
