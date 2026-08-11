@@ -26,7 +26,12 @@
 #define BP_BALANCE_TABLE "points_store_balances"
 #define BP_ECONOMY_TABLE "points_store_economy"
 #define BP_IDEMPOTENT_AWARDS_TABLE "points_store_idempotent_awards"
+#define BP_PER_MAP_AWARDS_TABLE "points_store_per_map_awards"
 #define BP_IDEMPOTENT_KEY_MAX 128
+#define BP_PER_MAP_SCOPE_MAX 128
+#define BP_PER_MAP_ACTION_NONE 0
+#define BP_PER_MAP_ACTION_RESTORE 1
+#define BP_PER_MAP_ACTION_RESET 2
 #define BP_ECONOMY_WELFARE_POOL_KEY "welfare_pool"
 #define BP_ECONOMY_CUMULATIVE_SPENT_KEY "cumulative_spent"
 #define BP_ECONOMY_KEY_MAX 64
@@ -95,6 +100,14 @@ char g_CurrencyPrefix[96];
 float g_NextSendAllowedAt[MAXPLAYERS + 1];
 int g_BalanceSearchGeneration[MAXPLAYERS + 1];
 StringMap g_PerMapAwardCounts = null;
+bool g_PerMapAwardsReady = false;
+bool g_PerMapSchemaReady = false;
+bool g_PerMapLateLoad = false;
+bool g_PerMapIgnoreInitialMapStart = false;
+int g_PerMapStateGeneration = 0;
+int g_PerMapStateAction = 0;
+int g_PerMapServerPort = 0;
+char g_PerMapName[BP_PER_MAP_SCOPE_MAX];
 #include "points_store/lotteries.inc"
 #include "points_store/bounties.inc"
 #include "points_store/rewards.inc"
@@ -112,6 +125,7 @@ public Plugin myinfo =
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
+    g_PerMapLateLoad = late;
     MarkNativeAsOptional("Filters_GetChatName");
     MarkNativeAsOptional("Filters_GetSteamIdColorTag");
     MarkNativeAsOptional("SaySounds_PlayCommand");
@@ -160,6 +174,9 @@ public void OnPluginStart()
     g_ItemDurations = new ArrayList();
     g_ItemUses = new ArrayList();
     g_PerMapAwardCounts = new StringMap();
+    g_PerMapIgnoreInitialMapStart = g_PerMapLateLoad;
+    g_PerMapStateAction = g_PerMapLateLoad ? BP_PER_MAP_ACTION_RESTORE : BP_PER_MAP_ACTION_RESET;
+    RefreshPerMapAwardScope();
     Rewards_OnPluginStart();
 
     for (int i = 1; i <= MaxClients; i++)
@@ -270,10 +287,14 @@ public void OnPluginEnd()
 public void OnMapStart()
 {
     Bounties_OnMapStart();
-    if (g_PerMapAwardCounts != null)
+    RefreshPerMapAwardScope();
+    if (g_PerMapIgnoreInitialMapStart)
     {
-        g_PerMapAwardCounts.Clear();
+        g_PerMapIgnoreInitialMapStart = false;
+        return;
     }
+
+    ResetPerMapAwardState();
 }
 
 public void OnMapEnd()
@@ -304,6 +325,8 @@ void ConnectDatabase()
     Db_CancelTimer(g_hDatabaseReconnectTimer);
     Db_Close(g_Database, g_DatabaseReady);
     g_IdempotentAwardsReady = false;
+    g_PerMapAwardsReady = false;
+    g_PerMapSchemaReady = false;
     g_BountyDatabaseReady = false;
     g_BountyExpiryPending = false;
     g_BountyProgressPending = false;
@@ -609,6 +632,7 @@ void FinishSchemaReady()
 {
     g_DatabaseReady = true;
     EnsureIdempotentAwardsSchema();
+    EnsurePerMapAwardsSchema();
     EnsureBountySchema();
 
     for (int i = 1; i <= MaxClients; i++)
@@ -670,6 +694,176 @@ public void SQL_OnIdempotentAwardsSchemaReady(Database db, DBResultSet results, 
     }
 
     g_IdempotentAwardsReady = true;
+}
+
+void RefreshPerMapAwardScope()
+{
+    ConVar hostPort = FindConVar("hostport");
+    g_PerMapServerPort = hostPort != null ? hostPort.IntValue : 0;
+    GetCurrentMap(g_PerMapName, sizeof(g_PerMapName));
+}
+
+void EnsurePerMapAwardsSchema()
+{
+    if (g_Database == null)
+    {
+        return;
+    }
+
+    char query[1024];
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "server_port INT NOT NULL, "
+            ... "map_name VARCHAR(128) NOT NULL, "
+            ... "steamid64 VARCHAR(32) NOT NULL, "
+            ... "reward_id VARCHAR(64) NOT NULL, "
+            ... "award_count INT NOT NULL DEFAULT 0, "
+            ... "updated_at INT NOT NULL DEFAULT 0, "
+            ... "PRIMARY KEY (server_port, map_name, steamid64, reward_id)"
+            ... ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+            BP_PER_MAP_AWARDS_TABLE);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "server_port INTEGER NOT NULL, "
+            ... "map_name VARCHAR(128) NOT NULL, "
+            ... "steamid64 VARCHAR(32) NOT NULL, "
+            ... "reward_id VARCHAR(64) NOT NULL, "
+            ... "award_count INTEGER NOT NULL DEFAULT 0, "
+            ... "updated_at INTEGER NOT NULL DEFAULT 0, "
+            ... "PRIMARY KEY (server_port, map_name, steamid64, reward_id))",
+            BP_PER_MAP_AWARDS_TABLE);
+    }
+
+    g_Database.Query(SQL_OnPerMapAwardsSchemaReady, query);
+}
+
+public void SQL_OnPerMapAwardsSchemaReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        g_PerMapSchemaReady = false;
+        g_PerMapAwardsReady = false;
+        LogError("[points_store] Per-map award schema creation failed: %s", error);
+        return;
+    }
+
+    g_PerMapSchemaReady = true;
+    BeginPerMapStateAction();
+}
+
+void ResetPerMapAwardState()
+{
+    if (g_PerMapAwardCounts != null)
+    {
+        g_PerMapAwardCounts.Clear();
+    }
+
+    g_PerMapAwardsReady = false;
+    g_PerMapStateAction = BP_PER_MAP_ACTION_RESET;
+    if (g_PerMapSchemaReady && g_DatabaseReady)
+    {
+        BeginPerMapStateAction();
+    }
+}
+
+void BeginPerMapStateAction()
+{
+    if (!g_PerMapSchemaReady || !g_DatabaseReady || g_Database == null)
+    {
+        return;
+    }
+
+    RefreshPerMapAwardScope();
+    int generation = ++g_PerMapStateGeneration;
+
+    if (g_PerMapStateAction == BP_PER_MAP_ACTION_NONE)
+    {
+        g_PerMapAwardsReady = true;
+        return;
+    }
+
+    char query[768];
+    if (g_PerMapStateAction == BP_PER_MAP_ACTION_RESET)
+    {
+        Format(query, sizeof(query),
+            "DELETE FROM %s WHERE server_port = %d",
+            BP_PER_MAP_AWARDS_TABLE,
+            g_PerMapServerPort);
+        g_Database.Query(SQL_OnPerMapAwardsReset, query, generation);
+        return;
+    }
+
+    char escapedMap[257];
+    if (!EscapeSql(g_PerMapName, escapedMap, sizeof(escapedMap)))
+    {
+        LogError("[points_store] Failed to escape the current map for per-map award restoration.");
+        return;
+    }
+
+    Format(query, sizeof(query),
+        "SELECT steamid64, reward_id, award_count FROM %s "
+        ... "WHERE server_port = %d AND map_name = '%s'",
+        BP_PER_MAP_AWARDS_TABLE,
+        g_PerMapServerPort,
+        escapedMap);
+    g_Database.Query(SQL_OnPerMapAwardsRestored, query, generation);
+}
+
+public void SQL_OnPerMapAwardsReset(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (data != g_PerMapStateGeneration)
+    {
+        return;
+    }
+    if (error[0] != '\0')
+    {
+        g_PerMapAwardsReady = false;
+        LogError("[points_store] Failed to reset per-map awards: %s", error);
+        return;
+    }
+
+    g_PerMapStateAction = BP_PER_MAP_ACTION_NONE;
+    g_PerMapAwardsReady = true;
+}
+
+public void SQL_OnPerMapAwardsRestored(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (data != g_PerMapStateGeneration)
+    {
+        return;
+    }
+    if (error[0] != '\0')
+    {
+        g_PerMapAwardsReady = false;
+        LogError("[points_store] Failed to restore per-map awards: %s", error);
+        return;
+    }
+
+    g_PerMapAwardCounts.Clear();
+    char steamId[32];
+    char rewardId[64];
+    char key[128];
+    int restored = 0;
+    while (results != null && results.FetchRow())
+    {
+        results.FetchString(0, steamId, sizeof(steamId));
+        results.FetchString(1, rewardId, sizeof(rewardId));
+        int count = results.FetchInt(2);
+        if (count > 0 && BuildPerMapAwardKeyForSteamId(steamId, rewardId, key, sizeof(key)))
+        {
+            g_PerMapAwardCounts.SetValue(key, count, true);
+            restored++;
+        }
+    }
+
+    g_PerMapStateAction = BP_PER_MAP_ACTION_NONE;
+    g_PerMapAwardsReady = true;
+    LogMessage("[points_store] Restored %d per-map reward counter(s) for %s on port %d.", restored, g_PerMapName, g_PerMapServerPort);
 }
 
 void LoadEconomyState()
@@ -2368,6 +2562,11 @@ bool BuildPerMapAwardKey(int client, const char[] type, char[] key, int maxlen)
 
 int GetPerMapAwardCount(int client, const char[] type)
 {
+    if (!g_PerMapAwardsReady)
+    {
+        return 0;
+    }
+
     char key[128];
     if (!BuildPerMapAwardKey(client, type, key, sizeof(key)))
     {
@@ -2397,6 +2596,10 @@ bool CanApplyPerMapAwardForSteamId(const char[] steamId, int points, const char[
     if (points <= 0 || perMap <= 0)
     {
         return true;
+    }
+    if (!g_PerMapAwardsReady)
+    {
+        return false;
     }
 
     char key[128];
@@ -2432,7 +2635,63 @@ int IncrementPerMapAwardCountForSteamId(const char[] steamId, const char[] type)
     g_PerMapAwardCounts.GetValue(key, count);
     count++;
     g_PerMapAwardCounts.SetValue(key, count, true);
+    if (!QueuePerMapAwardIncrement(steamId, type))
+    {
+        LogError("[points_store] Failed to persist per-map award '%s' for %s.", type, steamId);
+    }
     return count;
+}
+
+bool QueuePerMapAwardIncrement(const char[] steamId, const char[] type)
+{
+    if (!g_PerMapAwardsReady || !g_DatabaseReady || g_Database == null
+        || steamId[0] == '\0' || type[0] == '\0')
+    {
+        return false;
+    }
+
+    char escapedMap[257];
+    char escapedSteamId[65];
+    char escapedType[129];
+    if (!EscapeSql(g_PerMapName, escapedMap, sizeof(escapedMap))
+        || !EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId))
+        || !EscapeSql(type, escapedType, sizeof(escapedType)))
+    {
+        return false;
+    }
+
+    char query[1024];
+    int now = GetTime();
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "INSERT INTO %s (server_port, map_name, steamid64, reward_id, award_count, updated_at) "
+            ... "VALUES (%d, '%s', '%s', '%s', 1, %d) "
+            ... "ON DUPLICATE KEY UPDATE award_count = award_count + 1, updated_at = VALUES(updated_at)",
+            BP_PER_MAP_AWARDS_TABLE,
+            g_PerMapServerPort,
+            escapedMap,
+            escapedSteamId,
+            escapedType,
+            now);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "INSERT INTO %s (server_port, map_name, steamid64, reward_id, award_count, updated_at) "
+            ... "VALUES (%d, '%s', '%s', '%s', 1, %d) "
+            ... "ON CONFLICT(server_port, map_name, steamid64, reward_id) DO UPDATE SET "
+            ... "award_count = award_count + 1, updated_at = excluded.updated_at",
+            BP_PER_MAP_AWARDS_TABLE,
+            g_PerMapServerPort,
+            escapedMap,
+            escapedSteamId,
+            escapedType,
+            now);
+    }
+
+    g_Database.Query(SQL_OnIgnoredResult, query);
+    return true;
 }
 
 void BuildPerMapAwardSuffix(int perMapUsed, int perMap, char[] suffix, int maxlen)
@@ -2491,6 +2750,11 @@ bool ApplyBonusPointsNow(int client, int points = 1, bool playSound = true, bool
     }
 
     int perMapUsed = 0;
+    if (points > 0 && perMap > 0 && !g_PerMapAwardsReady)
+    {
+        LogBonusPointsRejected("per_map_state_not_ready", client, points, type, target, g_ClientBonusPoints[client], randomChance, randomRoll, perMap, 0);
+        return false;
+    }
     if (!CanApplyPerMapAward(client, points, type, perMap, perMapUsed))
     {
         LogBonusPointsRejected("per_map_limit", client, points, type, target, g_ClientBonusPoints[client], randomChance, randomRoll, perMap, perMapUsed);

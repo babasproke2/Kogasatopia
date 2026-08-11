@@ -144,6 +144,11 @@ public Action Command_Dailies(int client, int args)
     {
         return Plugin_Handled;
     }
+    if (!g_PerMapAwardsReady)
+    {
+        CPrintToChat(client, "%s Per-map reward progress is still loading.", g_CurrencyPrefix);
+        return Plugin_Handled;
+    }
 
     int currentClass = view_as<int>(TF2_GetPlayerClass(client));
     int classOrder[] =
