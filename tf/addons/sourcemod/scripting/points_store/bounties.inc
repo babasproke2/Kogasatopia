@@ -108,6 +108,11 @@ int GetBountyMinAmount()
     return g_CvarBountyMinAmount != null ? g_CvarBountyMinAmount.IntValue : 50;
 }
 
+int GetAutomaticBountyMinDeaths()
+{
+    return g_CvarAutoBountyMinDeaths != null ? g_CvarAutoBountyMinDeaths.IntValue : 2;
+}
+
 int GetBountyPlaytimeLimitSeconds()
 {
     float minutes = g_CvarBountyTimeLimitMinutes != null ? g_CvarBountyTimeLimitMinutes.FloatValue : 20.0;
@@ -305,6 +310,7 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
         ... "AND active_bounty.status = 'active' AND active_bounty.expires_at > %d) "
         ... "AND NOT EXISTS (SELECT 1 FROM %s recent_automatic WHERE BINARY recent_automatic.target_steamid64 = BINARY w.steamid "
         ... "AND recent_automatic.sender_steamid64 = '%s' AND recent_automatic.placed_at > %d) "
+        ... "AND COALESCE(w.deaths, 0) >= %d "
         ... "AND (COALESCE(w.kills, 0) + COALESCE(w.assists, 0)) >= "
         ... "(%d * CASE WHEN COALESCE(w.deaths, 0) > 0 THEN w.deaths ELSE 1 END) "
         ... "ORDER BY %s LIMIT 1",
@@ -316,6 +322,7 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
         BOUNTY_TABLE,
         BOUNTY_SYSTEM_STEAMID,
         GetTime() - BOUNTY_AUTOMATIC_TARGET_COOLDOWN_SECONDS,
+        GetAutomaticBountyMinDeaths(),
         BOUNTY_AUTOMATIC_MIN_RATIO,
         g_IsMySql ? "RAND()" : "RANDOM()");
     g_BountyAutomaticPlacementPending = true;
