@@ -26,6 +26,7 @@
 		CreateNative("Hugs_RedeemMailedRape", Native_Hugs_RedeemMailedRape);
 		MarkNativeAsOptional("Filters_IsRedlisted");
 		MarkNativeAsOptional("Filters_GetChatName");
+		MarkNativeAsOptional("Filters_GetSteamIdColorTag");
 		return APLRes_Success;
 	}
 
@@ -189,7 +190,62 @@ enum HugsLeaderboardKind
 			UpdateLastHuggers(receiver, senderName);
 		}
 		SaveClientStats(receiver);
+		AnnounceMailedInteraction(sender, receiver, senderSteamId64, senderName, rape, feed);
 		return true;
+	}
+
+	void AnnounceMailedInteraction(
+		int sender,
+		int receiver,
+		const char[] senderSteamId64,
+		const char[] senderName,
+		bool rape,
+		bool feed)
+	{
+		char senderDisplay[256];
+		BuildMailedHugsChatName(sender, senderSteamId64, senderName, senderDisplay, sizeof(senderDisplay));
+
+		char receiverDisplay[256];
+		BuildHugsChatName(receiver, receiverDisplay, sizeof(receiverDisplay));
+		char action[16];
+		strcopy(action, sizeof(action), rape ? "raped" : (feed ? "fed" : "hugged"));
+
+		if (!IsClientRedlisted(receiver))
+		{
+			CPrintToChatEx(receiver, sender > 0 ? sender : receiver,
+				"{default}[SM] %s{default} %s you!", senderDisplay, action);
+		}
+		if (sender > 0)
+		{
+			CPrintToChatEx(sender, receiver,
+				"{default}[SM] You %s %s{default}!", action, receiverDisplay);
+		}
+	}
+
+	void BuildMailedHugsChatName(
+		int client,
+		const char[] steamId64,
+		const char[] fallbackName,
+		char[] buffer,
+		int maxlen)
+	{
+		if (client > 0)
+		{
+			BuildHugsChatName(client, buffer, maxlen);
+			return;
+		}
+
+		char colorTag[32];
+		colorTag[0] = '\0';
+		if (GetFeatureStatus(FeatureType_Native, "Filters_GetSteamIdColorTag") == FeatureStatus_Available)
+		{
+			Filters_GetSteamIdColorTag(steamId64, colorTag, sizeof(colorTag));
+		}
+		if (!colorTag[0])
+		{
+			strcopy(colorTag, sizeof(colorTag), "{green}");
+		}
+		Format(buffer, maxlen, "%s%s", colorTag, fallbackName);
 	}
 
 	bool CreditOfflineMailedInteraction(

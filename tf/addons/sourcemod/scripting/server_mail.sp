@@ -2261,14 +2261,21 @@ public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] 
     {
         MarkMailRead(mailId);
 
-        int sender = Kogasa_FindClientBySteamId64(senderSteamId);
-        char coloredSender[256];
-        BuildColoredMailName(sender, senderSteamId, senderName, coloredSender, sizeof(coloredSender));
-        CPrintToChatEx(client,
-            sender > 0 ? sender : client,
-            "{cornflowerblue}[Mail] %s{default}: %s",
-            coloredSender,
-            contents);
+        bool pendingHugsInteraction = !attachmentRedeemed
+            && (StrEqual(attachmentType, "hug")
+                || StrEqual(attachmentType, "feed")
+                || StrEqual(attachmentType, "rape"));
+        if (!pendingHugsInteraction)
+        {
+            int sender = Kogasa_FindClientBySteamId64(senderSteamId);
+            char coloredSender[256];
+            BuildColoredMailName(sender, senderSteamId, senderName, coloredSender, sizeof(coloredSender));
+            CPrintToChatEx(client,
+                sender > 0 ? sender : client,
+                "{cornflowerblue}[Mail] %s{default}: %s",
+                coloredSender,
+                contents);
+        }
 
         if (gems > 0 && !redeemed)
         {
@@ -2782,9 +2789,9 @@ public void SQL_OnMailAttachmentStateSet(Database db, DBResultSet results, const
 {
     DataPack pack = view_as<DataPack>(data);
     pack.Reset();
-    int userId = pack.ReadCell();
+    pack.ReadCell();
     int mailId = pack.ReadCell();
-    int state = pack.ReadCell();
+    pack.ReadCell();
     char attachmentType[MAIL_ATTACHMENT_MAX];
     pack.ReadString(attachmentType, sizeof(attachmentType));
     delete pack;
@@ -2798,11 +2805,6 @@ public void SQL_OnMailAttachmentStateSet(Database db, DBResultSet results, const
         return;
     }
 
-    int client = GetClientOfUserId(userId);
-    if (state == 1 && IsMailClient(client) && !StrEqual(attachmentType, "rtd"))
-    {
-        CPrintToChat(client, "%s Your mailed %s was redeemed.", MAIL_PREFIX, attachmentType);
-    }
 }
 
 bool ValidateNativeStringLength(int param, int maxlen)
