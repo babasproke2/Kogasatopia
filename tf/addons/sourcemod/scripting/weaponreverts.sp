@@ -1627,6 +1627,7 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 			&& attacker != victim && GetClientTeam(attacker) != GetClientTeam(victim))
 		{
 			FireSandmanMoonshot(attacker, victim);
+			PrintCenterTextAll("%N moonshot %N!", attacker, victim);
 		}
 	}
 
