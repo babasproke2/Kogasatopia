@@ -16,6 +16,12 @@
  */
 native bool PluginStats_Record(const char[] eventName, const char[] message = "");
 
+/** Returns the provider's latest one-second observed server tickrate. */
+native float PluginStats_GetObservedTickrate();
+
+/** Returns the server's expected tickrate derived from GetTickInterval(). */
+native float PluginStats_GetExpectedTickrate();
+
 public SharedPlugin __pl_plugin_statistics =
 {
     name = "plugin_statistics",
@@ -31,5 +37,7 @@ public SharedPlugin __pl_plugin_statistics =
 public void __pl_plugin_statistics_SetNTVOptional()
 {
     MarkNativeAsOptional("PluginStats_Record");
+    MarkNativeAsOptional("PluginStats_GetObservedTickrate");
+    MarkNativeAsOptional("PluginStats_GetExpectedTickrate");
 }
 #endif

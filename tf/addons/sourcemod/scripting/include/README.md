@@ -61,7 +61,7 @@ Large integration plugins may have large include blocks, but only when each depe
 
 ## Statistics timestamps
 
-The public `plugin_statistics.inc` API defers statistics writes to the Rust provider. The provider stamps Unix epoch timestamps, map-session context, and tickrate fields.
+The public `plugin_statistics.inc` API defers statistics writes to the Rust provider and exposes its observed and expected tickrate values. The provider stamps Unix epoch timestamps, map-session context, and tickrate fields.
 
 ## Current layout
 
