@@ -182,7 +182,7 @@ public void OnPluginStart()
     g_CvarCurrencyColor = CreateConVar("sm_points_store_currency_color", "cyan", "Multicolors tag name used for the currency prefix, without braces.");
     g_CvarSendCooldown = CreateConVar("sm_points_store_send_cooldown", "15.0", "Seconds a client must wait between successful !send currency transfers.", _, true, 0.0);
     g_CvarEnableWelfare = CreateConVar("sm_points_store_welfare", "1", "Enable welfare?", _, true, 0.0, true, 1.0);
-    g_CvarWelfareMinPlayers = CreateConVar("sm_points_store_welfare_min_players", "3", "Minimum GetClientCount(false) value required to collect welfare. 0 disables the requirement.", _, true, 0.0, true, 64.0);
+    g_CvarWelfareMinPlayers = CreateConVar("sm_points_store_welfare_min_players", "3", "Minimum number of human clients in game required to collect welfare. 0 disables the requirement.", _, true, 0.0, true, 64.0);
     g_CvarBountyMinPlayers = CreateConVar("sm_points_store_bounty_min_players", "6", "Minimum GetClientCount(false) required to place bounties and advance bounty playtime.", _, true, 0.0, true, 64.0);
     g_CvarBountyMinAmount = CreateConVar("sm_points_store_bounty_min_amount", "50", "Minimum Gem value of an individual bounty.", _, true, 1.0);
     g_CvarBountyMaxAmount = CreateConVar("sm_points_store_bounty_max_amount", "1000", "Maximum Gem value of an individual bounty, including kill growth.", _, true, 1.0);
@@ -1578,6 +1578,19 @@ int GetWelfareMinPlayers()
 
     int minPlayers = g_CvarWelfareMinPlayers.IntValue;
     return minPlayers > 0 ? minPlayers : 0;
+}
+
+int GetWelfareHumanPlayerCount()
+{
+    int count = 0;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (Client_IsHumanInGame(client))
+        {
+            count++;
+        }
+    }
+    return count;
 }
 
 void QueuePointsStoreEvent(const char[] message)
@@ -3455,7 +3468,7 @@ public Action Command_Welfare(int client, int args)
     }
 
     int minPlayers = GetWelfareMinPlayers();
-    if (minPlayers > 0 && GetClientCount(false) < minPlayers)
+    if (minPlayers > 0 && GetWelfareHumanPlayerCount() < minPlayers)
     {
         CPrintToChat(client, "%s Minimum playercount for welfare collection is {gold}%d", prefix, minPlayers);
         return Plugin_Handled;
