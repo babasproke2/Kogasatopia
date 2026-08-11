@@ -7,6 +7,11 @@
 #include <plugin_statistics>
 
 #define CHECKLAG_HEALTHY_TICKRATE 65.0
+#define CHECKLAG_MONITOR_INTERVAL 1.0
+#define CHECKLAG_ADMIN_ALERT_INTERVAL 4.0
+
+Handle g_AdminMonitorTimer = null;
+float g_NextAdminAlertAt = 0.0;
 
 public Plugin myinfo =
 {
@@ -24,6 +29,13 @@ public void OnPluginStart()
     RegConsoleCmd("sm_ddos", Command_CheckLag, "Broadcast the server tickrate.");
     AddCommandListener(Listener_Chat, "say");
     AddCommandListener(Listener_Chat, "say_team");
+    g_AdminMonitorTimer = CreateTimer(CHECKLAG_MONITOR_INTERVAL, Timer_MonitorTickrate, _, TIMER_REPEAT);
+}
+
+public void OnPluginEnd()
+{
+    delete g_AdminMonitorTimer;
+    g_AdminMonitorTimer = null;
 }
 
 bool IsWordCharacter(char value)
@@ -94,6 +106,44 @@ void PrintTickrateToClient(int client)
     char message[128];
     FormatTickrateMessage(message, sizeof(message));
     CPrintToChat(client, "%s", message);
+}
+
+public Action Timer_MonitorTickrate(Handle timer)
+{
+    float current = PluginStats_GetObservedTickrate();
+    if (current >= CHECKLAG_HEALTHY_TICKRATE)
+    {
+        return Plugin_Continue;
+    }
+
+    float now = GetEngineTime();
+    if (now < g_NextAdminAlertAt)
+    {
+        return Plugin_Continue;
+    }
+
+    float maximum = PluginStats_GetExpectedTickrate();
+    bool alerted = false;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client) || IsFakeClient(client)
+            || !(GetUserFlagBits(client) & ADMFLAG_ROOT))
+        {
+            continue;
+        }
+
+        CPrintToChat(client,
+            "{gold}[CheckLag] {green}(Admins){default} Lag detected: {salmon}%.1f/%.1f",
+            current,
+            maximum);
+        alerted = true;
+    }
+
+    if (alerted)
+    {
+        g_NextAdminAlertAt = now + CHECKLAG_ADMIN_ALERT_INTERVAL;
+    }
+    return Plugin_Continue;
 }
 
 public Action Listener_Chat(int client, const char[] command, int argc)
