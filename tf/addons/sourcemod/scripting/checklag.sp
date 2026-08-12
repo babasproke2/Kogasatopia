@@ -18,7 +18,7 @@ public Plugin myinfo =
     name = "CheckLag",
     author = "Hombre",
     description = "Reports the server's current and expected tickrate.",
-    version = "1.0.0",
+    version = "1.0.1",
     url = "https://kogasa.tf"
 };
 
@@ -123,7 +123,10 @@ public Action Timer_MonitorTickrate(Handle timer)
     }
 
     float maximum = PluginStats_GetExpectedTickrate();
-    bool alerted = false;
+    int serverTick = GetGameTickCount();
+    g_NextAdminAlertAt = now + CHECKLAG_ADMIN_ALERT_INTERVAL;
+    PluginStats_Record("tickrate_drop");
+
     for (int client = 1; client <= MaxClients; client++)
     {
         if (!IsClientInGame(client) || IsFakeClient(client)
@@ -133,15 +136,10 @@ public Action Timer_MonitorTickrate(Handle timer)
         }
 
         CPrintToChat(client,
-            "{gold}[CheckLag] {green}(Admins){default} Lag detected: {salmon}%.1f/%.1f",
+            "{gold}[CheckLag] {green}(Admins){default} Lag detected at Tick #%d: {salmon}%.1f/%.1f",
+            serverTick,
             current,
             maximum);
-        alerted = true;
-    }
-
-    if (alerted)
-    {
-        g_NextAdminAlertAt = now + CHECKLAG_ADMIN_ALERT_INTERVAL;
     }
     return Plugin_Continue;
 }
