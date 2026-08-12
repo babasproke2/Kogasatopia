@@ -943,6 +943,14 @@ public Action CommandListener_PointsStoreChatAlias(int client, const char[] comm
         return Command_LotteryPrizePool(client, 0);
     }
 
+    if (StrEqual(text, "daily", false)
+        || StrEqual(text, "dailies", false)
+        || StrEqual(text, "limit", false)
+        || StrEqual(text, "limits", false))
+    {
+        return Command_Dailies(client, 0);
+    }
+
     return Plugin_Continue;
 }
 
