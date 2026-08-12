@@ -129,6 +129,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
 public void OnPluginStart()
 {
     RegConsoleCmd("sm_mail", Command_Mail, "Open mail or send mail to a ranked player.");
+    RegConsoleCmd("sm_dm", Command_Mail, "Open mail or send mail to a ranked player.");
     RegConsoleCmd("sm_inbox", Command_Inbox, "Open your mail inbox.");
     RegConsoleCmd("sm_unread", Command_Unread, "Open unread mail.");
     RegConsoleCmd("sm_readall", Command_ReadAll, "Mark all received mail as read.");
