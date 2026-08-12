@@ -58,6 +58,9 @@
 #define GRADIENT_NAME_ACCESS_ITEM "gradient_name_access"
 #define TRIPLE_GRADIENT_ACCESS_ITEM "triple_gradient_upgrade"
 #define CHAT_PREFIX_MAXLEN 128
+#define PARSEE_STEAMID64 "76561199812613650"
+#define PARSEE_STEAMID2 "STEAM_0:0:926173961"
+#define PARSEE_FALLBACK_NAME "Mizuhashi Parsee"
 
 // Player state structure
 enum struct PlayerState
@@ -175,6 +178,7 @@ ConVar g_hHostPortCvar = null;
 int g_iHostPort = 27015;
 bool g_bOutboxStampReady = false;
 int g_iPendingSchemaQueries = 0;
+int g_iParseeMessageCount = 0;
 int g_iLastOutboxCleanup = 0;
 int g_iLastChatCleanup = 0;
 
@@ -585,6 +589,9 @@ static void Filters_RegisterCommands()
     RegConsoleCmd("sm_gm", Command_GradientMenu, "Adjust where the second gradient color becomes full.");
     RegConsoleCmd("sm_prename", Command_Prename, "sm_prename <name_substring|steamid> <newname> (admins) or sm_prename <newname> (self)");
     RegConsoleCmd("sm_reset", Command_PrenameReset, "sm_reset <name|steamid> (admins) or sm_reset (self)");
+    RegConsoleCmd("sm_parsee", Command_RandomParseeMessage, "Print a random archived Parsee message.");
+    RegConsoleCmd("sm_randomparsee", Command_RandomParseeMessage, "Print a random archived Parsee message.");
+    RegConsoleCmd("sm_randomparseemessage", Command_RandomParseeMessage, "Print a random archived Parsee message.");
     RegAdminCmd("sm_migrate", Command_PrenameMigrate, ADMFLAG_SLAY, "sm_migrate - Migrates legacy name rules to SteamID rules for connected clients");
 
     RegConsoleCmd("sm_websay", Command_WebSay, "Relay a web chat message to all players");
@@ -858,7 +865,8 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         ... "INDEX(updated_at)) DEFAULT CHARSET=utf8mb4",
         "CREATE TABLE IF NOT EXISTS filters_namecolors (steamid VARCHAR(32) PRIMARY KEY, color VARCHAR(32) NOT NULL DEFAULT '', pattern VARCHAR(96) NOT NULL DEFAULT '', updated_at INT NOT NULL DEFAULT 0)",
         "ALTER TABLE filters_namecolors ADD COLUMN IF NOT EXISTS pattern VARCHAR(96) NOT NULL DEFAULT '' AFTER color",
-        "ALTER TABLE filters_namecolors MODIFY COLUMN pattern VARCHAR(96) NOT NULL DEFAULT ''"
+        "ALTER TABLE filters_namecolors MODIFY COLUMN pattern VARCHAR(96) NOT NULL DEFAULT ''",
+        "CREATE TABLE IF NOT EXISTS parsee_messages (date DATETIME NOT NULL, message TEXT NOT NULL, INDEX(date)) DEFAULT CHARSET=utf8mb4"
     };
 
     g_iPendingSchemaQueries = sizeof(schemaQueries);
@@ -922,7 +930,111 @@ public void Filters_SchemaQueryCallback(Database db, DBResultSet results, const 
         {
             Filters_PrenameLoadRules();
         }
+        Filters_RefreshParseeMessageCount();
     }
+}
+
+static void Filters_RefreshParseeMessageCount()
+{
+    g_iParseeMessageCount = 0;
+    if (!Filters_DbAvailable())
+    {
+        return;
+    }
+
+    g_hFiltersDb.Query(Filters_ParseeMessageCountCallback, "SELECT COUNT(*) FROM parsee_messages");
+}
+
+public void Filters_ParseeMessageCountCallback(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[Filters] Failed to count Parsee messages: %s", error);
+        return;
+    }
+
+    if (results != null && results.FetchRow())
+    {
+        g_iParseeMessageCount = results.FetchInt(0);
+    }
+}
+
+public Action Command_RandomParseeMessage(int client, int args)
+{
+    if (!Filters_DbAvailable() || g_iParseeMessageCount <= 0)
+    {
+        if (client > 0)
+        {
+            CPrintToChat(client, "{default}[Filters] No archived Parsee messages are available.");
+        }
+        Filters_RefreshParseeMessageCount();
+        return Plugin_Handled;
+    }
+
+    int offset = GetRandomInt(0, g_iParseeMessageCount - 1);
+    char query[1536];
+    Format(query, sizeof(query),
+        "SELECT p.message, "
+        ... "COALESCE((SELECT newname FROM prename_rules WHERE pattern IN ('%s', '%s') ORDER BY (pattern = '%s') DESC LIMIT 1), NULLIF(sn.last_name, ''), '%s'), "
+        ... "COALESCE(nc.color, ''), COALESCE(nc.pattern, '') "
+        ... "FROM (SELECT message FROM parsee_messages LIMIT 1 OFFSET %d) p "
+        ... "LEFT JOIN filters_steam_names sn ON sn.steamid64 = '%s' "
+        ... "LEFT JOIN filters_namecolors nc ON nc.steamid = '%s' LIMIT 1",
+        PARSEE_STEAMID64,
+        PARSEE_STEAMID2,
+        PARSEE_STEAMID64,
+        PARSEE_FALLBACK_NAME,
+        offset,
+        PARSEE_STEAMID64,
+        PARSEE_STEAMID64);
+    g_hFiltersDb.Query(Filters_RandomParseeMessageCallback, query);
+    return Plugin_Handled;
+}
+
+public void Filters_RandomParseeMessageCallback(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[Filters] Failed to load a random Parsee message: %s", error);
+        return;
+    }
+    if (results == null || !results.FetchRow())
+    {
+        Filters_RefreshParseeMessageCount();
+        return;
+    }
+
+    char message[512];
+    char displayName[PRENAME_MAX_RENAME];
+    char color[32];
+    char pattern[NAME_PATTERN_MAX];
+    results.FetchString(0, message, sizeof(message));
+    results.FetchString(1, displayName, sizeof(displayName));
+    results.FetchString(2, color, sizeof(color));
+    results.FetchString(3, pattern, sizeof(pattern));
+    TrimString(displayName);
+    TrimString(color);
+    TrimString(pattern);
+    ToLowercase(color);
+    ToLowercase(pattern);
+
+    char renderedName[256];
+    int target = 0;
+    if (Filters_FindClientBySteamId64(PARSEE_STEAMID64, target))
+    {
+        GetClientName(target, displayName, sizeof(displayName));
+        BuildRenderedClientName(target, renderedName, sizeof(renderedName));
+    }
+    else
+    {
+        BuildRenderedStoredName(displayName, color, pattern, renderedName, sizeof(renderedName));
+    }
+
+    char output[768];
+    Format(output, sizeof(output), "%s{default} : %s", renderedName, message);
+    Filters_PrintToChatAll(output);
+    PrintToServer("%s", output);
+    Filters_LogAttributedChat(PARSEE_STEAMID64, displayName, message, output);
 }
 
 // Poll DB outbox and atomically claim one delivery row per server.
@@ -1339,6 +1451,37 @@ void Filters_LogChatMessage(int client, const char[] message)
     g_hFiltersDb.Query(Filters_InsertChatCallback, query);
     Filters_LogDebug("Logged chat from %s: %s", hasSteam ? steamId : "unknown", message);
     Filters_RelayChatToServers(client, message);
+}
+
+static void Filters_LogAttributedChat(const char[] steamId64, const char[] displayName, const char[] message, const char[] relayMessage)
+{
+    if (!Filters_DbAvailable())
+    {
+        return;
+    }
+
+    char escapedSteam[64];
+    char escapedName[PRENAME_MAX_RENAME * 2];
+    char sanitizedMsg[512];
+    char escapedMsg[1024];
+    Db_Escape(g_hFiltersDb, steamId64, escapedSteam, sizeof(escapedSteam), "filters");
+    Db_Escape(g_hFiltersDb, displayName, escapedName, sizeof(escapedName), "filters");
+    Filters_SanitizeDbMessage(message, sanitizedMsg, sizeof(sanitizedMsg));
+    Db_Escape(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg), "filters");
+
+    int timestamp = GetTime();
+    char query[1536];
+    Format(query, sizeof(query),
+        "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, '%s', '%s', NULL, '%s', 1)",
+        timestamp,
+        escapedSteam,
+        escapedName,
+        escapedMsg);
+    g_hFiltersDb.Query(Filters_InsertChatCallback, query);
+
+    char hash[64];
+    Format(hash, sizeof(hash), "player:%s", steamId64);
+    Filters_QueueOutboxMessage(timestamp, hash, displayName, relayMessage, false, true);
 }
 
 public void Filters_InsertChatCallback(Database db, DBResultSet results, const char[] error, any data)
@@ -3046,6 +3189,72 @@ static void BuildRainbowName(const char[] name, char[] output, int maxlen)
     BuildPaletteName(name, colors, sizeof(colors), output, maxlen);
 }
 
+static bool BuildPatternedName(const char[] name, const char[] pattern, char[] output, int maxlen)
+{
+    if (IsAmericaNamePattern(pattern))
+    {
+        BuildAmericaName(name, output, maxlen);
+        return true;
+    }
+    if (IsMapNamePattern(pattern))
+    {
+        BuildMapName(name, output, maxlen);
+        return true;
+    }
+    if (IsTransNamePattern(pattern))
+    {
+        BuildTransName(name, output, maxlen);
+        return true;
+    }
+    if (IsRainbowNamePattern(pattern))
+    {
+        BuildRainbowName(name, output, maxlen);
+        return true;
+    }
+
+    char firstColor[32];
+    char secondColor[32];
+    char thirdColor[32];
+    if (ParseTripleGradientNamePattern(
+        pattern,
+        firstColor,
+        sizeof(firstColor),
+        secondColor,
+        sizeof(secondColor),
+        thirdColor,
+        sizeof(thirdColor)))
+    {
+        BuildTripleGradientName(name, firstColor, secondColor, thirdColor, output, maxlen);
+        return true;
+    }
+
+    int completionPercent;
+    if (ParseGradientNamePattern(pattern, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor), completionPercent))
+    {
+        BuildGradientName(name, firstColor, secondColor, completionPercent, output, maxlen);
+        return true;
+    }
+
+    return false;
+}
+
+static void BuildRenderedStoredName(const char[] name, const char[] color, const char[] pattern, char[] output, int maxlen)
+{
+    output[0] = '\0';
+    if (pattern[0] && BuildPatternedName(name, pattern, output, maxlen))
+    {
+        return;
+    }
+
+    if (color[0] && CColorExists(color))
+    {
+        Format(output, maxlen, "{%s}%s{default}", color, name);
+        return;
+    }
+
+    Format(output, maxlen, "{default}%s", name);
+}
+
 static void BuildRenderedClientName(int client, char[] output, int maxlen)
 {
     output[0] = '\0';
@@ -3059,51 +3268,10 @@ static void BuildRenderedClientName(int client, char[] output, int maxlen)
     GetClientName(client, name, sizeof(name));
 
     char pattern[NAME_PATTERN_MAX];
-    if (GetActiveNamePattern(client, pattern, sizeof(pattern)))
+    if (GetActiveNamePattern(client, pattern, sizeof(pattern))
+        && BuildPatternedName(name, pattern, output, maxlen))
     {
-        if (IsAmericaNamePattern(pattern))
-        {
-            BuildAmericaName(name, output, maxlen);
-            return;
-        }
-        if (IsMapNamePattern(pattern))
-        {
-            BuildMapName(name, output, maxlen);
-            return;
-        }
-        if (IsTransNamePattern(pattern))
-        {
-            BuildTransName(name, output, maxlen);
-            return;
-        }
-        if (IsRainbowNamePattern(pattern))
-        {
-            BuildRainbowName(name, output, maxlen);
-            return;
-        }
-
-        char firstColor[32];
-        char secondColor[32];
-        char thirdColor[32];
-        if (ParseTripleGradientNamePattern(
-            pattern,
-            firstColor,
-            sizeof(firstColor),
-            secondColor,
-            sizeof(secondColor),
-            thirdColor,
-            sizeof(thirdColor)))
-        {
-            BuildTripleGradientName(name, firstColor, secondColor, thirdColor, output, maxlen);
-            return;
-        }
-
-        int completionPercent;
-        if (ParseGradientNamePattern(pattern, firstColor, sizeof(firstColor), secondColor, sizeof(secondColor), completionPercent))
-        {
-            BuildGradientName(name, firstColor, secondColor, completionPercent, output, maxlen);
-            return;
-        }
+        return;
     }
 
     BuildColorOnlyClientName(client, output, maxlen);
