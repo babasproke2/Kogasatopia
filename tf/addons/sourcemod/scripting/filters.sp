@@ -61,6 +61,16 @@
 #define PARSEE_STEAMID64 "76561199812613650"
 #define PARSEE_STEAMID2 "STEAM_0:0:926173961"
 #define PARSEE_FALLBACK_NAME "Mizuhashi Parsee"
+#define MEMOMAN_STEAMID64 "76561199873606169"
+#define MEMOMAN_STEAMID2 "STEAM_0:1:956670220"
+#define MEMOMAN_FALLBACK_NAME "Memoman"
+
+enum ArchivedSpeaker
+{
+    ArchivedSpeaker_Parsee = 0,
+    ArchivedSpeaker_Memoman,
+    ArchivedSpeaker_Count
+};
 
 // Player state structure
 enum struct PlayerState
@@ -178,8 +188,8 @@ ConVar g_hHostPortCvar = null;
 int g_iHostPort = 27015;
 bool g_bOutboxStampReady = false;
 int g_iPendingSchemaQueries = 0;
-int g_iParseeMessageCount = 0;
-float g_fNextParseeMessageTime[MAXPLAYERS + 1];
+int g_iArchivedMessageCounts[ArchivedSpeaker_Count];
+float g_fNextArchivedMessageTime[MAXPLAYERS + 1];
 int g_iLastOutboxCleanup = 0;
 int g_iLastChatCleanup = 0;
 
@@ -593,6 +603,9 @@ static void Filters_RegisterCommands()
     RegConsoleCmd("sm_parsee", Command_RandomParseeMessage, "Print a random archived Parsee message.");
     RegConsoleCmd("sm_randomparsee", Command_RandomParseeMessage, "Print a random archived Parsee message.");
     RegConsoleCmd("sm_randomparseemessage", Command_RandomParseeMessage, "Print a random archived Parsee message.");
+    RegConsoleCmd("sm_memoman", Command_RandomMemomanMessage, "Print a random archived Memoman message.");
+    RegConsoleCmd("sm_memo", Command_RandomMemomanMessage, "Print a random archived Memoman message.");
+    RegConsoleCmd("sm_bruh", Command_RandomMemomanMessage, "Print a random archived Memoman message.");
     RegAdminCmd("sm_migrate", Command_PrenameMigrate, ADMFLAG_SLAY, "sm_migrate - Migrates legacy name rules to SteamID rules for connected clients");
 
     RegConsoleCmd("sm_websay", Command_WebSay, "Relay a web chat message to all players");
@@ -867,7 +880,8 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         "CREATE TABLE IF NOT EXISTS filters_namecolors (steamid VARCHAR(32) PRIMARY KEY, color VARCHAR(32) NOT NULL DEFAULT '', pattern VARCHAR(96) NOT NULL DEFAULT '', updated_at INT NOT NULL DEFAULT 0)",
         "ALTER TABLE filters_namecolors ADD COLUMN IF NOT EXISTS pattern VARCHAR(96) NOT NULL DEFAULT '' AFTER color",
         "ALTER TABLE filters_namecolors MODIFY COLUMN pattern VARCHAR(96) NOT NULL DEFAULT ''",
-        "CREATE TABLE IF NOT EXISTS parsee_messages (date DATETIME NOT NULL, message TEXT NOT NULL, INDEX(date)) DEFAULT CHARSET=utf8mb4"
+        "CREATE TABLE IF NOT EXISTS parsee_messages (date DATETIME NOT NULL, message TEXT NOT NULL, INDEX(date)) DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS memoman_messages (date DATETIME NOT NULL, message TEXT NOT NULL, INDEX(date)) DEFAULT CHARSET=utf8mb4"
     };
 
     g_iPendingSchemaQueries = sizeof(schemaQueries);
@@ -931,60 +945,112 @@ public void Filters_SchemaQueryCallback(Database db, DBResultSet results, const 
         {
             Filters_PrenameLoadRules();
         }
-        Filters_RefreshParseeMessageCount();
+        Filters_RefreshArchivedMessageCount(ArchivedSpeaker_Parsee);
+        Filters_RefreshArchivedMessageCount(ArchivedSpeaker_Memoman);
     }
 }
 
-static void Filters_RefreshParseeMessageCount(int requesterUserId = 0)
+static void Filters_GetArchivedSpeakerDetails(
+    ArchivedSpeaker speaker,
+    char[] table,
+    int tableLen,
+    char[] steamId64,
+    int steam64Len,
+    char[] steamId2,
+    int steam2Len,
+    char[] fallbackName,
+    int nameLen)
 {
-    g_iParseeMessageCount = 0;
+    if (speaker == ArchivedSpeaker_Memoman)
+    {
+        strcopy(table, tableLen, "memoman_messages");
+        strcopy(steamId64, steam64Len, MEMOMAN_STEAMID64);
+        strcopy(steamId2, steam2Len, MEMOMAN_STEAMID2);
+        strcopy(fallbackName, nameLen, MEMOMAN_FALLBACK_NAME);
+        return;
+    }
+
+    strcopy(table, tableLen, "parsee_messages");
+    strcopy(steamId64, steam64Len, PARSEE_STEAMID64);
+    strcopy(steamId2, steam2Len, PARSEE_STEAMID2);
+    strcopy(fallbackName, nameLen, PARSEE_FALLBACK_NAME);
+}
+
+static void Filters_RefreshArchivedMessageCount(ArchivedSpeaker speaker, int requesterUserId = 0)
+{
+    g_iArchivedMessageCounts[speaker] = 0;
     if (!Filters_DbAvailable())
     {
         return;
     }
 
-    g_hFiltersDb.Query(Filters_ParseeMessageCountCallback, "SELECT COUNT(*) FROM parsee_messages", requesterUserId);
+    char table[32], steam64[32], steam2[32], fallbackName[PRENAME_MAX_RENAME];
+    Filters_GetArchivedSpeakerDetails(speaker, table, sizeof(table), steam64, sizeof(steam64), steam2, sizeof(steam2), fallbackName, sizeof(fallbackName));
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(speaker);
+    pack.WriteCell(requesterUserId);
+
+    char query[96];
+    Format(query, sizeof(query), "SELECT COUNT(*) FROM %s", table);
+    g_hFiltersDb.Query(Filters_ArchivedMessageCountCallback, query, pack);
 }
 
-public void Filters_ParseeMessageCountCallback(Database db, DBResultSet results, const char[] error, any data)
+public void Filters_ArchivedMessageCountCallback(Database db, DBResultSet results, const char[] error, any data)
 {
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    ArchivedSpeaker speaker = pack.ReadCell();
+    int requesterUserId = pack.ReadCell();
+    delete pack;
+
     if (error[0] != '\0')
     {
-        LogError("[Filters] Failed to count Parsee messages: %s", error);
+        LogError("[Filters] Failed to count archived messages: %s", error);
         return;
     }
 
     if (results != null && results.FetchRow())
     {
-        g_iParseeMessageCount = results.FetchInt(0);
+        g_iArchivedMessageCounts[speaker] = results.FetchInt(0);
     }
 
-    if (data == 0)
+    if (requesterUserId == 0)
     {
         return;
     }
 
-    int client = data > 0 ? GetClientOfUserId(data) : 0;
-    if (data > 0 && client <= 0)
+    int client = requesterUserId > 0 ? GetClientOfUserId(requesterUserId) : 0;
+    if (requesterUserId > 0 && client <= 0)
     {
         return;
     }
 
-    if (g_iParseeMessageCount <= 0)
+    if (g_iArchivedMessageCounts[speaker] <= 0)
     {
         if (client > 0)
         {
-            CPrintToChat(client, "{default}[Filters] No archived Parsee messages are available.");
+            CPrintToChat(client, "{default}[Filters] No archived messages are available.");
         }
         return;
     }
 
-    Filters_QueryRandomParseeMessage();
+    Filters_QueryRandomArchivedMessage(speaker);
 }
 
 public Action Command_RandomParseeMessage(int client, int args)
 {
-    if (client > 0 && GetGameTime() < g_fNextParseeMessageTime[client])
+    return Filters_CommandRandomArchivedMessage(client, ArchivedSpeaker_Parsee);
+}
+
+public Action Command_RandomMemomanMessage(int client, int args)
+{
+    return Filters_CommandRandomArchivedMessage(client, ArchivedSpeaker_Memoman);
+}
+
+static Action Filters_CommandRandomArchivedMessage(int client, ArchivedSpeaker speaker)
+{
+    if (client > 0 && GetGameTime() < g_fNextArchivedMessageTime[client])
     {
         return Plugin_Handled;
     }
@@ -1000,52 +1066,60 @@ public Action Command_RandomParseeMessage(int client, int args)
 
     if (client > 0)
     {
-        g_fNextParseeMessageTime[client] = GetGameTime() + 10.0;
+        g_fNextArchivedMessageTime[client] = GetGameTime() + 10.0;
     }
 
-    if (g_iParseeMessageCount <= 0)
+    if (g_iArchivedMessageCounts[speaker] <= 0)
     {
-        Filters_RefreshParseeMessageCount(client > 0 ? GetClientUserId(client) : -1);
+        Filters_RefreshArchivedMessageCount(speaker, client > 0 ? GetClientUserId(client) : -1);
         return Plugin_Handled;
     }
 
-    Filters_QueryRandomParseeMessage();
+    Filters_QueryRandomArchivedMessage(speaker);
     return Plugin_Handled;
 }
 
-static void Filters_QueryRandomParseeMessage()
+static void Filters_QueryRandomArchivedMessage(ArchivedSpeaker speaker)
 {
-    int offset = GetRandomInt(0, g_iParseeMessageCount - 1);
+    char table[32], steam64[32], steam2[32], fallbackName[PRENAME_MAX_RENAME];
+    Filters_GetArchivedSpeakerDetails(speaker, table, sizeof(table), steam64, sizeof(steam64), steam2, sizeof(steam2), fallbackName, sizeof(fallbackName));
+
+    int offset = GetRandomInt(0, g_iArchivedMessageCounts[speaker] - 1);
     char query[1536];
     Format(query, sizeof(query),
         "SELECT p.message, "
         ... "COALESCE((SELECT newname FROM prename_rules WHERE pattern IN ('%s', '%s') ORDER BY (pattern = '%s') DESC LIMIT 1), NULLIF(sn.last_name, ''), '%s'), "
         ... "COALESCE(nc.color, ''), COALESCE(nc.pattern, '') "
-        ... "FROM (SELECT message FROM parsee_messages LIMIT 1 OFFSET %d) p "
+        ... "FROM (SELECT message FROM %s LIMIT 1 OFFSET %d) p "
         ... "LEFT JOIN filters_steam_names sn ON sn.steamid64 = '%s' "
         ... "LEFT JOIN filters_namecolors nc ON nc.steamid = '%s' LIMIT 1",
-        PARSEE_STEAMID64,
-        PARSEE_STEAMID2,
-        PARSEE_STEAMID64,
-        PARSEE_FALLBACK_NAME,
+        steam64,
+        steam2,
+        steam64,
+        fallbackName,
+        table,
         offset,
-        PARSEE_STEAMID64,
-        PARSEE_STEAMID64);
-    g_hFiltersDb.Query(Filters_RandomParseeMessageCallback, query);
+        steam64,
+        steam64);
+    g_hFiltersDb.Query(Filters_RandomArchivedMessageCallback, query, speaker);
 }
 
-public void Filters_RandomParseeMessageCallback(Database db, DBResultSet results, const char[] error, any data)
+public void Filters_RandomArchivedMessageCallback(Database db, DBResultSet results, const char[] error, any data)
 {
+    ArchivedSpeaker speaker = view_as<ArchivedSpeaker>(data);
     if (error[0] != '\0')
     {
-        LogError("[Filters] Failed to load a random Parsee message: %s", error);
+        LogError("[Filters] Failed to load a random archived message: %s", error);
         return;
     }
     if (results == null || !results.FetchRow())
     {
-        Filters_RefreshParseeMessageCount();
+        Filters_RefreshArchivedMessageCount(speaker);
         return;
     }
+
+    char table[32], steam64[32], steam2[32], fallbackName[PRENAME_MAX_RENAME];
+    Filters_GetArchivedSpeakerDetails(speaker, table, sizeof(table), steam64, sizeof(steam64), steam2, sizeof(steam2), fallbackName, sizeof(fallbackName));
 
     char message[512];
     char displayName[PRENAME_MAX_RENAME];
@@ -1063,7 +1137,7 @@ public void Filters_RandomParseeMessageCallback(Database db, DBResultSet results
 
     char renderedName[256];
     int target = 0;
-    if (Filters_FindClientBySteamId64(PARSEE_STEAMID64, target))
+    if (Filters_FindClientBySteamId64(steam64, target))
     {
         GetClientName(target, displayName, sizeof(displayName));
         if (HasValidNamePattern(target) || g_NameColors[target][0])
@@ -1089,7 +1163,7 @@ public void Filters_RandomParseeMessageCallback(Database db, DBResultSet results
     Format(output, sizeof(output), "%s{default} : %s", renderedName, message);
     Filters_PrintToChatAll(output);
     PrintToServer("%s", output);
-    Filters_LogAttributedChat(PARSEE_STEAMID64, displayName, message, output);
+    Filters_LogAttributedChat(steam64, displayName, message, output);
 }
 
 // Poll DB outbox and atomically claim one delivery row per server.
