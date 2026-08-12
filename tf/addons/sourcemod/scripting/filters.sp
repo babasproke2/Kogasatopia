@@ -1052,6 +1052,12 @@ static Action Filters_CommandRandomArchivedMessage(int client, ArchivedSpeaker s
 {
     if (client > 0 && GetGameTime() < g_fNextArchivedMessageTime[client])
     {
+        char displayName[PRENAME_MAX_RENAME];
+        strcopy(displayName, sizeof(displayName), speaker == ArchivedSpeaker_Memoman ? "Memoman" : "Parsee");
+        char color[8];
+        strcopy(color, sizeof(color), GetRandomInt(0, 1) == 0 ? "red" : "blue");
+        int secondsRemaining = RoundToCeil(g_fNextArchivedMessageTime[client] - GetGameTime());
+        CPrintToChat(client, "{gold}[Filters] {%s}%s{default} is on cooldown! (%ds)", color, displayName, secondsRemaining);
         return Plugin_Handled;
     }
 
@@ -1158,7 +1164,6 @@ public void Filters_RandomArchivedMessageCallback(Database db, DBResultSet resul
         }
         BuildRenderedStoredName(displayName, color, pattern, renderedName, sizeof(renderedName));
     }
-
     char output[768];
     Format(output, sizeof(output), "%s{default} : %s", renderedName, message);
     Filters_PrintToChatAll(output);
