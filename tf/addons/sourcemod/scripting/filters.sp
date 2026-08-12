@@ -1023,10 +1023,22 @@ public void Filters_RandomParseeMessageCallback(Database db, DBResultSet results
     if (Filters_FindClientBySteamId64(PARSEE_STEAMID64, target))
     {
         GetClientName(target, displayName, sizeof(displayName));
-        BuildRenderedClientName(target, renderedName, sizeof(renderedName));
+        if (HasValidNamePattern(target) || g_NameColors[target][0])
+        {
+            BuildRenderedClientName(target, renderedName, sizeof(renderedName));
+        }
+        else
+        {
+            strcopy(color, sizeof(color), GetRandomInt(0, 1) == 0 ? "red" : "blue");
+            BuildRenderedStoredName(displayName, color, "", renderedName, sizeof(renderedName));
+        }
     }
     else
     {
+        if (!IsValidNamePattern(pattern) && !color[0])
+        {
+            strcopy(color, sizeof(color), GetRandomInt(0, 1) == 0 ? "red" : "blue");
+        }
         BuildRenderedStoredName(displayName, color, pattern, renderedName, sizeof(renderedName));
     }
 
