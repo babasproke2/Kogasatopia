@@ -190,7 +190,7 @@ int g_iHostPort = 27015;
 bool g_bOutboxStampReady = false;
 int g_iPendingSchemaQueries = 0;
 int g_iArchivedMessageCounts[ArchivedSpeaker_Count];
-float g_fNextArchivedMessageTime[MAXPLAYERS + 1];
+int g_iNextArchivedMessageTime[MAXPLAYERS + 1];
 int g_iLastOutboxCleanup = 0;
 int g_iLastChatCleanup = 0;
 
@@ -1051,13 +1051,14 @@ public Action Command_RandomMemomanMessage(int client, int args)
 
 static Action Filters_CommandRandomArchivedMessage(int client, ArchivedSpeaker speaker)
 {
-    if (client > 0 && GetGameTime() < g_fNextArchivedMessageTime[client])
+    int now = GetTime();
+    if (client > 0 && now < g_iNextArchivedMessageTime[client])
     {
         char displayName[PRENAME_MAX_RENAME];
         strcopy(displayName, sizeof(displayName), speaker == ArchivedSpeaker_Memoman ? "Memoman" : "Parsee");
         char color[8];
         strcopy(color, sizeof(color), GetRandomInt(0, 1) == 0 ? "red" : "blue");
-        int secondsRemaining = RoundToCeil(g_fNextArchivedMessageTime[client] - GetGameTime());
+        int secondsRemaining = g_iNextArchivedMessageTime[client] - now;
         CPrintToChat(client, "{gold}[Filters] {%s}%s{default} is on cooldown! (%ds)", color, displayName, secondsRemaining);
         return Plugin_Handled;
     }
@@ -1073,7 +1074,7 @@ static Action Filters_CommandRandomArchivedMessage(int client, ArchivedSpeaker s
 
     if (client > 0)
     {
-        g_fNextArchivedMessageTime[client] = GetGameTime() + 10.0;
+        g_iNextArchivedMessageTime[client] = now + 10;
     }
 
     if (g_iArchivedMessageCounts[speaker] <= 0)
@@ -4648,11 +4649,13 @@ public void Filters_OnMuteDeafenChanged(ConVar convar, const char[] oldValue, co
 
 public void OnClientPutInServer(int client)
 {
+    g_iNextArchivedMessageTime[client] = 0;
     Filters_ResetExternalStats(client);
 }
 
 public void OnClientDisconnect(int client)
 {
+    g_iNextArchivedMessageTime[client] = 0;
     Filters_ClearClientState(client);
     Filters_ResetExternalStats(client);
     g_MuteDeafened[client] = false;
