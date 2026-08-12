@@ -19,6 +19,7 @@
 
 #define PL_VERSION "1.0.2"
 #define CLASSLIMITS_STATS_INTERVAL 180.0
+#define CLASSLIMITS_CONFIG "configs/classlimits.cfg"
 
 #define TF_CLASS_DEMOMAN        4
 #define TF_CLASS_ENGINEER       9
@@ -57,6 +58,7 @@ ConVar g_hRestrictHeaviesPcount;
 ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[64] = "this map";
 Handle g_hClassStatsTimer = null;
+StringMap g_ClassBans = null;
 
 static const char g_ClassNames[TF_CLASS_ENGINEER + 1][16] = {
     "Unknown", "Scout", "Sniper", "Soldier", "Demoman",
@@ -74,6 +76,8 @@ char g_sSounds[TF_CLASS_ENGINEER + 1][24] = {"", "vo/scout_no03.mp3",   "vo/snip
 
 public void OnPluginStart()
 {
+    g_ClassBans = new StringMap();
+
     CreateConVar("classlimits_version", PL_VERSION, "Restrict classes in TF2.", FCVAR_NOTIFY);
     g_hEnabled      = CreateConVar("restrict_enabled",     "1", "Enable or disable class limits.");
     g_hFlags        = CreateConVar("restrict_flags",       "z", "Admin flags allowed to bypass class limits.");
@@ -136,6 +140,7 @@ public void OnPluginEnd()
         g_hClassStatsTimer = null;
     }
 
+    delete g_ClassBans;
 }
 
 public void OnClientPutInServer(int client)
@@ -279,6 +284,7 @@ bool ShouldDisplayClassInList(int classId)
 
 public void OnConfigsExecuted()
 {
+    LoadClassBans();
     UpdateGameModeName();
 }
 
@@ -289,7 +295,7 @@ public void Event_PlayerClass(Event event, const char[] name, bool dontBroadcast
     int iTeam   = GetClientTeam(iClient);
 
     int limit;
-    if (!IsClassLimitImmune(iClient) && IsClassAtLimit(iTeam, iClass, limit))
+    if (IsClientClassRestricted(iClient, iTeam, iClass, limit))
     {
         if (iClass >= 0 && iClass < sizeof(g_sSounds) && g_sSounds[iClass][0])
             EmitSoundToClient(iClient, g_sSounds[iClass]);
@@ -321,7 +327,7 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
     g_iClass[iClient] = view_as<int>(TF2_GetPlayerClass(iClient));
 
     int limit;
-    if (!IsClassLimitImmune(iClient) && IsClassAtLimit(iTeam, g_iClass[iClient], limit))
+    if (IsClientClassRestricted(iClient, iTeam, g_iClass[iClient], limit))
     {
         if (g_iForcedRespawnAttempts[iClient] >= 3) return;
 
@@ -342,7 +348,7 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
     int iTeam   = event.GetInt("team");
 
     int limit;
-    if (!IsClassLimitImmune(iClient) && IsClassAtLimit(iTeam, g_iClass[iClient], limit))
+    if (IsClientClassRestricted(iClient, iTeam, g_iClass[iClient], limit))
     {
         if (g_iClass[iClient] >= 0 && g_iClass[iClient] < sizeof(g_sSounds) && g_sSounds[g_iClass[iClient]][0])
             EmitSoundToClient(iClient, g_sSounds[g_iClass[iClient]]);
@@ -401,6 +407,36 @@ static bool IsClassLimitImmune(int client)
 {
     if (g_hTopScore.BoolValue && IsTopTeamScorer(client)) return true;
     return g_hImmunity.BoolValue && IsImmune(client);
+}
+
+static bool IsClientClassRestricted(int client, int team, int classId, int &limitOut)
+{
+    limitOut = -1;
+    if (!g_hEnabled.BoolValue)
+        return false;
+
+    if (IsClientClassBanned(client, classId))
+    {
+        limitOut = 0;
+        return true;
+    }
+
+    return !IsClassLimitImmune(client) && IsClassAtLimit(team, classId, limitOut);
+}
+
+static bool IsClientClassBanned(int client, int classId)
+{
+    if (g_ClassBans == null || client <= 0 || !IsClientInGame(client)
+        || classId < TF_CLASS_SCOUT || classId > TF_CLASS_ENGINEER)
+    {
+        return false;
+    }
+
+    char steamId[KOGASA_STEAMID_MAX];
+    int classMask;
+    return Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId))
+        && g_ClassBans.GetValue(steamId, classMask)
+        && (classMask & (1 << classId)) != 0;
 }
 
 static int GetHumanTeamClientCount(int team)
@@ -494,7 +530,7 @@ void PickClass(int iClient)
     for (int i = GetRandomInt(TF_CLASS_SCOUT, TF_CLASS_ENGINEER), iClass = i, iTeam = GetClientTeam(iClient);;)
     {
         int limit;
-        if (!IsClassAtLimit(iTeam, i, limit))
+        if (!IsClientClassRestricted(iClient, iTeam, i, limit))
         {
             g_iForcedRespawnAttempts[iClient]++;
             g_bForcedRespawn[iClient] = true;
@@ -508,6 +544,74 @@ void PickClass(int iClient)
         else if (i == iClass)
             break;
     }
+}
+
+void LoadClassBans()
+{
+    g_ClassBans.Clear();
+
+    char path[PLATFORM_MAX_PATH];
+    BuildPath(Path_SM, path, sizeof(path), CLASSLIMITS_CONFIG);
+
+    KeyValues config = new KeyValues("classBans");
+    if (!config.ImportFromFile(path))
+    {
+        LogError("[Class Limits] Unable to read %s.", path);
+        delete config;
+        return;
+    }
+
+    if (config.GotoFirstSubKey(false))
+    {
+        do
+        {
+            char steamId[KOGASA_STEAMID_MAX];
+            char classList[160];
+            config.GetSectionName(steamId, sizeof(steamId));
+            config.GetString(NULL_STRING, classList, sizeof(classList));
+
+            int classMask = ParseClassBanList(classList);
+            if (classMask != 0)
+            {
+                g_ClassBans.SetValue(steamId, classMask, true);
+            }
+        }
+        while (config.GotoNextKey(false));
+    }
+
+    delete config;
+}
+
+int ParseClassBanList(const char[] classList)
+{
+    char entries[TF_CLASS_ENGINEER][16];
+    int count = ExplodeString(classList, ",", entries, sizeof(entries), sizeof(entries[]));
+    int classMask = 0;
+
+    for (int i = 0; i < count; i++)
+    {
+        TrimString(entries[i]);
+        int classId = FindClassIdByName(entries[i]);
+        if (classId != TF_CLASS_UNKNOWN)
+        {
+            classMask |= (1 << classId);
+        }
+    }
+
+    return classMask;
+}
+
+int FindClassIdByName(const char[] className)
+{
+    for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
+    {
+        if (StrEqual(className, g_ClassNames[classId], false))
+        {
+            return classId;
+        }
+    }
+
+    return TF_CLASS_UNKNOWN;
 }
 
 void NotifyClassRestricted(int client, int classId, int limit)
