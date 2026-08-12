@@ -100,6 +100,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("Filters_IsRedlisted", Native_Filters_IsRedlisted);
     CreateNative("Filters_GetChatName", Native_Filters_GetChatName);
     CreateNative("Filters_GetSteamIdColorTag", Native_Filters_GetSteamIdColorTag);
+    CreateNative("Filters_GetSteamIdChatName", Native_Filters_GetSteamIdChatName);
     CreateNative("Filters_GetLastRecordedSteamName", Native_Filters_GetLastRecordedSteamName);
     MarkNativeAsOptional("AdminsDB_GetClientWhitelistLevel");
     MarkNativeAsOptional("Hugs_GetRapesGiven");
@@ -4758,6 +4759,71 @@ public any Native_Filters_GetSteamIdColorTag(Handle plugin, int numParams)
 
     SetNativeString(2, buffer, maxlen, true);
     return (buffer[0] != '\0');
+}
+
+public any Native_Filters_GetSteamIdChatName(Handle plugin, int numParams)
+{
+    char steamId64[32];
+    char fallbackName[128];
+    GetNativeString(1, steamId64, sizeof(steamId64));
+    GetNativeString(2, fallbackName, sizeof(fallbackName));
+    int maxlen = GetNativeCell(4);
+
+    char renderedName[256];
+    renderedName[0] = '\0';
+    int client = 0;
+    if (maxlen > 0 && Filters_FindClientBySteamId64(steamId64, client))
+    {
+        BuildRenderedClientName(client, renderedName, sizeof(renderedName));
+    }
+    else if (maxlen > 0 && Filters_DbAvailable() && Kogasa_IsSteamId64(steamId64))
+    {
+        char steamId2[32];
+        char escapedSteam64[64];
+        char escapedSteam2[64];
+        char escapedFallback[256];
+        if (Kogasa_ConvertSteamId64ToSteam2(steamId64, steamId2, sizeof(steamId2))
+            && Db_Escape(g_hFiltersDb, steamId64, escapedSteam64, sizeof(escapedSteam64), "filters")
+            && Db_Escape(g_hFiltersDb, steamId2, escapedSteam2, sizeof(escapedSteam2), "filters")
+            && Db_Escape(g_hFiltersDb, fallbackName, escapedFallback, sizeof(escapedFallback), "filters"))
+        {
+            char query[1024];
+            FormatEx(query, sizeof(query),
+                "SELECT COALESCE((SELECT newname FROM prename_rules "
+                ... "WHERE pattern IN ('%s', '%s') ORDER BY (pattern = '%s') DESC LIMIT 1), "
+                ... "NULLIF(sn.last_name, ''), '%s'), COALESCE(nc.color, ''), COALESCE(nc.pattern, '') "
+                ... "FROM (SELECT 1) seed "
+                ... "LEFT JOIN filters_steam_names sn ON sn.steamid64 = '%s' "
+                ... "LEFT JOIN filters_namecolors nc ON nc.steamid = '%s' LIMIT 1",
+                escapedSteam64,
+                escapedSteam2,
+                escapedSteam64,
+                escapedFallback,
+                escapedSteam64,
+                escapedSteam64);
+
+            DBResultSet results = SQL_Query(g_hFiltersDb, query);
+            if (results != null && results.FetchRow())
+            {
+                char displayName[128];
+                char color[32];
+                char pattern[NAME_PATTERN_MAX];
+                results.FetchString(0, displayName, sizeof(displayName));
+                results.FetchString(1, color, sizeof(color));
+                results.FetchString(2, pattern, sizeof(pattern));
+                TrimString(displayName);
+                TrimString(color);
+                TrimString(pattern);
+                ToLowercase(color);
+                ToLowercase(pattern);
+                BuildRenderedStoredName(displayName, color, pattern, renderedName, sizeof(renderedName));
+            }
+            delete results;
+        }
+    }
+
+    SetNativeString(3, renderedName, maxlen, true);
+    return renderedName[0] != '\0';
 }
 
 public any Native_Filters_GetLastRecordedSteamName(Handle plugin, int numParams)

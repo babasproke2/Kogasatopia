@@ -24,9 +24,11 @@
 		CreateNative("Hugs_RedeemMailedHug", Native_Hugs_RedeemMailedHug);
 		CreateNative("Hugs_RedeemMailedFeed", Native_Hugs_RedeemMailedFeed);
 		CreateNative("Hugs_RedeemMailedRape", Native_Hugs_RedeemMailedRape);
+		CreateNative("Hugs_AnnounceMailedInteraction", Native_Hugs_AnnounceMailedInteraction);
 		MarkNativeAsOptional("Filters_IsRedlisted");
 		MarkNativeAsOptional("Filters_GetChatName");
 		MarkNativeAsOptional("Filters_GetSteamIdColorTag");
+		MarkNativeAsOptional("Filters_GetSteamIdChatName");
 		return APLRes_Success;
 	}
 
@@ -103,6 +105,33 @@ enum HugsLeaderboardKind
 	public any Native_Hugs_RedeemMailedRape(Handle plugin, int numParams)
 	{
 		return Native_RedeemMailedInteraction(true, false);
+	}
+
+	public any Native_Hugs_AnnounceMailedInteraction(Handle plugin, int numParams)
+	{
+		int receiver = GetNativeCell(1);
+		char senderSteamId64[KOGASA_STEAMID_MAX];
+		char senderName[MAX_NAME_LENGTH];
+		char interactionType[16];
+		GetNativeString(2, senderSteamId64, sizeof(senderSteamId64));
+		GetNativeString(3, senderName, sizeof(senderName));
+		GetNativeString(4, interactionType, sizeof(interactionType));
+
+		if (!IsHumanClient(receiver) || !Kogasa_IsSteamId64(senderSteamId64))
+		{
+			return false;
+		}
+
+		bool rape = StrEqual(interactionType, "rape");
+		bool feed = StrEqual(interactionType, "feed");
+		if (!rape && !feed && !StrEqual(interactionType, "hug"))
+		{
+			return false;
+		}
+
+		int sender = Kogasa_FindClientBySteamId64(senderSteamId64);
+		AnnounceMailedInteraction(sender, receiver, senderSteamId64, senderName, rape, feed);
+		return true;
 	}
 
 	bool Native_RedeemMailedInteraction(bool rape, bool feed)
@@ -213,12 +242,12 @@ enum HugsLeaderboardKind
 		if (!IsClientRedlisted(receiver))
 		{
 			CPrintToChatEx(receiver, sender > 0 ? sender : receiver,
-				"{default}[SM] %s{default} %s you!", senderDisplay, action);
+				"{green}[Hugs] %s{default} %s you!", senderDisplay, action);
 		}
 		if (sender > 0)
 		{
 			CPrintToChatEx(sender, receiver,
-				"{default}[SM] You %s %s{default}!", action, receiverDisplay);
+				"{green}[Hugs]{default} You %s %s{default}!", action, receiverDisplay);
 		}
 	}
 
@@ -232,6 +261,12 @@ enum HugsLeaderboardKind
 		if (client > 0)
 		{
 			BuildHugsChatName(client, buffer, maxlen);
+			return;
+		}
+		if (GetFeatureStatus(FeatureType_Native, "Filters_GetSteamIdChatName") == FeatureStatus_Available
+			&& Filters_GetSteamIdChatName(steamId64, fallbackName, buffer, maxlen)
+			&& buffer[0])
+		{
 			return;
 		}
 

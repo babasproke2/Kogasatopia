@@ -109,6 +109,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     MarkNativeAsOptional("Hugs_RedeemMailedHug");
     MarkNativeAsOptional("Hugs_RedeemMailedFeed");
     MarkNativeAsOptional("Hugs_RedeemMailedRape");
+    MarkNativeAsOptional("Hugs_AnnounceMailedInteraction");
     MarkNativeAsOptional("PointsStore_ApplyBonusPointsSteamIdOnce");
     MarkNativeAsOptional("PointsStore_RefundBonusPointsSteamId");
     MarkNativeAsOptional("SaySounds_PlayCommand");
@@ -2261,11 +2262,10 @@ public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] 
     {
         MarkMailRead(mailId);
 
-        bool pendingHugsInteraction = !attachmentRedeemed
-            && (StrEqual(attachmentType, "hug")
-                || StrEqual(attachmentType, "feed")
-                || StrEqual(attachmentType, "rape"));
-        if (!pendingHugsInteraction)
+        bool hugsInteraction = StrEqual(attachmentType, "hug")
+            || StrEqual(attachmentType, "feed")
+            || StrEqual(attachmentType, "rape");
+        if (!hugsInteraction)
         {
             int sender = Kogasa_FindClientBySteamId64(senderSteamId);
             char coloredSender[256];
@@ -2275,6 +2275,15 @@ public void SQL_OnMailDetailsLoaded(Database db, DBResultSet rows, const char[] 
                 "{cornflowerblue}[Mail] %s{default}: %s",
                 coloredSender,
                 contents);
+        }
+        else if (attachmentRedeemed
+            && GetFeatureStatus(FeatureType_Native, "Hugs_AnnounceMailedInteraction") == FeatureStatus_Available)
+        {
+            Hugs_AnnounceMailedInteraction(
+                client,
+                senderSteamId,
+                senderName,
+                attachmentType);
         }
 
         if (gems > 0 && !redeemed)

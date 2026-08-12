@@ -29,6 +29,13 @@ native bool Hugs_RedeemMailedRape(
     const char[] receiverSteamId64,
     const char[] senderName);
 
+/** Reprints a redeemed mailed interaction without changing statistics. */
+native bool Hugs_AnnounceMailedInteraction(
+    int receiver,
+    const char[] senderSteamId64,
+    const char[] senderName,
+    const char[] interactionType);
+
 public SharedPlugin __pl_hugs =
 {
     name = "hugs",
@@ -43,4 +50,5 @@ public void __pl_hugs_SetNTVOptional()
     MarkNativeAsOptional("Hugs_RedeemMailedHug");
     MarkNativeAsOptional("Hugs_RedeemMailedFeed");
     MarkNativeAsOptional("Hugs_RedeemMailedRape");
+    MarkNativeAsOptional("Hugs_AnnounceMailedInteraction");
 }

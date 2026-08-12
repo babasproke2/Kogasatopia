@@ -135,6 +135,8 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `Filters_IsRedlisted` - Returns whether a client is redlisted.
 - `Filters_GetChatName` - Writes the filtered/colorized chat name for a client.
 - `Filters_GetSteamIdColorTag` - Writes the color token associated with a SteamID64.
+- `Filters_GetSteamIdChatName` - Resolves and renders an online or offline SteamID64 name using prenames and stored colors.
+- `Filters_GetLastRecordedSteamName` - Writes the last recorded Steam name for a SteamID64.
 
 ## hugs_api.inc
 - `Hugs_GetRapesGiven` - Returns how many rapes a client has given in hugs stats.
@@ -142,6 +144,7 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `Hugs_RedeemMailedHug` - Credits a mailed hug using sender and receiver SteamID64 identities.
 - `Hugs_RedeemMailedFeed` - Credits a mailed feed using sender and receiver SteamID64 identities.
 - `Hugs_RedeemMailedRape` - Credits a mailed rape using sender and receiver SteamID64 identities.
+- `Hugs_AnnounceMailedInteraction` - Reprints a redeemed mailed interaction without changing statistics.
 
 ## mutecheck_api.inc
 - `MuteCheck_GetMutedClientCount` - Returns how many connected human clients the listener has muted.
