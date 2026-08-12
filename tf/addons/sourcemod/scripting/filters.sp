@@ -935,7 +935,7 @@ public void Filters_SchemaQueryCallback(Database db, DBResultSet results, const 
     }
 }
 
-static void Filters_RefreshParseeMessageCount()
+static void Filters_RefreshParseeMessageCount(int requesterUserId = 0)
 {
     g_iParseeMessageCount = 0;
     if (!Filters_DbAvailable())
@@ -943,7 +943,7 @@ static void Filters_RefreshParseeMessageCount()
         return;
     }
 
-    g_hFiltersDb.Query(Filters_ParseeMessageCountCallback, "SELECT COUNT(*) FROM parsee_messages");
+    g_hFiltersDb.Query(Filters_ParseeMessageCountCallback, "SELECT COUNT(*) FROM parsee_messages", requesterUserId);
 }
 
 public void Filters_ParseeMessageCountCallback(Database db, DBResultSet results, const char[] error, any data)
@@ -958,6 +958,28 @@ public void Filters_ParseeMessageCountCallback(Database db, DBResultSet results,
     {
         g_iParseeMessageCount = results.FetchInt(0);
     }
+
+    if (data == 0)
+    {
+        return;
+    }
+
+    int client = data > 0 ? GetClientOfUserId(data) : 0;
+    if (data > 0 && client <= 0)
+    {
+        return;
+    }
+
+    if (g_iParseeMessageCount <= 0)
+    {
+        if (client > 0)
+        {
+            CPrintToChat(client, "{default}[Filters] No archived Parsee messages are available.");
+        }
+        return;
+    }
+
+    Filters_QueryRandomParseeMessage();
 }
 
 public Action Command_RandomParseeMessage(int client, int args)
@@ -967,13 +989,12 @@ public Action Command_RandomParseeMessage(int client, int args)
         return Plugin_Handled;
     }
 
-    if (!Filters_DbAvailable() || g_iParseeMessageCount <= 0)
+    if (!Filters_DbAvailable())
     {
         if (client > 0)
         {
-            CPrintToChat(client, "{default}[Filters] No archived Parsee messages are available.");
+            CPrintToChat(client, "{default}[Filters] The message database is not ready.");
         }
-        Filters_RefreshParseeMessageCount();
         return Plugin_Handled;
     }
 
@@ -982,6 +1003,18 @@ public Action Command_RandomParseeMessage(int client, int args)
         g_fNextParseeMessageTime[client] = GetGameTime() + 10.0;
     }
 
+    if (g_iParseeMessageCount <= 0)
+    {
+        Filters_RefreshParseeMessageCount(client > 0 ? GetClientUserId(client) : -1);
+        return Plugin_Handled;
+    }
+
+    Filters_QueryRandomParseeMessage();
+    return Plugin_Handled;
+}
+
+static void Filters_QueryRandomParseeMessage()
+{
     int offset = GetRandomInt(0, g_iParseeMessageCount - 1);
     char query[1536];
     Format(query, sizeof(query),
@@ -999,7 +1032,6 @@ public Action Command_RandomParseeMessage(int client, int args)
         PARSEE_STEAMID64,
         PARSEE_STEAMID64);
     g_hFiltersDb.Query(Filters_RandomParseeMessageCallback, query);
-    return Plugin_Handled;
 }
 
 public void Filters_RandomParseeMessageCallback(Database db, DBResultSet results, const char[] error, any data)
