@@ -179,6 +179,7 @@ int g_iHostPort = 27015;
 bool g_bOutboxStampReady = false;
 int g_iPendingSchemaQueries = 0;
 int g_iParseeMessageCount = 0;
+float g_fNextParseeMessageTime[MAXPLAYERS + 1];
 int g_iLastOutboxCleanup = 0;
 int g_iLastChatCleanup = 0;
 
@@ -961,6 +962,11 @@ public void Filters_ParseeMessageCountCallback(Database db, DBResultSet results,
 
 public Action Command_RandomParseeMessage(int client, int args)
 {
+    if (client > 0 && GetGameTime() < g_fNextParseeMessageTime[client])
+    {
+        return Plugin_Handled;
+    }
+
     if (!Filters_DbAvailable() || g_iParseeMessageCount <= 0)
     {
         if (client > 0)
@@ -969,6 +975,11 @@ public Action Command_RandomParseeMessage(int client, int args)
         }
         Filters_RefreshParseeMessageCount();
         return Plugin_Handled;
+    }
+
+    if (client > 0)
+    {
+        g_fNextParseeMessageTime[client] = GetGameTime() + 10.0;
     }
 
     int offset = GetRandomInt(0, g_iParseeMessageCount - 1);
