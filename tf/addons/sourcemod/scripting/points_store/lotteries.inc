@@ -1091,7 +1091,8 @@ bool IsLotteryReadyForClient(int client, bool needTicketLoaded = true)
         return false;
     }
 
-    if (needTicketLoaded && !g_ClientLotteryTicketLoaded[client])
+    if (needTicketLoaded
+        && (!g_ClientLotteryTicketLoaded[client] || g_ClientLotteryId[client] != g_CurrentLotteryId))
     {
         LoadClientLotteryTicket(client);
         CPrintToChat(client, "%s[Lotto]{default} Your lottery ticket is loading. Try again in a moment.", colorTag);
@@ -1718,9 +1719,12 @@ void PrintClientLotteryTicket(int client)
 
     char display[LOTTO_TICKET_PRINT_MAX];
     char currencyLong[BP_CURRENCY_LONG_MAX];
+    int ticketValue = g_CurrentLotteryEqual
+        ? GetLotteryEqualTicketValue()
+        : g_ClientLotteryTicketValue[client];
     BuildLotteryTicketDisplay(g_ClientLotteryTicket[client], display, sizeof(display));
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
-    CPrintToChat(client, "%s[Lottery]{default} Your ticket: %s\n{gold}Value:{default} %s%d %s{default}", colorTag, display, colorTag, g_ClientLotteryTicketValue[client], currencyLong);
+    CPrintToChat(client, "%s[Lottery]{default} Your ticket: %s\n{gold}Value:{default} %s%d %s{default}", colorTag, display, colorTag, ticketValue, currencyLong);
 }
 
 void AttemptLotteryAllTicketPurchase(int client)
