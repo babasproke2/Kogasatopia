@@ -555,7 +555,7 @@ static void Filters_CreateConVars()
     g_sEnabled = CreateConVar("nobroly", "1", "If 0, filter chat to one word");
     g_sChatMode2 = CreateConVar("filtermode", "0", "0=off, 1=quarantine with mutual whitelist/blacklist visibility, 2=quarantine with whitelist monitoring only");
     g_hChatDebug = CreateConVar("filters_chat_debug", "0", "Enable verbose debug logging for chat relay");
-    g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Enable/Disable reading frontend chat from the database");
+    g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Show frontend chat to all clients; blacklisted clients still receive it when disabled");
     g_hFiltersEnabled = CreateConVar("filters", "0", "If 0, blacklist word matching is disabled.");
     g_hRedlistEnabled = CreateConVar("redlist", "0", "Enable/Disable redlist features.", _, true, 0.0, true, 1.0);
     g_hBlacklistMinLen = CreateConVar("filters_blacklist_minlen", "8", "Minimum message length to check blacklist words.");
@@ -1186,9 +1186,6 @@ public Action Timer_PollOutbox(Handle timer, any data)
         return Plugin_Stop;
     }
 
-    if (GetConVarInt(g_hChatFrontend) < 1)
-	return Plugin_Continue;
-
     if (!Filters_DbAvailable() || !g_bOutboxStampReady)
     {
         Filters_LogDebug("DB/schema not ready; skipping outbox poll");
@@ -1372,7 +1369,7 @@ static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] dis
     {
         if (!suppressChatBroadcast)
         {
-            Filters_PrintToChatAll(msg);
+            Filters_PrintOutboxToClients(msg);
         }
         if (!fromLocalServer && !webchatOnly)
         {
@@ -1385,7 +1382,7 @@ static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] dis
         Format(out, sizeof(out), "%s %s", label, msg);
         if (!suppressChatBroadcast)
         {
-            Filters_PrintToChatAll(out);
+            Filters_PrintOutboxToClients(out);
         }
         if (!fromLocalServer && !webchatOnly)
         {
@@ -1401,6 +1398,24 @@ static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] dis
         Filters_LogDebug("Suppressed relay of webchat-only chat id %d", id);
     }
     Filters_LogDebug("Relayed chat id %d hash %s name %s msg %s (from %s:%d)", id, hash, display, msg, sourceIp, sourcePort);
+}
+
+static void Filters_PrintOutboxToClients(const char[] message)
+{
+    bool frontendEnabled = GetConVarInt(g_hChatFrontend) >= 1;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!Filters_ShouldReceiveChat(client, 0))
+        {
+            continue;
+        }
+        if (!frontendEnabled && !g_PlayerState[client].isBlacklisted)
+        {
+            continue;
+        }
+
+        CPrintToChat(client, "%s", message);
+    }
 }
 
 static void Filters_MaybeCleanupOutbox()
@@ -2521,7 +2536,7 @@ void Filters_PrintHelp(int client)
     CPrintToChat(client, "{default}[Filters] nobroly - If 0, filter chat to one word.");
     CPrintToChat(client, "{default}[Filters] filtermode - 0=off, 1=quarantine with mutual whitelist/blacklist visibility, 2=quarantine with whitelist monitoring only.");
     CPrintToChat(client, "{default}[Filters] filters_chat_debug - Enable verbose debug logging for chat relay.");
-    CPrintToChat(client, "{default}[Filters] filters_chat_frontend - Enable/Disable reading frontend chat from the database.");
+    CPrintToChat(client, "{default}[Filters] filters_chat_frontend - Show frontend chat to all clients; blacklisted clients still receive it when disabled.");
     CPrintToChat(client, "{default}[Filters] filters_filters - If 0, blacklist word matching is disabled.");
     CPrintToChat(client, "{default}[Filters] filters_blacklist_minlen - Minimum message length to check blacklist words.");
     CPrintToChat(client, "{default}[Filters] filters_christmas - If 1, red chat is {axis} and blue chat is {green}.");
