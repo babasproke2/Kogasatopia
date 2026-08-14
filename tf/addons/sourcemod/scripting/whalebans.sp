@@ -13,12 +13,19 @@
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
+#include "include/database.inc"
+#include "include/steam_identity.inc"
+
+#define WHALEBANS_DB_CONFIG "default"
+#define WHALEBANS_RECONNECT_DELAY 10.0
+#define WHALEBANS_EXPIRY_INTERVAL 60.0
+
 public Plugin myinfo =
 {
     name = "Whale Bans",
     author = "AlliedModders LLC, Hombre",
-    description = "Base ban commands with WhaleTracker-aware target ordering.",
-    version = "1.0.0",
+    description = "Database-backed dual Steam/IP bans with WhaleTracker-aware target ordering.",
+    version = "1.1.0",
     url = "https://kogasa.tf"
 };
 
@@ -33,6 +40,12 @@ BanSelection g_BanSelection[MAXPLAYERS + 1];
 TopMenu g_AdminMenu = null;
 KeyValues g_BanReasons = null;
 char g_BanReasonsPath[PLATFORM_MAX_PATH];
+Database g_Database = null;
+bool g_DatabaseReady = false;
+Handle g_DatabaseReconnectTimer = null;
+Handle g_ExpiryTimer = null;
+int g_SelectedBanId[MAXPLAYERS + 1];
+char g_SelectedBanName[MAXPLAYERS + 1][MAX_NAME_LENGTH];
 
 public APLRes AskPluginLoad2(Handle plugin, bool late, char[] error, int maxlen)
 {
@@ -51,8 +64,11 @@ public void OnPluginStart()
 
     RegAdminCmd("sm_ban", Command_Ban, ADMFLAG_BAN, "sm_ban <#userid|name> <minutes|0> [reason]");
     RegAdminCmd("sm_banip", Command_BanIp, ADMFLAG_BAN, "sm_banip <ip|#userid|name> <time> [reason]");
-    RegAdminCmd("sm_unban", Command_Unban, ADMFLAG_UNBAN, "sm_unban <steamid|ip>");
+    RegAdminCmd("sm_unban", Command_Unban, ADMFLAG_UNBAN, "sm_unban [steamid|ip]");
     RegConsoleCmd("sm_abortban", Command_AbortBan, "Abort a pending custom ban reason.");
+
+    ConnectDatabase();
+    g_ExpiryTimer = CreateTimer(WHALEBANS_EXPIRY_INTERVAL, Timer_ExpireBans, _, TIMER_REPEAT);
 
     TopMenu topMenu;
     if (LibraryExists("adminmenu") && (topMenu = GetAdminTopMenu()) != null)
@@ -65,6 +81,10 @@ public void OnPluginEnd()
 {
     delete g_BanReasons;
     g_BanReasons = null;
+    Db_CancelTimer(g_DatabaseReconnectTimer);
+    delete g_ExpiryTimer;
+    g_ExpiryTimer = null;
+    Db_Close(g_Database, g_DatabaseReady);
 }
 
 public void OnConfigsExecuted()
@@ -75,6 +95,13 @@ public void OnConfigsExecuted()
 public void OnClientDisconnect(int client)
 {
     ResetBanSelection(client);
+    g_SelectedBanId[client] = 0;
+    g_SelectedBanName[client][0] = '\0';
+}
+
+public void OnClientPostAdminCheck(int client)
+{
+    CheckClientBan(client);
 }
 
 void ResetBanSelection(int client)
@@ -104,6 +131,217 @@ void LoadBanReasons()
     }
 
     g_BanReasons.Rewind();
+}
+
+bool IsDatabaseReady()
+{
+    return Db_IsReady(g_Database, g_DatabaseReady);
+}
+
+void ConnectDatabase()
+{
+    Db_CancelTimer(g_DatabaseReconnectTimer);
+    Db_Close(g_Database, g_DatabaseReady);
+
+    if (!Db_CheckConfigOrLog("WhaleBans", WHALEBANS_DB_CONFIG))
+    {
+        ScheduleDatabaseReconnect();
+        return;
+    }
+
+    Database.Connect(SQL_OnDatabaseConnected, WHALEBANS_DB_CONFIG);
+}
+
+void ScheduleDatabaseReconnect(float delay = WHALEBANS_RECONNECT_DELAY)
+{
+    g_DatabaseReady = false;
+    if (g_DatabaseReconnectTimer == null)
+    {
+        g_DatabaseReconnectTimer = CreateTimer(delay, Timer_ReconnectDatabase);
+    }
+}
+
+public Action Timer_ReconnectDatabase(Handle timer, any data)
+{
+    g_DatabaseReconnectTimer = null;
+    ConnectDatabase();
+    return Plugin_Stop;
+}
+
+public void SQL_OnDatabaseConnected(Database database, const char[] error, any data)
+{
+    if (database == null)
+    {
+        LogError("[WhaleBans] Database connection failed: %s", error);
+        ScheduleDatabaseReconnect();
+        return;
+    }
+
+    g_Database = database;
+    g_DatabaseReady = false;
+    Db_CancelTimer(g_DatabaseReconnectTimer);
+    if (!g_Database.SetCharset("utf8mb4"))
+    {
+        LogError("[WhaleBans] Failed to set the database charset to utf8mb4.");
+    }
+
+    char query[4096];
+    FormatEx(query, sizeof(query),
+        "CREATE TABLE IF NOT EXISTS whalebans ("
+        ... "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, "
+        ... "name_at_ban VARCHAR(128) NOT NULL DEFAULT '', "
+        ... "steamid VARCHAR(32) NOT NULL DEFAULT '', "
+        ... "steamid64 VARCHAR(32) NOT NULL DEFAULT '', "
+        ... "ip VARCHAR(45) NOT NULL DEFAULT '', "
+        ... "ban_date INT NOT NULL DEFAULT 0, "
+        ... "ping_at_ban INT NOT NULL DEFAULT 0, "
+        ... "playtime_at_ban INT NOT NULL DEFAULT 0, "
+        ... "ban_length INT NOT NULL DEFAULT 0, "
+        ... "expires_at INT NOT NULL DEFAULT 0, "
+        ... "ban_status VARCHAR(16) NOT NULL DEFAULT 'ongoing', "
+        ... "reason VARCHAR(255) NOT NULL DEFAULT '', "
+        ... "banned_by_name VARCHAR(128) NOT NULL DEFAULT '', "
+        ... "banned_by_steamid64 VARCHAR(32) NOT NULL DEFAULT '', "
+        ... "unbanned_at INT NOT NULL DEFAULT 0, "
+        ... "INDEX whalebans_active_steam (ban_status, steamid64), "
+        ... "INDEX whalebans_active_ip (ban_status, ip), "
+        ... "INDEX whalebans_recent (ban_status, ban_date)"
+        ... ") CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    g_Database.Query(SQL_OnSchemaReady, query);
+}
+
+public void SQL_OnSchemaReady(Database database, DBResultSet results, const char[] error, any data)
+{
+    if (error[0])
+    {
+        LogError("[WhaleBans] Failed to create schema: %s", error);
+        if (Db_IsTransientError(error))
+        {
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
+        }
+        return;
+    }
+
+    g_DatabaseReady = true;
+    ExpireFinishedBans();
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientInGame(client) && !IsFakeClient(client))
+        {
+            CheckClientBan(client);
+        }
+    }
+}
+
+public Action Timer_ExpireBans(Handle timer, any data)
+{
+    ExpireFinishedBans();
+    return Plugin_Continue;
+}
+
+void ExpireFinishedBans()
+{
+    if (!IsDatabaseReady())
+    {
+        return;
+    }
+
+    int now = GetTime();
+    char query[512];
+    FormatEx(query, sizeof(query),
+        "UPDATE whalebans SET ban_status = 'unbanned', unbanned_at = expires_at "
+        ... "WHERE ban_status = 'ongoing' AND expires_at > 0 AND expires_at <= %d",
+        now);
+    g_Database.Query(SQL_OnMaintenanceQuery, query);
+}
+
+public void SQL_OnMaintenanceQuery(Database database, DBResultSet results, const char[] error, any data)
+{
+    if (error[0])
+    {
+        LogError("[WhaleBans] Maintenance query failed: %s", error);
+        if (Db_IsTransientError(error))
+        {
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
+        }
+    }
+}
+
+void CheckClientBan(int client)
+{
+    if (!IsDatabaseReady() || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return;
+    }
+
+    char steamId64[KOGASA_STEAMID_MAX];
+    char ip[46];
+    if (!Kogasa_GetClientSteamId64(client, steamId64, sizeof(steamId64), true)
+        || !GetClientIP(client, ip, sizeof(ip), true))
+    {
+        return;
+    }
+
+    char escapedSteamId64[KOGASA_STEAMID_MAX * 2];
+    char escapedIp[92];
+    if (!Db_Escape(g_Database, steamId64, escapedSteamId64, sizeof(escapedSteamId64), "WhaleBans")
+        || !Db_Escape(g_Database, ip, escapedIp, sizeof(escapedIp), "WhaleBans"))
+    {
+        return;
+    }
+
+    int now = GetTime();
+    char query[1024];
+    FormatEx(query, sizeof(query),
+        "SELECT reason FROM whalebans "
+        ... "WHERE ban_status = 'ongoing' AND (expires_at = 0 OR expires_at > %d) "
+        ... "AND ((steamid64 <> '' AND steamid64 = '%s') OR (ip <> '' AND ip = '%s')) "
+        ... "ORDER BY ban_date DESC LIMIT 1",
+        now,
+        escapedSteamId64,
+        escapedIp);
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteString(steamId64);
+    g_Database.Query(SQL_OnClientBanChecked, query, pack);
+}
+
+public void SQL_OnClientBanChecked(Database database, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int client = GetClientOfUserId(pack.ReadCell());
+    char expectedSteamId64[KOGASA_STEAMID_MAX];
+    pack.ReadString(expectedSteamId64, sizeof(expectedSteamId64));
+    delete pack;
+
+    if (error[0])
+    {
+        LogError("[WhaleBans] Client ban check failed: %s", error);
+        if (Db_IsTransientError(error))
+        {
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
+        }
+        return;
+    }
+
+    char currentSteamId64[KOGASA_STEAMID_MAX];
+    if (client == 0 || !IsClientInGame(client)
+        || !Kogasa_GetClientSteamId64(client, currentSteamId64, sizeof(currentSteamId64), true)
+        || !StrEqual(currentSteamId64, expectedSteamId64))
+    {
+        return;
+    }
+
+    if (results == null || !results.FetchRow())
+    {
+        return;
+    }
+
+    char reason[256];
+    results.FetchString(0, reason, sizeof(reason));
+    KickClient(client, "Banned: %s", reason[0] ? reason : "Banned");
 }
 
 bool IsWhaleTrackerRanked(int client)
@@ -290,38 +528,205 @@ void PerformBan(int client, int target, int duration, const char[] reason)
         return;
     }
 
-    char name[MAX_NAME_LENGTH];
-    GetClientName(target, name, sizeof(name));
-    if (duration == 0)
+    QueueBanRecord(client, target, duration, reason, "", false);
+    ResetBanSelection(client);
+}
+
+void QueueBanRecord(
+    int client,
+    int target,
+    int duration,
+    const char[] reason,
+    const char[] explicitIp,
+    bool ipCommand)
+{
+    if (!IsDatabaseReady())
     {
-        if (reason[0])
-        {
-            ShowActivity(client, "%t", "Permabanned player reason", name, reason);
-        }
-        else
-        {
-            ShowActivity(client, "%t", "Permabanned player", name);
-        }
+        ReplyToCommand(client, "[SM] WhaleBans database is unavailable; no ban was applied.");
+        return;
     }
-    else if (reason[0])
+
+    char name[MAX_NAME_LENGTH];
+    char steamId[32];
+    char steamId64[KOGASA_STEAMID_MAX];
+    char ip[46];
+    int ping;
+    int knownPlaytime;
+    if (target > 0 && IsClientInGame(target))
     {
-        ShowActivity(client, "%t", "Banned player reason", name, duration, reason);
+        GetClientName(target, name, sizeof(name));
+        Kogasa_GetClientSteam2(target, steamId, sizeof(steamId), true);
+        Kogasa_GetClientSteamId64(target, steamId64, sizeof(steamId64), true);
+        GetClientIP(target, ip, sizeof(ip), true);
+        ping = RoundToNearest(GetClientAvgLatency(target, NetFlow_Both) * 1000.0);
+        if (GetFeatureStatus(FeatureType_Native, "WhaleTracker_GetRankedPlaytimeSeconds") == FeatureStatus_Available)
+        {
+            knownPlaytime = WhaleTracker_GetRankedPlaytimeSeconds(target);
+        }
     }
     else
     {
-        ShowActivity(client, "%t", "Banned player", name, duration);
+        strcopy(name, sizeof(name), explicitIp);
+        strcopy(ip, sizeof(ip), explicitIp);
     }
 
-    LogAction(client, target, "\"%L\" banned \"%L\" (minutes \"%d\") (reason \"%s\")", client, target, duration, reason);
-    BanClient(
-        target,
+    char adminName[MAX_NAME_LENGTH];
+    char adminSteamId64[KOGASA_STEAMID_MAX];
+    if (client > 0 && IsClientInGame(client))
+    {
+        GetClientName(client, adminName, sizeof(adminName));
+        Kogasa_GetClientSteamId64(client, adminSteamId64, sizeof(adminSteamId64), true);
+    }
+    else
+    {
+        strcopy(adminName, sizeof(adminName), "Console");
+    }
+
+    char escapedName[MAX_NAME_LENGTH * 2];
+    char escapedSteamId[64];
+    char escapedSteamId64[KOGASA_STEAMID_MAX * 2];
+    char escapedIp[92];
+    char escapedReason[512];
+    char escapedAdminName[MAX_NAME_LENGTH * 2];
+    char escapedAdminSteamId64[KOGASA_STEAMID_MAX * 2];
+    if (!Db_Escape(g_Database, name, escapedName, sizeof(escapedName), "WhaleBans")
+        || !Db_Escape(g_Database, steamId, escapedSteamId, sizeof(escapedSteamId), "WhaleBans")
+        || !Db_Escape(g_Database, steamId64, escapedSteamId64, sizeof(escapedSteamId64), "WhaleBans")
+        || !Db_Escape(g_Database, ip, escapedIp, sizeof(escapedIp), "WhaleBans")
+        || !Db_Escape(g_Database, reason, escapedReason, sizeof(escapedReason), "WhaleBans")
+        || !Db_Escape(g_Database, adminName, escapedAdminName, sizeof(escapedAdminName), "WhaleBans")
+        || !Db_Escape(g_Database, adminSteamId64, escapedAdminSteamId64, sizeof(escapedAdminSteamId64), "WhaleBans"))
+    {
+        ReplyToCommand(client, "[SM] Failed to prepare the ban record.");
+        return;
+    }
+
+    int now = GetTime();
+    int expiresAt = duration > 0 ? now + duration * 60 : 0;
+    char query[4096];
+    FormatEx(query, sizeof(query),
+        "INSERT INTO whalebans "
+        ... "(name_at_ban, steamid, steamid64, ip, ban_date, ping_at_ban, playtime_at_ban, "
+        ... "ban_length, expires_at, ban_status, reason, banned_by_name, banned_by_steamid64) "
+        ... "VALUES ('%s', '%s', '%s', '%s', %d, %d, "
+        ... "GREATEST(%d, COALESCE((SELECT playtime FROM whaletracker WHERE steamid = '%s' LIMIT 1), 0)), "
+        ... "%d, %d, 'ongoing', '%s', '%s', '%s')",
+        escapedName,
+        escapedSteamId,
+        escapedSteamId64,
+        escapedIp,
+        now,
+        ping,
+        knownPlaytime,
+        escapedSteamId64,
         duration,
-        BANFLAG_AUTO,
-        reason[0] ? reason : "Banned",
-        reason[0] ? reason : "Banned",
-        "sm_ban",
-        client);
-    ResetBanSelection(client);
+        expiresAt,
+        escapedReason,
+        escapedAdminName,
+        escapedAdminSteamId64);
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(client > 0 ? GetClientUserId(client) : 0);
+    pack.WriteCell(target > 0 ? GetClientUserId(target) : 0);
+    pack.WriteCell(duration);
+    pack.WriteCell(ipCommand ? 1 : 0);
+    pack.WriteString(name);
+    pack.WriteString(steamId64);
+    pack.WriteString(ip);
+    pack.WriteString(reason);
+    g_Database.Query(SQL_OnBanInserted, query, pack);
+}
+
+public void SQL_OnBanInserted(Database database, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int adminUserId = pack.ReadCell();
+    int targetUserId = pack.ReadCell();
+    int duration = pack.ReadCell();
+    bool ipCommand = pack.ReadCell() != 0;
+    char name[MAX_NAME_LENGTH];
+    char steamId64[KOGASA_STEAMID_MAX];
+    char ip[46];
+    char reason[256];
+    pack.ReadString(name, sizeof(name));
+    pack.ReadString(steamId64, sizeof(steamId64));
+    pack.ReadString(ip, sizeof(ip));
+    pack.ReadString(reason, sizeof(reason));
+    delete pack;
+
+    int client = adminUserId > 0 ? GetClientOfUserId(adminUserId) : 0;
+    int target = targetUserId > 0 ? GetClientOfUserId(targetUserId) : 0;
+    if (error[0])
+    {
+        LogError("[WhaleBans] Failed to insert ban: %s", error);
+        ReplyToCommand(client, "[SM] Failed to save the ban; no ban was applied.");
+        if (Db_IsTransientError(error))
+        {
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
+        }
+        return;
+    }
+
+    if (ipCommand)
+    {
+        ReplyToCommand(client, "[SM] %t", "Ban added");
+        LogAction(
+            client,
+            target,
+            "\"%L\" added database ban (minutes \"%d\") (steamid64 \"%s\") (ip \"%s\") (reason \"%s\")",
+            client,
+            duration,
+            steamId64,
+            ip,
+            reason);
+    }
+    else
+    {
+        if (duration == 0)
+        {
+            if (reason[0])
+            {
+                ShowActivity(client, "%t", "Permabanned player reason", name, reason);
+            }
+            else
+            {
+                ShowActivity(client, "%t", "Permabanned player", name);
+            }
+        }
+        else if (reason[0])
+        {
+            ShowActivity(client, "%t", "Banned player reason", name, duration, reason);
+        }
+        else
+        {
+            ShowActivity(client, "%t", "Banned player", name, duration);
+        }
+
+        LogAction(
+            client,
+            target,
+            "\"%L\" database banned \"%s\" (minutes \"%d\") (steamid64 \"%s\") (ip \"%s\") (reason \"%s\")",
+            client,
+            name,
+            duration,
+            steamId64,
+            ip,
+            reason);
+    }
+
+    if (target > 0 && IsClientInGame(target))
+    {
+        char currentSteamId64[KOGASA_STEAMID_MAX];
+        char currentIp[46];
+        Kogasa_GetClientSteamId64(target, currentSteamId64, sizeof(currentSteamId64), true);
+        GetClientIP(target, currentIp, sizeof(currentIp), true);
+        if ((!steamId64[0] || StrEqual(currentSteamId64, steamId64))
+            && (!ip[0] || StrEqual(currentIp, ip)))
+        {
+            KickClient(target, "Banned: %s", reason[0] ? reason : "Banned");
+        }
+    }
 }
 
 public Action Command_Ban(int client, int args)
@@ -429,7 +834,7 @@ public Action Command_BanIp(int client, int args)
     int matchedClient = -1;
     if (target != -1 && !IsFakeClient(target) && (hasRcon || CanUserTarget(client, target)))
     {
-        GetClientIP(target, targetArgument, sizeof(targetArgument));
+        GetClientIP(target, targetArgument, sizeof(targetArgument), true);
         matchedClient = target;
     }
 
@@ -440,29 +845,27 @@ public Action Command_BanIp(int client, int args)
     }
 
     int duration = StringToInt(durationArgument);
-    LogAction(
-        client,
-        matchedClient,
-        "\"%L\" added ban (minutes \"%d\") (ip \"%s\") (reason \"%s\")",
-        client,
-        duration,
-        targetArgument,
-        arguments[offset]);
-    ReplyToCommand(client, "[SM] %t", "Ban added");
-    BanIdentity(targetArgument, duration, BANFLAG_IP, arguments[offset], "sm_banip", client);
-
-    if (matchedClient != -1)
-    {
-        KickClient(matchedClient, "Banned: %s", arguments[offset]);
-    }
+    QueueBanRecord(client, matchedClient, duration, arguments[offset], targetArgument, true);
     return Plugin_Handled;
 }
 
 public Action Command_Unban(int client, int args)
 {
-    if (args < 1)
+    if (!IsDatabaseReady())
     {
-        ReplyToCommand(client, "[SM] Usage: sm_unban <steamid|ip>");
+        ReplyToCommand(client, "[SM] WhaleBans database is unavailable.");
+        return Plugin_Handled;
+    }
+
+    if (args == 0)
+    {
+        if (client == 0)
+        {
+            ReplyToCommand(client, "[SM] Usage: sm_unban <steamid|ip>");
+            return Plugin_Handled;
+        }
+
+        DisplayActiveBanMenu(client);
         return Plugin_Handled;
     }
 
@@ -470,11 +873,295 @@ public Action Command_Unban(int client, int args)
     GetCmdArgString(identity, sizeof(identity));
     ReplaceString(identity, sizeof(identity), "\"", "");
 
-    int banFlags = IsCharNumeric(identity[0]) ? BANFLAG_IP : BANFLAG_AUTHID;
-    LogAction(client, -1, "\"%L\" removed ban (filter \"%s\")", client, identity);
-    RemoveBan(identity, banFlags, "sm_unban", client);
-    ReplyToCommand(client, "[SM] %t", "Removed bans matching", identity);
+    char escapedIdentity[100];
+    if (!Db_Escape(g_Database, identity, escapedIdentity, sizeof(escapedIdentity), "WhaleBans"))
+    {
+        ReplyToCommand(client, "[SM] Failed to prepare the unban.");
+        return Plugin_Handled;
+    }
+
+    char query[768];
+    FormatEx(query, sizeof(query),
+        "UPDATE whalebans SET ban_status = 'unbanned', unbanned_at = %d "
+        ... "WHERE ban_status = 'ongoing' AND (steamid = '%s' OR steamid64 = '%s' OR ip = '%s')",
+        GetTime(),
+        escapedIdentity,
+        escapedIdentity,
+        escapedIdentity);
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(client > 0 ? GetClientUserId(client) : 0);
+    pack.WriteString(identity);
+    g_Database.Query(SQL_OnDirectUnban, query, pack);
     return Plugin_Handled;
+}
+
+void DisplayActiveBanMenu(int client)
+{
+    if (!IsDatabaseReady())
+    {
+        ReplyToCommand(client, "[SM] WhaleBans database is unavailable.");
+        return;
+    }
+
+    int now = GetTime();
+    char query[512];
+    FormatEx(query, sizeof(query),
+        "SELECT id, name_at_ban FROM whalebans "
+        ... "WHERE ban_status = 'ongoing' AND (expires_at = 0 OR expires_at > %d) "
+        ... "ORDER BY ban_date DESC LIMIT 100",
+        now);
+    g_Database.Query(SQL_OnActiveBansLoaded, query, GetClientUserId(client));
+}
+
+public void SQL_OnActiveBansLoaded(Database database, DBResultSet results, const char[] error, any data)
+{
+    int client = GetClientOfUserId(data);
+    if (client == 0 || !IsClientInGame(client))
+    {
+        return;
+    }
+
+    if (error[0])
+    {
+        LogError("[WhaleBans] Failed to load active bans: %s", error);
+        ReplyToCommand(client, "[SM] Failed to load active bans.");
+        return;
+    }
+
+    Menu menu = new Menu(MenuHandler_ActiveBans);
+    menu.SetTitle("Currently banned clients");
+    int count;
+    while (results != null && results.FetchRow())
+    {
+        int banId = results.FetchInt(0);
+        char name[MAX_NAME_LENGTH];
+        results.FetchString(1, name, sizeof(name));
+        if (!name[0])
+        {
+            strcopy(name, sizeof(name), "Unknown");
+        }
+
+        char id[16];
+        IntToString(banId, id, sizeof(id));
+        menu.AddItem(id, name);
+        count++;
+    }
+
+    if (count == 0)
+    {
+        delete menu;
+        ReplyToCommand(client, "[SM] There are no currently banned clients.");
+        return;
+    }
+
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int MenuHandler_ActiveBans(Menu menu, MenuAction action, int client, int selection)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+    }
+    else if (action == MenuAction_Select)
+    {
+        char id[16];
+        char name[MAX_NAME_LENGTH];
+        menu.GetItem(selection, id, sizeof(id), _, name, sizeof(name));
+        g_SelectedBanId[client] = StringToInt(id);
+        strcopy(g_SelectedBanName[client], sizeof(g_SelectedBanName[]), name);
+        DisplaySelectedBanMenu(client);
+    }
+    return 0;
+}
+
+void DisplaySelectedBanMenu(int client)
+{
+    if (g_SelectedBanId[client] <= 0)
+    {
+        DisplayActiveBanMenu(client);
+        return;
+    }
+
+    Menu menu = new Menu(MenuHandler_SelectedBan);
+    char title[MAX_NAME_LENGTH + 32];
+    FormatEx(title, sizeof(title), "Ban: %s", g_SelectedBanName[client]);
+    menu.SetTitle(title);
+    menu.AddItem("unban", "Unban");
+    menu.AddItem("date", "Check ban date");
+    menu.AddItem("reason", "Check ban reason");
+    menu.AddItem("back", "Go back");
+    menu.Display(client, MENU_TIME_FOREVER);
+}
+
+public int MenuHandler_SelectedBan(Menu menu, MenuAction action, int client, int selection)
+{
+    if (action == MenuAction_End)
+    {
+        delete menu;
+    }
+    else if (action == MenuAction_Select)
+    {
+        char actionName[16];
+        menu.GetItem(selection, actionName, sizeof(actionName));
+        if (StrEqual(actionName, "back"))
+        {
+            DisplayActiveBanMenu(client);
+        }
+        else if (StrEqual(actionName, "unban"))
+        {
+            UnbanSelectedRecord(client);
+        }
+        else
+        {
+            LoadSelectedBanDetail(client, StrEqual(actionName, "date"));
+        }
+    }
+    return 0;
+}
+
+void UnbanSelectedRecord(int client)
+{
+    if (!IsDatabaseReady() || g_SelectedBanId[client] <= 0)
+    {
+        ReplyToCommand(client, "[SM] The selected ban is unavailable.");
+        return;
+    }
+
+    char query[384];
+    FormatEx(query, sizeof(query),
+        "UPDATE whalebans SET ban_status = 'unbanned', unbanned_at = %d "
+        ... "WHERE id = %d AND ban_status = 'ongoing'",
+        GetTime(),
+        g_SelectedBanId[client]);
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(g_SelectedBanId[client]);
+    pack.WriteString(g_SelectedBanName[client]);
+    g_Database.Query(SQL_OnSelectedBanUnbanned, query, pack);
+}
+
+public void SQL_OnSelectedBanUnbanned(Database database, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int client = GetClientOfUserId(pack.ReadCell());
+    int banId = pack.ReadCell();
+    char name[MAX_NAME_LENGTH];
+    pack.ReadString(name, sizeof(name));
+    delete pack;
+
+    if (error[0])
+    {
+        LogError("[WhaleBans] Failed to unban record %d: %s", banId, error);
+        if (client > 0)
+        {
+            ReplyToCommand(client, "[SM] Failed to unban %s.", name);
+        }
+        return;
+    }
+
+    if (client > 0)
+    {
+        if (results.AffectedRows > 0)
+        {
+            ReplyToCommand(client, "[SM] Unbanned %s.", name);
+            LogAction(client, -1, "\"%L\" unbanned database ban id \"%d\" (\"%s\")", client, banId, name);
+        }
+        else
+        {
+            ReplyToCommand(client, "[SM] %s is no longer actively banned.", name);
+        }
+        g_SelectedBanId[client] = 0;
+        g_SelectedBanName[client][0] = '\0';
+        DisplayActiveBanMenu(client);
+    }
+}
+
+void LoadSelectedBanDetail(int client, bool showDate)
+{
+    if (!IsDatabaseReady() || g_SelectedBanId[client] <= 0)
+    {
+        ReplyToCommand(client, "[SM] The selected ban is unavailable.");
+        return;
+    }
+
+    char query[256];
+    FormatEx(query, sizeof(query),
+        "SELECT ban_date, reason FROM whalebans WHERE id = %d LIMIT 1",
+        g_SelectedBanId[client]);
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(showDate ? 1 : 0);
+    g_Database.Query(SQL_OnSelectedBanDetailLoaded, query, pack);
+}
+
+public void SQL_OnSelectedBanDetailLoaded(Database database, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int client = GetClientOfUserId(pack.ReadCell());
+    bool showDate = pack.ReadCell() != 0;
+    delete pack;
+
+    if (client == 0 || !IsClientInGame(client))
+    {
+        return;
+    }
+
+    if (error[0] || results == null || !results.FetchRow())
+    {
+        if (error[0])
+        {
+            LogError("[WhaleBans] Failed to load ban details: %s", error);
+        }
+        ReplyToCommand(client, "[SM] Failed to load the selected ban.");
+        return;
+    }
+
+    if (showDate)
+    {
+        char formattedDate[64];
+        FormatTime(formattedDate, sizeof(formattedDate), "%b %d, %Y %I:%M %p", results.FetchInt(0));
+        ReplyToCommand(client, "[SM] Ban date: %s", formattedDate);
+    }
+    else
+    {
+        char reason[256];
+        results.FetchString(1, reason, sizeof(reason));
+        ReplyToCommand(client, "[SM] Ban reason: %s", reason[0] ? reason : "No reason supplied");
+    }
+    DisplaySelectedBanMenu(client);
+}
+
+public void SQL_OnDirectUnban(Database database, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int client = GetClientOfUserId(pack.ReadCell());
+    char identity[50];
+    pack.ReadString(identity, sizeof(identity));
+    delete pack;
+
+    if (error[0])
+    {
+        LogError("[WhaleBans] Direct unban failed: %s", error);
+        ReplyToCommand(client, "[SM] Failed to unban %s.", identity);
+        return;
+    }
+
+    if (results.AffectedRows > 0)
+    {
+        LogAction(client, -1, "\"%L\" removed database ban (filter \"%s\")", client, identity);
+        ReplyToCommand(client, "[SM] %t", "Removed bans matching", identity);
+    }
+    else
+    {
+        ReplyToCommand(client, "[SM] No active bans matched %s.", identity);
+    }
 }
 
 public Action Command_AbortBan(int client, int args)
