@@ -51,6 +51,7 @@ public void OnPluginStart()
 
     RegAdminCmd("sm_ban", Command_Ban, ADMFLAG_BAN, "sm_ban <#userid|name> <minutes|0> [reason]");
     RegAdminCmd("sm_banip", Command_BanIp, ADMFLAG_BAN, "sm_banip <ip|#userid|name> <time> [reason]");
+    RegAdminCmd("sm_unban", Command_Unban, ADMFLAG_UNBAN, "sm_unban <steamid|ip>");
     RegConsoleCmd("sm_abortban", Command_AbortBan, "Abort a pending custom ban reason.");
 
     TopMenu topMenu;
@@ -454,6 +455,25 @@ public Action Command_BanIp(int client, int args)
     {
         KickClient(matchedClient, "Banned: %s", arguments[offset]);
     }
+    return Plugin_Handled;
+}
+
+public Action Command_Unban(int client, int args)
+{
+    if (args < 1)
+    {
+        ReplyToCommand(client, "[SM] Usage: sm_unban <steamid|ip>");
+        return Plugin_Handled;
+    }
+
+    char identity[50];
+    GetCmdArgString(identity, sizeof(identity));
+    ReplaceString(identity, sizeof(identity), "\"", "");
+
+    int banFlags = IsCharNumeric(identity[0]) ? BANFLAG_IP : BANFLAG_AUTHID;
+    LogAction(client, -1, "\"%L\" removed ban (filter \"%s\")", client, identity);
+    RemoveBan(identity, banFlags, "sm_unban", client);
+    ReplyToCommand(client, "[SM] %t", "Removed bans matching", identity);
     return Plugin_Handled;
 }
 
