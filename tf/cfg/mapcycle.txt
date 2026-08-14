@@ -202,7 +202,7 @@ koth_rotunda
 koth_winter_ridge
 pl_enclosure_final
 cp_go_castle_a6
-harbl_hotel
+workshop/harbl_hotel.ugc793733571
 koth_oofbay_v1
 2koth_abbey
 cp_gravelpit_snowy
@@ -282,7 +282,6 @@ koth_stupidercar_a1
 pl_highwood_b19
 tc_strata_b1c
 cp_tidal_v3
-pl_coal_event
 cp_cargo
 cp_coldlands_rc3
 cp_conifer
@@ -360,7 +359,6 @@ pd_circus
 pd_cursed_cove_event
 pd_farmageddon
 pd_mannsylvania
-pd_pit_of_death_event
 pl_aquarius
 pl_bloodwater
 pl_boxcanyon_rc11
