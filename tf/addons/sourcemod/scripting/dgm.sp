@@ -2137,7 +2137,16 @@ public Action Command_RespawnToggle(int client, int args)
     DGM_RefreshRespawnVisualState();
     DGM_RespawnDeadClients();
     DGM_LogRespawnToggle(client, g_InternalOverride, g_cvRespawnTime.FloatValue);
-    PrintToChat(client, "Respawn times %s", g_InternalOverride ? "forced on" : "forced off");
+    if (client <= 0)
+    {
+        PrintToServer("Respawn times %s", g_InternalOverride ? "forced on" : "forced off");
+        return Plugin_Handled;
+    }
+
+    if (IsClientInGame(client))
+    {
+        PrintToChat(client, "Respawn times %s", g_InternalOverride ? "forced on" : "forced off");
+    }
     return Plugin_Handled;
 }
 
