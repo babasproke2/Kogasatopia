@@ -555,7 +555,7 @@ static void Filters_CreateConVars()
     g_sEnabled = CreateConVar("nobroly", "1", "If 0, filter chat to one word");
     g_sChatMode2 = CreateConVar("filtermode", "0", "0=off, 1=quarantine with mutual whitelist/blacklist visibility, 2=quarantine with whitelist monitoring only");
     g_hChatDebug = CreateConVar("filters_chat_debug", "0", "Enable verbose debug logging for chat relay");
-    g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Show frontend chat to all clients; blacklisted clients still receive it when disabled");
+    g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Show frontend chat to all clients; blacklist level 3 clients still receive it when disabled");
     g_hFiltersEnabled = CreateConVar("filters", "0", "If 0, blacklist word matching is disabled.");
     g_hRedlistEnabled = CreateConVar("redlist", "0", "Enable/Disable redlist features.", _, true, 0.0, true, 1.0);
     g_hBlacklistMinLen = CreateConVar("filters_blacklist_minlen", "8", "Minimum message length to check blacklist words.");
@@ -1409,7 +1409,7 @@ static void Filters_PrintOutboxToClients(const char[] message)
         {
             continue;
         }
-        if (!frontendEnabled && !g_PlayerState[client].isBlacklisted)
+        if (!frontendEnabled && Filters_GetAdminsDbLevel(client) != -3)
         {
             continue;
         }
@@ -2536,7 +2536,7 @@ void Filters_PrintHelp(int client)
     CPrintToChat(client, "{default}[Filters] nobroly - If 0, filter chat to one word.");
     CPrintToChat(client, "{default}[Filters] filtermode - 0=off, 1=quarantine with mutual whitelist/blacklist visibility, 2=quarantine with whitelist monitoring only.");
     CPrintToChat(client, "{default}[Filters] filters_chat_debug - Enable verbose debug logging for chat relay.");
-    CPrintToChat(client, "{default}[Filters] filters_chat_frontend - Show frontend chat to all clients; blacklisted clients still receive it when disabled.");
+    CPrintToChat(client, "{default}[Filters] filters_chat_frontend - Show frontend chat to all clients; blacklist level 3 clients still receive it when disabled.");
     CPrintToChat(client, "{default}[Filters] filters_filters - If 0, blacklist word matching is disabled.");
     CPrintToChat(client, "{default}[Filters] filters_blacklist_minlen - Minimum message length to check blacklist words.");
     CPrintToChat(client, "{default}[Filters] filters_christmas - If 1, red chat is {axis} and blue chat is {green}.");
