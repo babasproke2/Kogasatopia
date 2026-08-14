@@ -6,7 +6,7 @@
 #include <multicolors>
 #include <plugin_statistics>
 
-#define CHECKLAG_HEALTHY_TICKRATE 65.0
+#define CHECKLAG_HEALTHY_TICKRATE 62.0
 #define CHECKLAG_MONITOR_INTERVAL 1.0
 #define CHECKLAG_ADMIN_ALERT_INTERVAL 4.0
 
