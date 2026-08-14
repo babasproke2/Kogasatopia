@@ -25,7 +25,7 @@ public Plugin myinfo =
     name = "Whale Bans",
     author = "AlliedModders LLC, Hombre",
     description = "Database-backed dual Steam/IP bans with WhaleTracker-aware target ordering.",
-    version = "1.1.0",
+    version = "1.1.1",
     url = "https://kogasa.tf"
 };
 
@@ -631,6 +631,7 @@ void QueueBanRecord(
     pack.WriteCell(duration);
     pack.WriteCell(ipCommand ? 1 : 0);
     pack.WriteString(name);
+    pack.WriteString(steamId);
     pack.WriteString(steamId64);
     pack.WriteString(ip);
     pack.WriteString(reason);
@@ -646,10 +647,12 @@ public void SQL_OnBanInserted(Database database, DBResultSet results, const char
     int duration = pack.ReadCell();
     bool ipCommand = pack.ReadCell() != 0;
     char name[MAX_NAME_LENGTH];
+    char steamId[32];
     char steamId64[KOGASA_STEAMID_MAX];
     char ip[46];
     char reason[256];
     pack.ReadString(name, sizeof(name));
+    pack.ReadString(steamId, sizeof(steamId));
     pack.ReadString(steamId64, sizeof(steamId64));
     pack.ReadString(ip, sizeof(ip));
     pack.ReadString(reason, sizeof(reason));
@@ -666,6 +669,15 @@ public void SQL_OnBanInserted(Database database, DBResultSet results, const char
             ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
         }
         return;
+    }
+
+    if (steamId[0])
+    {
+        BanIdentity(steamId, duration, BANFLAG_AUTHID, reason, "sm_ban", client);
+    }
+    if (ip[0])
+    {
+        BanIdentity(ip, duration, BANFLAG_IP, reason, "sm_banip", client);
     }
 
     if (ipCommand)
@@ -882,9 +894,9 @@ public Action Command_Unban(int client, int args)
 
     char query[768];
     FormatEx(query, sizeof(query),
-        "UPDATE whalebans SET ban_status = 'unbanned', unbanned_at = %d "
-        ... "WHERE ban_status = 'ongoing' AND (steamid = '%s' OR steamid64 = '%s' OR ip = '%s')",
-        GetTime(),
+        "SELECT id, steamid, ip FROM whalebans "
+        ... "WHERE ban_status = 'ongoing' AND (steamid = '%s' OR steamid64 = '%s' OR ip = '%s') "
+        ... "ORDER BY ban_date DESC LIMIT 1",
         escapedIdentity,
         escapedIdentity,
         escapedIdentity);
@@ -892,7 +904,7 @@ public Action Command_Unban(int client, int args)
     DataPack pack = new DataPack();
     pack.WriteCell(client > 0 ? GetClientUserId(client) : 0);
     pack.WriteString(identity);
-    g_Database.Query(SQL_OnDirectUnban, query, pack);
+    g_Database.Query(SQL_OnDirectUnbanLookup, query, pack);
     return Plugin_Handled;
 }
 
@@ -1029,21 +1041,19 @@ void UnbanSelectedRecord(int client)
         return;
     }
 
-    char query[384];
+    char query[256];
     FormatEx(query, sizeof(query),
-        "UPDATE whalebans SET ban_status = 'unbanned', unbanned_at = %d "
-        ... "WHERE id = %d AND ban_status = 'ongoing'",
-        GetTime(),
+        "SELECT steamid, ip FROM whalebans WHERE id = %d AND ban_status = 'ongoing' LIMIT 1",
         g_SelectedBanId[client]);
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
     pack.WriteCell(g_SelectedBanId[client]);
     pack.WriteString(g_SelectedBanName[client]);
-    g_Database.Query(SQL_OnSelectedBanUnbanned, query, pack);
+    g_Database.Query(SQL_OnSelectedBanIdentityLoaded, query, pack);
 }
 
-public void SQL_OnSelectedBanUnbanned(Database database, DBResultSet results, const char[] error, any data)
+public void SQL_OnSelectedBanIdentityLoaded(Database database, DBResultSet results, const char[] error, any data)
 {
     DataPack pack = view_as<DataPack>(data);
     pack.Reset();
@@ -1051,29 +1061,100 @@ public void SQL_OnSelectedBanUnbanned(Database database, DBResultSet results, co
     int banId = pack.ReadCell();
     char name[MAX_NAME_LENGTH];
     pack.ReadString(name, sizeof(name));
+    if (error[0] || results == null || !results.FetchRow())
+    {
+        if (error[0])
+        {
+            LogError("[WhaleBans] Failed to load identities for ban %d: %s", banId, error);
+        }
+        if (client > 0)
+        {
+            ReplyToCommand(client, "[SM] The selected ban is no longer active.");
+        }
+        delete pack;
+        return;
+    }
+
+    char steamId[32];
+    char ip[46];
+    results.FetchString(0, steamId, sizeof(steamId));
+    results.FetchString(1, ip, sizeof(ip));
+    delete pack;
+    QueueUnbanUpdate(client, banId, name, steamId, ip, true);
+}
+
+void QueueUnbanUpdate(
+    int client,
+    int banId,
+    const char[] name,
+    const char[] steamId,
+    const char[] ip,
+    bool fromMenu)
+{
+    char query[384];
+    FormatEx(query, sizeof(query),
+        "UPDATE whalebans SET ban_status = 'unbanned', unbanned_at = %d "
+        ... "WHERE id = %d AND ban_status = 'ongoing'",
+        GetTime(),
+        banId);
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(client > 0 ? GetClientUserId(client) : 0);
+    pack.WriteCell(banId);
+    pack.WriteCell(fromMenu ? 1 : 0);
+    pack.WriteString(name);
+    pack.WriteString(steamId);
+    pack.WriteString(ip);
+    g_Database.Query(SQL_OnBanUnbanned, query, pack);
+}
+
+void RemoveEngineBanPair(const char[] steamId, const char[] ip, int client)
+{
+    if (steamId[0])
+    {
+        RemoveBan(steamId, BANFLAG_AUTHID, "sm_unban", client);
+    }
+    if (ip[0])
+    {
+        RemoveBan(ip, BANFLAG_IP, "sm_unban", client);
+    }
+}
+
+public void SQL_OnBanUnbanned(Database database, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int client = GetClientOfUserId(pack.ReadCell());
+    int banId = pack.ReadCell();
+    bool fromMenu = pack.ReadCell() != 0;
+    char name[MAX_NAME_LENGTH];
+    char steamId[32];
+    char ip[46];
+    pack.ReadString(name, sizeof(name));
+    pack.ReadString(steamId, sizeof(steamId));
+    pack.ReadString(ip, sizeof(ip));
     delete pack;
 
     if (error[0])
     {
         LogError("[WhaleBans] Failed to unban record %d: %s", banId, error);
-        if (client > 0)
-        {
-            ReplyToCommand(client, "[SM] Failed to unban %s.", name);
-        }
+        ReplyToCommand(client, "[SM] Failed to unban %s.", name);
         return;
     }
 
-    if (client > 0)
+    if (results.AffectedRows > 0)
     {
-        if (results.AffectedRows > 0)
-        {
-            ReplyToCommand(client, "[SM] Unbanned %s.", name);
-            LogAction(client, -1, "\"%L\" unbanned database ban id \"%d\" (\"%s\")", client, banId, name);
-        }
-        else
-        {
-            ReplyToCommand(client, "[SM] %s is no longer actively banned.", name);
-        }
+        RemoveEngineBanPair(steamId, ip, client);
+        ReplyToCommand(client, "[SM] Unbanned %s.", name);
+        LogAction(client, -1, "\"%L\" unbanned database ban id \"%d\" (\"%s\")", client, banId, name);
+    }
+    else
+    {
+        ReplyToCommand(client, "[SM] %s is no longer actively banned.", name);
+    }
+
+    if (fromMenu && client > 0)
+    {
         g_SelectedBanId[client] = 0;
         g_SelectedBanName[client][0] = '\0';
         DisplayActiveBanMenu(client);
@@ -1137,31 +1218,35 @@ public void SQL_OnSelectedBanDetailLoaded(Database database, DBResultSet results
     DisplaySelectedBanMenu(client);
 }
 
-public void SQL_OnDirectUnban(Database database, DBResultSet results, const char[] error, any data)
+public void SQL_OnDirectUnbanLookup(Database database, DBResultSet results, const char[] error, any data)
 {
     DataPack pack = view_as<DataPack>(data);
     pack.Reset();
     int client = GetClientOfUserId(pack.ReadCell());
     char identity[50];
     pack.ReadString(identity, sizeof(identity));
-    delete pack;
-
-    if (error[0])
+    if (error[0] || results == null || !results.FetchRow())
     {
-        LogError("[WhaleBans] Direct unban failed: %s", error);
-        ReplyToCommand(client, "[SM] Failed to unban %s.", identity);
+        if (error[0])
+        {
+            LogError("[WhaleBans] Direct unban lookup failed: %s", error);
+            ReplyToCommand(client, "[SM] Failed to unban %s.", identity);
+        }
+        else
+        {
+            ReplyToCommand(client, "[SM] No active bans matched %s.", identity);
+        }
+        delete pack;
         return;
     }
 
-    if (results.AffectedRows > 0)
-    {
-        LogAction(client, -1, "\"%L\" removed database ban (filter \"%s\")", client, identity);
-        ReplyToCommand(client, "[SM] %t", "Removed bans matching", identity);
-    }
-    else
-    {
-        ReplyToCommand(client, "[SM] No active bans matched %s.", identity);
-    }
+    int banId = results.FetchInt(0);
+    char steamId[32];
+    char ip[46];
+    results.FetchString(1, steamId, sizeof(steamId));
+    results.FetchString(2, ip, sizeof(ip));
+    delete pack;
+    QueueUnbanUpdate(client, banId, identity, steamId, ip, false);
 }
 
 public Action Command_AbortBan(int client, int args)
