@@ -2705,6 +2705,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
         CPrintToChatEx(client, client, "%s", senderOutput[0] ? senderOutput : output);
         PrintToServer("x: %s", output);
         SendToWhitelistedAdmins(client, output, "x:");
+        Filters_RelayChatToServers(client, output);
         return true;
     }
 
@@ -3690,6 +3691,10 @@ bool HandleRestrictedMessage(int client, const char[] message, const ChatContext
         CPrintToChatEx(client, client, "%s", senderMessage[0] ? senderMessage : message);
         PrintToServer("x: %s", message);
         SendToWhitelistedAdmins(client, message, "x:");
+        if (context.isGagged)
+        {
+            Filters_RelayChatToServers(client, message);
+        }
         return true;
     }
 
