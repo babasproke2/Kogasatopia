@@ -279,13 +279,21 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
     char escapedSteamId[(BOUNTY_STEAMID_MAX * 2) + 1];
     char fragment[80];
     int candidateCount = 0;
+    int playerResource = GetPlayerResourceEntity();
     steamIds[0] = '\0';
 
     for (int client = 1; client <= MaxClients; client++)
     {
         int team = Client_IsHumanInGame(client) ? GetClientTeam(client) : 0;
+        int kills = team == 2 || team == 3 ? GetClientFrags(client) : 0;
+        int deaths = team == 2 || team == 3 ? GetClientDeaths(client) : 0;
+        int assists = playerResource != -1 && (team == 2 || team == 3)
+            ? GetEntProp(playerResource, Prop_Send, "m_iKillAssists", _, client)
+            : 0;
         if ((team != 2 && team != 3) || !AreBonusPointsReady(client)
             || GetCachedBonusPoints(client) <= BOUNTY_AUTOMATIC_MIN_BALANCE
+            || deaths < GetAutomaticBountyMinDeaths()
+            || (kills + assists) < (BOUNTY_AUTOMATIC_MIN_RATIO * (deaths > 0 ? deaths : 1))
             || !GetClientSteamId64(client, steamId, sizeof(steamId))
             || !EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId)))
         {
@@ -304,15 +312,12 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
 
     char query[3072];
     FormatEx(query, sizeof(query),
-        "SELECT w.steamid FROM whaletracker w INNER JOIN %s b ON BINARY b.steamid64 = BINARY w.steamid "
-        ... "WHERE BINARY w.steamid IN (%s) AND b.balance > %d "
-        ... "AND NOT EXISTS (SELECT 1 FROM %s active_bounty WHERE BINARY active_bounty.target_steamid64 = BINARY w.steamid "
+        "SELECT b.steamid64 FROM %s b "
+        ... "WHERE BINARY b.steamid64 IN (%s) AND b.balance > %d "
+        ... "AND NOT EXISTS (SELECT 1 FROM %s active_bounty WHERE BINARY active_bounty.target_steamid64 = BINARY b.steamid64 "
         ... "AND active_bounty.status = 'active' AND active_bounty.expires_at > %d) "
-        ... "AND NOT EXISTS (SELECT 1 FROM %s recent_automatic WHERE BINARY recent_automatic.target_steamid64 = BINARY w.steamid "
+        ... "AND NOT EXISTS (SELECT 1 FROM %s recent_automatic WHERE BINARY recent_automatic.target_steamid64 = BINARY b.steamid64 "
         ... "AND recent_automatic.sender_steamid64 = '%s' AND recent_automatic.placed_at > %d) "
-        ... "AND COALESCE(w.deaths, 0) >= %d "
-        ... "AND (COALESCE(w.kills, 0) + COALESCE(w.assists, 0)) >= "
-        ... "(%d * CASE WHEN COALESCE(w.deaths, 0) > 0 THEN w.deaths ELSE 1 END) "
         ... "ORDER BY %s LIMIT 1",
         BP_BALANCE_TABLE,
         steamIds,
@@ -322,8 +327,6 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
         BOUNTY_TABLE,
         BOUNTY_SYSTEM_STEAMID,
         GetTime() - BOUNTY_AUTOMATIC_TARGET_COOLDOWN_SECONDS,
-        GetAutomaticBountyMinDeaths(),
-        BOUNTY_AUTOMATIC_MIN_RATIO,
         g_IsMySql ? "RAND()" : "RANDOM()");
     g_BountyAutomaticPlacementPending = true;
     g_Database.Query(SQL_OnAutomaticBountyCandidateSelected, query);

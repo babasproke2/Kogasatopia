@@ -204,7 +204,7 @@ public void OnPluginStart()
     g_CvarBountyMinAmount = CreateConVar("sm_points_store_bounty_min_amount", "50", "Minimum Gem value of an individual bounty.", _, true, 1.0);
     g_CvarBountyMaxAmount = CreateConVar("sm_points_store_bounty_max_amount", "1000", "Maximum Gem value of an individual bounty, including kill growth.", _, true, 1.0);
     g_CvarBountyTimeLimitMinutes = CreateConVar("sm_points_store_bounty_time_limit_minutes", "20.0", "Qualifying playtime required to survive a bounty, in minutes.", _, true, 1.0, true, 1440.0);
-    g_CvarAutoBountyMinDeaths = CreateConVar("sm_points_store_auto_bounty_min_deaths", "2", "Minimum cumulative deaths required for automatic bounty selection.", _, true, 0.0);
+    g_CvarAutoBountyMinDeaths = CreateConVar("sm_points_store_auto_bounty_min_deaths", "2", "Minimum live scoreboard deaths required for automatic bounty selection.", _, true, 0.0);
     g_CvarCurrencyShort.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyLong.AddChangeHook(OnCurrencyConVarChanged);
     g_CvarCurrencyColor.AddChangeHook(OnCurrencyConVarChanged);
