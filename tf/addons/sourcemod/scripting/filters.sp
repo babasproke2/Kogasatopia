@@ -26,6 +26,7 @@
 #define MAX_FILTERS 128
 #define MAX_BLACKLIST 128
 #define MAX_WORD_LENGTH 64
+#define MAX_FILTER_REPLACEMENT_LENGTH 192
 #define MAX_FORCED_STATUS 128
 #define MAX_COMMANDS 64
 #define FILTERS_OUTBOX_CLEANUP_INTERVAL 120
@@ -143,6 +144,9 @@ int g_FilterCount = 0;
 char g_CaseInsensitiveFilterWords[MAX_FILTERS][MAX_WORD_LENGTH];
 char g_CaseInsensitiveReplacementWords[MAX_FILTERS][MAX_WORD_LENGTH];
 int g_CaseInsensitiveFilterCount = 0;
+char g_GoodnightStopperWords[MAX_FILTERS][MAX_WORD_LENGTH];
+char g_GoodnightStopperReplacements[MAX_FILTERS][MAX_FILTER_REPLACEMENT_LENGTH];
+int g_GoodnightStopperCount = 0;
 
 // Global array for blacklisted words
 char g_BlacklistWords[MAX_BLACKLIST][MAX_WORD_LENGTH];
@@ -1907,6 +1911,18 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
     ChatContext context;
     BuildChatContext(client, sArgs, context);
 
+    char publicBody[256];
+    bool hasPrivateOriginal = Filters_FindGoodnightStopperReplacement(sArgs, publicBody, sizeof(publicBody));
+    if (!hasPrivateOriginal)
+    {
+        strcopy(publicBody, sizeof(publicBody), sArgs);
+    }
+    else
+    {
+        // Farewell replacements supersede the matching blacklist rule.
+        context.hasBlacklistedTerm = false;
+    }
+
     if (context.hasBlacklistedTerm || context.isBlacklisted)
     {
         LogBlacklistedMessage(client, sArgs, context.hasBlacklistedTerm, context.isBlacklisted);
@@ -1919,21 +1935,28 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
     BuildChatDisplayName(client, displayName, sizeof(displayName));
 
     char output[256];
-    Format(output, sizeof(output), "%s%s%s%s : %s", messageColorTag, dead, displayName, messageColorTag, sArgs);
+    Format(output, sizeof(output), "%s%s%s%s : %s", messageColorTag, dead, displayName, messageColorTag, publicBody);
+
+    char senderOutput[256];
+    senderOutput[0] = '\0';
+    if (hasPrivateOriginal)
+    {
+        Format(senderOutput, sizeof(senderOutput), "%s%s%s%s : %s", messageColorTag, dead, displayName, messageColorTag, sArgs);
+    }
 
     ApplyFiltersIfNeeded(output, sizeof(output), context);
 
-    if (HandleCordModeBlacklistedChat(client, output, context))
+    if (HandleCordModeBlacklistedChat(client, output, context, senderOutput))
     {
         return Plugin_Stop;
     }
 
-    if (HandleRestrictedMessage(client, output, context))
+    if (HandleRestrictedMessage(client, output, context, senderOutput))
     {
         return Plugin_Stop;
     }
 
-    if (HandleEnabledChat(client, output, context))
+    if (HandleEnabledChat(client, output, context, senderOutput))
     {
         return Plugin_Stop;
     }
@@ -2660,11 +2683,26 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
     char displayName[384];
     BuildChatDisplayName(client, displayName, sizeof(displayName));
 
+    char publicBody[256];
+    bool hasPrivateOriginal = Filters_FindGoodnightStopperReplacement(sArgs, publicBody, sizeof(publicBody));
+    if (!hasPrivateOriginal)
+    {
+        strcopy(publicBody, sizeof(publicBody), sArgs);
+    }
+
     char output[256];
-    Format(output, sizeof(output), "%s%s%s %s%s : %s", messageColorTag, deadPrefix, tag, displayName, messageColorTag, sArgs);
+    Format(output, sizeof(output), "%s%s%s %s%s : %s", messageColorTag, deadPrefix, tag, displayName, messageColorTag, publicBody);
+
+    char senderOutput[256];
+    senderOutput[0] = '\0';
+    if (hasPrivateOriginal)
+    {
+        Format(senderOutput, sizeof(senderOutput), "%s%s%s %s%s : %s", messageColorTag, deadPrefix, tag, displayName, messageColorTag, sArgs);
+    }
+
     if (Filters_IsClientGagged(client))
     {
-        CPrintToChatEx(client, client, "%s", output);
+        CPrintToChatEx(client, client, "%s", senderOutput[0] ? senderOutput : output);
         PrintToServer("x: %s", output);
         SendToWhitelistedAdmins(client, output, "x:");
         return true;
@@ -2680,7 +2718,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
             {
                 if (IsClientInGame(i) && g_PlayerState[i].isBlacklisted && Filters_ShouldReceiveChat(i, client))
                 {
-                    Filters_SendChatToReceiver(i, client, output);
+                    Filters_SendChatToReceiver(i, client, output, senderOutput);
                 }
             }
 
@@ -2713,7 +2751,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
             {
                 if (!isBlacklisted || isWhitelisted || (g_PlayerState[client].isWhitelisted && Filters_CordModeBlacklistedCanReceiveWhitelisted()))
                 {
-                    Filters_SendChatToReceiver(i, client, output);
+                    Filters_SendChatToReceiver(i, client, output, senderOutput);
                 }
             }
             else if (Filters_CanSeeEnemyTeamChat(i))
@@ -2746,7 +2784,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
 
             if (GetClientTeam(i) == senderTeam)
             {
-                Filters_SendChatToReceiver(i, client, output);
+                Filters_SendChatToReceiver(i, client, output, senderOutput);
             }
             else if (Filters_CanSeeEnemyTeamChat(i))
             {
@@ -2761,7 +2799,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
     }
     else
     {
-        CPrintToChatTeam(GetClientTeam(client), client, output);
+        CPrintToChatTeam(GetClientTeam(client), client, output, senderOutput);
     }
     PrintToServer("%s", output);
     return true;
@@ -3517,7 +3555,7 @@ static void Filters_PrintToChatAll(const char[] message)
     }
 }
 
-static void Filters_SendChatToReceiver(int receiver, int sender, const char[] message)
+static void Filters_SendChatToReceiver(int receiver, int sender, const char[] message, const char[] senderMessage = "")
 {
     if (receiver <= 0 || !IsClientInGame(receiver))
     {
@@ -3532,15 +3570,15 @@ static void Filters_SendChatToReceiver(int receiver, int sender, const char[] me
     {
         if (g_PlayerState[receiver].isWhitelisted && Filters_PChatEnabled())
         {
-            CPrintToChatEx(receiver, sender, "{axis}[Fake] %s", message);
+            CPrintToChatEx(receiver, sender, "{axis}[Fake] %s", receiver == sender && senderMessage[0] ? senderMessage : message);
         }
         return;
     }
 
-    CPrintToChatEx(receiver, sender, "%s", message);
+    CPrintToChatEx(receiver, sender, "%s", receiver == sender && senderMessage[0] ? senderMessage : message);
 }
 
-static void Filters_PrintToChatAllEx(int sender, const char[] message)
+static void Filters_PrintToChatAllEx(int sender, const char[] message, const char[] senderMessage = "")
 {
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -3548,7 +3586,7 @@ static void Filters_PrintToChatAllEx(int sender, const char[] message)
         {
             continue;
         }
-        Filters_SendChatToReceiver(i, sender, message);
+        Filters_SendChatToReceiver(i, sender, message, senderMessage);
     }
 }
 
@@ -3622,7 +3660,7 @@ void ApplyFiltersIfNeeded(char[] message, int maxlen, const ChatContext context)
     FilterString(message, maxlen);
 }
 
-bool HandleCordModeBlacklistedChat(int client, const char[] message, const ChatContext context)
+bool HandleCordModeBlacklistedChat(int client, const char[] message, const ChatContext context, const char[] senderMessage = "")
 {
     if (!context.isBlacklisted || !context.cordMode)
     {
@@ -3633,7 +3671,7 @@ bool HandleCordModeBlacklistedChat(int client, const char[] message, const ChatC
     {
         if (IsClientInGame(i) && g_PlayerState[i].isBlacklisted && Filters_ShouldReceiveChat(i, client))
         {
-            Filters_SendChatToReceiver(i, client, message);
+            Filters_SendChatToReceiver(i, client, message, senderMessage);
         }
     }
 
@@ -3645,11 +3683,11 @@ bool HandleCordModeBlacklistedChat(int client, const char[] message, const ChatC
     return true;
 }
 
-bool HandleRestrictedMessage(int client, const char[] message, const ChatContext context)
+bool HandleRestrictedMessage(int client, const char[] message, const ChatContext context, const char[] senderMessage = "")
 {
     if (((context.hasBlacklistedTerm && !context.isWhitelisted) && !context.cordMode) || context.isGagged)
     {
-        CPrintToChatEx(client, client, "%s", message);
+        CPrintToChatEx(client, client, "%s", senderMessage[0] ? senderMessage : message);
         PrintToServer("x: %s", message);
         SendToWhitelistedAdmins(client, message, "x:");
         return true;
@@ -3658,7 +3696,7 @@ bool HandleRestrictedMessage(int client, const char[] message, const ChatContext
     return false;
 }
 
-bool HandleEnabledChat(int client, const char[] message, const ChatContext context)
+bool HandleEnabledChat(int client, const char[] message, const ChatContext context, const char[] senderMessage = "")
 {
     if (!context.pluginEnabled)
     {
@@ -3683,13 +3721,13 @@ bool HandleEnabledChat(int client, const char[] message, const ChatContext conte
 
                 if (!teamChatOnly)
                 {
-                    Filters_SendChatToReceiver(i, client, message);
+                    Filters_SendChatToReceiver(i, client, message, senderMessage);
                     continue;
                 }
 
                 if (GetClientTeam(i) == senderTeam)
                 {
-                    Filters_SendChatToReceiver(i, client, message);
+                    Filters_SendChatToReceiver(i, client, message, senderMessage);
                 }
                 else if (Filters_CanSeeEnemyTeamChat(i))
                 {
@@ -3704,11 +3742,11 @@ bool HandleEnabledChat(int client, const char[] message, const ChatContext conte
         }
         else if (teamChatOnly)
         {
-            CPrintToChatTeam(GetClientTeam(client), client, message);
+            CPrintToChatTeam(GetClientTeam(client), client, message, senderMessage);
         }
         else
         {
-            Filters_PrintToChatAllEx(client, message);
+            Filters_PrintToChatAllEx(client, message, senderMessage);
         }
     }
     else
@@ -3726,7 +3764,7 @@ bool HandleEnabledChat(int client, const char[] message, const ChatContext conte
             if ((!g_PlayerState[i].isBlacklisted || (context.isWhitelisted && Filters_CordModeBlacklistedCanReceiveWhitelisted()))
                 && (!teamChatOnly || GetClientTeam(i) == GetClientTeam(client)))
             {
-                Filters_SendChatToReceiver(i, client, message);
+                Filters_SendChatToReceiver(i, client, message, senderMessage);
             }
         }
     }
@@ -3886,6 +3924,7 @@ static void Filters_ResetLoadedConfig()
 {
     g_FilterCount = 0;
     g_CaseInsensitiveFilterCount = 0;
+    g_GoodnightStopperCount = 0;
     g_BlacklistCount = 0;
     g_Blacklist50Count = 0;
     g_ForcedStatusCount = 0;
@@ -3953,6 +3992,41 @@ static void Filters_LoadCaseInsensitiveFilterWords(KeyValues kv)
         strcopy(g_CaseInsensitiveFilterWords[g_CaseInsensitiveFilterCount], MAX_WORD_LENGTH, original);
         strcopy(g_CaseInsensitiveReplacementWords[g_CaseInsensitiveFilterCount], MAX_WORD_LENGTH, filtered);
         g_CaseInsensitiveFilterCount++;
+    }
+    while (kv.GotoNextKey(false));
+
+    Filters_EndConfigSection(kv);
+}
+
+static void Filters_LoadGoodnightStopperWords(KeyValues kv)
+{
+    if (!Filters_BeginConfigSection(kv, "filters_goodnightstopper"))
+    {
+        return;
+    }
+
+    do
+    {
+        if (g_GoodnightStopperCount >= MAX_FILTERS)
+        {
+            LogError("Maximum goodnight stopper limit reached (%d)", MAX_FILTERS);
+            break;
+        }
+
+        char trigger[MAX_WORD_LENGTH];
+        char replacement[MAX_FILTER_REPLACEMENT_LENGTH];
+        kv.GetSectionName(trigger, sizeof(trigger));
+        kv.GetString(NULL_STRING, replacement, sizeof(replacement));
+        TrimString(trigger);
+        TrimString(replacement);
+        if (!trigger[0] || !replacement[0])
+        {
+            continue;
+        }
+
+        strcopy(g_GoodnightStopperWords[g_GoodnightStopperCount], MAX_WORD_LENGTH, trigger);
+        strcopy(g_GoodnightStopperReplacements[g_GoodnightStopperCount], MAX_FILTER_REPLACEMENT_LENGTH, replacement);
+        g_GoodnightStopperCount++;
     }
     while (kv.GotoNextKey(false));
 
@@ -4122,6 +4196,7 @@ void LoadFilterConfig()
     Filters_ResetLoadedConfig();
     Filters_LoadFilterWords(kv);
     Filters_LoadCaseInsensitiveFilterWords(kv);
+    Filters_LoadGoodnightStopperWords(kv);
     Filters_LoadBlacklistWords(kv);
     Filters_LoadBlacklist50Words(kv);
     Filters_LoadForcedStatuses(kv);
@@ -4130,8 +4205,65 @@ void LoadFilterConfig()
 
     delete kv;
 
-    PrintToServer("[Word Filter] Loaded %d filter words, %d case-insensitive filters, %d blacklist words, %d blacklist_50 words, %d forced status entries, and %d commands",
-                  g_FilterCount, g_CaseInsensitiveFilterCount, g_BlacklistCount, g_Blacklist50Count, g_ForcedStatusCount, g_AllowedCommandsCount);
+    PrintToServer("[Word Filter] Loaded %d filter words, %d case-insensitive filters, %d goodnight stoppers, %d blacklist words, %d blacklist_50 words, %d forced status entries, and %d commands",
+                  g_FilterCount, g_CaseInsensitiveFilterCount, g_GoodnightStopperCount, g_BlacklistCount, g_Blacklist50Count, g_ForcedStatusCount, g_AllowedCommandsCount);
+}
+
+static bool Filters_IsTriggerWordCharacter(char value)
+{
+    return (value >= 'a' && value <= 'z')
+        || (value >= 'A' && value <= 'Z')
+        || (value >= '0' && value <= '9')
+        || value == '_';
+}
+
+static bool Filters_ContainsWholeTrigger(const char[] message, const char[] trigger)
+{
+    int messageLength = strlen(message);
+    int triggerLength = strlen(trigger);
+    if (triggerLength <= 0 || triggerLength > messageLength)
+    {
+        return false;
+    }
+
+    for (int start = 0; start + triggerLength <= messageLength; start++)
+    {
+        bool matches = true;
+        for (int offset = 0; offset < triggerLength; offset++)
+        {
+            if (CharToLower(message[start + offset]) != CharToLower(trigger[offset]))
+            {
+                matches = false;
+                break;
+            }
+        }
+
+        if (matches
+            && (start == 0 || !Filters_IsTriggerWordCharacter(message[start - 1]))
+            && (start + triggerLength == messageLength || !Filters_IsTriggerWordCharacter(message[start + triggerLength])))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool Filters_FindGoodnightStopperReplacement(const char[] message, char[] replacement, int maxlen)
+{
+    replacement[0] = '\0';
+    for (int i = 0; i < g_GoodnightStopperCount; i++)
+    {
+        if (!Filters_ContainsWholeTrigger(message, g_GoodnightStopperWords[i]))
+        {
+            continue;
+        }
+
+        strcopy(replacement, maxlen, g_GoodnightStopperReplacements[i]);
+        return true;
+    }
+
+    return false;
 }
 
 public void FilterString(char[] input, int maxlen)
@@ -4202,6 +4334,12 @@ void CreateDefaultConfig(const char[] path)
     file.WriteLine("    \"filters_case_insensitive\"");
     file.WriteLine("    {");
     file.WriteLine("        \"bruh\"    \"trans rights\"");
+    file.WriteLine("    }");
+    file.WriteLine("    \"filters_goodnightstopper\"");
+    file.WriteLine("    {");
+    file.WriteLine("        \"gn\"           \"I'm bringing a friend\"");
+    file.WriteLine("        \"goodnight\"    \"I'm getting friends to join\"");
+    file.WriteLine("        \"cya\"          \"my friends are gonna connect soon\"");
     file.WriteLine("    }");
     file.WriteLine("    \"blacklist_words\"");
     file.WriteLine("    {");
@@ -4970,7 +5108,7 @@ void PerformUnredlist(int client, int target)
     Filters_UpdateVoiceOverrides();
 }
 
-void CPrintToChatTeam(int team, int sender, const char[] message)
+void CPrintToChatTeam(int team, int sender, const char[] message, const char[] senderMessage = "")
 {
     char prefixed[256];
     bool prefixedReady = false;
@@ -4988,7 +5126,7 @@ void CPrintToChatTeam(int team, int sender, const char[] message)
 
         if (GetClientTeam(client) == team)
         {
-            Filters_SendChatToReceiver(client, sender, message);
+            Filters_SendChatToReceiver(client, sender, message, senderMessage);
         }
         else if (Filters_CanSeeEnemyTeamChat(client))
         {
