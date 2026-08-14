@@ -449,7 +449,7 @@ public void SQL_OnAutomaticBountyPlaced(Database db, DBResultSet results, const 
         if (Client_IsHumanInGame(recipient))
         {
             CPrintToChatEx(recipient, target > 0 ? target : recipient,
-                "%s A bounty has been placed on %s! Dominate him to receive %s%d %s{default}!",
+                "%s Dominate %s to get %s%d %s{default}!",
                 g_BountyPrefix,
                 targetDisplay,
                 g_CurrencyColorTag,
