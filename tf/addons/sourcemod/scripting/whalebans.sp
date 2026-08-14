@@ -921,7 +921,7 @@ void DisplayActiveBanMenu(int client)
     FormatEx(query, sizeof(query),
         "SELECT id, name_at_ban FROM whalebans "
         ... "WHERE ban_status = 'ongoing' AND (expires_at = 0 OR expires_at > %d) "
-        ... "ORDER BY ban_date DESC LIMIT 100",
+        ... "ORDER BY ban_date DESC, id DESC LIMIT 100",
         now);
     g_Database.Query(SQL_OnActiveBansLoaded, query, GetClientUserId(client));
 }
@@ -1205,8 +1205,16 @@ public void SQL_OnSelectedBanDetailLoaded(Database database, DBResultSet results
 
     if (showDate)
     {
+        int banDate = results.FetchInt(0);
+        if (banDate <= 0)
+        {
+            ReplyToCommand(client, "[SM] Ban date: unavailable (legacy import)");
+            DisplaySelectedBanMenu(client);
+            return;
+        }
+
         char formattedDate[64];
-        FormatTime(formattedDate, sizeof(formattedDate), "%b %d, %Y %I:%M %p", results.FetchInt(0));
+        FormatTime(formattedDate, sizeof(formattedDate), "%b %d, %Y %I:%M %p", banDate);
         ReplyToCommand(client, "[SM] Ban date: %s", formattedDate);
     }
     else
