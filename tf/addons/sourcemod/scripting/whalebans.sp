@@ -1063,16 +1063,31 @@ public void SQL_OnActiveBansLoaded(Database database, DBResultSet results, const
         return;
     }
 
+    while (count < WHALEBANS_MENU_PAGE_SIZE)
+    {
+        menu.AddItem("", " ", ITEMDRAW_DISABLED);
+        count++;
+    }
+
     char pageInfo[16];
     if (page > 0)
     {
         FormatEx(pageInfo, sizeof(pageInfo), "page:%d", page - 1);
         menu.AddItem(pageInfo, "Previous page");
     }
+    else
+    {
+        menu.AddItem("", "Previous page", ITEMDRAW_DISABLED);
+    }
+
     if (page + 1 < totalPages)
     {
         FormatEx(pageInfo, sizeof(pageInfo), "page:%d", page + 1);
         menu.AddItem(pageInfo, "Next page");
+    }
+    else
+    {
+        menu.AddItem("", "Next page", ITEMDRAW_DISABLED);
     }
 
     menu.Display(client, MENU_TIME_FOREVER);
