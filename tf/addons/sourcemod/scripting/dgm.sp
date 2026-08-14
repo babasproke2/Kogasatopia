@@ -2136,16 +2136,29 @@ public Action Command_RespawnToggle(int client, int args)
 
     DGM_RefreshRespawnVisualState();
     DGM_RespawnDeadClients();
-    DGM_LogRespawnToggle(client, g_InternalOverride, g_cvRespawnTime.FloatValue);
+
+    float respawnTime = g_cvRespawnTime.FloatValue;
+    int roundedRespawnTime = RoundToNearest(respawnTime);
+    char respawnTimeText[16];
+    if (FloatCompare(respawnTime, float(roundedRespawnTime)) == 0)
+    {
+        IntToString(roundedRespawnTime, respawnTimeText, sizeof(respawnTimeText));
+    }
+    else
+    {
+        FormatEx(respawnTimeText, sizeof(respawnTimeText), "%.1f", respawnTime);
+    }
+
+    DGM_LogRespawnToggle(client, g_InternalOverride, respawnTime);
     if (client <= 0)
     {
-        PrintToServer("Respawn times %s", g_InternalOverride ? "forced on" : "forced off");
+        PrintToServer("Respawn times %s (%ss)", g_InternalOverride ? "forced on" : "forced off", respawnTimeText);
         return Plugin_Handled;
     }
 
     if (IsClientInGame(client))
     {
-        PrintToChat(client, "Respawn times %s", g_InternalOverride ? "forced on" : "forced off");
+        PrintToChat(client, "Respawn times %s (%ss)", g_InternalOverride ? "forced on" : "forced off", respawnTimeText);
     }
     return Plugin_Handled;
 }
