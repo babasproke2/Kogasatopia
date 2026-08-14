@@ -1039,6 +1039,7 @@ public void SQL_OnActiveBansLoaded(Database database, DBResultSet results, const
     FormatEx(title, sizeof(title), "Banned clients (%d/%d)", page + 1, totalPages);
     menu.SetTitle(title);
     menu.Pagination = MENU_NO_PAGINATION;
+    menu.ExitButton = false;
     int count;
     while (results != null && results.FetchRow())
     {
@@ -1065,7 +1066,7 @@ public void SQL_OnActiveBansLoaded(Database database, DBResultSet results, const
 
     while (count < WHALEBANS_MENU_PAGE_SIZE)
     {
-        menu.AddItem("", " ", ITEMDRAW_DISABLED);
+        menu.AddItem("", "", ITEMDRAW_NOTEXT);
         count++;
     }
 
@@ -1073,23 +1074,24 @@ public void SQL_OnActiveBansLoaded(Database database, DBResultSet results, const
     if (page > 0)
     {
         FormatEx(pageInfo, sizeof(pageInfo), "page:%d", page - 1);
-        menu.AddItem(pageInfo, "Previous page");
+        menu.AddItem(pageInfo, "Previous page", ITEMDRAW_CONTROL);
     }
     else
     {
-        menu.AddItem("", "Previous page", ITEMDRAW_DISABLED);
+        menu.AddItem("", "", ITEMDRAW_SPACER | ITEMDRAW_CONTROL);
     }
 
     if (page + 1 < totalPages)
     {
         FormatEx(pageInfo, sizeof(pageInfo), "page:%d", page + 1);
-        menu.AddItem(pageInfo, "Next page");
+        menu.AddItem(pageInfo, "Next page", ITEMDRAW_CONTROL);
     }
     else
     {
-        menu.AddItem("", "Next page", ITEMDRAW_DISABLED);
+        menu.AddItem("", "", ITEMDRAW_SPACER | ITEMDRAW_CONTROL);
     }
 
+    menu.AddItem("close", "Close menu", ITEMDRAW_CONTROL);
     menu.Display(client, MENU_TIME_FOREVER);
 }
 
@@ -1104,6 +1106,11 @@ public int MenuHandler_ActiveBans(Menu menu, MenuAction action, int client, int 
         char id[16];
         char name[MAX_NAME_LENGTH];
         menu.GetItem(selection, id, sizeof(id), _, name, sizeof(name));
+        if (StrEqual(id, "close"))
+        {
+            return 0;
+        }
+
         if (StrContains(id, "page:") == 0)
         {
             DisplayActiveBanMenu(client, StringToInt(id[5]));
