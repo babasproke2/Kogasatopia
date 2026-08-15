@@ -1159,7 +1159,19 @@ public void Filters_RandomArchivedMessageCallback(Database db, DBResultSet resul
         }
         else
         {
-            strcopy(color, sizeof(color), GetRandomInt(0, 1) == 0 ? "red" : "blue");
+            int team = GetClientTeam(target);
+            if (team == 2)
+            {
+                strcopy(color, sizeof(color), "red");
+            }
+            else if (team == 3)
+            {
+                strcopy(color, sizeof(color), "blue");
+            }
+            else
+            {
+                strcopy(color, sizeof(color), GetRandomInt(0, 1) == 0 ? "red" : "blue");
+            }
             BuildRenderedStoredName(displayName, color, "", renderedName, sizeof(renderedName));
         }
     }
