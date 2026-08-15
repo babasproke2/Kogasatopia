@@ -55,6 +55,8 @@
 #define ATTR_RELOAD_ON_HIT "reload on hit"
 #define ATTR_RELOAD_ON_KILL "reload on kill"
 #define ATTR_AMBASSADOR_102 "ambassador 102"
+#define ATTR_RANDOM_SPREAD_OVERRIDE "random spread override"
+#define ATTR_RANDOM_CRITS_OVERRIDE "random crits override"
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
 #define RESTORE_PRIMARY_SHOT_DAMAGE_WINDOW 5.0
@@ -141,6 +143,7 @@ ConVar g_hSandmanMaxStunFlightTime;
 ConVar g_hSandmanFallbackBaseDuration;
 KeyValues g_hWeaponRevertsConfig = null;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
+MemoryPatch patch_AllowRandomCritOverride;
 Handle g_hHealTimer = INVALID_HANDLE;
 
 MemoryPatch patch_Wrangler_CustomShieldRepair;
@@ -153,9 +156,12 @@ float g_flWranglerCustomShieldValue = 0.85;
 DynamicDetour dhook_CTFPlayer_CalculateMaxSpeed;
 DynamicDetour dhook_CTFLunchBox_ApplyBiteEffects;
 DynamicDetour dhook_CTFPlayerShared_StunPlayer;
+DynamicDetour dhook_IsFixedWeaponSpreadEnabled;
 DynamicHook dhook_CObjectCartDispenser_DispenseMetal;
 DynamicHook dhook_CTFWeaponBase_CanFireCriticalShot;
 DynamicHook dhook_CTFStunBall_ApplyBallImpactEffectOnVictim;
+Handle g_SDKCalcIsAttackCriticalHelper = null;
+bool g_bCalculatingRandomCritOverride = false;
 
 static bool WeaponReverts_IsEnabled()
 {
@@ -284,6 +290,8 @@ public void OnPluginStart() {
 		GameData conf;
 		conf = new GameData("weaponreverts");
 		if (conf == null) SetFailState("Failed to load weaponreverts.txt conf!");
+		GameData overrideConf = new GameData("weapon_overrides.games");
+		if (overrideConf == null) SetFailState("Failed to load weapon_overrides.games.txt conf!");
 
 		// Setup SDKCall for GetMaxClip1
 		StartPrepSDKCall(SDKCall_Entity);
@@ -296,9 +304,21 @@ public void OnPluginStart() {
 			SetFailState("Failed to create SDKCall for GetMaxClip1");
 		}
 
+		// Virtual dispatch preserves TF2's native ranged/melee crit algorithms.
+		StartPrepSDKCall(SDKCall_Entity);
+		PrepSDKCall_SetFromConf(overrideConf, SDKConf_Virtual, "CTFWeaponBase::CalcIsAttackCriticalHelper()");
+		PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
+		g_SDKCalcIsAttackCriticalHelper = EndPrepSDKCall();
+
+		if (g_SDKCalcIsAttackCriticalHelper == null)
+		{
+			SetFailState("Failed to create SDKCall for CalcIsAttackCriticalHelper");
+		}
+
 		dhook_CTFPlayer_CalculateMaxSpeed = DynamicDetour.FromConf(conf, "CTFPlayer::TeamFortress_CalculateMaxSpeed");
 		dhook_CTFLunchBox_ApplyBiteEffects = DynamicDetour.FromConf(conf, "CTFLunchBox::ApplyBiteEffects");
 		dhook_CTFPlayerShared_StunPlayer = DynamicDetour.FromConf(conf, "CTFPlayerShared::StunPlayer");
+		dhook_IsFixedWeaponSpreadEnabled = DynamicDetour.FromConf(overrideConf, "IsFixedWeaponSpreadEnabled");
 		dhook_CObjectCartDispenser_DispenseMetal = DynamicHook.FromConf(conf, "CObjectCartDispenser::DispenseMetal");
 		dhook_CTFWeaponBase_CanFireCriticalShot = DynamicHook.FromConf(conf, "CTFWeaponBase::CanFireCriticalShot");
 		dhook_CTFStunBall_ApplyBallImpactEffectOnVictim = DynamicHook.FromConf(conf, "CTFStunBall::ApplyBallImpactEffectOnVictim");
@@ -306,6 +326,7 @@ public void OnPluginStart() {
 		if (dhook_CTFPlayer_CalculateMaxSpeed == null) SetFailState("Failed to create dhook_CTFPlayer_CalculateMaxSpeed");
 		if (dhook_CTFLunchBox_ApplyBiteEffects == null) SetFailState("Failed to create dhook_CTFLunchBox_ApplyBiteEffects");
 		if (dhook_CTFPlayerShared_StunPlayer == null) SetFailState("Failed to create dhook_CTFPlayerShared_StunPlayer");
+		if (dhook_IsFixedWeaponSpreadEnabled == null) SetFailState("Failed to create dhook_IsFixedWeaponSpreadEnabled");
 		if (dhook_CObjectCartDispenser_DispenseMetal == null) SetFailState("Failed to create dhook_CObjectCartDispenser_DispenseMetal");
 		if (dhook_CTFWeaponBase_CanFireCriticalShot == null) SetFailState("Failed to create dhook_CTFWeaponBase_CanFireCriticalShot");
 		if (dhook_CTFStunBall_ApplyBallImpactEffectOnVictim == null) SetFailState("Failed to create dhook_CTFStunBall_ApplyBallImpactEffectOnVictim");
@@ -314,9 +335,11 @@ public void OnPluginStart() {
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Pre, ApplyBiteEffects_Pre);
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Post, ApplyBiteEffects_Post);
 		dhook_CTFPlayerShared_StunPlayer.Enable(Hook_Pre, SandmanPreJI_StunPlayer_Pre);
+		dhook_IsFixedWeaponSpreadEnabled.Enable(Hook_Pre, IsFixedWeaponSpreadEnabled_Pre);
 
 		// Create the patches
 		patch_RevertCozyCamper_FlinchNerf = MemoryPatch.CreateFromConf(conf, "CTFPlayer::ApplyPunchImpulseX_FakeFullyChargedCondition");
+		patch_AllowRandomCritOverride = MemoryPatch.CreateFromConf(overrideConf, "CTFWeaponBaseMelee::CalcIsAttackCriticalHelper_AllowOverride");
 		patch_Wrangler_CustomShieldRepair = MemoryPatch.CreateFromConf(conf, "CObjectSentrygun::OnWrenchHit_CustomShieldRepair");
 		patch_Wrangler_CustomShieldShellRefill = MemoryPatch.CreateFromConf(conf, "CObjectSentrygun::OnWrenchHit_CustomShieldShellRefill");
 		patch_Wrangler_CustomShieldRocketRefill = MemoryPatch.CreateFromConf(conf, "CObjectSentrygun::OnWrenchHit_CustomShieldRocketRefill");
@@ -324,6 +347,7 @@ public void OnPluginStart() {
 		patch_Wrangler_RescueRanger_CustomShieldRepair = MemoryPatch.CreateFromConf(conf, "CTFProjectile_Arrow::BuildingHealingArrow_CustomShieldRepair");
 
 		if (!ValidateAndNullCheck(patch_RevertCozyCamper_FlinchNerf)) SetFailState("Failed to create patch_RevertCozyCamper_FlinchNerf");
+		if (!ValidateAndNullCheck(patch_AllowRandomCritOverride)) SetFailState("Failed to create patch_AllowRandomCritOverride");
 		if (!ValidateAndNullCheck(patch_Wrangler_CustomShieldRepair)) SetFailState("Failed to create patch_Wrangler_CustomShieldRepair");
 		if (!ValidateAndNullCheck(patch_Wrangler_CustomShieldShellRefill)) SetFailState("Failed to create patch_Wrangler_CustomShieldShellRefill");
 		if (!ValidateAndNullCheck(patch_Wrangler_CustomShieldRocketRefill)) SetFailState("Failed to create patch_Wrangler_CustomShieldRocketRefill");
@@ -331,6 +355,7 @@ public void OnPluginStart() {
 		if (!ValidateAndNullCheck(patch_Wrangler_RescueRanger_CustomShieldRepair)) SetFailState("Failed to create patch_Wrangler_RescueRanger_CustomShieldRepair");
 
 		patch_RevertCozyCamper_FlinchNerf.Enable();
+		patch_AllowRandomCritOverride.Enable();
 		patch_Wrangler_CustomShieldRepair.Enable();
 		patch_Wrangler_CustomShieldShellRefill.Enable();
 		patch_Wrangler_CustomShieldRocketRefill.Enable();
@@ -342,6 +367,7 @@ public void OnPluginStart() {
 		StoreToAddress(patch_Wrangler_CustomShieldRocketRefill.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
 		StoreToAddress(patch_Wrangler_CustomShieldDamageTaken.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
 		StoreToAddress(patch_Wrangler_RescueRanger_CustomShieldRepair.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
+		delete overrideConf;
 		delete conf;
 
 		StartHealTimer();
@@ -404,6 +430,7 @@ public void OnPluginEnd()
 	}
 
 	DestroyPatch(patch_RevertCozyCamper_FlinchNerf); patch_RevertCozyCamper_FlinchNerf = null;
+	DestroyPatch(patch_AllowRandomCritOverride); patch_AllowRandomCritOverride = null;
 	DestroyPatch(patch_Wrangler_CustomShieldRepair); patch_Wrangler_CustomShieldRepair = null;
 	DestroyPatch(patch_Wrangler_CustomShieldShellRefill); patch_Wrangler_CustomShieldShellRefill = null;
 	DestroyPatch(patch_Wrangler_CustomShieldRocketRefill); patch_Wrangler_CustomShieldRocketRefill = null;
@@ -1171,6 +1198,18 @@ public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname
 	if (!IsClientInGame(client) || weapon <= MaxClients || !IsValidEntity(weapon))
 		return Plugin_Continue;
 
+	// The SDKCall re-enters this forward through SourceMod's crit hook.
+	if (g_bCalculatingRandomCritOverride)
+		return Plugin_Continue;
+
+	if (TF2CustAttr_GetInt(weapon, ATTR_RANDOM_CRITS_OVERRIDE, 0) != 0)
+	{
+		g_bCalculatingRandomCritOverride = true;
+		result = view_as<bool>(SDKCall(g_SDKCalcIsAttackCriticalHelper, weapon));
+		g_bCalculatingRandomCritOverride = false;
+		return Plugin_Changed;
+	}
+
 	if (GetEntityFlags(client) & FL_ONGROUND)
 		return Plugin_Continue;
 
@@ -1194,6 +1233,19 @@ public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname
 
 	TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
 	return Plugin_Changed;
+}
+
+public MRESReturn IsFixedWeaponSpreadEnabled_Pre(DHookReturn returnValue, DHookParam parameters)
+{
+	int weapon = parameters.Get(1);
+	if (!IsValidWeaponEntity(weapon)
+		|| TF2CustAttr_GetInt(weapon, ATTR_RANDOM_SPREAD_OVERRIDE, 0) == 0)
+	{
+		return MRES_Ignored;
+	}
+
+	returnValue.Value = false;
+	return MRES_Supercede;
 }
 
 public Action Timer_HealTimer(Handle timer)

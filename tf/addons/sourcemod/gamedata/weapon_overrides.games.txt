@@ -1,0 +1,59 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"IsFixedWeaponSpreadEnabled"
+			{
+				"library" "server"
+				"linux"   "\x55\x89\xE5\x56\x53\x83\xEC\x1C\xA1\x2A\x2A\x2A\x2A\x8B\x5D\x08\x8B\x70\x30\xFF\x35\x2A\x2A\x2A\x2A"
+			}
+		}
+
+		"Offsets"
+		{
+			"CTFWeaponBase::CalcIsAttackCriticalHelper()"
+			{
+				"windows"   "401"
+				"windows64" "401"
+				"linux"     "408"
+				"linux64"   "408"
+			}
+		}
+
+		"MemPatches"
+		{
+			// The outer crit path still sends ordinary weapons to HelperNoCrits.
+			// The large, guarded offset reaches the melee helper from the stable spread signature.
+			"CTFWeaponBaseMelee::CalcIsAttackCriticalHelper_AllowOverride"
+			{
+				"signature" "IsFixedWeaponSpreadEnabled"
+				"linux"
+				{
+					"offset" "1963809"
+					"verify" "\x75\x0D" // JNE native crit algorithm when melee crits are enabled
+					"patch"  "\xEB\x0D" // Always enter it when this helper is called explicitly
+				}
+			}
+		}
+
+		"Functions"
+		{
+			"IsFixedWeaponSpreadEnabled"
+			{
+				"signature" "IsFixedWeaponSpreadEnabled"
+				"callconv"  "cdecl"
+				"this"      "ignore"
+				"return"    "bool"
+				"arguments"
+				{
+					"pWeapon"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+		}
+	}
+}
