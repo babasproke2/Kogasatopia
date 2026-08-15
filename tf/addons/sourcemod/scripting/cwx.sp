@@ -73,6 +73,7 @@ public Plugin myinfo = {
 #define CWX_STATS_DB_CONFIG_DEFAULT "default"
 #define CWX_STATS_STATE_TABLE "cwx_weapon_popularity"
 #define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
+#define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
 
 // we're recycling the following attribute to ensure that the item UID persists across dropped
 // weapons - it's kinda icky and if anyone else happened to get the same idea it'd be bad, but
@@ -99,18 +100,26 @@ bool g_CwxStatsDbReady = false;
 bool g_CwxStatsIsMySql = false;
 Handle g_hCwxStatsDbReconnectTimer = null;
 
-void CWX_ApplySpreadPatternOverride(int weapon)
+void CWX_ApplySpreadOverrides(int weapon)
 {
-	if (!IsValidEntity(weapon)
-		|| GetFeatureStatus(FeatureType_Native, "TF2Spread_SetPattern") != FeatureStatus_Available)
+	if (!IsValidEntity(weapon))
 	{
 		return;
 	}
 
-	TF2SpreadPattern pattern = TF2CustAttr_GetInt(weapon, ATTR_CIRCULAR_BULLET_SPREAD, 0) != 0
-		? TF2Spread_Circular15
-		: TF2Spread_Default;
-	TF2Spread_SetPattern(weapon, pattern);
+	if (GetFeatureStatus(FeatureType_Native, "TF2Spread_SetPattern") == FeatureStatus_Available)
+	{
+		TF2SpreadPattern pattern = TF2CustAttr_GetInt(weapon, ATTR_CIRCULAR_BULLET_SPREAD, 0) != 0
+			? TF2Spread_Circular15
+			: TF2Spread_Default;
+		TF2Spread_SetPattern(weapon, pattern);
+	}
+
+	if (GetFeatureStatus(FeatureType_Native, "TF2Spread_SetAmbassadorAccuracy") == FeatureStatus_Available)
+	{
+		bool enabled = TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) != 0;
+		TF2Spread_SetAmbassadorAccuracy(weapon, enabled);
+	}
 }
 
 #include "cwx/item_config.sp"

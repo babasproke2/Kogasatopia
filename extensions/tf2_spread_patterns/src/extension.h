@@ -20,10 +20,14 @@ class TF2SpreadPatterns : public SDKExtension
 public:
 	bool SDK_OnLoad(char *error, size_t maxlen, bool late) override;
 	void SDK_OnUnload() override;
+	bool SDK_OnMetamodLoad(ISmmAPI *ismm, char *error, size_t maxlen, bool late) override;
 
 	cell_t Native_SetPattern(IPluginContext *context, const cell_t *params);
+	cell_t Native_SetAmbassadorAccuracy(IPluginContext *context, const cell_t *params);
 
 	bool ShouldUseCircular15(CBaseEntity *weapon);
+	bool ShouldUseAmbassadorAccuracy(CBaseEntity *weapon);
+	float ApplyAmbassadorAccuracy(CBaseEntity *weapon, float spread) const;
 	void BeginCircular15();
 	void EndCircular15();
 
@@ -32,16 +36,20 @@ private:
 	static constexpr int kMaxTrackedEntities = 2048;
 
 	bool SetupGameConfig(char *error, size_t maxlen);
+	bool SetupSendProps(char *error, size_t maxlen);
 	bool SetupSpreadTable(char *error, size_t maxlen);
-	bool SetupDetour(char *error, size_t maxlen);
+	bool SetupDetours(char *error, size_t maxlen);
 	void RestoreStockPattern();
 
 	SourceMod::IGameConfig *m_gameConf = nullptr;
 	CDetour *m_fireBulletsDetour = nullptr;
+	CDetour *m_getWeaponSpreadDetour = nullptr;
 	Vector *m_fixedSpreadTable = nullptr;
 	Vector m_stockPattern[kPelletCount] = {};
-	cell_t m_weaponRefs[kMaxTrackedEntities] = {};
+	cell_t m_patternWeaponRefs[kMaxTrackedEntities] = {};
+	cell_t m_accuracyWeaponRefs[kMaxTrackedEntities] = {};
 	SpreadPattern m_patterns[kMaxTrackedEntities] = {};
+	int m_lastFireTimeOffset = -1;
 	int m_swapDepth = 0;
 };
 

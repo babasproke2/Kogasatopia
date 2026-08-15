@@ -326,7 +326,7 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 	if (item.customAttributes) {
 		TF2CustAttr_UseKeyValues(itemEntity, item.customAttributes);
 	}
-	CWX_ApplySpreadPatternOverride(itemEntity);
+	CWX_ApplySpreadOverrides(itemEntity);
 	
 	// HACK: the stock builder and sapper needs additional fixups
 	// https://github.com/ValveSoftware/source-sdk-2013/blob/0565403b153dfcde602f6f58d8f4d13483696a13/src/game/server/tf/tf_player.cpp#L4306-L4315
@@ -421,7 +421,7 @@ static void EnsureCustomItemRuntimeAttributes(int itemEntity,
 		TF2CustAttr_UseKeyValues(itemEntity, item.customAttributes);
 	}
 	delete currentAttributes;
-	CWX_ApplySpreadPatternOverride(itemEntity);
+	CWX_ApplySpreadOverrides(itemEntity);
 }
 
 /**

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <cstring>
 
+#include <eiface.h>
 #include <IGameHelpers.h>
 
 #define DETOUR_DECL_STATIC10(name, ret, p1type, p1name, p2type, p2name, p3type, p3name, p4type, p4name, p5type, p5name, p6type, p6name, p7type, p7name, p8type, p8name, p9type, p9name, p10type, p10name) \
@@ -30,6 +31,17 @@ static const Vector kCircular15[] =
 
 TF2SpreadPatterns g_TF2SpreadPatterns;
 SMEXT_LINK(&g_TF2SpreadPatterns);
+
+CGlobalVars *gpGlobals = nullptr;
+
+DETOUR_DECL_MEMBER0(Detour_GetWeaponSpread, float)
+{
+	CBaseEntity *weapon = reinterpret_cast<CBaseEntity *>(this);
+	const float spread = DETOUR_MEMBER_CALL(Detour_GetWeaponSpread)();
+	return g_TF2SpreadPatterns.ShouldUseAmbassadorAccuracy(weapon)
+		? g_TF2SpreadPatterns.ApplyAmbassadorAccuracy(weapon, spread)
+		: spread;
+}
 
 DETOUR_DECL_STATIC10(Detour_FXFireBullets, void,
 	CBaseEntity *, weapon,
@@ -63,9 +75,15 @@ static cell_t Native_SetPattern(IPluginContext *context, const cell_t *params)
 	return g_TF2SpreadPatterns.Native_SetPattern(context, params);
 }
 
+static cell_t Native_SetAmbassadorAccuracy(IPluginContext *context, const cell_t *params)
+{
+	return g_TF2SpreadPatterns.Native_SetAmbassadorAccuracy(context, params);
+}
+
 static sp_nativeinfo_t g_Natives[] =
 {
 	{"TF2Spread_SetPattern", Native_SetPattern},
+	{"TF2Spread_SetAmbassadorAccuracy", Native_SetAmbassadorAccuracy},
 	{nullptr, nullptr},
 };
 
@@ -78,8 +96,9 @@ bool TF2SpreadPatterns::SDK_OnLoad(char *error, size_t maxlen, bool late)
 	}
 
 	if (!SetupGameConfig(error, maxlen)
+		|| !SetupSendProps(error, maxlen)
 		|| !SetupSpreadTable(error, maxlen)
-		|| !SetupDetour(error, maxlen))
+		|| !SetupDetours(error, maxlen))
 	{
 		return false;
 	}
@@ -95,6 +114,13 @@ void TF2SpreadPatterns::SDK_OnUnload()
 {
 	RestoreStockPattern();
 
+	if (m_getWeaponSpreadDetour)
+	{
+		m_getWeaponSpreadDetour->DisableDetour();
+		m_getWeaponSpreadDetour->Destroy();
+		m_getWeaponSpreadDetour = nullptr;
+	}
+
 	if (m_fireBulletsDetour)
 	{
 		m_fireBulletsDetour->DisableDetour();
@@ -107,6 +133,16 @@ void TF2SpreadPatterns::SDK_OnUnload()
 		gameconfs->CloseGameConfigFile(m_gameConf);
 		m_gameConf = nullptr;
 	}
+}
+
+bool TF2SpreadPatterns::SDK_OnMetamodLoad(ISmmAPI *ismm, char *error, size_t maxlen, bool late)
+{
+	(void)error;
+	(void)maxlen;
+	(void)late;
+
+	gpGlobals = ismm->GetCGlobals();
+	return true;
 }
 
 cell_t TF2SpreadPatterns::Native_SetPattern(IPluginContext *context, const cell_t *params)
@@ -132,9 +168,29 @@ cell_t TF2SpreadPatterns::Native_SetPattern(IPluginContext *context, const cell_
 
 	const SpreadPattern pattern = static_cast<SpreadPattern>(requestedPattern);
 	m_patterns[entity] = pattern;
-	m_weaponRefs[entity] = pattern == SpreadPattern::Default
+	m_patternWeaponRefs[entity] = pattern == SpreadPattern::Default
 		? 0
 		: gamehelpers->EntityToReference(weapon);
+	return 0;
+}
+
+cell_t TF2SpreadPatterns::Native_SetAmbassadorAccuracy(IPluginContext *context, const cell_t *params)
+{
+	CBaseEntity *weapon = gamehelpers->ReferenceToEntity(params[1]);
+	if (!weapon)
+	{
+		return context->ThrowNativeError("Weapon entity %d is invalid.", params[1]);
+	}
+
+	const int entity = gamehelpers->EntityToBCompatRef(weapon);
+	if (entity <= 0 || entity >= kMaxTrackedEntities)
+	{
+		return context->ThrowNativeError("Weapon entity %d cannot be tracked.", params[1]);
+	}
+
+	m_accuracyWeaponRefs[entity] = params[2]
+		? gamehelpers->EntityToReference(weapon)
+		: 0;
 	return 0;
 }
 
@@ -150,16 +206,70 @@ bool TF2SpreadPatterns::ShouldUseCircular15(CBaseEntity *weapon)
 	{
 		return false;
 	}
+	if (m_patternWeaponRefs[entity] == 0)
+	{
+		return false;
+	}
 
 	const cell_t currentRef = gamehelpers->EntityToReference(weapon);
-	if (m_weaponRefs[entity] != currentRef)
+	if (m_patternWeaponRefs[entity] != currentRef)
 	{
-		m_weaponRefs[entity] = 0;
+		m_patternWeaponRefs[entity] = 0;
 		m_patterns[entity] = SpreadPattern::Default;
 		return false;
 	}
 
 	return m_patterns[entity] == SpreadPattern::Circular15;
+}
+
+bool TF2SpreadPatterns::ShouldUseAmbassadorAccuracy(CBaseEntity *weapon)
+{
+	if (!weapon)
+	{
+		return false;
+	}
+
+	const int entity = gamehelpers->EntityToBCompatRef(weapon);
+	if (entity <= 0 || entity >= kMaxTrackedEntities)
+	{
+		return false;
+	}
+	if (m_accuracyWeaponRefs[entity] == 0)
+	{
+		return false;
+	}
+
+	const cell_t currentRef = gamehelpers->EntityToReference(weapon);
+	if (m_accuracyWeaponRefs[entity] != currentRef)
+	{
+		m_accuracyWeaponRefs[entity] = 0;
+		return false;
+	}
+
+	return true;
+}
+
+float TF2SpreadPatterns::ApplyAmbassadorAccuracy(CBaseEntity *weapon, float spread) const
+{
+	if (!gpGlobals || m_lastFireTimeOffset < 0 || spread <= 0.0f)
+	{
+		return spread;
+	}
+
+	const float lastFireTime = *reinterpret_cast<const float *>(
+		reinterpret_cast<const char *>(weapon) + m_lastFireTimeOffset);
+	const float elapsed = gpGlobals->curtime - lastFireTime;
+
+	if (elapsed <= 0.5f)
+	{
+		return spread;
+	}
+	if (elapsed >= 1.0f)
+	{
+		return 0.0f;
+	}
+
+	return spread * ((1.0f - elapsed) / 0.5f);
 }
 
 void TF2SpreadPatterns::BeginCircular15()
@@ -197,6 +307,19 @@ bool TF2SpreadPatterns::SetupGameConfig(char *error, size_t maxlen)
 	return true;
 }
 
+bool TF2SpreadPatterns::SetupSendProps(char *error, size_t maxlen)
+{
+	sm_sendprop_info_t lastFireTimeProp;
+	if (!gamehelpers->FindSendPropInfo("CTFWeaponBase", "m_flLastFireTime", &lastFireTimeProp))
+	{
+		g_pSM->Format(error, maxlen, "Could not find CTFWeaponBase::m_flLastFireTime sendprop.");
+		return false;
+	}
+
+	m_lastFireTimeOffset = lastFireTimeProp.actual_offset;
+	return true;
+}
+
 bool TF2SpreadPatterns::SetupSpreadTable(char *error, size_t maxlen)
 {
 	void *reference = nullptr;
@@ -227,7 +350,7 @@ bool TF2SpreadPatterns::SetupSpreadTable(char *error, size_t maxlen)
 	return true;
 }
 
-bool TF2SpreadPatterns::SetupDetour(char *error, size_t maxlen)
+bool TF2SpreadPatterns::SetupDetours(char *error, size_t maxlen)
 {
 	m_fireBulletsDetour = DETOUR_CREATE_STATIC(Detour_FXFireBullets, "FX_FireBullets");
 	if (!m_fireBulletsDetour)
@@ -236,7 +359,18 @@ bool TF2SpreadPatterns::SetupDetour(char *error, size_t maxlen)
 		return false;
 	}
 
+	m_getWeaponSpreadDetour = DETOUR_CREATE_MEMBER(
+		Detour_GetWeaponSpread, "CTFWeaponBaseGun::GetWeaponSpread");
+	if (!m_getWeaponSpreadDetour)
+	{
+		m_fireBulletsDetour->Destroy();
+		m_fireBulletsDetour = nullptr;
+		g_pSM->Format(error, maxlen, "Could not create CTFWeaponBaseGun::GetWeaponSpread detour.");
+		return false;
+	}
+
 	m_fireBulletsDetour->EnableDetour();
+	m_getWeaponSpreadDetour->EnableDetour();
 	return true;
 }
 

@@ -59,6 +59,7 @@
 #define ATTR_RANDOM_SPREAD_OVERRIDE "random spread override"
 #define ATTR_RANDOM_CRITS_OVERRIDE "random crits override"
 #define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
+#define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
 #define RESTORE_PRIMARY_SHOT_DAMAGE_WINDOW 5.0
@@ -175,18 +176,26 @@ static bool WeaponReverts_IsEntityIndex(int entity)
 	return entity > 0 && entity < GetMaxEntities();
 }
 
-static void WeaponReverts_ApplySpreadPatternOverride(int weapon)
+static void WeaponReverts_ApplySpreadOverrides(int weapon)
 {
-	if (!IsValidWeaponEntity(weapon)
-		|| GetFeatureStatus(FeatureType_Native, "TF2Spread_SetPattern") != FeatureStatus_Available)
+	if (!IsValidWeaponEntity(weapon))
 	{
 		return;
 	}
 
-	TF2SpreadPattern pattern = TF2CustAttr_GetInt(weapon, ATTR_CIRCULAR_BULLET_SPREAD, 0) != 0
-		? TF2Spread_Circular15
-		: TF2Spread_Default;
-	TF2Spread_SetPattern(weapon, pattern);
+	if (GetFeatureStatus(FeatureType_Native, "TF2Spread_SetPattern") == FeatureStatus_Available)
+	{
+		TF2SpreadPattern pattern = TF2CustAttr_GetInt(weapon, ATTR_CIRCULAR_BULLET_SPREAD, 0) != 0
+			? TF2Spread_Circular15
+			: TF2Spread_Default;
+		TF2Spread_SetPattern(weapon, pattern);
+	}
+
+	if (GetFeatureStatus(FeatureType_Native, "TF2Spread_SetAmbassadorAccuracy") == FeatureStatus_Available)
+	{
+		bool enabled = TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) != 0;
+		TF2Spread_SetAmbassadorAccuracy(weapon, enabled);
+	}
 }
 
 static void WeaponReverts_DeleteConfigs()
@@ -2483,7 +2492,7 @@ static void WeaponReverts_ApplyConfiguredAttributes(int client, int index, int e
 	{
 		WeaponReverts_ApplyGameAttributeSection(entity);
 		WeaponReverts_ApplyCustomAttributeSection(entity);
-		WeaponReverts_ApplySpreadPatternOverride(entity);
+		WeaponReverts_ApplySpreadOverrides(entity);
 	}
 
 	g_hWeaponRevertsConfig.Rewind();

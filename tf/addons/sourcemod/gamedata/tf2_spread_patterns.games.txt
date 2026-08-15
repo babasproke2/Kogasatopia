@@ -9,6 +9,11 @@
 				"library" "server"
 				"linux"   "@_Z14FX_FireBulletsP13CTFWeaponBaseiRK6VectorRK6QAngleiiiffb"
 			}
+			"CTFWeaponBaseGun::GetWeaponSpread"
+			{
+				"library" "server"
+				"linux"   "@_ZN16CTFWeaponBaseGun15GetWeaponSpreadEv"
+			}
 			"FixedSpreadWideLargeReference"
 			{
 				"library" "server"

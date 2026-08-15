@@ -14,6 +14,12 @@ enum TF2SpreadPattern
  */
 native void TF2Spread_SetPattern(int weapon, TF2SpreadPattern pattern);
 
+/**
+ * Gives a weapon Ambassador-style spread recovery from 0.5 to 1.0 seconds
+ * after its previous shot.
+ */
+native void TF2Spread_SetAmbassadorAccuracy(int weapon, bool enabled);
+
 public Extension __ext_tf2_spread_patterns =
 {
 	name = "TF2 Spread Patterns",
@@ -30,5 +36,6 @@ public Extension __ext_tf2_spread_patterns =
 public void __ext_tf2_spread_patterns_SetNTVOptional()
 {
 	MarkNativeAsOptional("TF2Spread_SetPattern");
+	MarkNativeAsOptional("TF2Spread_SetAmbassadorAccuracy");
 }
 #endif
