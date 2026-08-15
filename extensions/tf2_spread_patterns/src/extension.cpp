@@ -43,6 +43,17 @@ DETOUR_DECL_MEMBER0(Detour_GetWeaponSpread, float)
 		: spread;
 }
 
+DETOUR_DECL_MEMBER1(Detour_UpdatePunchAngles, void, CBaseEntity *, player)
+{
+	CBaseEntity *weapon = reinterpret_cast<CBaseEntity *>(this);
+	if (g_TF2SpreadPatterns.ApplyPunchAngleOverride(weapon, player))
+	{
+		return;
+	}
+
+	DETOUR_MEMBER_CALL(Detour_UpdatePunchAngles)(player);
+}
+
 DETOUR_DECL_STATIC10(Detour_FXFireBullets, void,
 	CBaseEntity *, weapon,
 	int, player,
@@ -85,11 +96,17 @@ static cell_t Native_IsAmbassadorAccuracyRecovered(IPluginContext *context, cons
 	return g_TF2SpreadPatterns.Native_IsAmbassadorAccuracyRecovered(context, params);
 }
 
+static cell_t Native_SetPunchAngle(IPluginContext *context, const cell_t *params)
+{
+	return g_TF2SpreadPatterns.Native_SetPunchAngle(context, params);
+}
+
 static sp_nativeinfo_t g_Natives[] =
 {
 	{"TF2Spread_SetPattern", Native_SetPattern},
 	{"TF2Spread_SetAmbassadorAccuracy", Native_SetAmbassadorAccuracy},
 	{"TF2Spread_IsAmbassadorAccuracyRecovered", Native_IsAmbassadorAccuracyRecovered},
+	{"TF2Weapon_SetPunchAngle", Native_SetPunchAngle},
 	{nullptr, nullptr},
 };
 
@@ -103,6 +120,7 @@ bool TF2SpreadPatterns::SDK_OnLoad(char *error, size_t maxlen, bool late)
 
 	if (!SetupGameConfig(error, maxlen)
 		|| !SetupSendProps(error, maxlen)
+		|| !SetupFunctions(error, maxlen)
 		|| !SetupSpreadTable(error, maxlen)
 		|| !SetupDetours(error, maxlen))
 	{
@@ -119,6 +137,13 @@ bool TF2SpreadPatterns::SDK_OnLoad(char *error, size_t maxlen, bool late)
 void TF2SpreadPatterns::SDK_OnUnload()
 {
 	RestoreStockPattern();
+
+	if (m_updatePunchAnglesDetour)
+	{
+		m_updatePunchAnglesDetour->DisableDetour();
+		m_updatePunchAnglesDetour->Destroy();
+		m_updatePunchAnglesDetour = nullptr;
+	}
 
 	if (m_getWeaponSpreadDetour)
 	{
@@ -212,6 +237,29 @@ cell_t TF2SpreadPatterns::Native_IsAmbassadorAccuracyRecovered(
 	return IsAmbassadorAccuracyRecovered(weapon) ? 1 : 0;
 }
 
+cell_t TF2SpreadPatterns::Native_SetPunchAngle(IPluginContext *context, const cell_t *params)
+{
+	CBaseEntity *weapon = gamehelpers->ReferenceToEntity(params[1]);
+	if (!weapon)
+	{
+		return context->ThrowNativeError("Weapon entity %d is invalid.", params[1]);
+	}
+
+	const int entity = gamehelpers->EntityToBCompatRef(weapon);
+	if (entity <= 0 || entity >= kMaxTrackedEntities)
+	{
+		return context->ThrowNativeError("Weapon entity %d cannot be tracked.", params[1]);
+	}
+
+	const int amount = params[2];
+	m_punchAmounts[entity] = amount;
+	m_punchConsistent[entity] = params[3] != 0;
+	m_punchWeaponRefs[entity] = amount == 0
+		? 0
+		: gamehelpers->EntityToReference(weapon);
+	return 0;
+}
+
 bool TF2SpreadPatterns::ShouldUseCircular15(CBaseEntity *weapon)
 {
 	if (!weapon)
@@ -293,6 +341,38 @@ float TF2SpreadPatterns::ApplyAmbassadorAccuracy(CBaseEntity *weapon, float spre
 	return spread * ((1.0f - elapsed) / 0.5f);
 }
 
+bool TF2SpreadPatterns::ApplyPunchAngleOverride(CBaseEntity *weapon, CBaseEntity *player)
+{
+	if (!weapon || !player)
+	{
+		return false;
+	}
+
+	const int entity = gamehelpers->EntityToBCompatRef(weapon);
+	if (entity <= 0 || entity >= kMaxTrackedEntities || m_punchWeaponRefs[entity] == 0)
+	{
+		return false;
+	}
+
+	if (m_punchWeaponRefs[entity] != gamehelpers->EntityToReference(weapon))
+	{
+		m_punchWeaponRefs[entity] = 0;
+		m_punchAmounts[entity] = 0;
+		m_punchConsistent[entity] = false;
+		return false;
+	}
+
+	const int amount = m_punchConsistent[entity]
+		? m_punchAmounts[entity]
+		: m_sharedRandomInt(
+			"ShotgunPunchAngle", m_punchAmounts[entity] - 1, m_punchAmounts[entity] + 1, 0);
+	QAngle angle = *reinterpret_cast<const QAngle *>(
+		reinterpret_cast<const char *>(player) + m_punchAngleOffset);
+	angle.x -= static_cast<float>(amount);
+	m_setPunchAngle(player, angle);
+	return true;
+}
+
 float TF2SpreadPatterns::GetTimeSinceLastFire(CBaseEntity *weapon) const
 {
 	if (!weapon || !gpGlobals || m_lastFireTimeOffset < 0)
@@ -350,6 +430,35 @@ bool TF2SpreadPatterns::SetupSendProps(char *error, size_t maxlen)
 	}
 
 	m_lastFireTimeOffset = lastFireTimeProp.actual_offset;
+
+	sm_sendprop_info_t punchAngleProp;
+	if (!gamehelpers->FindSendPropInfo("CTFPlayer", "m_vecPunchAngle", &punchAngleProp))
+	{
+		g_pSM->Format(error, maxlen, "Could not find CTFPlayer::m_vecPunchAngle sendprop.");
+		return false;
+	}
+
+	m_punchAngleOffset = punchAngleProp.actual_offset;
+	return true;
+}
+
+bool TF2SpreadPatterns::SetupFunctions(char *error, size_t maxlen)
+{
+	void *setPunchAngle = nullptr;
+	if (!m_gameConf->GetMemSig("CBasePlayer::SetPunchAngle", &setPunchAngle) || !setPunchAngle)
+	{
+		g_pSM->Format(error, maxlen, "Could not locate CBasePlayer::SetPunchAngle.");
+		return false;
+	}
+	m_setPunchAngle = reinterpret_cast<SetPunchAngleFn>(setPunchAngle);
+
+	void *sharedRandomInt = nullptr;
+	if (!m_gameConf->GetMemSig("SharedRandomInt", &sharedRandomInt) || !sharedRandomInt)
+	{
+		g_pSM->Format(error, maxlen, "Could not locate SharedRandomInt.");
+		return false;
+	}
+	m_sharedRandomInt = reinterpret_cast<SharedRandomIntFn>(sharedRandomInt);
 	return true;
 }
 
@@ -402,8 +511,21 @@ bool TF2SpreadPatterns::SetupDetours(char *error, size_t maxlen)
 		return false;
 	}
 
+	m_updatePunchAnglesDetour = DETOUR_CREATE_MEMBER(
+		Detour_UpdatePunchAngles, "CTFWeaponBaseGun::UpdatePunchAngles");
+	if (!m_updatePunchAnglesDetour)
+	{
+		m_getWeaponSpreadDetour->Destroy();
+		m_getWeaponSpreadDetour = nullptr;
+		m_fireBulletsDetour->Destroy();
+		m_fireBulletsDetour = nullptr;
+		g_pSM->Format(error, maxlen, "Could not create CTFWeaponBaseGun::UpdatePunchAngles detour.");
+		return false;
+	}
+
 	m_fireBulletsDetour->EnableDetour();
 	m_getWeaponSpreadDetour->EnableDetour();
+	m_updatePunchAnglesDetour->EnableDetour();
 	return true;
 }
 

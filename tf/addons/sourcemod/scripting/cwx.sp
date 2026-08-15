@@ -74,6 +74,8 @@ public Plugin myinfo = {
 #define CWX_STATS_STATE_TABLE "cwx_weapon_popularity"
 #define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
 #define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
+#define ATTR_PUNCH_ANGLE_IS_CONSISTENT "punch angle is consistent"
+#define ATTR_PUNCH_ANGLE_MOD "punch angle mod"
 
 // we're recycling the following attribute to ensure that the item UID persists across dropped
 // weapons - it's kinda icky and if anyone else happened to get the same idea it'd be bad, but
@@ -100,7 +102,7 @@ bool g_CwxStatsDbReady = false;
 bool g_CwxStatsIsMySql = false;
 Handle g_hCwxStatsDbReconnectTimer = null;
 
-void CWX_ApplySpreadOverrides(int weapon)
+void CWX_ApplyEngineOverrides(int weapon)
 {
 	if (!IsValidEntity(weapon))
 	{
@@ -119,6 +121,13 @@ void CWX_ApplySpreadOverrides(int weapon)
 	{
 		bool enabled = TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) != 0;
 		TF2Spread_SetAmbassadorAccuracy(weapon, enabled);
+	}
+
+	if (GetFeatureStatus(FeatureType_Native, "TF2Weapon_SetPunchAngle") == FeatureStatus_Available)
+	{
+		int amount = TF2CustAttr_GetInt(weapon, ATTR_PUNCH_ANGLE_MOD, 0);
+		bool consistent = TF2CustAttr_GetInt(weapon, ATTR_PUNCH_ANGLE_IS_CONSISTENT, 0) != 0;
+		TF2Weapon_SetPunchAngle(weapon, amount, consistent);
 	}
 }
 

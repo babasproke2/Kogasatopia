@@ -60,6 +60,8 @@
 #define ATTR_RANDOM_CRITS_OVERRIDE "random crits override"
 #define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
 #define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
+#define ATTR_PUNCH_ANGLE_IS_CONSISTENT "punch angle is consistent"
+#define ATTR_PUNCH_ANGLE_MOD "punch angle mod"
 #define ATTR_HEADSHOTS_ENABLED "headshots enabled"
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
@@ -177,7 +179,7 @@ static bool WeaponReverts_IsEntityIndex(int entity)
 	return entity > 0 && entity < GetMaxEntities();
 }
 
-static void WeaponReverts_ApplySpreadOverrides(int weapon)
+static void WeaponReverts_ApplyEngineOverrides(int weapon)
 {
 	if (!IsValidWeaponEntity(weapon))
 	{
@@ -196,6 +198,13 @@ static void WeaponReverts_ApplySpreadOverrides(int weapon)
 	{
 		bool enabled = TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) != 0;
 		TF2Spread_SetAmbassadorAccuracy(weapon, enabled);
+	}
+
+	if (GetFeatureStatus(FeatureType_Native, "TF2Weapon_SetPunchAngle") == FeatureStatus_Available)
+	{
+		int amount = TF2CustAttr_GetInt(weapon, ATTR_PUNCH_ANGLE_MOD, 0);
+		bool consistent = TF2CustAttr_GetInt(weapon, ATTR_PUNCH_ANGLE_IS_CONSISTENT, 0) != 0;
+		TF2Weapon_SetPunchAngle(weapon, amount, consistent);
 	}
 }
 
@@ -2521,7 +2530,7 @@ static void WeaponReverts_ApplyConfiguredAttributes(int client, int index, int e
 	{
 		WeaponReverts_ApplyGameAttributeSection(entity);
 		WeaponReverts_ApplyCustomAttributeSection(entity);
-		WeaponReverts_ApplySpreadOverrides(entity);
+		WeaponReverts_ApplyEngineOverrides(entity);
 	}
 
 	g_hWeaponRevertsConfig.Rewind();

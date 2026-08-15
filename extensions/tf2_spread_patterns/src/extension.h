@@ -25,20 +25,26 @@ public:
 	cell_t Native_SetPattern(IPluginContext *context, const cell_t *params);
 	cell_t Native_SetAmbassadorAccuracy(IPluginContext *context, const cell_t *params);
 	cell_t Native_IsAmbassadorAccuracyRecovered(IPluginContext *context, const cell_t *params);
+	cell_t Native_SetPunchAngle(IPluginContext *context, const cell_t *params);
 
 	bool ShouldUseCircular15(CBaseEntity *weapon);
 	bool ShouldUseAmbassadorAccuracy(CBaseEntity *weapon);
 	bool IsAmbassadorAccuracyRecovered(CBaseEntity *weapon);
 	float ApplyAmbassadorAccuracy(CBaseEntity *weapon, float spread) const;
+	bool ApplyPunchAngleOverride(CBaseEntity *weapon, CBaseEntity *player);
 	void BeginCircular15();
 	void EndCircular15();
 
 private:
+	using SetPunchAngleFn = void (*)(CBaseEntity *, const QAngle &);
+	using SharedRandomIntFn = int (*)(const char *, int, int, int);
+
 	static constexpr int kPelletCount = 15;
 	static constexpr int kMaxTrackedEntities = 2048;
 
 	bool SetupGameConfig(char *error, size_t maxlen);
 	bool SetupSendProps(char *error, size_t maxlen);
+	bool SetupFunctions(char *error, size_t maxlen);
 	bool SetupSpreadTable(char *error, size_t maxlen);
 	bool SetupDetours(char *error, size_t maxlen);
 	float GetTimeSinceLastFire(CBaseEntity *weapon) const;
@@ -47,12 +53,19 @@ private:
 	SourceMod::IGameConfig *m_gameConf = nullptr;
 	CDetour *m_fireBulletsDetour = nullptr;
 	CDetour *m_getWeaponSpreadDetour = nullptr;
+	CDetour *m_updatePunchAnglesDetour = nullptr;
 	Vector *m_fixedSpreadTable = nullptr;
 	Vector m_stockPattern[kPelletCount] = {};
 	cell_t m_patternWeaponRefs[kMaxTrackedEntities] = {};
 	cell_t m_accuracyWeaponRefs[kMaxTrackedEntities] = {};
+	cell_t m_punchWeaponRefs[kMaxTrackedEntities] = {};
 	SpreadPattern m_patterns[kMaxTrackedEntities] = {};
+	int m_punchAmounts[kMaxTrackedEntities] = {};
+	bool m_punchConsistent[kMaxTrackedEntities] = {};
 	int m_lastFireTimeOffset = -1;
+	int m_punchAngleOffset = -1;
+	SetPunchAngleFn m_setPunchAngle = nullptr;
+	SharedRandomIntFn m_sharedRandomInt = nullptr;
 	int m_swapDepth = 0;
 };
 

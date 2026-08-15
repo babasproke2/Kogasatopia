@@ -25,6 +25,12 @@ native void TF2Spread_SetAmbassadorAccuracy(int weapon, bool enabled);
  */
 native bool TF2Spread_IsAmbassadorAccuracyRecovered(int weapon);
 
+/**
+ * Replaces a weapon's stock punch-angle recoil. A zero amount clears it.
+ * Non-consistent recoil uses TF2's amount - 1 through amount + 1 randomizer.
+ */
+native void TF2Weapon_SetPunchAngle(int weapon, int amount, bool consistent);
+
 public Extension __ext_tf2_spread_patterns =
 {
 	name = "TF2 Spread Patterns",
@@ -43,5 +49,6 @@ public void __ext_tf2_spread_patterns_SetNTVOptional()
 	MarkNativeAsOptional("TF2Spread_SetPattern");
 	MarkNativeAsOptional("TF2Spread_SetAmbassadorAccuracy");
 	MarkNativeAsOptional("TF2Spread_IsAmbassadorAccuracyRecovered");
+	MarkNativeAsOptional("TF2Weapon_SetPunchAngle");
 }
 #endif

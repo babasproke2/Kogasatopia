@@ -16,3 +16,8 @@ after 1.0 second.
 
 `TF2Spread_IsAmbassadorAccuracyRecovered(weapon)` returns true when an enabled weapon has not fired
 for at least 1.0 second.
+
+`TF2Weapon_SetPunchAngle(weapon, amount, consistent)` replaces a weapon's stock punch-angle recoil.
+Consistent mode applies the exact integer amount. Non-consistent mode calls TF2's own
+`SharedRandomInt("ShotgunPunchAngle", amount - 1, amount + 1)` path. Passing zero clears the
+override.
