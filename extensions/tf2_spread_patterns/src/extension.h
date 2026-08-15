@@ -24,9 +24,11 @@ public:
 
 	cell_t Native_SetPattern(IPluginContext *context, const cell_t *params);
 	cell_t Native_SetAmbassadorAccuracy(IPluginContext *context, const cell_t *params);
+	cell_t Native_IsAmbassadorAccuracyRecovered(IPluginContext *context, const cell_t *params);
 
 	bool ShouldUseCircular15(CBaseEntity *weapon);
 	bool ShouldUseAmbassadorAccuracy(CBaseEntity *weapon);
+	bool IsAmbassadorAccuracyRecovered(CBaseEntity *weapon);
 	float ApplyAmbassadorAccuracy(CBaseEntity *weapon, float spread) const;
 	void BeginCircular15();
 	void EndCircular15();
@@ -39,6 +41,7 @@ private:
 	bool SetupSendProps(char *error, size_t maxlen);
 	bool SetupSpreadTable(char *error, size_t maxlen);
 	bool SetupDetours(char *error, size_t maxlen);
+	float GetTimeSinceLastFire(CBaseEntity *weapon) const;
 	void RestoreStockPattern();
 
 	SourceMod::IGameConfig *m_gameConf = nullptr;

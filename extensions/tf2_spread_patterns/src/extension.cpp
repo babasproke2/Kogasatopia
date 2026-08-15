@@ -80,10 +80,16 @@ static cell_t Native_SetAmbassadorAccuracy(IPluginContext *context, const cell_t
 	return g_TF2SpreadPatterns.Native_SetAmbassadorAccuracy(context, params);
 }
 
+static cell_t Native_IsAmbassadorAccuracyRecovered(IPluginContext *context, const cell_t *params)
+{
+	return g_TF2SpreadPatterns.Native_IsAmbassadorAccuracyRecovered(context, params);
+}
+
 static sp_nativeinfo_t g_Natives[] =
 {
 	{"TF2Spread_SetPattern", Native_SetPattern},
 	{"TF2Spread_SetAmbassadorAccuracy", Native_SetAmbassadorAccuracy},
+	{"TF2Spread_IsAmbassadorAccuracyRecovered", Native_IsAmbassadorAccuracyRecovered},
 	{nullptr, nullptr},
 };
 
@@ -194,6 +200,18 @@ cell_t TF2SpreadPatterns::Native_SetAmbassadorAccuracy(IPluginContext *context, 
 	return 0;
 }
 
+cell_t TF2SpreadPatterns::Native_IsAmbassadorAccuracyRecovered(
+	IPluginContext *context, const cell_t *params)
+{
+	CBaseEntity *weapon = gamehelpers->ReferenceToEntity(params[1]);
+	if (!weapon)
+	{
+		return context->ThrowNativeError("Weapon entity %d is invalid.", params[1]);
+	}
+
+	return IsAmbassadorAccuracyRecovered(weapon) ? 1 : 0;
+}
+
 bool TF2SpreadPatterns::ShouldUseCircular15(CBaseEntity *weapon)
 {
 	if (!weapon)
@@ -249,16 +267,19 @@ bool TF2SpreadPatterns::ShouldUseAmbassadorAccuracy(CBaseEntity *weapon)
 	return true;
 }
 
+bool TF2SpreadPatterns::IsAmbassadorAccuracyRecovered(CBaseEntity *weapon)
+{
+	return ShouldUseAmbassadorAccuracy(weapon) && GetTimeSinceLastFire(weapon) >= 1.0f;
+}
+
 float TF2SpreadPatterns::ApplyAmbassadorAccuracy(CBaseEntity *weapon, float spread) const
 {
-	if (!gpGlobals || m_lastFireTimeOffset < 0 || spread <= 0.0f)
+	if (spread <= 0.0f)
 	{
 		return spread;
 	}
 
-	const float lastFireTime = *reinterpret_cast<const float *>(
-		reinterpret_cast<const char *>(weapon) + m_lastFireTimeOffset);
-	const float elapsed = gpGlobals->curtime - lastFireTime;
+	const float elapsed = GetTimeSinceLastFire(weapon);
 
 	if (elapsed <= 0.5f)
 	{
@@ -270,6 +291,18 @@ float TF2SpreadPatterns::ApplyAmbassadorAccuracy(CBaseEntity *weapon, float spre
 	}
 
 	return spread * ((1.0f - elapsed) / 0.5f);
+}
+
+float TF2SpreadPatterns::GetTimeSinceLastFire(CBaseEntity *weapon) const
+{
+	if (!weapon || !gpGlobals || m_lastFireTimeOffset < 0)
+	{
+		return 0.0f;
+	}
+
+	const float lastFireTime = *reinterpret_cast<const float *>(
+		reinterpret_cast<const char *>(weapon) + m_lastFireTimeOffset);
+	return gpGlobals->curtime - lastFireTime;
 }
 
 void TF2SpreadPatterns::BeginCircular15()

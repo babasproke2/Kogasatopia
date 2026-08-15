@@ -3,7 +3,7 @@
 
 #define SMEXT_CONF_NAME         "TF2 Spread Patterns"
 #define SMEXT_CONF_DESCRIPTION  "Per-weapon bullet spread controls for TF2"
-#define SMEXT_CONF_VERSION      "1.1.0"
+#define SMEXT_CONF_VERSION      "1.2.0"
 #define SMEXT_CONF_AUTHOR       "Hombre"
 #define SMEXT_CONF_URL          ""
 #define SMEXT_CONF_LOGTAG       "TF2SPREAD"

@@ -20,6 +20,11 @@ native void TF2Spread_SetPattern(int weapon, TF2SpreadPattern pattern);
  */
 native void TF2Spread_SetAmbassadorAccuracy(int weapon, bool enabled);
 
+/**
+ * Returns whether an enabled weapon has fully recovered its accuracy.
+ */
+native bool TF2Spread_IsAmbassadorAccuracyRecovered(int weapon);
+
 public Extension __ext_tf2_spread_patterns =
 {
 	name = "TF2 Spread Patterns",
@@ -37,5 +42,6 @@ public void __ext_tf2_spread_patterns_SetNTVOptional()
 {
 	MarkNativeAsOptional("TF2Spread_SetPattern");
 	MarkNativeAsOptional("TF2Spread_SetAmbassadorAccuracy");
+	MarkNativeAsOptional("TF2Spread_IsAmbassadorAccuracyRecovered");
 }
 #endif

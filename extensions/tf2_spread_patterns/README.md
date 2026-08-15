@@ -13,3 +13,6 @@ The circular pattern uses TF2's native 15-pellet fixed-spread path and retains i
 `TF2Spread_SetAmbassadorAccuracy(weapon, enabled)` adds Ambassador-style spread recovery. It retains
 the weapon's original spread for 0.5 seconds, recovers linearly, and reaches exact first-shot accuracy
 after 1.0 second.
+
+`TF2Spread_IsAmbassadorAccuracyRecovered(weapon)` returns true when an enabled weapon has not fired
+for at least 1.0 second.

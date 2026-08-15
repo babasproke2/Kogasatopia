@@ -60,6 +60,7 @@
 #define ATTR_RANDOM_CRITS_OVERRIDE "random crits override"
 #define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
 #define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
+#define ATTR_HEADSHOTS_ENABLED "headshots enabled"
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
 #define RESTORE_PRIMARY_SHOT_DAMAGE_WINDOW 5.0
@@ -196,6 +197,24 @@ static void WeaponReverts_ApplySpreadOverrides(int weapon)
 		bool enabled = TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) != 0;
 		TF2Spread_SetAmbassadorAccuracy(weapon, enabled);
 	}
+}
+
+static bool WeaponReverts_HasHeadshotFeature(int weapon)
+{
+	return TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED, 0) != 0
+		|| TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) != 0;
+}
+
+static bool WeaponReverts_CanHeadshotNow(int weapon)
+{
+	if (TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) == 0)
+	{
+		return TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED, 0) != 0;
+	}
+
+	return GetFeatureStatus(
+		FeatureType_Native, "TF2Spread_IsAmbassadorAccuracyRecovered") == FeatureStatus_Available
+		&& TF2Spread_IsAmbassadorAccuracyRecovered(weapon);
 }
 
 static void WeaponReverts_DeleteConfigs()
@@ -1925,7 +1944,7 @@ public Action OnTraceAttack(int victim, int &attacker, int &inflictor, float &da
 	if (damagetype & DMG_BULLET)
 	{
 		int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
-		if (weapon > MaxClients && IsValidEntity(weapon) && TF2CustAttr_GetInt(weapon, "headshots enabled", 0))
+		if (weapon > MaxClients && IsValidEntity(weapon) && WeaponReverts_CanHeadshotNow(weapon))
 		{
 			damagetype |= DMG_USE_HITLOCATIONS;
 			return Plugin_Changed;
@@ -2132,12 +2151,22 @@ public MRESReturn CanFireCriticalShot_Post(int weapon, DHookReturn hReturn, DHoo
     if (client <= 0 || client > MaxClients)
         return MRES_Ignored;
 
-    // Check the firing weapon directly, not assumed secondary slot
-    if (TF2CustAttr_GetInt(weapon, "headshots enabled", 0)) {
-        hReturn.Value = true;
-        return MRES_Override;
-    }
-    return MRES_Ignored;
+	if (!WeaponReverts_HasHeadshotFeature(weapon))
+		return MRES_Ignored;
+
+	if (!parameters.Get(1))
+	{
+		// Preserve the legacy headshot attribute's existing non-headshot behavior.
+		if (TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED, 0) != 0)
+		{
+			hReturn.Value = true;
+			return MRES_Override;
+		}
+		return MRES_Ignored;
+	}
+
+	hReturn.Value = WeaponReverts_CanHeadshotNow(weapon);
+	return MRES_Override;
 }
 
 // Gas passer buff is a candidate for removal, it's uninspired and could be more creative
