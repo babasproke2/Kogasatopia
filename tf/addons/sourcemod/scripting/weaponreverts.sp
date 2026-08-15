@@ -19,6 +19,7 @@
 
 #undef REQUIRE_EXTENSIONS
 #include <scattergun_pellets>
+#include <tf2_spread_patterns>
 #define REQUIRE_EXTENSIONS
 
 #include "include/steam_identity.inc"
@@ -57,6 +58,7 @@
 #define ATTR_AMBASSADOR_102 "ambassador 102"
 #define ATTR_RANDOM_SPREAD_OVERRIDE "random spread override"
 #define ATTR_RANDOM_CRITS_OVERRIDE "random crits override"
+#define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
 #define RESTORE_PRIMARY_SHOT_DAMAGE_WINDOW 5.0
@@ -171,6 +173,20 @@ static bool WeaponReverts_IsEnabled()
 static bool WeaponReverts_IsEntityIndex(int entity)
 {
 	return entity > 0 && entity < GetMaxEntities();
+}
+
+static void WeaponReverts_ApplySpreadPatternOverride(int weapon)
+{
+	if (!IsValidWeaponEntity(weapon)
+		|| GetFeatureStatus(FeatureType_Native, "TF2Spread_SetPattern") != FeatureStatus_Available)
+	{
+		return;
+	}
+
+	TF2SpreadPattern pattern = TF2CustAttr_GetInt(weapon, ATTR_CIRCULAR_BULLET_SPREAD, 0) != 0
+		? TF2Spread_Circular15
+		: TF2Spread_Default;
+	TF2Spread_SetPattern(weapon, pattern);
 }
 
 static void WeaponReverts_DeleteConfigs()
@@ -1238,8 +1254,18 @@ public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname
 public MRESReturn IsFixedWeaponSpreadEnabled_Pre(DHookReturn returnValue, DHookParam parameters)
 {
 	int weapon = parameters.Get(1);
-	if (!IsValidWeaponEntity(weapon)
-		|| TF2CustAttr_GetInt(weapon, ATTR_RANDOM_SPREAD_OVERRIDE, 0) == 0)
+	if (!IsValidWeaponEntity(weapon))
+	{
+		return MRES_Ignored;
+	}
+
+	if (TF2CustAttr_GetInt(weapon, ATTR_CIRCULAR_BULLET_SPREAD, 0) != 0)
+	{
+		returnValue.Value = true;
+		return MRES_Supercede;
+	}
+
+	if (TF2CustAttr_GetInt(weapon, ATTR_RANDOM_SPREAD_OVERRIDE, 0) == 0)
 	{
 		return MRES_Ignored;
 	}
@@ -2457,6 +2483,7 @@ static void WeaponReverts_ApplyConfiguredAttributes(int client, int index, int e
 	{
 		WeaponReverts_ApplyGameAttributeSection(entity);
 		WeaponReverts_ApplyCustomAttributeSection(entity);
+		WeaponReverts_ApplySpreadPatternOverride(entity);
 	}
 
 	g_hWeaponRevertsConfig.Rewind();

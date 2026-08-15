@@ -21,6 +21,10 @@
 #include <stocksoup/tf/entity_prop_stocks>
 #include <stocksoup/tf/weapon>
 
+#undef REQUIRE_EXTENSIONS
+#include <tf2_spread_patterns>
+#define REQUIRE_EXTENSIONS
+
 #undef REQUIRE_PLUGIN
 #include <dgm_api>
 #include <points_store_api>
@@ -68,6 +72,7 @@ public Plugin myinfo = {
 
 #define CWX_STATS_DB_CONFIG_DEFAULT "default"
 #define CWX_STATS_STATE_TABLE "cwx_weapon_popularity"
+#define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
 
 // we're recycling the following attribute to ensure that the item UID persists across dropped
 // weapons - it's kinda icky and if anyone else happened to get the same idea it'd be bad, but
@@ -93,6 +98,20 @@ Database g_CwxStatsDb = null;
 bool g_CwxStatsDbReady = false;
 bool g_CwxStatsIsMySql = false;
 Handle g_hCwxStatsDbReconnectTimer = null;
+
+void CWX_ApplySpreadPatternOverride(int weapon)
+{
+	if (!IsValidEntity(weapon)
+		|| GetFeatureStatus(FeatureType_Native, "TF2Spread_SetPattern") != FeatureStatus_Available)
+	{
+		return;
+	}
+
+	TF2SpreadPattern pattern = TF2CustAttr_GetInt(weapon, ATTR_CIRCULAR_BULLET_SPREAD, 0) != 0
+		? TF2Spread_Circular15
+		: TF2Spread_Default;
+	TF2Spread_SetPattern(weapon, pattern);
+}
 
 #include "cwx/item_config.sp"
 #include "cwx/item_entity.sp"
