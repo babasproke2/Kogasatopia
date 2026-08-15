@@ -1052,8 +1052,7 @@ void DGM_ApplySetupUberMultiplier()
     PrintToServer("[DGM] Setup ÜberCharge multiplier set to %.2f.", multiplier);
 }
 
-// I prefer the visual effect when TF2's mp_disable_respawn_times cvar is true but dislike that it can be exploited
-// Also takes about 5~ seconds for the respawn to occur
+// DGM owns its explicit respawn timers, not TF2's persistent respawn-disable state.
 void DGM_RefreshRespawnVisualState()
 {
     if (g_cvMpDisableRespawnTimes == null)
@@ -1061,37 +1060,9 @@ void DGM_RefreshRespawnVisualState()
         return;
     }
 
-    if (DGM_ShouldDisableInstantRespawn())
+    if (GetConVarBool(g_cvMpDisableRespawnTimes))
     {
-        SetConVarInt(g_cvMpDisableRespawnTimes, 0);
-        return;
-    }
-
-    float maxRespawn = GetConVarFloat(g_cvRespawnTime);
-    float override = GetConVarFloat(g_cvTimeOverride);
-    float redTime = GetConVarFloat(g_cvRedTime);
-    float bluTime = GetConVarFloat(g_cvBluTime);
-
-    if (override > maxRespawn)
-    {
-        maxRespawn = override;
-    }
-    if (redTime > maxRespawn)
-    {
-        maxRespawn = redTime;
-    }
-    if (bluTime > maxRespawn)
-    {
-        maxRespawn = bluTime;
-    }
-
-    if (maxRespawn > 5.0 || g_InternalOverride)
-    {
-        SetConVarInt(g_cvMpDisableRespawnTimes, 0);
-    }
-    else
-    {
-        SetConVarInt(g_cvMpDisableRespawnTimes, 1);
+        SetConVarBool(g_cvMpDisableRespawnTimes, false);
     }
 }
 
@@ -1827,6 +1798,11 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
+    // Do not leave TF2's native respawn behavior disabled after DGM unloads.
+    if (g_cvMpDisableRespawnTimes != null)
+    {
+        SetConVarBool(g_cvMpDisableRespawnTimes, false);
+    }
 }
 
 public void OnMapStart()
