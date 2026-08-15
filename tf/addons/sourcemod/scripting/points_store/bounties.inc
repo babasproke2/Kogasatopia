@@ -56,6 +56,7 @@ char g_BountyPrefix[96];
 int g_BountySchemaChecksPending = 0;
 bool g_BountySchemaCheckFailed = false;
 bool g_BountyAutomaticPlacementPending = false;
+int g_BountyKillAssistsOffset = -1;
 
 static const char g_BountyHelpLines[][] =
 {
@@ -74,6 +75,7 @@ void Bounties_OnPluginStart()
     HookEvent("teamplay_round_start", Event_BountyRoundStart, EventHookMode_PostNoCopy);
 
     g_ActiveBountyTargets = new StringMap();
+    g_BountyKillAssistsOffset = FindSendPropInfo("CTFPlayerResource", "m_iKillAssists");
 
     for (int client = 1; client <= MaxClients; client++)
     {
@@ -287,8 +289,8 @@ public void Event_BountyRoundStart(Event event, const char[] name, bool dontBroa
         int team = Client_IsHumanInGame(client) ? GetClientTeam(client) : 0;
         int kills = team == 2 || team == 3 ? GetClientFrags(client) : 0;
         int deaths = team == 2 || team == 3 ? GetClientDeaths(client) : 0;
-        int assists = playerResource != -1 && (team == 2 || team == 3)
-            ? GetEntProp(playerResource, Prop_Send, "m_iKillAssists", _, client)
+        int assists = playerResource != -1 && g_BountyKillAssistsOffset > 0 && (team == 2 || team == 3)
+            ? GetEntData(playerResource, g_BountyKillAssistsOffset + (client * 4))
             : 0;
         if ((team != 2 && team != 3) || !AreBonusPointsReady(client)
             || GetCachedBonusPoints(client) <= BOUNTY_AUTOMATIC_MIN_BALANCE
