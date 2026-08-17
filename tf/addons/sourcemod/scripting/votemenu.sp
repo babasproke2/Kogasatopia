@@ -21,6 +21,9 @@
 #define VOTEMENU_CFG_PREFIX  ""          // Files are expected to be relative to tf/cfg
 
 #define VOTEMENU_CURRENCY_SHORT_MAX 32
+#define VOTEMENU_GAMEMODE_KEY_MAX 32
+#define VOTEMENU_EXCLUDED_GAMEMODES_MAX 128
+#define VOTEMENU_MAX_EXCLUDED_GAMEMODES 16
 #define VOTEMENU_DB_CONFIG_DEFAULT "default"
 #define POINTS_STORE_BALANCE_TABLE "points_store_balances"
 
@@ -33,6 +36,7 @@ enum struct VoteOption
     char listener[64];
     char winFile[128];
     char loseFile[128];
+    char excludedGamemodes[VOTEMENU_EXCLUDED_GAMEMODES_MAX];
     float ratio;
 }
 
@@ -158,10 +162,18 @@ public Action Command_VoteMenu(int client, int args)
     FormatVoteMenuTitle(client, title, sizeof(title));
     menu.SetTitle("%s", title);
     char label[256];
+    char gamemodeKey[VOTEMENU_GAMEMODE_KEY_MAX];
+    GetCurrentGamemodeKey(gamemodeKey, sizeof(gamemodeKey));
+    int availableOptions = 0;
     VoteOption opt;
     for (int i = 0; i < g_VoteOptions.Length; i++)
     {
         g_VoteOptions.GetArray(i, opt);
+        if (IsGamemodeExcluded(opt.excludedGamemodes, gamemodeKey))
+        {
+            continue;
+        }
+
         char display[256];
         if (opt.name[0])
         {
@@ -189,7 +201,16 @@ public Action Command_VoteMenu(int client, int args)
         }
 
         menu.AddItem(opt.id, label, drawStyle);
+        availableOptions++;
     }
+
+    if (availableOptions == 0)
+    {
+        delete menu;
+        CPrintToChat(client, "{red}[Vote]{default} No vote options are available for this game mode.");
+        return Plugin_Handled;
+    }
+
     menu.ExitButton = true;
     menu.Display(client, MENU_TIME_FOREVER);
     return Plugin_Handled;
@@ -279,6 +300,14 @@ static bool TryStartVoteOption(int client, int index)
 
     VoteOption option;
     g_VoteOptions.GetArray(index, option);
+    char gamemodeKey[VOTEMENU_GAMEMODE_KEY_MAX];
+    GetCurrentGamemodeKey(gamemodeKey, sizeof(gamemodeKey));
+    if (IsGamemodeExcluded(option.excludedGamemodes, gamemodeKey))
+    {
+        CPrintToChat(client, "{red}[Vote]{default} That vote is unavailable in this game mode.");
+        return false;
+    }
+
     int cooldownRemaining = GetFailedVoteCooldownRemaining(option.id);
     if (cooldownRemaining > 0)
     {
@@ -1121,6 +1150,38 @@ static int FindVoteIndex(const char[] id)
     return -1;
 }
 
+static bool GetCurrentGamemodeKey(char[] gamemodeKey, int maxlen)
+{
+    gamemodeKey[0] = '\0';
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    return DGM_GetGameModeKey(gamemodeKey, maxlen) && gamemodeKey[0] != '\0';
+}
+
+static bool IsGamemodeExcluded(const char[] excludedGamemodes, const char[] gamemodeKey)
+{
+    if (excludedGamemodes[0] == '\0' || gamemodeKey[0] == '\0')
+    {
+        return false;
+    }
+
+    char entries[VOTEMENU_MAX_EXCLUDED_GAMEMODES][VOTEMENU_GAMEMODE_KEY_MAX];
+    int count = ExplodeString(excludedGamemodes, ",", entries, sizeof(entries), sizeof(entries[]));
+    for (int i = 0; i < count; i++)
+    {
+        TrimString(entries[i]);
+        if (entries[i][0] != '\0' && StrEqual(entries[i], gamemodeKey, false))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 static void LoadVoteMenuConfig()
 {
     g_VoteOptions.Clear();
@@ -1153,6 +1214,7 @@ static void LoadVoteMenuConfig()
         kv.GetString("announcer", opt.announcer, sizeof(opt.announcer), "");
         kv.GetString("message", opt.message, sizeof(opt.message), section);
         kv.GetString("listener", opt.listener, sizeof(opt.listener), "");
+        kv.GetString("excluded_gamemodes", opt.excludedGamemodes, sizeof(opt.excludedGamemodes), "");
         opt.ratio = kv.GetFloat("ratio", 0.6);
         kv.GetString("win", opt.winFile, sizeof(opt.winFile), "");
         // Accept a stray key name if the config has a typo like lose'
