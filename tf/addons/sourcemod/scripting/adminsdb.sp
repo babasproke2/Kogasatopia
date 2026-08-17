@@ -875,7 +875,7 @@ public Action Command_ShowAdmins(int client, int args)
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (AdminsDb_IsClientAdmin(i))
+        if (AdminsDb_IsClientRootAdmin(i))
         {
             admins[adminCount++] = i;
         }
@@ -979,12 +979,12 @@ public Action Command_CheckId(int client, int args)
     return Plugin_Handled;
 }
 
-bool AdminsDb_IsClientAdmin(int client)
+bool AdminsDb_IsClientRootAdmin(int client)
 {
     if (client <= 0 || !IsClientInGame(client) || IsFakeClient(client))
     {
         return false;
     }
-    AdminId id = GetUserAdmin(client);
-    return (id != INVALID_ADMIN_ID);
+
+    return (GetUserFlagBits(client) & ADMFLAG_ROOT) != 0;
 }
