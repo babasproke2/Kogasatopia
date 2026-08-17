@@ -61,6 +61,7 @@ Handle g_cvMpDisableRespawnTimes = INVALID_HANDLE;
 Handle g_hSetupStateTimer = INVALID_HANDLE;
 Handle g_hSetupStartTimer = INVALID_HANDLE;
 Handle g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
+Handle g_hRespawnTimers[MAXPLAYERS + 1];
 bool g_bSetupActive = false;
 bool g_bNoEngineerSetupReduced = false;
 bool g_bSetupUberUnavailableLogged = false;
@@ -1052,7 +1053,7 @@ void DGM_ApplySetupUberMultiplier()
     PrintToServer("[DGM] Setup ÜberCharge multiplier set to %.2f.", multiplier);
 }
 
-// DGM owns its explicit respawn timers, not TF2's persistent respawn-disable state.
+// Short DGM timers require TF2's native respawn waves to be disabled.
 void DGM_RefreshRespawnVisualState()
 {
     if (g_cvMpDisableRespawnTimes == null)
@@ -1060,10 +1061,7 @@ void DGM_RefreshRespawnVisualState()
         return;
     }
 
-    if (GetConVarBool(g_cvMpDisableRespawnTimes))
-    {
-        SetConVarBool(g_cvMpDisableRespawnTimes, false);
-    }
+    SetConVarBool(g_cvMpDisableRespawnTimes, g_cvRespawnTime.FloatValue < 5.0);
 }
 
 bool DGM_InternalIsRoundRunning()
@@ -1776,6 +1774,7 @@ public void OnPluginStart()
     HookConVarChange(g_cvSetupUberMultiplier, ConVarChange_SetupUberMultiplier);
 
     HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
+    HookEvent("player_spawn", Event_PlayerSpawn, EventHookMode_Post);
     HookEvent("teamplay_round_start", Event_RoundActive);
     HookEvent("teamplay_round_active", Event_RoundFullyActive, EventHookMode_PostNoCopy);
     HookEvent("teamplay_setup_finished", Event_SetupFinished);
@@ -1794,14 +1793,17 @@ public void OnPluginStart()
     RegConsoleCmd("sm_objectiveleader", Command_ObjectiveLeader, "Show which team leads by objective ownership");
     RegConsoleCmd("sm_cpleader", Command_ObjectiveLeader, "Show which team leads by control-point ownership");
     RegConsoleCmd("sm_manual", Command_CvarHelp, "Displays information about plugin ConVars.");
+
+    DGM_RefreshRespawnVisualState();
 }
 
 public void OnPluginEnd()
 {
-    // Do not leave TF2's native respawn behavior disabled after DGM unloads.
+    DGM_ClearAllRespawnTimers();
+
     if (g_cvMpDisableRespawnTimes != null)
     {
-        SetConVarBool(g_cvMpDisableRespawnTimes, false);
+        SetConVarBool(g_cvMpDisableRespawnTimes, true);
     }
 }
 
@@ -1811,6 +1813,7 @@ public void OnMapStart()
     g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
     DGM_ClearSetupStartTimer();
     g_hSetupStateTimer = INVALID_HANDLE;
+    DGM_ResetRespawnTimerHandles();
     DGM_ResetCaptureIntervalStats(0);
 
     g_bSetupActive = false;
@@ -1826,14 +1829,14 @@ public void OnMapEnd()
     g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
     DGM_ClearSetupStartTimer();
     g_hSetupStateTimer = INVALID_HANDLE;
+    DGM_ClearAllRespawnTimers();
 }
 
 public void ConVarChange_RespawnSetting(ConVar convar, const char[] oldValue, const char[] newValue)
 {
-    DGM_RefreshRespawnVisualState();
-
     if (convar == g_cvRespawnTime && !StrEqual(oldValue, newValue))
     {
+        DGM_RefreshRespawnVisualState();
         DGM_RespawnDeadClients();
     }
 }
@@ -1907,7 +1910,10 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
 		{
 			for (int i = 1; i <= MaxClients; i++)
 				if (IsClientInGame(i) && GetClientTeam(i) == 2 && !IsPlayerAlive(i))
+                {
+                    DGM_ClearRespawnTimer(i);
 					TF2_RespawnPlayer(i);
+                }
 		}
 		return;
 	}
@@ -1923,7 +1929,13 @@ public void OnClientPutInServer(int client)
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {
+    DGM_ClearRespawnTimer(GetClientOfUserId(event.GetInt("userid")));
     DGM_QueueNoEngineerSetupReductionCheck();
+}
+
+public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
+{
+    DGM_ClearRespawnTimer(GetClientOfUserId(event.GetInt("userid")));
 }
 
 public void Event_PlayerChangeClass(Event event, const char[] name, bool dontBroadcast)
@@ -1933,6 +1945,8 @@ public void Event_PlayerChangeClass(Event event, const char[] name, bool dontBro
 
 public void OnClientDisconnect(int client)
 {
+    DGM_ClearRespawnTimer(client);
+
     if (g_bRoundStartedOnce)
     {
         RequestFrame(AdjustByPlayerCount);
@@ -2150,6 +2164,7 @@ int DGM_RespawnDeadClients()
             continue;
         }
 
+        DGM_ClearRespawnTimer(i);
         TF2_RespawnPlayer(i);
         respawned++;
     }
@@ -2157,8 +2172,53 @@ int DGM_RespawnDeadClients()
     return respawned;
 }
 
+void DGM_ClearRespawnTimer(int client)
+{
+    if (client <= 0 || client > MaxClients || g_hRespawnTimers[client] == null)
+    {
+        return;
+    }
+
+    delete g_hRespawnTimers[client];
+    g_hRespawnTimers[client] = null;
+}
+
+void DGM_ClearAllRespawnTimers()
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        DGM_ClearRespawnTimer(client);
+    }
+}
+
+void DGM_ResetRespawnTimerHandles()
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        g_hRespawnTimers[client] = null;
+    }
+}
+
+void DGM_ScheduleRespawnTimer(int client, float delay)
+{
+    DGM_ClearRespawnTimer(client);
+
+    int userId = GetClientUserId(client);
+    if (userId <= 0)
+    {
+        return;
+    }
+
+    g_hRespawnTimers[client] = CreateTimer(
+        delay, Timer_RespawnClient, userId, TIMER_FLAG_NO_MAPCHANGE);
+}
+
 public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
+        int client = GetClientOfUserId(event.GetInt("userid"));
+        if (!Client_IsInGame(client)) return;
+        DGM_ClearRespawnTimer(client);
+
         if (DGM_ShouldDisableInstantRespawn())
         {
             return;
@@ -2166,11 +2226,8 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
 
         if (g_InternalOverride)
         {
-            SetConVarInt(g_cvMpDisableRespawnTimes, 0);
             return;
         }
-        int client = GetClientOfUserId(GetEventInt(event, "userid"));
-        if (!(Client_IsInGame(client))) return;
 
         float baseRespawn = GetConVarFloat(g_cvRespawnTime);
         if (FloatCompare(baseRespawn, DGM_RESPAWN_DISABLED_TIME) == 0)
@@ -2181,7 +2238,7 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
         float override = GetConVarFloat(g_cvTimeOverride);
         if (override > 0)
         {
-            CreateTimer(override, Timer_RespawnClient, client);
+            DGM_ScheduleRespawnTimer(client, override);
             return;
         }
 
@@ -2194,12 +2251,20 @@ public void Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast
         if (team == 2) time = redTime;
         else if (team == 3) time = bluTime;
         }
-        CreateTimer(time, Timer_RespawnClient, client);
+        DGM_ScheduleRespawnTimer(client, time);
         return;
 }
 
-public Action Timer_RespawnClient(Handle timer, int client)
+public Action Timer_RespawnClient(Handle timer, int userId)
 {
+    int client = GetClientOfUserId(userId);
+    if (client <= 0 || !Client_IsInGame(client) || g_hRespawnTimers[client] != timer)
+    {
+        return Plugin_Stop;
+    }
+
+    g_hRespawnTimers[client] = null;
+
     if (DGM_ShouldDisableInstantRespawn())
     {
         return Plugin_Stop;
@@ -2213,6 +2278,7 @@ public Action Timer_RespawnClient(Handle timer, int client)
 
 public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast)
 {
+    DGM_ClearAllRespawnTimers();
     g_iRoundStartTimestamp = GetTime();
     g_iLastRoundDuration = 0;
     DGM_ResetCaptureIntervalStats(g_iRoundStartTimestamp);
@@ -2272,6 +2338,7 @@ public void Event_RoundFullyActive(Event event, const char[] name, bool dontBroa
 
 public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 {
+    DGM_ClearAllRespawnTimers();
     int roundEndTimestamp = GetTime();
     g_iLastRoundDuration = DGM_CalculateRoundDurationSeconds(g_iRoundStartTimestamp, roundEndTimestamp);
     DGM_LogCaptureIntervalStats(event.GetInt("team"), g_iLastRoundDuration);
