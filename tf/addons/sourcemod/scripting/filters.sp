@@ -66,6 +66,7 @@
 #define MEMOMAN_STEAMID2 "STEAM_0:1:956670220"
 #define MEMOMAN_FALLBACK_NAME "Memoman"
 #define ARCHIVED_MESSAGE_COOLDOWN_SECONDS 30
+#define ARCHIVED_MESSAGE_WHITELIST_COOLDOWN_SECONDS 5
 
 enum ArchivedSpeaker
 {
@@ -1079,7 +1080,10 @@ static Action Filters_CommandRandomArchivedMessage(int client, ArchivedSpeaker s
 
     if (client > 0)
     {
-        g_iNextArchivedMessageTime[client] = now + ARCHIVED_MESSAGE_COOLDOWN_SECONDS;
+        int cooldown = Filters_GetAdminsDbLevel(client) > 1
+            ? ARCHIVED_MESSAGE_WHITELIST_COOLDOWN_SECONDS
+            : ARCHIVED_MESSAGE_COOLDOWN_SECONDS;
+        g_iNextArchivedMessageTime[client] = now + cooldown;
     }
 
     if (g_iArchivedMessageCounts[speaker] <= 0)
