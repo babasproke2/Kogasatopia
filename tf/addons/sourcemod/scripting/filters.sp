@@ -65,8 +65,10 @@
 #define MEMOMAN_STEAMID64 "76561199873606169"
 #define MEMOMAN_STEAMID2 "STEAM_0:1:956670220"
 #define MEMOMAN_FALLBACK_NAME "Memoman"
+#define PARSEE_COOLDOWN_REDUCTION_ITEM "parsee_cooldown_reduction"
 #define ARCHIVED_MESSAGE_COOLDOWN_SECONDS 30
 #define ARCHIVED_MESSAGE_WHITELIST_COOLDOWN_SECONDS 15
+#define PARSEE_PURCHASE_COOLDOWN_SECONDS 5
 
 enum ArchivedSpeaker
 {
@@ -196,7 +198,7 @@ int g_iHostPort = 27015;
 bool g_bOutboxStampReady = false;
 int g_iPendingSchemaQueries = 0;
 int g_iArchivedMessageCounts[ArchivedSpeaker_Count];
-int g_iNextArchivedMessageTime[MAXPLAYERS + 1];
+int g_iNextArchivedMessageTime[MAXPLAYERS + 1][ArchivedSpeaker_Count];
 int g_iLastOutboxCleanup = 0;
 int g_iLastChatCleanup = 0;
 
@@ -1058,13 +1060,13 @@ public Action Command_RandomMemomanMessage(int client, int args)
 static Action Filters_CommandRandomArchivedMessage(int client, ArchivedSpeaker speaker)
 {
     int now = GetTime();
-    if (client > 0 && now < g_iNextArchivedMessageTime[client])
+    if (client > 0 && now < g_iNextArchivedMessageTime[client][speaker])
     {
         char displayName[PRENAME_MAX_RENAME];
         strcopy(displayName, sizeof(displayName), speaker == ArchivedSpeaker_Memoman ? "Memoman" : "Parsee");
         char color[8];
         strcopy(color, sizeof(color), GetRandomInt(0, 1) == 0 ? "red" : "blue");
-        int secondsRemaining = g_iNextArchivedMessageTime[client] - now;
+        int secondsRemaining = g_iNextArchivedMessageTime[client][speaker] - now;
         CPrintToChat(client, "{gold}[Filters] {%s}%s{default} is on cooldown! (%ds)", color, displayName, secondsRemaining);
         return Plugin_Handled;
     }
@@ -1080,10 +1082,8 @@ static Action Filters_CommandRandomArchivedMessage(int client, ArchivedSpeaker s
 
     if (client > 0)
     {
-        int cooldown = Filters_GetAdminsDbLevel(client) > 1
-            ? ARCHIVED_MESSAGE_WHITELIST_COOLDOWN_SECONDS
-            : ARCHIVED_MESSAGE_COOLDOWN_SECONDS;
-        g_iNextArchivedMessageTime[client] = now + cooldown;
+        int cooldown = Filters_GetArchivedMessageCooldown(client, speaker);
+        g_iNextArchivedMessageTime[client][speaker] = now + cooldown;
     }
 
     if (g_iArchivedMessageCounts[speaker] <= 0)
@@ -1094,6 +1094,28 @@ static Action Filters_CommandRandomArchivedMessage(int client, ArchivedSpeaker s
 
     Filters_QueryRandomArchivedMessage(speaker);
     return Plugin_Handled;
+}
+
+static int Filters_GetArchivedMessageCooldown(int client, ArchivedSpeaker speaker)
+{
+    if (speaker == ArchivedSpeaker_Parsee
+        && GetFeatureStatus(FeatureType_Native, "PointsStore_HasPurchase") == FeatureStatus_Available
+        && PointsStore_HasPurchase(client, PARSEE_COOLDOWN_REDUCTION_ITEM))
+    {
+        return PARSEE_PURCHASE_COOLDOWN_SECONDS;
+    }
+
+    return Filters_GetAdminsDbLevel(client) > 1
+        ? ARCHIVED_MESSAGE_WHITELIST_COOLDOWN_SECONDS
+        : ARCHIVED_MESSAGE_COOLDOWN_SECONDS;
+}
+
+static void Filters_ResetArchivedMessageCooldowns(int client)
+{
+    for (int speaker = 0; speaker < view_as<int>(ArchivedSpeaker_Count); speaker++)
+    {
+        g_iNextArchivedMessageTime[client][speaker] = 0;
+    }
 }
 
 static void Filters_QueryRandomArchivedMessage(ArchivedSpeaker speaker)
@@ -4824,13 +4846,13 @@ public void Filters_OnMuteDeafenChanged(ConVar convar, const char[] oldValue, co
 
 public void OnClientPutInServer(int client)
 {
-    g_iNextArchivedMessageTime[client] = 0;
+    Filters_ResetArchivedMessageCooldowns(client);
     Filters_ResetExternalStats(client);
 }
 
 public void OnClientDisconnect(int client)
 {
-    g_iNextArchivedMessageTime[client] = 0;
+    Filters_ResetArchivedMessageCooldowns(client);
     Filters_ClearClientState(client);
     Filters_ResetExternalStats(client);
     g_MuteDeafened[client] = false;
