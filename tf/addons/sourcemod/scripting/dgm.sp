@@ -2115,7 +2115,11 @@ public Action Command_RespawnToggle(int client, int args)
 
     g_InternalOverride = !g_InternalOverride; // toggles between true and false
 
-    if (!g_InternalOverride && FloatCompare(g_cvRespawnTime.FloatValue, DGM_RESPAWN_DISABLED_TIME) == 0)
+    if (g_InternalOverride)
+    {
+        g_cvRespawnTime.SetFloat(DGM_RESPAWN_DISABLED_TIME);
+    }
+    else if (FloatCompare(g_cvRespawnTime.FloatValue, DGM_RESPAWN_DISABLED_TIME) == 0)
     {
         float restoreTime = DGM_CountRealPlayers() < DGM_RESPAWN_HIGH_POP_THRESHOLD
             ? DGM_RESPAWN_LOW_POP_RESTORE_TIME
