@@ -1312,29 +1312,7 @@ public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname
 		return Plugin_Changed;
 	}
 
-	if (GetEntityFlags(client) & FL_ONGROUND)
-		return Plugin_Continue;
-
-	if (TF2CustAttr_GetInt(weapon, "twin barrel attributes") == 0)
-		return Plugin_Continue;
-
-	if (GetClip(weapon) != 2)
-		return Plugin_Continue;
-
-	float velocity[3], angles[3];
-	GetEntPropVector(client, Prop_Data, "m_vecVelocity", velocity);
-	GetClientEyeAngles(client, angles);
-
-	float pitch = DegToRad(-angles[0]);
-	float yaw = DegToRad(angles[1]);
-	float push = 280.0 * Cosine(pitch);
-
-	velocity[0] -= push * Cosine(yaw);
-	velocity[1] -= push * Sine(yaw);
-	velocity[2] -= 280.0 * Sine(pitch);
-
-	TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
-	return Plugin_Changed;
+	return Plugin_Continue;
 }
 
 public MRESReturn IsFixedWeaponSpreadEnabled_Pre(DHookReturn returnValue, DHookParam parameters)
@@ -1925,21 +1903,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 			return Plugin_Continue;
 		}
 
-		if (TF2CustAttr_GetInt(weapon, "twin barrel attributes") != 0) {
-			float vecAngles[3];
-			float vecVelocity[3];
-
-			GetClientEyeAngles(attacker, vecAngles);
-			GetEntPropVector(client, Prop_Data, "m_vecVelocity", vecVelocity);
-
-			vecAngles[0] = DegToRad(-1.0 * vecAngles[0]);
-			vecAngles[1] = DegToRad(vecAngles[1]);
-
-			if (damage >= 40.0) vecVelocity[2] = 251.0;
-
-			TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, vecVelocity);
-			return Plugin_Changed;
-		} else if (TF2CustAttr_GetInt(weapon, "shock therapy attributes") != 0) {
+		if (TF2CustAttr_GetInt(weapon, "shock therapy attributes") != 0) {
 			damage = float(tf2_players[attacker].shockCharge * 100 / 30);
 			tf2_players[attacker].shockCharge = 0;
 			EmitAmbientSound(SOUND_NEON_SIGN, damagePosition, client, SNDLEVEL_NORMAL);
