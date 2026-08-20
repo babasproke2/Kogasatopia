@@ -12,10 +12,12 @@
 #include "include/client_validation.inc"
 
 #define PLUGIN_VERSION "1.26"
+#define SPRAY_WARNING_COOLDOWN 5.0
 
 ConVar g_hCVarsEnabled;
 ConVar g_hCVarsKills;
 ConVar g_hCVarsWarn;
+float g_fNextWarning[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
@@ -35,6 +37,16 @@ public void OnPluginStart()
 	EnabledChanged(g_hCVarsEnabled, "", "");
 	HookConVarChange(g_hCVarsEnabled, EnabledChanged);
 	AutoExecConfig(true, "Admin_Sprays_Only");
+}
+
+public void OnClientPutInServer(int client)
+{
+	g_fNextWarning[client] = 0.0;
+}
+
+public void OnClientDisconnect(int client)
+{
+	g_fNextWarning[client] = 0.0;
 }
 
 public void EnabledChanged(ConVar convar, const char[] oldValue, const char[] newValue)
@@ -71,9 +83,11 @@ public Action Player_Decal(const char[] name, const int[] clients, int count, fl
 		}
 		else
 		{
-			if (GetConVarBool(g_hCVarsWarn))
+			float now = GetGameTime();
+			if (GetConVarBool(g_hCVarsWarn) && g_fNextWarning[client] <= now)
 			{
 				CPrintToChat(client, "{gold}[kogasa.tf]{default} Sprays are disabled until you have 50 all-time kills; use !stats to keep track.\nPlaying Medic? Assists count as kills!");
+				g_fNextWarning[client] = now + SPRAY_WARNING_COOLDOWN;
 			}
 
 			return Plugin_Handled;
