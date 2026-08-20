@@ -100,6 +100,11 @@ native bool CWX_IsItemUIDValid(const char[] uid);
 native bool CWX_GetItemUIDFromEntity(int entity, char[] buffer, int maxlen);
 
 /**
+ * Called after CWX restores missing runtime state on a persisted custom item.
+ */
+forward void CWX_OnItemRuntimeStateReady(int client, int entity);
+
+/**
  * Returns the item's loadout slot for the given class, or -1 if the item UID or item / class
  * combination is not valid.
  */

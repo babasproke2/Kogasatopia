@@ -107,6 +107,7 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `CWX_GetItemList` - Returns custom item UIDs filtered by an optional callback.
 - `CWX_IsItemUIDValid` - Returns whether a custom item UID exists.
 - `CWX_GetItemUIDFromEntity` - Writes the custom item UID attached to an entity into a buffer.
+- `CWX_OnItemRuntimeStateReady` - Fires after CWX restores missing runtime state on a persisted custom item.
 - `CWX_GetItemLoadoutSlot` - Returns the TF2 loadout slot used by a custom item for a class.
 - `CWX_GetItemExtData` - Returns a copy of a custom item's extended KeyValues section.
 

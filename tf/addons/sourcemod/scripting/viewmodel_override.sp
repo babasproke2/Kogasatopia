@@ -263,6 +263,16 @@ void OnPlayerSpawnPost(int client) {
 	ScheduleClientModelRefresh(client);
 }
 
+public void CWX_OnItemRuntimeStateReady(int client, int entity) {
+	if (!IsValidViewmodelClient(client) || !IsValidEntity(entity)
+			|| TF2_GetClientActiveWeapon(client) != entity) {
+		return;
+	}
+
+	QueueWeaponBoundModelUpdate(client, entity);
+	ScheduleClientModelValidationRetries(client);
+}
+
 void OnWeaponEquipPost(int client, int weapon) {
 	// CWX applies custom attributes before EquipPlayerWeapon, so this is the
 	// authoritative lifecycle point for newly-created custom weapons.
@@ -733,9 +743,7 @@ int GetEntityOwner(int entity) {
 void OnPlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (client) {
-		MaybeRemoveWearable(client, g_iLastWorldModelRef[client]);
-		g_iLastWorldModelRef[client] = INVALID_ENT_REFERENCE;
-		RestoreHiddenWorldWeapon(client);
+		DetachVMs(client);
 	}
 }
 

@@ -104,6 +104,7 @@ Database g_CwxStatsDb = null;
 bool g_CwxStatsDbReady = false;
 bool g_CwxStatsIsMySql = false;
 Handle g_hCwxStatsDbReconnectTimer = null;
+Handle g_hOnItemRuntimeStateReady = null;
 
 void CWX_ApplyEngineOverrides(int weapon)
 {
@@ -226,6 +227,8 @@ public void OnPluginStart() {
 	sm_cwx_statistics.AddChangeHook(OnCwxStatisticsEnabledChanged);
 	sm_cwx_statistics_database.AddChangeHook(OnCwxStatisticsDatabaseChanged);
 	ConnectCwxStatisticsDatabase();
+	g_hOnItemRuntimeStateReady = CreateGlobalForward("CWX_OnItemRuntimeStateReady",
+		ET_Ignore, Param_Cell, Param_Cell);
 	
 	RegAdminCmd("sm_cwx_export", ExportActiveWeapon, ADMFLAG_ROOT);
 	
@@ -275,6 +278,19 @@ public void OnPluginStart() {
 public void OnPluginEnd() {
 	Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
 	Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
+	delete g_hOnItemRuntimeStateReady;
+}
+
+void CWX_NotifyItemRuntimeStateReady(int client, int entity) {
+	if (g_hOnItemRuntimeStateReady == null || !IsClientInGame(client)
+			|| !IsValidEntity(entity)) {
+		return;
+	}
+
+	Call_StartForward(g_hOnItemRuntimeStateReady);
+	Call_PushCell(client);
+	Call_PushCell(entity);
+	Call_Finish();
 }
 
 public void OnAllPluginsLoaded() {
@@ -282,6 +298,23 @@ public void OnAllPluginsLoaded() {
 	
 	g_attrdef_AllowedInMedievalMode =
 			TF2Econ_TranslateAttributeNameToDefinitionIndex("allowed in medieval mode");
+}
+
+public void OnLibraryAdded(const char[] name) {
+	if (!StrEqual(name, "tf2custattr") || !CustomItemsLoaded()) {
+		return;
+	}
+
+	/*
+	 * Reloading the custom-attribute provider removes its entity storage.
+	 * Rehydrate active persisted items as soon as the provider returns.
+	 */
+	for (int client = 1; client <= MaxClients; client++) {
+		if (IsClientInGame(client) && IsPlayerAlive(client)
+				&& g_bRetrievedLoadout[client]) {
+			RequestFrame(Frame_ApplyRetrievedLoadout, GetClientUserId(client));
+		}
+	}
 }
 
 Action DisplayItemDescriptions(int client, int argc) {
@@ -625,6 +658,11 @@ void ApplyClientCustomLoadout(int client) {
 			continue;
 		}
 		
+		CustomItemDefinition item;
+		if (!g_CurrentLoadout[client][playerClass][i].GetItemDefinition(item)) {
+			continue;
+		}
+
 		// equip our item if it isn't already equipped, or if it's being killed
 		// the latter applies to items that are normally invalid for the class
 		int currentLoadoutItem = EntRefToEntIndex(g_CurrentLoadout[client][playerClass][i].entity);
@@ -632,11 +670,6 @@ void ApplyClientCustomLoadout(int client) {
 				|| currentLoadoutItem == INVALID_ENT_REFERENCE
 				|| !IsValidEntity(currentLoadoutItem)
 				|| GetEntityFlags(currentLoadoutItem) & FL_KILLME) {
-			CustomItemDefinition item;
-			if (!g_CurrentLoadout[client][playerClass][i].GetItemDefinition(item)) {
-				continue;
-			}
-			
 			if (!CanPlayerEquipItem(client, item)) {
 				continue;
 			}
@@ -649,6 +682,16 @@ void ApplyClientCustomLoadout(int client) {
 			CWX_MarkValidatedAttachedEntity(entity, client, "loadout_apply");
 			
 			g_CurrentLoadout[client][playerClass][i].entity = EntIndexToEntRef(entity);
+		} else {
+			/*
+			 * TF2 can retain the entity through regeneration while clearing part of
+			 * its runtime attribute list. Entref validity alone is not a sufficient
+			 * loadout health check.
+			 */
+			EnsureCustomItemRuntimeAttributes(currentLoadoutItem, item, client,
+				"persisted_loadout");
+			CWX_MarkValidatedAttachedEntity(currentLoadoutItem, client,
+				"persisted_loadout");
 		}
 	}
 	

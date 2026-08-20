@@ -237,6 +237,10 @@ StringMapSnapshot GetCustomItemList() {
 	return g_CustomItems.Snapshot();
 }
 
+bool CustomItemsLoaded() {
+	return g_CustomItems != null;
+}
+
 /**
  * Builds the loadout position array for the item, so the plugin knows which weapons can be
  * rendered in loadout menus and which loadout slot they will be stored in within the database.
@@ -300,23 +304,7 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 	SetEntProp(itemEntity, Prop_Send, "m_bOnlyIterateItemViewAttributes",
 			!item.bKeepStaticAttributes);
 	
-	// apply game attributes
-	if (item.nativeAttributes) {
-		if (item.nativeAttributes.GotoFirstSubKey(false)) {
-			do {
-				char key[256], value[256];
-				
-				// TODO: support multiline KeyValues
-				// keyvalues are case-insensitive, so section name + value would sidestep that
-				item.nativeAttributes.GetSectionName(key, sizeof(key));
-				item.nativeAttributes.GetString(NULL_STRING, value, sizeof(value));
-				
-				// this *almost* feels illegal.
-				TF2Attrib_SetFromStringValue(itemEntity, key, value);
-			} while (item.nativeAttributes.GotoNextKey(false));
-			item.nativeAttributes.GoBack();
-		}
-	}
+	ApplyCustomItemNativeAttributes(itemEntity, item);
 	
 	// add a stinky attribute that holds the item's uid
 	// this value is read with CWX_GetItemUIDFromEntity
@@ -378,7 +366,7 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 	 * storage survives, but make that an invariant before EquipPlayerWeapon fires so
 	 * consumers such as viewmodel_override always observe the final entity state.
 	 */
-	EnsureCustomItemRuntimeAttributes(itemEntity, item);
+	EnsureCustomItemRuntimeAttributes(itemEntity, item, client, "equip");
 	
 	// we didn't remove a weapon by its weapon slot; remove item based on loadout slot
 	if (!bRemovedWeaponInSlot) {
@@ -402,26 +390,59 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 	return itemEntity;
 }
 
-static void EnsureCustomItemRuntimeAttributes(int itemEntity,
+static bool ApplyCustomItemNativeAttributes(int itemEntity,
 		const CustomItemDefinition item) {
-	if (!IsValidEntity(itemEntity)) {
-		return;
+	if (!IsValidEntity(itemEntity) || !item.nativeAttributes) {
+		return false;
 	}
 
+	bool restored;
+	if (item.nativeAttributes.GotoFirstSubKey(false)) {
+		do {
+			char key[256], value[256];
+			item.nativeAttributes.GetSectionName(key, sizeof(key));
+			item.nativeAttributes.GetString(NULL_STRING, value, sizeof(value));
+
+			if (!TF2Attrib_GetByName(itemEntity, key)) {
+				restored = true;
+			}
+			TF2Attrib_SetFromStringValue(itemEntity, key, value);
+		} while (item.nativeAttributes.GotoNextKey(false));
+		item.nativeAttributes.GoBack();
+	}
+	return restored;
+}
+
+bool EnsureCustomItemRuntimeAttributes(int itemEntity,
+		const CustomItemDefinition item, int client = 0,
+		const char[] context = "unknown") {
+	if (!IsValidEntity(itemEntity)) {
+		return false;
+	}
+
+	bool restored = ApplyCustomItemNativeAttributes(itemEntity, item);
 	if (!TF2Attrib_GetByName(itemEntity, ATTRIB_NAME_CUSTOM_UID)) {
 		TF2Attrib_SetFromStringValue(itemEntity, ATTRIB_NAME_CUSTOM_UID, item.uid);
+		restored = true;
 	}
 
-	if (!item.customAttributes) {
-		return;
+	if (item.customAttributes) {
+		KeyValues currentAttributes = TF2CustAttr_GetAttributeKeyValues(itemEntity);
+		if (!currentAttributes) {
+			TF2CustAttr_UseKeyValues(itemEntity, item.customAttributes);
+			restored = true;
+		}
+		delete currentAttributes;
 	}
 
-	KeyValues currentAttributes = TF2CustAttr_GetAttributeKeyValues(itemEntity);
-	if (!currentAttributes) {
-		TF2CustAttr_UseKeyValues(itemEntity, item.customAttributes);
-	}
-	delete currentAttributes;
 	CWX_ApplyEngineOverrides(itemEntity);
+
+	if (restored) {
+		LogMessage("[CWX][RuntimeRepair] context=%s client=%N entity=%d uid=%s",
+			context, client, itemEntity, item.uid);
+		CWX_NotifyItemRuntimeStateReady(client, itemEntity);
+	}
+	return restored;
 }
 
 /**
