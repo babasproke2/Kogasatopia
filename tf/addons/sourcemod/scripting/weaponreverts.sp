@@ -2660,7 +2660,17 @@ public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemD
 			}
 		}
 
+		int oldMax = GetWeaponMaxClip(entityIndex);
+		int oldClip = GetClip(entityIndex);
+
 		WeaponReverts_ApplyConfiguredAttributes(client, itemDefinitionIndex, entityIndex);
+
+		int newMax = GetWeaponMaxClip(entityIndex);
+		if (oldMax > 0 && oldClip == oldMax && newMax > oldMax)
+		{
+			SetClip_Weapon(entityIndex, newMax);
+		}
+
 		WeaponReverts_QueuePrimaryClipBonusRefresh(client);
 	}
 
