@@ -1064,6 +1064,11 @@ void DGM_RefreshRespawnVisualState()
     SetConVarBool(g_cvMpDisableRespawnTimes, g_cvRespawnTime.FloatValue < 5.0);
 }
 
+bool DGM_AreRespawnTimesForcedOn()
+{
+    return FloatCompare(g_cvRespawnTime.FloatValue, DGM_RESPAWN_DISABLED_TIME) == 0;
+}
+
 bool DGM_InternalIsRoundRunning()
 {
     return (GameRules_GetRoundState() == RoundState_RoundRunning);
@@ -1836,6 +1841,7 @@ public void ConVarChange_RespawnSetting(ConVar convar, const char[] oldValue, co
 {
     if (convar == g_cvRespawnTime && !StrEqual(oldValue, newValue))
     {
+        g_InternalOverride = DGM_AreRespawnTimesForcedOn();
         DGM_RefreshRespawnVisualState();
         DGM_RespawnDeadClients();
     }
@@ -1870,7 +1876,7 @@ public Action Timer_SetupStateMonitor(Handle timer)
 public void OnConfigsExecuted()
 {
     DetectGameMode();
-    g_InternalOverride = false; // Reset this on map change
+    g_InternalOverride = DGM_AreRespawnTimesForcedOn();
     g_bRoundStartedOnce = false;
     g_iRoundStartTimestamp = 0;
     g_iLastRoundDuration = 0;
@@ -2113,7 +2119,7 @@ public Action Command_RespawnToggle(int client, int args)
         return Plugin_Handled;
     }
 
-    g_InternalOverride = !g_InternalOverride; // toggles between true and false
+    g_InternalOverride = !DGM_AreRespawnTimesForcedOn();
 
     if (g_InternalOverride)
     {
@@ -2288,7 +2294,7 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
     DGM_ResetCaptureIntervalStats(g_iRoundStartTimestamp);
 
     if (g_cvTimeOverride != null)    g_cvTimeOverride.RestoreDefault();
-    g_InternalOverride = false; // This is set to true when a round is won, it changes back to false now
+    g_InternalOverride = DGM_AreRespawnTimesForcedOn();
     DGM_RefreshRespawnVisualState();
     g_PointCaptures = 0;
     DGM_UpdateSetupState();
