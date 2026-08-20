@@ -14,6 +14,14 @@
 native int WhaleTracker_GetCumulativeKills(int client);
 
 /**
+ * Returns a client's cumulative tracked assists.
+ *
+ * @param client        Client index.
+ * @return              Cumulative assists, or 0 if unavailable.
+ */
+native int WhaleTracker_GetCumulativeAssists(int client);
+
+/**
  * Returns whether a client's WhaleTracker stats are loaded and ready.
  *
  * @param client        Client index.

@@ -20,7 +20,7 @@ ConVar g_hCVarsWarn;
 public Plugin myinfo =
 {
 	name = "Admin Sprays Only",
-	description = "Only players with enough WhaleTracker kills are allowed to spray.",
+	description = "Only players with enough WhaleTracker kills and assists are allowed to spray.",
 	author = "luki1412",
 	version = PLUGIN_VERSION,
 	url = "https://forums.alliedmods.net/member.php?u=43109"
@@ -30,7 +30,7 @@ public void OnPluginStart()
 {
 	CreateConVar("sm_aso_version", PLUGIN_VERSION, "Admin Sprays Only plugin version", FCVAR_DONTRECORD|FCVAR_NOTIFY);
 	g_hCVarsEnabled = CreateConVar("sm_aso_enabled", "1", "Enables/disables Admin Sprays Only", FCVAR_NONE, true, 0.0, true, 1.0);
-	g_hCVarsKills = CreateConVar("sm_aso_kills", "50", "Minimum WhaleTracker cumulative kills needed to be able to spray", FCVAR_NONE, true, 0.0);
+	g_hCVarsKills = CreateConVar("sm_aso_kills", "50", "Minimum cumulative WhaleTracker kills plus assists needed to spray", FCVAR_NONE, true, 0.0);
 	g_hCVarsWarn = CreateConVar("sm_aso_warn", "1", "Enables/disables chat warning messages", FCVAR_NONE, true, 0.0, true, 1.0);
 	EnabledChanged(g_hCVarsEnabled, "", "");
 	HookConVarChange(g_hCVarsEnabled, EnabledChanged);
@@ -63,8 +63,9 @@ public Action Player_Decal(const char[] name, const int[] clients, int count, fl
 		int requiredKills = GetConVarInt(g_hCVarsKills);
 		bool statsLoaded = WhaleTracker_AreStatsLoaded(client);
 		int clientKills = statsLoaded ? WhaleTracker_GetCumulativeKills(client) : 0;
+		int clientAssists = statsLoaded ? WhaleTracker_GetCumulativeAssists(client) : 0;
 
-	    if (statsLoaded && clientKills >= requiredKills)
+	    if (statsLoaded && clientKills + clientAssists >= requiredKills)
 		{
 		    return Plugin_Continue;
 		}
@@ -72,7 +73,7 @@ public Action Player_Decal(const char[] name, const int[] clients, int count, fl
 		{
 			if (GetConVarBool(g_hCVarsWarn))
 			{
-				CPrintToChat(client, "{gold}[kogasa.tf]{default} Sprays are disabled until you have 50 all-time kills; use !stats to keep track!");
+				CPrintToChat(client, "{gold}[kogasa.tf]{default} Sprays are disabled until you have 50 all-time kills; use !stats to keep track.\nPlaying Medic? Assists count as kills!");
 			}
 
 			return Plugin_Handled;
