@@ -58,6 +58,7 @@
 #define ATTR_AMBASSADOR_102 "ambassador 102"
 #define ATTR_RANDOM_SPREAD_OVERRIDE "random spread override"
 #define ATTR_RANDOM_CRITS_OVERRIDE "random crits override"
+#define ATTR_RECOIL_JUMPING "recoil jumping"
 #define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
 #define ATTR_WIDE_HORIZONTAL_BULLET_SPREAD "wide horizontal bullet spread"
 #define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
@@ -1303,6 +1304,22 @@ public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname
 	// The SDKCall re-enters this forward through SourceMod's crit hook.
 	if (g_bCalculatingRandomCritOverride)
 		return Plugin_Continue;
+
+	float recoil = TF2CustAttr_GetFloat(weapon, ATTR_RECOIL_JUMPING, 0.0);
+	if (recoil > 0.0)
+	{
+		float angles[3];
+		float aimForward[3];
+		float velocity[3];
+
+		GetClientEyeAngles(client, angles);
+		GetAngleVectors(angles, aimForward, NULL_VECTOR, NULL_VECTOR);
+		GetEntPropVector(client, Prop_Data, "m_vecVelocity", velocity);
+
+		ScaleVector(aimForward, -recoil);
+		AddVectors(velocity, aimForward, velocity);
+		TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
+	}
 
 	if (TF2CustAttr_GetInt(weapon, ATTR_RANDOM_CRITS_OVERRIDE, 0) != 0)
 	{
