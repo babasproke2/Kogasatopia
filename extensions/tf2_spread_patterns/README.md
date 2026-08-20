@@ -11,8 +11,9 @@ Overrides are stored with entity references, so recycled entity indexes do not i
 
 The circular pattern uses TF2's native 15-pellet fixed-spread path and retains its small random jitter.
 
-The wide-horizontal pattern assigns 20 deterministic directions in two rows of 10 without changing
-TF2's fixed-spread table. CWX and WeaponReverts enable it with the custom attribute
+The wide-horizontal pattern assigns 20 deterministic directions in two rows of 10 at 150% of the
+weapon's stock horizontal spread without changing TF2's fixed-spread table. CWX and WeaponReverts
+enable it with the custom attribute
 `"wide horizontal bullet spread" "1"`; it takes priority over the circular pattern.
 
 `TF2Spread_SetAmbassadorAccuracy(weapon, enabled)` adds Ambassador-style spread recovery. It retains

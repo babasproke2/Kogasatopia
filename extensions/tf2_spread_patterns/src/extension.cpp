@@ -58,6 +58,7 @@ static const Vector kWideHorizontal20[] =
 	Vector( 0.778f,  0.250f, 0.0f),
 	Vector( 1.000f,  0.250f, 0.0f),
 };
+static constexpr float kWideHorizontalWidthScale = 1.5f;
 
 TF2SpreadPatterns g_TF2SpreadPatterns;
 SMEXT_LINK(&g_TF2SpreadPatterns);
@@ -721,7 +722,8 @@ bool TF2SpreadPatterns::ApplyWideHorizontal20(
 		m_wideHorizontalPellet++ % kWideHorizontalPelletCount];
 	result = source;
 	result.m_vecDirShooting = m_wideHorizontalForward
-		+ point.x * m_wideHorizontalSpread * m_wideHorizontalRight
+		+ point.x * kWideHorizontalWidthScale
+			* m_wideHorizontalSpread * m_wideHorizontalRight
 		+ point.y * m_wideHorizontalSpread * m_wideHorizontalUp;
 	VectorNormalize(result.m_vecDirShooting);
 	return true;
