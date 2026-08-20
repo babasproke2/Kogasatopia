@@ -2,13 +2,6 @@
 {
 	"tf"
 	{
-		"Offsets"
-		{
-			"CTFWeaponBase::HasKnockback"
-			{
-				"linux" "501"
-			}
-		}
 		"Signatures"
 		{
 			"FX_FireBullets"
@@ -40,11 +33,6 @@
 			{
 				"library" "server"
 				"linux"   "@_ZN13CTFWeaponBase19ApplyPostHitEffectsERK15CTakeDamageInfoP9CTFPlayer"
-			}
-			"CTFScatterGun::HasKnockback"
-			{
-				"library" "server"
-				"linux"   "@_ZN13CTFScatterGun12HasKnockbackEv"
 			}
 			"CTFScatterGun::FireBullet"
 			{

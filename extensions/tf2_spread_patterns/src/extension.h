@@ -9,6 +9,7 @@
 class CBaseEntity;
 class CDetour;
 class CTakeDamageInfo;
+class IServerTools;
 struct FireBulletsInfo_t;
 
 enum class SpreadPattern : int
@@ -52,7 +53,6 @@ public:
 private:
 	using SetPunchAngleFn = void (*)(CBaseEntity *, const QAngle &);
 	using SharedRandomIntFn = int (*)(const char *, int, int, int);
-	using ScattergunHasKnockbackFn = bool (*)(CBaseEntity *);
 	using ScattergunFireBulletFn = void (*)(CBaseEntity *, CBaseEntity *);
 	using ScattergunPostHitEffectsFn = void (*)(
 		CBaseEntity *, const CTakeDamageInfo &, CBaseEntity *);
@@ -60,18 +60,18 @@ private:
 	static constexpr int kPelletCount = 15;
 	static constexpr int kWideHorizontalPelletCount = 20;
 	static constexpr int kMaxTrackedEntities = 2048;
-	static constexpr int kWeaponVtableSlots = 512;
-
 	bool SetupGameConfig(char *error, size_t maxlen);
 	bool SetupSendProps(char *error, size_t maxlen);
 	bool SetupFunctions(char *error, size_t maxlen);
 	bool SetupSpreadTable(char *error, size_t maxlen);
 	bool SetupDetours(char *error, size_t maxlen);
+	bool EnsureScattergunVtable();
 	float GetTimeSinceLastFire(CBaseEntity *weapon) const;
 	SpreadPattern GetPattern(CBaseEntity *weapon);
 	void RestoreStockPattern();
 
 	SourceMod::IGameConfig *m_gameConf = nullptr;
+	IServerTools *m_serverTools = nullptr;
 	CDetour *m_fireBulletsDetour = nullptr;
 	CDetour *m_playerFireBulletDetour = nullptr;
 	CDetour *m_getWeaponSpreadDetour = nullptr;
@@ -89,12 +89,11 @@ private:
 	bool m_punchConsistent[kMaxTrackedEntities] = {};
 	int m_lastFireTimeOffset = -1;
 	int m_punchAngleOffset = -1;
-	int m_hasKnockbackVtableIndex = -1;
 	SetPunchAngleFn m_setPunchAngle = nullptr;
 	SharedRandomIntFn m_sharedRandomInt = nullptr;
-	ScattergunHasKnockbackFn m_scattergunHasKnockback = nullptr;
 	ScattergunFireBulletFn m_scattergunFireBullet = nullptr;
 	ScattergunPostHitEffectsFn m_scattergunPostHitEffects = nullptr;
+	void **m_scattergunVtable = nullptr;
 	int m_swapDepth = 0;
 	CBaseEntity *m_wideHorizontalWeapon = nullptr;
 	Vector m_wideHorizontalForward = {};
