@@ -16,6 +16,11 @@
 				"library" "server"
 				"linux"   "@_Z14FX_FireBulletsP13CTFWeaponBaseiRK6VectorRK6QAngleiiiffb"
 			}
+			"CTFPlayer::FireBullet"
+			{
+				"library" "server"
+				"linux"   "@_ZN9CTFPlayer10FireBulletEP13CTFWeaponBaseRK17FireBulletsInfo_tbii"
+			}
 			"CTFWeaponBaseGun::GetWeaponSpread"
 			{
 				"library" "server"

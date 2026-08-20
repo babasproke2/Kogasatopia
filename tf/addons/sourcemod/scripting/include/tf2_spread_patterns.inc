@@ -7,6 +7,7 @@ enum TF2SpreadPattern
 {
 	TF2Spread_Default = 0,
 	TF2Spread_Circular15,
+	TF2Spread_WideHorizontal20,
 };
 
 /**

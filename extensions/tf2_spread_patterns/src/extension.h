@@ -9,11 +9,13 @@
 class CBaseEntity;
 class CDetour;
 class CTakeDamageInfo;
+struct FireBulletsInfo_t;
 
 enum class SpreadPattern : int
 {
 	Default = 0,
 	Circular15 = 1,
+	WideHorizontal20 = 2,
 };
 
 class TF2SpreadPatterns : public SDKExtension
@@ -30,12 +32,17 @@ public:
 	cell_t Native_SetScattergunKnockback(IPluginContext *context, const cell_t *params);
 
 	bool ShouldUseCircular15(CBaseEntity *weapon);
+	bool ShouldUseWideHorizontal20(CBaseEntity *weapon);
 	bool ShouldUseAmbassadorAccuracy(CBaseEntity *weapon);
 	bool IsAmbassadorAccuracyRecovered(CBaseEntity *weapon);
 	float ApplyAmbassadorAccuracy(CBaseEntity *weapon, float spread) const;
 	bool ApplyPunchAngleOverride(CBaseEntity *weapon, CBaseEntity *player);
 	void BeginCircular15();
 	void EndCircular15();
+	void BeginWideHorizontal20(CBaseEntity *weapon, const QAngle &angles, float spread);
+	void EndWideHorizontal20();
+	bool ApplyWideHorizontal20(
+		CBaseEntity *weapon, const FireBulletsInfo_t &source, FireBulletsInfo_t &result);
 	bool ShouldUseScattergunKnockback(CBaseEntity *weapon);
 	bool IsScattergunBridgeActive() const;
 	void FireScattergunBullet(CBaseEntity *weapon, CBaseEntity *player);
@@ -51,6 +58,7 @@ private:
 		CBaseEntity *, const CTakeDamageInfo &, CBaseEntity *);
 
 	static constexpr int kPelletCount = 15;
+	static constexpr int kWideHorizontalPelletCount = 20;
 	static constexpr int kMaxTrackedEntities = 2048;
 	static constexpr int kWeaponVtableSlots = 512;
 
@@ -60,10 +68,12 @@ private:
 	bool SetupSpreadTable(char *error, size_t maxlen);
 	bool SetupDetours(char *error, size_t maxlen);
 	float GetTimeSinceLastFire(CBaseEntity *weapon) const;
+	SpreadPattern GetPattern(CBaseEntity *weapon);
 	void RestoreStockPattern();
 
 	SourceMod::IGameConfig *m_gameConf = nullptr;
 	CDetour *m_fireBulletsDetour = nullptr;
+	CDetour *m_playerFireBulletDetour = nullptr;
 	CDetour *m_getWeaponSpreadDetour = nullptr;
 	CDetour *m_updatePunchAnglesDetour = nullptr;
 	CDetour *m_shotgunFireBulletDetour = nullptr;
@@ -86,6 +96,13 @@ private:
 	ScattergunFireBulletFn m_scattergunFireBullet = nullptr;
 	ScattergunPostHitEffectsFn m_scattergunPostHitEffects = nullptr;
 	int m_swapDepth = 0;
+	CBaseEntity *m_wideHorizontalWeapon = nullptr;
+	Vector m_wideHorizontalForward = {};
+	Vector m_wideHorizontalRight = {};
+	Vector m_wideHorizontalUp = {};
+	float m_wideHorizontalSpread = 0.0f;
+	int m_wideHorizontalPellet = 0;
+	bool m_wideHorizontalActive = false;
 	bool m_scattergunBridgeActive = false;
 };
 

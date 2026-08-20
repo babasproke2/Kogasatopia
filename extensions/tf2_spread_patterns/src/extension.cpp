@@ -7,7 +7,9 @@
 #include <IGameHelpers.h>
 #include <isaverestore.h>
 #include <ehandle.h>
+#include <shareddefs.h>
 #include <takedamageinfo.h>
+#include <mathlib/mathlib.h>
 
 #define DETOUR_DECL_STATIC10(name, ret, p1type, p1name, p2type, p2name, p3type, p3name, p4type, p4name, p5type, p5name, p6type, p6name, p7type, p7name, p8type, p8name, p9type, p9name, p10type, p10name) \
 ret (*name##_Actual)(p1type, p2type, p3type, p4type, p5type, p6type, p7type, p8type, p9type, p10type) = nullptr; \
@@ -30,6 +32,30 @@ static const Vector kCircular15[] =
 	Vector(-0.160f, -0.480f, 0.0f),
 	Vector( 0.660f,  0.300f, 0.0f),
 	Vector(-0.620f, -0.240f, 0.0f),
+};
+
+static const Vector kWideHorizontal20[] =
+{
+	Vector(-1.000f, -0.250f, 0.0f),
+	Vector(-0.778f, -0.250f, 0.0f),
+	Vector(-0.556f, -0.250f, 0.0f),
+	Vector(-0.333f, -0.250f, 0.0f),
+	Vector(-0.111f, -0.250f, 0.0f),
+	Vector( 0.111f, -0.250f, 0.0f),
+	Vector( 0.333f, -0.250f, 0.0f),
+	Vector( 0.556f, -0.250f, 0.0f),
+	Vector( 0.778f, -0.250f, 0.0f),
+	Vector( 1.000f, -0.250f, 0.0f),
+	Vector(-1.000f,  0.250f, 0.0f),
+	Vector(-0.778f,  0.250f, 0.0f),
+	Vector(-0.556f,  0.250f, 0.0f),
+	Vector(-0.333f,  0.250f, 0.0f),
+	Vector(-0.111f,  0.250f, 0.0f),
+	Vector( 0.111f,  0.250f, 0.0f),
+	Vector( 0.333f,  0.250f, 0.0f),
+	Vector( 0.556f,  0.250f, 0.0f),
+	Vector( 0.778f,  0.250f, 0.0f),
+	Vector( 1.000f,  0.250f, 0.0f),
 };
 
 TF2SpreadPatterns g_TF2SpreadPatterns;
@@ -83,6 +109,25 @@ DETOUR_DECL_MEMBER2(Detour_ShotgunPostHitEffects, void,
 	}
 }
 
+DETOUR_DECL_MEMBER5(Detour_PlayerFireBullet, void,
+	CBaseEntity *, weapon,
+	const FireBulletsInfo_t &, info,
+	bool, doEffects,
+	int, damageType,
+	int, customDamageType)
+{
+	FireBulletsInfo_t modifiedInfo = info;
+	if (g_TF2SpreadPatterns.ApplyWideHorizontal20(weapon, info, modifiedInfo))
+	{
+		DETOUR_MEMBER_CALL(Detour_PlayerFireBullet)(
+			weapon, modifiedInfo, doEffects, damageType, customDamageType);
+		return;
+	}
+
+	DETOUR_MEMBER_CALL(Detour_PlayerFireBullet)(
+		weapon, info, doEffects, damageType, customDamageType);
+}
+
 DETOUR_DECL_STATIC10(Detour_FXFireBullets, void,
 	CBaseEntity *, weapon,
 	int, player,
@@ -95,8 +140,13 @@ DETOUR_DECL_STATIC10(Detour_FXFireBullets, void,
 	float, damage,
 	bool, critical)
 {
+	const bool useWideHorizontal20 = g_TF2SpreadPatterns.ShouldUseWideHorizontal20(weapon);
 	const bool useCircular15 = g_TF2SpreadPatterns.ShouldUseCircular15(weapon);
-	if (useCircular15)
+	if (useWideHorizontal20)
+	{
+		g_TF2SpreadPatterns.BeginWideHorizontal20(weapon, angles, spread);
+	}
+	else if (useCircular15)
 	{
 		g_TF2SpreadPatterns.BeginCircular15();
 	}
@@ -104,7 +154,11 @@ DETOUR_DECL_STATIC10(Detour_FXFireBullets, void,
 	DETOUR_STATIC_CALL(Detour_FXFireBullets)(
 		weapon, player, origin, angles, weaponId, mode, seed, spread, damage, critical);
 
-	if (useCircular15)
+	if (useWideHorizontal20)
+	{
+		g_TF2SpreadPatterns.EndWideHorizontal20();
+	}
+	else if (useCircular15)
 	{
 		g_TF2SpreadPatterns.EndCircular15();
 	}
@@ -208,6 +262,13 @@ void TF2SpreadPatterns::SDK_OnUnload()
 		m_fireBulletsDetour = nullptr;
 	}
 
+	if (m_playerFireBulletDetour)
+	{
+		m_playerFireBulletDetour->DisableDetour();
+		m_playerFireBulletDetour->Destroy();
+		m_playerFireBulletDetour = nullptr;
+	}
+
 	if (m_gameConf)
 	{
 		gameconfs->CloseGameConfigFile(m_gameConf);
@@ -241,7 +302,7 @@ cell_t TF2SpreadPatterns::Native_SetPattern(IPluginContext *context, const cell_
 
 	const int requestedPattern = params[2];
 	if (requestedPattern < static_cast<int>(SpreadPattern::Default)
-		|| requestedPattern > static_cast<int>(SpreadPattern::Circular15))
+		|| requestedPattern > static_cast<int>(SpreadPattern::WideHorizontal20))
 	{
 		return context->ThrowNativeError("Spread pattern %d is invalid.", requestedPattern);
 	}
@@ -392,19 +453,29 @@ void TF2SpreadPatterns::ApplyScattergunPostHitEffects(
 
 bool TF2SpreadPatterns::ShouldUseCircular15(CBaseEntity *weapon)
 {
+	return GetPattern(weapon) == SpreadPattern::Circular15;
+}
+
+bool TF2SpreadPatterns::ShouldUseWideHorizontal20(CBaseEntity *weapon)
+{
+	return GetPattern(weapon) == SpreadPattern::WideHorizontal20;
+}
+
+SpreadPattern TF2SpreadPatterns::GetPattern(CBaseEntity *weapon)
+{
 	if (!weapon)
 	{
-		return false;
+		return SpreadPattern::Default;
 	}
 
 	const int entity = gamehelpers->EntityToBCompatRef(weapon);
 	if (entity <= 0 || entity >= kMaxTrackedEntities)
 	{
-		return false;
+		return SpreadPattern::Default;
 	}
 	if (m_patternWeaponRefs[entity] == 0)
 	{
-		return false;
+		return SpreadPattern::Default;
 	}
 
 	const cell_t currentRef = gamehelpers->EntityToReference(weapon);
@@ -412,10 +483,10 @@ bool TF2SpreadPatterns::ShouldUseCircular15(CBaseEntity *weapon)
 	{
 		m_patternWeaponRefs[entity] = 0;
 		m_patterns[entity] = SpreadPattern::Default;
-		return false;
+		return SpreadPattern::Default;
 	}
 
-	return m_patterns[entity] == SpreadPattern::Circular15;
+	return m_patterns[entity];
 }
 
 bool TF2SpreadPatterns::ShouldUseAmbassadorAccuracy(CBaseEntity *weapon)
@@ -534,6 +605,43 @@ void TF2SpreadPatterns::EndCircular15()
 	{
 		RestoreStockPattern();
 	}
+}
+
+void TF2SpreadPatterns::BeginWideHorizontal20(
+	CBaseEntity *weapon, const QAngle &angles, float spread)
+{
+	m_wideHorizontalWeapon = weapon;
+	m_wideHorizontalSpread = spread;
+	m_wideHorizontalPellet = 0;
+	m_wideHorizontalActive = true;
+	AngleVectors(
+		angles, &m_wideHorizontalForward, &m_wideHorizontalRight, &m_wideHorizontalUp);
+}
+
+void TF2SpreadPatterns::EndWideHorizontal20()
+{
+	m_wideHorizontalWeapon = nullptr;
+	m_wideHorizontalSpread = 0.0f;
+	m_wideHorizontalPellet = 0;
+	m_wideHorizontalActive = false;
+}
+
+bool TF2SpreadPatterns::ApplyWideHorizontal20(
+	CBaseEntity *weapon, const FireBulletsInfo_t &source, FireBulletsInfo_t &result)
+{
+	if (!m_wideHorizontalActive || weapon != m_wideHorizontalWeapon)
+	{
+		return false;
+	}
+
+	const Vector &point = kWideHorizontal20[
+		m_wideHorizontalPellet++ % kWideHorizontalPelletCount];
+	result = source;
+	result.m_vecDirShooting = m_wideHorizontalForward
+		+ point.x * m_wideHorizontalSpread * m_wideHorizontalRight
+		+ point.y * m_wideHorizontalSpread * m_wideHorizontalUp;
+	VectorNormalize(result.m_vecDirShooting);
+	return true;
 }
 
 bool TF2SpreadPatterns::SetupGameConfig(char *error, size_t maxlen)
@@ -665,10 +773,22 @@ bool TF2SpreadPatterns::SetupDetours(char *error, size_t maxlen)
 		return false;
 	}
 
+	m_playerFireBulletDetour = DETOUR_CREATE_MEMBER(
+		Detour_PlayerFireBullet, "CTFPlayer::FireBullet");
+	if (!m_playerFireBulletDetour)
+	{
+		m_fireBulletsDetour->Destroy();
+		m_fireBulletsDetour = nullptr;
+		g_pSM->Format(error, maxlen, "Could not create CTFPlayer::FireBullet detour.");
+		return false;
+	}
+
 	m_getWeaponSpreadDetour = DETOUR_CREATE_MEMBER(
 		Detour_GetWeaponSpread, "CTFWeaponBaseGun::GetWeaponSpread");
 	if (!m_getWeaponSpreadDetour)
 	{
+		m_playerFireBulletDetour->Destroy();
+		m_playerFireBulletDetour = nullptr;
 		m_fireBulletsDetour->Destroy();
 		m_fireBulletsDetour = nullptr;
 		g_pSM->Format(error, maxlen, "Could not create CTFWeaponBaseGun::GetWeaponSpread detour.");
@@ -681,6 +801,8 @@ bool TF2SpreadPatterns::SetupDetours(char *error, size_t maxlen)
 	{
 		m_getWeaponSpreadDetour->Destroy();
 		m_getWeaponSpreadDetour = nullptr;
+		m_playerFireBulletDetour->Destroy();
+		m_playerFireBulletDetour = nullptr;
 		m_fireBulletsDetour->Destroy();
 		m_fireBulletsDetour = nullptr;
 		g_pSM->Format(error, maxlen, "Could not create CTFWeaponBaseGun::UpdatePunchAngles detour.");
@@ -695,6 +817,8 @@ bool TF2SpreadPatterns::SetupDetours(char *error, size_t maxlen)
 		m_updatePunchAnglesDetour = nullptr;
 		m_getWeaponSpreadDetour->Destroy();
 		m_getWeaponSpreadDetour = nullptr;
+		m_playerFireBulletDetour->Destroy();
+		m_playerFireBulletDetour = nullptr;
 		m_fireBulletsDetour->Destroy();
 		m_fireBulletsDetour = nullptr;
 		g_pSM->Format(error, maxlen, "Could not create CTFWeaponBaseGun::FireBullet detour.");
@@ -711,6 +835,8 @@ bool TF2SpreadPatterns::SetupDetours(char *error, size_t maxlen)
 		m_updatePunchAnglesDetour = nullptr;
 		m_getWeaponSpreadDetour->Destroy();
 		m_getWeaponSpreadDetour = nullptr;
+		m_playerFireBulletDetour->Destroy();
+		m_playerFireBulletDetour = nullptr;
 		m_fireBulletsDetour->Destroy();
 		m_fireBulletsDetour = nullptr;
 		g_pSM->Format(error, maxlen, "Could not create CTFWeaponBase::ApplyPostHitEffects detour.");
@@ -718,6 +844,7 @@ bool TF2SpreadPatterns::SetupDetours(char *error, size_t maxlen)
 	}
 
 	m_fireBulletsDetour->EnableDetour();
+	m_playerFireBulletDetour->EnableDetour();
 	m_getWeaponSpreadDetour->EnableDetour();
 	m_updatePunchAnglesDetour->EnableDetour();
 	m_shotgunFireBulletDetour->EnableDetour();

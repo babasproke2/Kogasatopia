@@ -4,11 +4,16 @@ Provides per-weapon bullet spread controls without replacing TF2's bullet firing
 
 ## API
 
-`TF2Spread_SetPattern(weapon, pattern)` assigns `TF2Spread_Default` or `TF2Spread_Circular15` to a weapon entity.
+`TF2Spread_SetPattern(weapon, pattern)` assigns `TF2Spread_Default`, `TF2Spread_Circular15`, or
+`TF2Spread_WideHorizontal20` to a weapon entity.
 
 Overrides are stored with entity references, so recycled entity indexes do not inherit a pattern.
 
 The circular pattern uses TF2's native 15-pellet fixed-spread path and retains its small random jitter.
+
+The wide-horizontal pattern assigns 20 deterministic directions in two rows of 10 without changing
+TF2's fixed-spread table. CWX and WeaponReverts enable it with the custom attribute
+`"wide horizontal bullet spread" "1"`; it takes priority over the circular pattern.
 
 `TF2Spread_SetAmbassadorAccuracy(weapon, enabled)` adds Ambassador-style spread recovery. It retains
 the weapon's original spread for 0.5 seconds, recovers linearly, and reaches exact first-shot accuracy

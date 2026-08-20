@@ -73,6 +73,7 @@ public Plugin myinfo = {
 #define CWX_STATS_DB_CONFIG_DEFAULT "default"
 #define CWX_STATS_STATE_TABLE "cwx_weapon_popularity"
 #define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
+#define ATTR_WIDE_HORIZONTAL_BULLET_SPREAD "wide horizontal bullet spread"
 #define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
 #define ATTR_PUNCH_ANGLE_IS_CONSISTENT "punch angle is consistent"
 #define ATTR_PUNCH_ANGLE_MOD "punch angle mod"
@@ -111,9 +112,15 @@ void CWX_ApplyEngineOverrides(int weapon)
 
 	if (GetFeatureStatus(FeatureType_Native, "TF2Spread_SetPattern") == FeatureStatus_Available)
 	{
-		TF2SpreadPattern pattern = TF2CustAttr_GetInt(weapon, ATTR_CIRCULAR_BULLET_SPREAD, 0) != 0
-			? TF2Spread_Circular15
-			: TF2Spread_Default;
+		TF2SpreadPattern pattern = TF2Spread_Default;
+		if (TF2CustAttr_GetInt(weapon, ATTR_WIDE_HORIZONTAL_BULLET_SPREAD, 0) != 0)
+		{
+			pattern = TF2Spread_WideHorizontal20;
+		}
+		else if (TF2CustAttr_GetInt(weapon, ATTR_CIRCULAR_BULLET_SPREAD, 0) != 0)
+		{
+			pattern = TF2Spread_Circular15;
+		}
 		TF2Spread_SetPattern(weapon, pattern);
 	}
 
