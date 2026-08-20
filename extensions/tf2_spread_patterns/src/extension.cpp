@@ -5,6 +5,9 @@
 
 #include <eiface.h>
 #include <IGameHelpers.h>
+#include <isaverestore.h>
+#include <ehandle.h>
+#include <takedamageinfo.h>
 
 #define DETOUR_DECL_STATIC10(name, ret, p1type, p1name, p2type, p2name, p3type, p3name, p4type, p4name, p5type, p5name, p6type, p6name, p7type, p7name, p8type, p8name, p9type, p9name, p10type, p10name) \
 ret (*name##_Actual)(p1type, p2type, p3type, p4type, p5type, p6type, p7type, p8type, p9type, p10type) = nullptr; \
@@ -54,6 +57,32 @@ DETOUR_DECL_MEMBER1(Detour_UpdatePunchAngles, void, CBaseEntity *, player)
 	DETOUR_MEMBER_CALL(Detour_UpdatePunchAngles)(player);
 }
 
+DETOUR_DECL_MEMBER1(Detour_ShotgunFireBullet, void, CBaseEntity *, player)
+{
+	CBaseEntity *weapon = reinterpret_cast<CBaseEntity *>(this);
+	if (!g_TF2SpreadPatterns.IsScattergunBridgeActive()
+		&& g_TF2SpreadPatterns.ShouldUseScattergunKnockback(weapon))
+	{
+		g_TF2SpreadPatterns.FireScattergunBullet(weapon, player);
+		return;
+	}
+
+	DETOUR_MEMBER_CALL(Detour_ShotgunFireBullet)(player);
+}
+
+DETOUR_DECL_MEMBER2(Detour_ShotgunPostHitEffects, void,
+	const CTakeDamageInfo &, info, CBaseEntity *, player)
+{
+	CBaseEntity *weapon = reinterpret_cast<CBaseEntity *>(this);
+	DETOUR_MEMBER_CALL(Detour_ShotgunPostHitEffects)(info, player);
+
+	if (!g_TF2SpreadPatterns.IsScattergunBridgeActive()
+		&& g_TF2SpreadPatterns.ShouldUseScattergunKnockback(weapon))
+	{
+		g_TF2SpreadPatterns.ApplyScattergunPostHitEffects(weapon, info, player);
+	}
+}
+
 DETOUR_DECL_STATIC10(Detour_FXFireBullets, void,
 	CBaseEntity *, weapon,
 	int, player,
@@ -101,12 +130,18 @@ static cell_t Native_SetPunchAngle(IPluginContext *context, const cell_t *params
 	return g_TF2SpreadPatterns.Native_SetPunchAngle(context, params);
 }
 
+static cell_t Native_SetScattergunKnockback(IPluginContext *context, const cell_t *params)
+{
+	return g_TF2SpreadPatterns.Native_SetScattergunKnockback(context, params);
+}
+
 static sp_nativeinfo_t g_Natives[] =
 {
 	{"TF2Spread_SetPattern", Native_SetPattern},
 	{"TF2Spread_SetAmbassadorAccuracy", Native_SetAmbassadorAccuracy},
 	{"TF2Spread_IsAmbassadorAccuracyRecovered", Native_IsAmbassadorAccuracyRecovered},
 	{"TF2Weapon_SetPunchAngle", Native_SetPunchAngle},
+	{"TF2Weapon_SetScattergunKnockback", Native_SetScattergunKnockback},
 	{nullptr, nullptr},
 };
 
@@ -137,6 +172,20 @@ bool TF2SpreadPatterns::SDK_OnLoad(char *error, size_t maxlen, bool late)
 void TF2SpreadPatterns::SDK_OnUnload()
 {
 	RestoreStockPattern();
+
+	if (m_shotgunPostHitEffectsDetour)
+	{
+		m_shotgunPostHitEffectsDetour->DisableDetour();
+		m_shotgunPostHitEffectsDetour->Destroy();
+		m_shotgunPostHitEffectsDetour = nullptr;
+	}
+
+	if (m_shotgunFireBulletDetour)
+	{
+		m_shotgunFireBulletDetour->DisableDetour();
+		m_shotgunFireBulletDetour->Destroy();
+		m_shotgunFireBulletDetour = nullptr;
+	}
 
 	if (m_updatePunchAnglesDetour)
 	{
@@ -258,6 +307,87 @@ cell_t TF2SpreadPatterns::Native_SetPunchAngle(IPluginContext *context, const ce
 		? 0
 		: gamehelpers->EntityToReference(weapon);
 	return 0;
+}
+
+cell_t TF2SpreadPatterns::Native_SetScattergunKnockback(
+	IPluginContext *context, const cell_t *params)
+{
+	CBaseEntity *weapon = gamehelpers->ReferenceToEntity(params[1]);
+	if (!weapon)
+	{
+		return context->ThrowNativeError("Weapon entity %d is invalid.", params[1]);
+	}
+
+	const int entity = gamehelpers->EntityToBCompatRef(weapon);
+	if (entity <= 0 || entity >= kMaxTrackedEntities)
+	{
+		return context->ThrowNativeError("Weapon entity %d cannot be tracked.", params[1]);
+	}
+
+	m_scattergunKnockbackWeaponRefs[entity] = params[2]
+		? gamehelpers->EntityToReference(weapon)
+		: 0;
+	return 0;
+}
+
+bool TF2SpreadPatterns::ShouldUseScattergunKnockback(CBaseEntity *weapon)
+{
+	if (!weapon)
+	{
+		return false;
+	}
+
+	const int entity = gamehelpers->EntityToBCompatRef(weapon);
+	if (entity <= 0 || entity >= kMaxTrackedEntities
+		|| m_scattergunKnockbackWeaponRefs[entity] == 0)
+	{
+		return false;
+	}
+
+	if (m_scattergunKnockbackWeaponRefs[entity] != gamehelpers->EntityToReference(weapon))
+	{
+		m_scattergunKnockbackWeaponRefs[entity] = 0;
+		return false;
+	}
+
+	const char *classname = gamehelpers->GetEntityClassname(weapon);
+	return classname
+		&& std::strcmp(classname, "tf_weapon_scattergun") != 0
+		&& std::strstr(classname, "tf_weapon_shotgun") != nullptr;
+}
+
+bool TF2SpreadPatterns::IsScattergunBridgeActive() const
+{
+	return m_scattergunBridgeActive;
+}
+
+void TF2SpreadPatterns::FireScattergunBullet(CBaseEntity *weapon, CBaseEntity *player)
+{
+	void **originalVtable = *reinterpret_cast<void ***>(weapon);
+	void *bridgedVtable[kWeaponVtableSlots];
+	std::memcpy(bridgedVtable, originalVtable, sizeof(bridgedVtable));
+	bridgedVtable[m_hasKnockbackVtableIndex] = reinterpret_cast<void *>(m_scattergunHasKnockback);
+
+	m_scattergunBridgeActive = true;
+	*reinterpret_cast<void ***>(weapon) = bridgedVtable;
+	m_scattergunFireBullet(weapon, player);
+	*reinterpret_cast<void ***>(weapon) = originalVtable;
+	m_scattergunBridgeActive = false;
+}
+
+void TF2SpreadPatterns::ApplyScattergunPostHitEffects(
+	CBaseEntity *weapon, const CTakeDamageInfo &info, CBaseEntity *player)
+{
+	void **originalVtable = *reinterpret_cast<void ***>(weapon);
+	void *bridgedVtable[kWeaponVtableSlots];
+	std::memcpy(bridgedVtable, originalVtable, sizeof(bridgedVtable));
+	bridgedVtable[m_hasKnockbackVtableIndex] = reinterpret_cast<void *>(m_scattergunHasKnockback);
+
+	m_scattergunBridgeActive = true;
+	*reinterpret_cast<void ***>(weapon) = bridgedVtable;
+	m_scattergunPostHitEffects(weapon, info, player);
+	*reinterpret_cast<void ***>(weapon) = originalVtable;
+	m_scattergunBridgeActive = false;
 }
 
 bool TF2SpreadPatterns::ShouldUseCircular15(CBaseEntity *weapon)
@@ -459,6 +589,40 @@ bool TF2SpreadPatterns::SetupFunctions(char *error, size_t maxlen)
 		return false;
 	}
 	m_sharedRandomInt = reinterpret_cast<SharedRandomIntFn>(sharedRandomInt);
+
+	void *scattergunHasKnockback = nullptr;
+	if (!m_gameConf->GetMemSig("CTFScatterGun::HasKnockback", &scattergunHasKnockback)
+		|| !scattergunHasKnockback)
+	{
+		g_pSM->Format(error, maxlen, "Could not locate CTFScatterGun::HasKnockback.");
+		return false;
+	}
+	m_scattergunHasKnockback = reinterpret_cast<ScattergunHasKnockbackFn>(scattergunHasKnockback);
+
+	void *scattergunFireBullet = nullptr;
+	if (!m_gameConf->GetMemSig("CTFScatterGun::FireBullet", &scattergunFireBullet)
+		|| !scattergunFireBullet)
+	{
+		g_pSM->Format(error, maxlen, "Could not locate CTFScatterGun::FireBullet.");
+		return false;
+	}
+	m_scattergunFireBullet = reinterpret_cast<ScattergunFireBulletFn>(scattergunFireBullet);
+
+	void *scattergunPostHitEffects = nullptr;
+	if (!m_gameConf->GetMemSig("CTFScatterGun::ApplyPostHitEffects", &scattergunPostHitEffects)
+		|| !scattergunPostHitEffects)
+	{
+		g_pSM->Format(error, maxlen, "Could not locate CTFScatterGun::ApplyPostHitEffects.");
+		return false;
+	}
+	m_scattergunPostHitEffects = reinterpret_cast<ScattergunPostHitEffectsFn>(scattergunPostHitEffects);
+
+	if (!m_gameConf->GetOffset("CTFWeaponBase::HasKnockback", &m_hasKnockbackVtableIndex)
+		|| m_hasKnockbackVtableIndex < 0 || m_hasKnockbackVtableIndex >= kWeaponVtableSlots)
+	{
+		g_pSM->Format(error, maxlen, "Could not locate CTFWeaponBase::HasKnockback vtable index.");
+		return false;
+	}
 	return true;
 }
 
@@ -523,9 +687,41 @@ bool TF2SpreadPatterns::SetupDetours(char *error, size_t maxlen)
 		return false;
 	}
 
+	m_shotgunFireBulletDetour = DETOUR_CREATE_MEMBER(
+		Detour_ShotgunFireBullet, "CTFWeaponBaseGun::FireBullet");
+	if (!m_shotgunFireBulletDetour)
+	{
+		m_updatePunchAnglesDetour->Destroy();
+		m_updatePunchAnglesDetour = nullptr;
+		m_getWeaponSpreadDetour->Destroy();
+		m_getWeaponSpreadDetour = nullptr;
+		m_fireBulletsDetour->Destroy();
+		m_fireBulletsDetour = nullptr;
+		g_pSM->Format(error, maxlen, "Could not create CTFWeaponBaseGun::FireBullet detour.");
+		return false;
+	}
+
+	m_shotgunPostHitEffectsDetour = DETOUR_CREATE_MEMBER(
+		Detour_ShotgunPostHitEffects, "CTFWeaponBase::ApplyPostHitEffects");
+	if (!m_shotgunPostHitEffectsDetour)
+	{
+		m_shotgunFireBulletDetour->Destroy();
+		m_shotgunFireBulletDetour = nullptr;
+		m_updatePunchAnglesDetour->Destroy();
+		m_updatePunchAnglesDetour = nullptr;
+		m_getWeaponSpreadDetour->Destroy();
+		m_getWeaponSpreadDetour = nullptr;
+		m_fireBulletsDetour->Destroy();
+		m_fireBulletsDetour = nullptr;
+		g_pSM->Format(error, maxlen, "Could not create CTFWeaponBase::ApplyPostHitEffects detour.");
+		return false;
+	}
+
 	m_fireBulletsDetour->EnableDetour();
 	m_getWeaponSpreadDetour->EnableDetour();
 	m_updatePunchAnglesDetour->EnableDetour();
+	m_shotgunFireBulletDetour->EnableDetour();
+	m_shotgunPostHitEffectsDetour->EnableDetour();
 	return true;
 }
 

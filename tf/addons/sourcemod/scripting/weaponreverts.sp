@@ -62,6 +62,7 @@
 #define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
 #define ATTR_PUNCH_ANGLE_IS_CONSISTENT "punch angle is consistent"
 #define ATTR_PUNCH_ANGLE_MOD "punch angle mod"
+#define ATTR_SCATTERGUN_HAS_KNOCKBACK "scattergun has knockback"
 #define ATTR_HEADSHOTS_ENABLED "headshots enabled"
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
@@ -205,6 +206,17 @@ static void WeaponReverts_ApplyEngineOverrides(int weapon)
 		int amount = TF2CustAttr_GetInt(weapon, ATTR_PUNCH_ANGLE_MOD, 0);
 		bool consistent = TF2CustAttr_GetInt(weapon, ATTR_PUNCH_ANGLE_IS_CONSISTENT, 0) != 0;
 		TF2Weapon_SetPunchAngle(weapon, amount, consistent);
+	}
+
+	if (GetFeatureStatus(FeatureType_Native, "TF2Weapon_SetScattergunKnockback") == FeatureStatus_Available)
+	{
+		bool enabled = TF2CustAttr_GetInt(weapon, ATTR_SCATTERGUN_HAS_KNOCKBACK, 0) != 0;
+		if (enabled)
+		{
+			// The engine bridge routes through CTFScatterGun, which reads the real item attribute.
+			TF2Attrib_SetByName(weapon, ATTR_SCATTERGUN_HAS_KNOCKBACK, 1.0);
+		}
+		TF2Weapon_SetScattergunKnockback(weapon, enabled);
 	}
 }
 

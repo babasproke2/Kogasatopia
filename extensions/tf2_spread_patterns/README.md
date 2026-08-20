@@ -21,3 +21,9 @@ for at least 1.0 second.
 Consistent mode applies the exact integer amount. Non-consistent mode calls TF2's own
 `SharedRandomInt("ShotgunPunchAngle", amount - 1, amount + 1)` path. Passing zero clears the
 override.
+
+`TF2Weapon_SetScattergunKnockback(weapon, enabled)` gives normal `CTFShotgun`-derived weapons
+Valve's `CTFScatterGun` self and victim knockback behavior. The bridge calls the engine's own
+`CTFScatterGun::FireBullet` and `CTFScatterGun::ApplyPostHitEffects` implementations and leaves
+ordinary and native scatterguns unchanged. Weaponreverts enables it with the custom attribute
+`"scattergun has knockback" "1"`.
