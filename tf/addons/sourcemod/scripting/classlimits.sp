@@ -7,6 +7,8 @@
 #include <tf2>
 #include <tf2_stocks>
 
+#include <dhooks>
+
 #include <morecolors>
 
 
@@ -65,7 +67,9 @@ Handle g_hClassStatsTimer = null;
 StringMap g_ClassBans = null;
 bool g_bOverhealDisabled = false;
 bool g_bOverhealUpdateQueued = false;
+bool g_bOverhealWarningShown[MAXPLAYERS + 1];
 float g_fEnabledMaxHealthBoost = 1.5;
+DynamicDetour g_hStartHealingTarget = null;
 
 static const char g_ClassNames[TF_CLASS_ENGINEER + 1][16] = {
     "Unknown", "Scout", "Sniper", "Soldier", "Demoman",
@@ -84,6 +88,7 @@ char g_sSounds[TF_CLASS_ENGINEER + 1][24] = {"", "vo/scout_no03.mp3",   "vo/snip
 public void OnPluginStart()
 {
     g_ClassBans = new StringMap();
+    SetupOverhealWarningHook();
 
     CreateConVar("classlimits_version", PL_VERSION, "Restrict classes in TF2.", FCVAR_NOTIFY);
     g_hEnabled      = CreateConVar("restrict_enabled",     "1", "Enable or disable class limits.");
@@ -164,6 +169,10 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 public void OnMapStart()
 {
     QueueOverhealStateUpdate();
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        g_bOverhealWarningShown[client] = false;
+    }
 
     char sSound[32];
     for (int i = 1; i < sizeof(g_sSounds); i++)
@@ -177,6 +186,11 @@ public void OnMapStart()
 public void OnPluginEnd()
 {
     RestoreOverheal();
+    if (g_hStartHealingTarget != null)
+    {
+        g_hStartHealingTarget.Disable(Hook_Pre, StartHealingTarget_Pre);
+        delete g_hStartHealingTarget;
+    }
 
     if (g_hClassStatsTimer != null)
     {
@@ -192,11 +206,13 @@ public void OnClientPutInServer(int client)
     g_iClass[client]                 = TF_CLASS_UNKNOWN;
     g_bForcedRespawn[client]         = false;
     g_iForcedRespawnAttempts[client] = 0;
+    g_bOverhealWarningShown[client]   = false;
     QueueOverhealStateUpdate();
 }
 
 public void OnClientDisconnect(int client)
 {
+    g_bOverhealWarningShown[client] = false;
     QueueOverhealStateUpdate();
 }
 
@@ -512,6 +528,49 @@ static int GetGameplayHumanClientCount()
     }
 
     return GetHumanTeamClientCount(TF_TEAM_RED) + GetHumanTeamClientCount(TF_TEAM_BLU);
+}
+
+static void SetupOverhealWarningHook()
+{
+    GameData gameData = new GameData("tf2.classlimits");
+    if (gameData == null)
+    {
+        LogError("Unable to load tf2.classlimits gamedata; overheal warnings are unavailable.");
+        return;
+    }
+
+    g_hStartHealingTarget = DynamicDetour.FromConf(gameData, "CWeaponMedigun::StartHealingTarget");
+    delete gameData;
+
+    if (g_hStartHealingTarget == null
+        || !g_hStartHealingTarget.Enable(Hook_Pre, StartHealingTarget_Pre))
+    {
+        LogError("Unable to hook CWeaponMedigun::StartHealingTarget; overheal warnings are unavailable.");
+        delete g_hStartHealingTarget;
+    }
+}
+
+public MRESReturn StartHealingTarget_Pre(int weapon, DHookParam parameters)
+{
+    int medic = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
+    int target = parameters.Get(1);
+    if (medic <= 0 || medic > MaxClients || !IsClientInGame(medic)
+        || TF2_GetPlayerClass(medic) != TFClass_Medic
+        || target <= 0 || target > MaxClients || target == medic
+        || !IsClientInGame(target) || g_bOverhealWarningShown[medic])
+    {
+        return MRES_Ignored;
+    }
+
+    int threshold = g_hDisableOverhealPcount.IntValue;
+    if (threshold <= 0 || GetGameplayHumanClientCount() >= threshold)
+    {
+        return MRES_Ignored;
+    }
+
+    g_bOverhealWarningShown[medic] = true;
+    CPrintToChat(medic, "{green}[Server]{default} Overheal is currently disabled.");
+    return MRES_Ignored;
 }
 
 public void OnOverhealPopulationThresholdChanged(ConVar convar, const char[] oldValue, const char[] newValue)

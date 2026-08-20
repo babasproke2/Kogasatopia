@@ -1,0 +1,33 @@
+"Games"
+{
+    "tf"
+    {
+        "Signatures"
+        {
+            "CWeaponMedigun::StartHealingTarget"
+            {
+                "library" "server"
+                "linux"   "@_ZN14CWeaponMedigun18StartHealingTargetEP11CBaseEntity"
+                "linux64" "@_ZN14CWeaponMedigun18StartHealingTargetEP11CBaseEntity"
+            }
+        }
+
+        "Functions"
+        {
+            "CWeaponMedigun::StartHealingTarget"
+            {
+                "signature" "CWeaponMedigun::StartHealingTarget"
+                "callconv"  "thiscall"
+                "this"      "entity"
+                "return"    "void"
+                "arguments"
+                {
+                    "pTarget"
+                    {
+                        "type" "cbaseentity"
+                    }
+                }
+            }
+        }
+    }
+}
