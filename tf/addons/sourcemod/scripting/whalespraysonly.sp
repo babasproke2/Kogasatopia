@@ -5,6 +5,8 @@
 
 #include <sdktools>
 
+#include <morecolors>
+
 #include <whaletracker_api>
 
 #include "include/client_validation.inc"
@@ -13,7 +15,6 @@
 
 ConVar g_hCVarsEnabled;
 ConVar g_hCVarsKills;
-ConVar g_hCVarsReason;
 ConVar g_hCVarsWarn;
 
 public Plugin myinfo =
@@ -31,7 +32,6 @@ public void OnPluginStart()
 	g_hCVarsEnabled = CreateConVar("sm_aso_enabled", "1", "Enables/disables Admin Sprays Only", FCVAR_NONE, true, 0.0, true, 1.0);
 	g_hCVarsKills = CreateConVar("sm_aso_kills", "50", "Minimum WhaleTracker cumulative kills needed to be able to spray", FCVAR_NONE, true, 0.0);
 	g_hCVarsWarn = CreateConVar("sm_aso_warn", "1", "Enables/disables chat warning messages", FCVAR_NONE, true, 0.0, true, 1.0);
-	g_hCVarsReason = CreateConVar("sm_aso_warning", "Sprays are disabled until you have 50 all-time kills; use !stats to keep track!", "Warning displayed when a player below the kill requirement tries to spray", FCVAR_NONE);
 	EnabledChanged(g_hCVarsEnabled, "", "");
 	HookConVarChange(g_hCVarsEnabled, EnabledChanged);
 	AutoExecConfig(true, "Admin_Sprays_Only");
@@ -72,9 +72,7 @@ public Action Player_Decal(const char[] name, const int[] clients, int count, fl
 		{
 			if (GetConVarBool(g_hCVarsWarn))
 			{
-				char CharReason[255];
-				GetConVarString(g_hCVarsReason, CharReason, sizeof(CharReason));
-				PrintToChat(client, "%s", CharReason);
+				CPrintToChat(client, "{gold}[kogasa.tf]{default} Sprays are disabled until you have 50 all-time kills; use !stats to keep track!");
 			}
 
 			return Plugin_Handled;
