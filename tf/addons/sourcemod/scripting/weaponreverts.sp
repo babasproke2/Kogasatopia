@@ -2622,11 +2622,23 @@ static void WeaponReverts_ApplyPrimaryClipBonusFromLoadout(int client)
 	if (!WR_IsValidWeaponEntity(primary))
 		return;
 
+	int oldMax = GetWeaponMaxClip(primary);
+	int oldClip = GetClip(primary);
+
 	float bonus = WeaponReverts_GetPrimaryClipBonusFromLoadout(client);
 	if (bonus <= 0.0)
 		return;
 
 	TF2Attrib_SetByName(primary, ATTR_CLIP_SIZE_BONUS, bonus);
+
+	int newMax = GetWeaponMaxClip(primary);
+	if (newMax <= 0 || oldClip < 0)
+		return;
+
+	if (oldClip == oldMax || oldClip > newMax)
+	{
+		SetClip_Weapon(primary, newMax);
+	}
 }
 
 public void WeaponReverts_FrameApplyPrimaryClipBonus(any userId)
