@@ -31,6 +31,7 @@ public:
 	cell_t Native_IsAmbassadorAccuracyRecovered(IPluginContext *context, const cell_t *params);
 	cell_t Native_SetPunchAngle(IPluginContext *context, const cell_t *params);
 	cell_t Native_SetScattergunKnockback(IPluginContext *context, const cell_t *params);
+	cell_t Native_SetScattergunSelfKnockback(IPluginContext *context, const cell_t *params);
 
 	bool ShouldUseCircular15(CBaseEntity *weapon);
 	bool ShouldUseWideHorizontal20(CBaseEntity *weapon);
@@ -45,6 +46,7 @@ public:
 	bool ApplyWideHorizontal20(
 		CBaseEntity *weapon, const FireBulletsInfo_t &source, FireBulletsInfo_t &result);
 	bool ShouldUseScattergunKnockback(CBaseEntity *weapon);
+	bool ShouldUseScattergunSelfKnockback(CBaseEntity *weapon);
 	bool IsScattergunBridgeActive() const;
 	void FireScattergunBullet(CBaseEntity *weapon, CBaseEntity *player);
 	void ApplyScattergunPostHitEffects(
@@ -84,6 +86,7 @@ private:
 	cell_t m_accuracyWeaponRefs[kMaxTrackedEntities] = {};
 	cell_t m_punchWeaponRefs[kMaxTrackedEntities] = {};
 	cell_t m_scattergunKnockbackWeaponRefs[kMaxTrackedEntities] = {};
+	cell_t m_scattergunSelfKnockbackWeaponRefs[kMaxTrackedEntities] = {};
 	SpreadPattern m_patterns[kMaxTrackedEntities] = {};
 	int m_punchAmounts[kMaxTrackedEntities] = {};
 	bool m_punchConsistent[kMaxTrackedEntities] = {};

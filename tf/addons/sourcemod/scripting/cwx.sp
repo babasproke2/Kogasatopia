@@ -78,6 +78,7 @@ public Plugin myinfo = {
 #define ATTR_PUNCH_ANGLE_IS_CONSISTENT "punch angle is consistent"
 #define ATTR_PUNCH_ANGLE_MOD "punch angle mod"
 #define ATTR_SCATTERGUN_HAS_KNOCKBACK "scattergun has knockback"
+#define ATTR_RECOIL_JUMPING "recoil jumping"
 
 // we're recycling the following attribute to ensure that the item UID persists across dropped
 // weapons - it's kinda icky and if anyone else happened to get the same idea it'd be bad, but
@@ -147,6 +148,11 @@ void CWX_ApplyEngineOverrides(int weapon)
 			TF2Attrib_SetByName(weapon, ATTR_SCATTERGUN_HAS_KNOCKBACK, 1.0);
 		}
 		TF2Weapon_SetScattergunKnockback(weapon, enabled);
+		if (GetFeatureStatus(FeatureType_Native, "TF2Weapon_SetScattergunSelfKnockback") == FeatureStatus_Available)
+		{
+			float customRecoil = TF2CustAttr_GetFloat(weapon, ATTR_RECOIL_JUMPING, 0.0);
+			TF2Weapon_SetScattergunSelfKnockback(weapon, enabled && customRecoil <= 0.0);
+		}
 	}
 }
 

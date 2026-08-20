@@ -88,7 +88,7 @@ DETOUR_DECL_MEMBER1(Detour_ShotgunFireBullet, void, CBaseEntity *, player)
 {
 	CBaseEntity *weapon = reinterpret_cast<CBaseEntity *>(this);
 	if (!g_TF2SpreadPatterns.IsScattergunBridgeActive()
-		&& g_TF2SpreadPatterns.ShouldUseScattergunKnockback(weapon))
+		&& g_TF2SpreadPatterns.ShouldUseScattergunSelfKnockback(weapon))
 	{
 		g_TF2SpreadPatterns.FireScattergunBullet(weapon, player);
 		return;
@@ -190,6 +190,11 @@ static cell_t Native_SetScattergunKnockback(IPluginContext *context, const cell_
 	return g_TF2SpreadPatterns.Native_SetScattergunKnockback(context, params);
 }
 
+static cell_t Native_SetScattergunSelfKnockback(IPluginContext *context, const cell_t *params)
+{
+	return g_TF2SpreadPatterns.Native_SetScattergunSelfKnockback(context, params);
+}
+
 static sp_nativeinfo_t g_Natives[] =
 {
 	{"TF2Spread_SetPattern", Native_SetPattern},
@@ -197,6 +202,7 @@ static sp_nativeinfo_t g_Natives[] =
 	{"TF2Spread_IsAmbassadorAccuracyRecovered", Native_IsAmbassadorAccuracyRecovered},
 	{"TF2Weapon_SetPunchAngle", Native_SetPunchAngle},
 	{"TF2Weapon_SetScattergunKnockback", Native_SetScattergunKnockback},
+	{"TF2Weapon_SetScattergunSelfKnockback", Native_SetScattergunSelfKnockback},
 	{nullptr, nullptr},
 };
 
@@ -388,11 +394,37 @@ cell_t TF2SpreadPatterns::Native_SetScattergunKnockback(
 	m_scattergunKnockbackWeaponRefs[entity] = params[2]
 		? gamehelpers->EntityToReference(weapon)
 		: 0;
+	if (!params[2])
+	{
+		m_scattergunSelfKnockbackWeaponRefs[entity] = 0;
+	}
 	if (params[2] && !EnsureScattergunVtable())
 	{
 		m_scattergunKnockbackWeaponRefs[entity] = 0;
+		m_scattergunSelfKnockbackWeaponRefs[entity] = 0;
 		return context->ThrowNativeError("Could not acquire the CTFScatterGun vtable.");
 	}
+	return 0;
+}
+
+cell_t TF2SpreadPatterns::Native_SetScattergunSelfKnockback(
+	IPluginContext *context, const cell_t *params)
+{
+	CBaseEntity *weapon = gamehelpers->ReferenceToEntity(params[1]);
+	if (!weapon)
+	{
+		return context->ThrowNativeError("Weapon entity %d is invalid.", params[1]);
+	}
+
+	const int entity = gamehelpers->EntityToBCompatRef(weapon);
+	if (entity <= 0 || entity >= kMaxTrackedEntities)
+	{
+		return context->ThrowNativeError("Weapon entity %d cannot be tracked.", params[1]);
+	}
+
+	m_scattergunSelfKnockbackWeaponRefs[entity] = params[2]
+		? gamehelpers->EntityToReference(weapon)
+		: 0;
 	return 0;
 }
 
@@ -425,6 +457,28 @@ bool TF2SpreadPatterns::ShouldUseScattergunKnockback(CBaseEntity *weapon)
 bool TF2SpreadPatterns::IsScattergunBridgeActive() const
 {
 	return m_scattergunBridgeActive;
+}
+
+bool TF2SpreadPatterns::ShouldUseScattergunSelfKnockback(CBaseEntity *weapon)
+{
+	if (!ShouldUseScattergunKnockback(weapon))
+	{
+		return false;
+	}
+
+	const int entity = gamehelpers->EntityToBCompatRef(weapon);
+	if (m_scattergunSelfKnockbackWeaponRefs[entity] == 0)
+	{
+		return false;
+	}
+
+	if (m_scattergunSelfKnockbackWeaponRefs[entity] != gamehelpers->EntityToReference(weapon))
+	{
+		m_scattergunSelfKnockbackWeaponRefs[entity] = 0;
+		return false;
+	}
+
+	return true;
 }
 
 void TF2SpreadPatterns::FireScattergunBullet(CBaseEntity *weapon, CBaseEntity *player)

@@ -28,7 +28,8 @@ Consistent mode applies the exact integer amount. Non-consistent mode calls TF2'
 override.
 
 `TF2Weapon_SetScattergunKnockback(weapon, enabled)` gives normal `CTFShotgun`-derived weapons
-Valve's `CTFScatterGun` self and victim knockback behavior. The bridge calls the engine's own
-`CTFScatterGun::FireBullet` and `CTFScatterGun::ApplyPostHitEffects` implementations and leaves
-ordinary and native scatterguns unchanged. Weaponreverts enables it with the custom attribute
-`"scattergun has knockback" "1"`.
+Valve's `CTFScatterGun` victim knockback behavior. `TF2Weapon_SetScattergunSelfKnockback` controls
+the stock FaN self recoil separately. The bridge calls the engine's own `CTFScatterGun::FireBullet`
+and `CTFScatterGun::ApplyPostHitEffects` implementations and leaves ordinary and native
+scatterguns unchanged. WeaponReverts enables victim knockback with `"scattergun has knockback"
+"1"` and disables stock self recoil when `"recoil jumping"` supplies a custom impulse.

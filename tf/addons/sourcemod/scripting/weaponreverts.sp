@@ -225,6 +225,11 @@ static void WeaponReverts_ApplyEngineOverrides(int weapon)
 			TF2Attrib_SetByName(weapon, ATTR_SCATTERGUN_HAS_KNOCKBACK, 1.0);
 		}
 		TF2Weapon_SetScattergunKnockback(weapon, enabled);
+		if (GetFeatureStatus(FeatureType_Native, "TF2Weapon_SetScattergunSelfKnockback") == FeatureStatus_Available)
+		{
+			float customRecoil = TF2CustAttr_GetFloat(weapon, ATTR_RECOIL_JUMPING, 0.0);
+			TF2Weapon_SetScattergunSelfKnockback(weapon, enabled && customRecoil <= 0.0);
+		}
 	}
 }
 
@@ -1319,6 +1324,7 @@ public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname
 		ScaleVector(aimForward, -recoil);
 		AddVectors(velocity, aimForward, velocity);
 		TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
+		TF2_StunPlayer(client, 0.3, 1.0, TF_STUNFLAG_SLOWDOWN | TF_STUNFLAG_LIMITMOVEMENT);
 	}
 
 	if (TF2CustAttr_GetInt(weapon, ATTR_RANDOM_CRITS_OVERRIDE, 0) != 0)
