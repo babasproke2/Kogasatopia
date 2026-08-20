@@ -35,7 +35,7 @@
 #define TF_TEAM_BLU             3
 #define TF_TEAM_RED             2
 
-#define HEAVY_POPULATION_RESTRICTION_MIN_PLAYERS 3
+#define POPULATION_RESTRICTION_MIN_PLAYERS 3
 
 public Plugin myinfo =
 {
@@ -55,6 +55,7 @@ ConVar g_hImmunity;
 ConVar g_hTopScore;
 ConVar g_hDisplayUnlim;
 ConVar g_hRestrictHeaviesPcount;
+ConVar g_hRestrictMedicsPcount;
 ConVar g_hPlayerRestrictions;
 ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[64] = "this map";
@@ -99,6 +100,14 @@ public void OnPluginStart()
         "restrict_heavies_pcount",
         "0",
         "If above 0, restrict Heavy to 0 while human playercount is below this value.",
+        _,
+        true,
+        0.0
+    );
+    g_hRestrictMedicsPcount = CreateConVar(
+        "restrict_medics_pcount",
+        "0",
+        "If above 0, restrict Medic to 0 while human playercount is below this value.",
         _,
         true,
         0.0
@@ -286,7 +295,7 @@ bool ShouldDisplayClassInList(int classId)
 {
     if (classId < TF_CLASS_SCOUT || classId > TF_CLASS_ENGINEER)
         return false;
-    if (classId == TF_CLASS_HEAVY && IsHeavyPopulationRestricted()) return true;
+    if (IsClassPopulationRestricted(classId)) return true;
     if (g_hDisplayUnlim != null && g_hDisplayUnlim.BoolValue) return true;
     ConVar limitCvar = g_hLimits[classId];
     if (limitCvar == null) return false;
@@ -472,22 +481,29 @@ static int GetGameplayHumanClientCount()
     return GetHumanTeamClientCount(TF_TEAM_RED) + GetHumanTeamClientCount(TF_TEAM_BLU);
 }
 
-static bool IsHeavyPopulationRestricted()
+static bool IsClassPopulationRestricted(int classId)
 {
     int currentPlayers, threshold;
-    return GetHeavyPopulationRestrictionState(currentPlayers, threshold);
+    return GetClassPopulationRestrictionState(classId, currentPlayers, threshold);
 }
 
-static bool GetHeavyPopulationRestrictionState(int &currentPlayers, int &threshold)
+static bool GetClassPopulationRestrictionState(int classId, int &currentPlayers, int &threshold)
 {
-    currentPlayers = GetGameplayHumanClientCount();
+    currentPlayers = 0;
     threshold = 0;
 
-    if (g_hRestrictHeaviesPcount == null)
+    ConVar restrictionCvar = null;
+    if (classId == TF_CLASS_HEAVY)
+        restrictionCvar = g_hRestrictHeaviesPcount;
+    else if (classId == TF_CLASS_MEDIC)
+        restrictionCvar = g_hRestrictMedicsPcount;
+
+    if (restrictionCvar == null)
         return false;
 
-    threshold = g_hRestrictHeaviesPcount.IntValue;
-    return threshold > 0 && currentPlayers >= HEAVY_POPULATION_RESTRICTION_MIN_PLAYERS && currentPlayers < threshold;
+    currentPlayers = GetGameplayHumanClientCount();
+    threshold = restrictionCvar.IntValue;
+    return threshold > 0 && currentPlayers >= POPULATION_RESTRICTION_MIN_PLAYERS && currentPlayers < threshold;
 }
 
 bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
@@ -496,7 +512,7 @@ bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
     if (!g_hEnabled.BoolValue || iTeam < TF_TEAM_RED || iClass < TF_CLASS_SCOUT || iClass > TF_CLASS_ENGINEER)
         return false;
 
-    if (iClass == TF_CLASS_HEAVY && IsHeavyPopulationRestricted())
+    if (IsClassPopulationRestricted(iClass))
     {
         limitOut = 0;
         return true;
@@ -631,9 +647,9 @@ void NotifyClassRestricted(int client, int classId, int limit)
     if (client <= 0 || !IsClientInGame(client)) return;
 
     int currentPlayers, threshold;
-    if (classId == TF_CLASS_HEAVY && GetHeavyPopulationRestrictionState(currentPlayers, threshold))
+    if (GetClassPopulationRestrictionState(classId, currentPlayers, threshold))
     {
-        CPrintToChat(client, "{olive}[Class Limits]{default} Heavy is disabled until {gold}%d{default} players are on RED/BLU ({gold}%d{default} currently).", threshold, currentPlayers);
+        CPrintToChat(client, "{olive}[Class Limits]{default} %s is disabled until {gold}%d{default} players are on RED/BLU ({gold}%d{default} currently).", g_ClassNames[classId], threshold, currentPlayers);
         return;
     }
 
@@ -651,10 +667,10 @@ void FormatClassLimitText(int classId, char[] buffer, int maxlen)
         { strcopy(buffer, maxlen, "Unknown"); return; }
     ConVar limitCvar = g_hLimits[classId];
     if (limitCvar == null) { strcopy(buffer, maxlen, "Default"); return; }
-    if (classId == TF_CLASS_HEAVY && IsHeavyPopulationRestricted())
+    if (IsClassPopulationRestricted(classId))
     {
         int currentPlayers, threshold;
-        GetHeavyPopulationRestrictionState(currentPlayers, threshold);
+        GetClassPopulationRestrictionState(classId, currentPlayers, threshold);
         Format(buffer, maxlen, "0 players (population gate: %d/%d)", currentPlayers, threshold);
         return;
     }
