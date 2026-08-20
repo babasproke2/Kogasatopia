@@ -1324,7 +1324,11 @@ public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname
 		ScaleVector(aimForward, -recoil);
 		AddVectors(velocity, aimForward, velocity);
 		TeleportEntity(client, NULL_VECTOR, NULL_VECTOR, velocity);
-		TF2_StunPlayer(client, 0.3, 1.0, TF_STUNFLAG_SLOWDOWN | TF_STUNFLAG_LIMITMOVEMENT);
+
+		if (!(GetEntityFlags(client) & FL_ONGROUND))
+		{
+			TF2_StunPlayer(client, 0.3, 1.0, TF_STUNFLAG_SLOWDOWN | TF_STUNFLAG_LIMITMOVEMENT);
+		}
 	}
 
 	if (TF2CustAttr_GetInt(weapon, ATTR_RANDOM_CRITS_OVERRIDE, 0) != 0)
