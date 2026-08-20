@@ -172,7 +172,7 @@
 				"return"    "bool"
 				"arguments"
 				{
-					"bIsRapidFire"
+					"bIsHeadshot"
 					{
 						"type"  "bool"
 					}

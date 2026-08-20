@@ -389,6 +389,7 @@ public void OnPluginStart() {
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Post, ApplyBiteEffects_Post);
 		dhook_CTFPlayerShared_StunPlayer.Enable(Hook_Pre, SandmanPreJI_StunPlayer_Pre);
 		dhook_IsFixedWeaponSpreadEnabled.Enable(Hook_Pre, IsFixedWeaponSpreadEnabled_Pre);
+		WeaponReverts_HookExistingCriticalShotWeapons();
 
 		// Create the patches
 		patch_RevertCozyCamper_FlinchNerf = MemoryPatch.CreateFromConf(conf, "CTFPlayer::ApplyPunchImpulseX_FakeFullyChargedCondition");
@@ -546,10 +547,7 @@ public void OnEntityCreated(int entity, const char[] class) {
 		dhook_CObjectCartDispenser_DispenseMetal.HookEntity(Hook_Pre, entity, CartDispenseMetal);
 	}
 
-	if (StrEqual(class, "tf_weapon_pistol") && dhook_CTFWeaponBase_CanFireCriticalShot != null)
-	{
-		dhook_CTFWeaponBase_CanFireCriticalShot.HookEntity(Hook_Post, entity, CanFireCriticalShot_Post);
-	}
+	WeaponReverts_HookCriticalShotEntity(entity, class);
 }
 
 public void OnEntityDestroyed(int entity)
@@ -606,6 +604,38 @@ static bool IsAmbassadorHeadshotWeapon(int weapon)
 static bool Ambassador102_IsEnabledWeapon(int weapon)
 {
 	return IsAmbassadorHeadshotWeapon(weapon) && TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_102, 0) != 0;
+}
+
+static bool WeaponReverts_IsCriticalShotHookClass(const char[] classname)
+{
+	return StrEqual(classname, "tf_weapon_pistol") || StrEqual(classname, "tf_weapon_revolver");
+}
+
+static void WeaponReverts_HookCriticalShotEntity(int weapon, const char[] classname)
+{
+	if (dhook_CTFWeaponBase_CanFireCriticalShot == null
+		|| !WeaponReverts_IsEntityIndex(weapon)
+		|| !IsValidEntity(weapon)
+		|| !WeaponReverts_IsCriticalShotHookClass(classname))
+	{
+		return;
+	}
+
+	dhook_CTFWeaponBase_CanFireCriticalShot.HookEntity(Hook_Post, weapon, CanFireCriticalShot_Post);
+}
+
+static void WeaponReverts_HookExistingCriticalShotWeapons()
+{
+	char classname[64];
+	int maxEntities = GetMaxEntities();
+	for (int weapon = MaxClients + 1; weapon < maxEntities; weapon++)
+	{
+		if (!IsValidEntity(weapon))
+			continue;
+
+		GetEntityClassname(weapon, classname, sizeof(classname));
+		WeaponReverts_HookCriticalShotEntity(weapon, classname);
+	}
 }
 
 static Action Ambassador102_OnHeadshotDamage(int victim, int attacker, int weapon, float &damage, int damagetype, int damagecustom)
@@ -2160,10 +2190,17 @@ public MRESReturn CanFireCriticalShot_Post(int weapon, DHookReturn hReturn, DHoo
     if (client <= 0 || client > MaxClients)
         return MRES_Ignored;
 
+	bool isHeadshot = parameters.Get(1);
+	if (isHeadshot && Ambassador102_IsEnabledWeapon(weapon))
+	{
+		hReturn.Value = true;
+		return MRES_Override;
+	}
+
 	if (!WeaponReverts_HasHeadshotFeature(weapon))
 		return MRES_Ignored;
 
-	if (!parameters.Get(1))
+	if (!isHeadshot)
 	{
 		// Preserve the legacy headshot attribute's existing non-headshot behavior.
 		if (TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED, 0) != 0)
