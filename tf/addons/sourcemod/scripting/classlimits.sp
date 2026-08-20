@@ -569,7 +569,7 @@ public MRESReturn StartHealingTarget_Pre(int weapon, DHookParam parameters)
     }
 
     g_bOverhealWarningShown[medic] = true;
-    CPrintToChat(medic, "{green}[Server]{default} Overheal is currently disabled.");
+    CPrintToChat(medic, "{gold}[Server]{green} Overheal is disabled below %d players.", threshold);
     return MRES_Ignored;
 }
 
