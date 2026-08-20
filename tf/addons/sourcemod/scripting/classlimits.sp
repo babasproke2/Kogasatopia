@@ -54,13 +54,18 @@ ConVar g_hFlags;
 ConVar g_hImmunity;
 ConVar g_hTopScore;
 ConVar g_hDisplayUnlim;
+ConVar g_hDisableOverhealPcount;
 ConVar g_hRestrictHeaviesPcount;
 ConVar g_hRestrictMedicsPcount;
 ConVar g_hPlayerRestrictions;
+ConVar g_hMaxHealthBoost;
 ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[64] = "this map";
 Handle g_hClassStatsTimer = null;
 StringMap g_ClassBans = null;
+bool g_bOverhealDisabled = false;
+bool g_bOverhealUpdateQueued = false;
+float g_fEnabledMaxHealthBoost = 1.5;
 
 static const char g_ClassNames[TF_CLASS_ENGINEER + 1][16] = {
     "Unknown", "Scout", "Sniper", "Soldier", "Demoman",
@@ -86,6 +91,14 @@ public void OnPluginStart()
     g_hImmunity     = CreateConVar("restrict_immunity",    "0", "Enable/disable admin immunity for class limits.");
     g_hTopScore     = CreateConVar("classlimits_topscore", "0", "Allow top team scorers to bypass class limits.", _, true, 0.0, true, 1.0);
     g_hDisplayUnlim = CreateConVar("display_unlim",        "0", "If 1, show unlimited classes in class limit displays.", _, true, 0.0, true, 1.0);
+    g_hDisableOverhealPcount = CreateConVar(
+        "disable_overheal_pcount",
+        "0",
+        "If above 0, disable new overheal while human playercount is below this value.",
+        _,
+        true,
+        0.0
+    );
     g_hPlayerRestrictions = CreateConVar(
         "classlimits_player_restrictions",
         "1",
@@ -112,6 +125,13 @@ public void OnPluginStart()
         true,
         0.0
     );
+    g_hMaxHealthBoost = FindConVar("tf_max_health_boost");
+    if (g_hMaxHealthBoost != null)
+    {
+        g_fEnabledMaxHealthBoost = g_hMaxHealthBoost.FloatValue;
+    }
+
+    g_hDisableOverhealPcount.AddChangeHook(OnOverhealPopulationThresholdChanged);
     for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
     {
         char cvarName[32];
@@ -143,6 +163,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 
 public void OnMapStart()
 {
+    QueueOverhealStateUpdate();
+
     char sSound[32];
     for (int i = 1; i < sizeof(g_sSounds); i++)
     {
@@ -154,6 +176,8 @@ public void OnMapStart()
 
 public void OnPluginEnd()
 {
+    RestoreOverheal();
+
     if (g_hClassStatsTimer != null)
     {
         KillTimer(g_hClassStatsTimer);
@@ -168,6 +192,12 @@ public void OnClientPutInServer(int client)
     g_iClass[client]                 = TF_CLASS_UNKNOWN;
     g_bForcedRespawn[client]         = false;
     g_iForcedRespawnAttempts[client] = 0;
+    QueueOverhealStateUpdate();
+}
+
+public void OnClientDisconnect(int client)
+{
+    QueueOverhealStateUpdate();
 }
 
 public Action Timer_RecordClassStats(Handle timer, any data)
@@ -306,6 +336,7 @@ public void OnConfigsExecuted()
 {
     LoadClassBans();
     UpdateGameModeName();
+    UpdateOverhealState();
 }
 
 public void Event_PlayerClass(Event event, const char[] name, bool dontBroadcast)
@@ -364,6 +395,8 @@ public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {
+    QueueOverhealStateUpdate();
+
     int iClient = GetClientOfUserId(event.GetInt("userid"));
     int iTeam   = event.GetInt("team");
 
@@ -479,6 +512,70 @@ static int GetGameplayHumanClientCount()
     }
 
     return GetHumanTeamClientCount(TF_TEAM_RED) + GetHumanTeamClientCount(TF_TEAM_BLU);
+}
+
+public void OnOverhealPopulationThresholdChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    UpdateOverhealState();
+}
+
+static void QueueOverhealStateUpdate()
+{
+    if (g_bOverhealUpdateQueued)
+    {
+        return;
+    }
+
+    g_bOverhealUpdateQueued = true;
+    RequestFrame(Frame_UpdateOverhealState);
+}
+
+public void Frame_UpdateOverhealState(any data)
+{
+    g_bOverhealUpdateQueued = false;
+    UpdateOverhealState();
+}
+
+static void UpdateOverhealState()
+{
+    if (g_hDisableOverhealPcount == null || g_hMaxHealthBoost == null)
+    {
+        return;
+    }
+
+    int threshold = g_hDisableOverhealPcount.IntValue;
+    bool shouldDisable = threshold > 0 && GetGameplayHumanClientCount() < threshold;
+
+    if (shouldDisable)
+    {
+        if (!g_bOverhealDisabled)
+        {
+            g_fEnabledMaxHealthBoost = g_hMaxHealthBoost.FloatValue;
+            g_hMaxHealthBoost.SetFloat(1.0);
+            g_bOverhealDisabled = true;
+        }
+        return;
+    }
+
+    if (g_bOverhealDisabled)
+    {
+        RestoreOverheal();
+    }
+    else
+    {
+        g_fEnabledMaxHealthBoost = g_hMaxHealthBoost.FloatValue;
+    }
+}
+
+static void RestoreOverheal()
+{
+    if (!g_bOverhealDisabled || g_hMaxHealthBoost == null)
+    {
+        return;
+    }
+
+    g_hMaxHealthBoost.SetFloat(g_fEnabledMaxHealthBoost);
+    g_bOverhealDisabled = false;
 }
 
 static bool IsClassPopulationRestricted(int classId)
