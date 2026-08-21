@@ -24,26 +24,6 @@
 				"library" "server"
 				"linux"   "@_ZN16CTFWeaponBaseGun17UpdatePunchAnglesEP9CTFPlayer"
 			}
-			"CTFWeaponBaseGun::FireBullet"
-			{
-				"library" "server"
-				"linux"   "@_ZN16CTFWeaponBaseGun10FireBulletEP9CTFPlayer"
-			}
-			"CTFWeaponBase::ApplyPostHitEffects"
-			{
-				"library" "server"
-				"linux"   "@_ZN13CTFWeaponBase19ApplyPostHitEffectsERK15CTakeDamageInfoP9CTFPlayer"
-			}
-			"CTFScatterGun::FireBullet"
-			{
-				"library" "server"
-				"linux"   "@_ZN13CTFScatterGun10FireBulletEP9CTFPlayer"
-			}
-			"CTFScatterGun::ApplyPostHitEffects"
-			{
-				"library" "server"
-				"linux"   "@_ZN13CTFScatterGun19ApplyPostHitEffectsERK15CTakeDamageInfoP9CTFPlayer"
-			}
 			"CBasePlayer::SetPunchAngle"
 			{
 				"library" "server"

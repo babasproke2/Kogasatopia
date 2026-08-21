@@ -28,13 +28,6 @@ Consistent mode applies the exact integer amount. Non-consistent mode calls TF2'
 `SharedRandomInt("ShotgunPunchAngle", amount - 1, amount + 1)` path. Passing zero clears the
 override.
 
-`TF2Weapon_SetScattergunKnockback(weapon, enabled)` gives normal `CTFShotgun`-derived weapons
-Valve's `CTFScatterGun` victim knockback behavior. `TF2Weapon_SetScattergunSelfKnockback` controls
-the stock FaN self recoil separately. The bridge calls the engine's own `CTFScatterGun::FireBullet`
-and `CTFScatterGun::ApplyPostHitEffects` implementations and leaves ordinary and native
-scatterguns unchanged. WeaponReverts enables victim knockback with `"scattergun has knockback"
-"1"` and disables stock self recoil when `"recoil jumping"` supplies a custom impulse.
-
 ## Building
 
 The default build target is 32-bit x86, matching TF2's SourceMod runtime. Pass an explicit

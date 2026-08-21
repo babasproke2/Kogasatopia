@@ -64,7 +64,6 @@
 #define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
 #define ATTR_PUNCH_ANGLE_IS_CONSISTENT "punch angle is consistent"
 #define ATTR_PUNCH_ANGLE_MOD "punch angle mod"
-#define ATTR_SCATTERGUN_HAS_KNOCKBACK "scattergun has knockback"
 #define ATTR_HEADSHOTS_ENABLED "headshots enabled"
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
@@ -216,21 +215,6 @@ static void WeaponReverts_ApplyEngineOverrides(int weapon)
 		TF2Weapon_SetPunchAngle(weapon, amount, consistent);
 	}
 
-	if (GetFeatureStatus(FeatureType_Native, "TF2Weapon_SetScattergunKnockback") == FeatureStatus_Available)
-	{
-		bool enabled = TF2CustAttr_GetInt(weapon, ATTR_SCATTERGUN_HAS_KNOCKBACK, 0) != 0;
-		if (enabled)
-		{
-			// The engine bridge routes through CTFScatterGun, which reads the real item attribute.
-			TF2Attrib_SetByName(weapon, ATTR_SCATTERGUN_HAS_KNOCKBACK, 1.0);
-		}
-		TF2Weapon_SetScattergunKnockback(weapon, enabled);
-		if (GetFeatureStatus(FeatureType_Native, "TF2Weapon_SetScattergunSelfKnockback") == FeatureStatus_Available)
-		{
-			float customRecoil = TF2CustAttr_GetFloat(weapon, ATTR_RECOIL_JUMPING, 0.0);
-			TF2Weapon_SetScattergunSelfKnockback(weapon, enabled && customRecoil <= 0.0);
-		}
-	}
 }
 
 static bool WeaponReverts_HasHeadshotFeature(int weapon)
@@ -2035,7 +2019,6 @@ public Action OnTakeDamageAlive(
 
 	if (!Accuracy_IsValidClient(attacker) || weapon < 1) return Plugin_Continue;
 	bool validWeapon = (weapon > MaxClients && IsValidEntity(weapon));
-
 	Action ambassador102Action = Ambassador102_OnHeadshotDamage(victim, attacker, weapon, damage, damage_type, damage_custom);
 	if (ambassador102Action != Plugin_Continue)
 		return ambassador102Action;

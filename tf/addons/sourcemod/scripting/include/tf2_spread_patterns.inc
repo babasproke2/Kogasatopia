@@ -32,18 +32,6 @@ native bool TF2Spread_IsAmbassadorAccuracyRecovered(int weapon);
  */
 native void TF2Weapon_SetPunchAngle(int weapon, int amount, bool consistent);
 
-/**
- * Gives a CTFShotgun-derived weapon Valve's native scattergun victim knockback
- * behavior. Passing false also clears its stock self-knockback override.
- */
-native void TF2Weapon_SetScattergunKnockback(int weapon, bool enabled);
-
-/**
- * Controls whether an enabled scattergun bridge also uses Valve's stock
- * scattergun self recoil. Victim knockback remains independently enabled.
- */
-native void TF2Weapon_SetScattergunSelfKnockback(int weapon, bool enabled);
-
 public Extension __ext_tf2_spread_patterns =
 {
 	name = "TF2 Spread Patterns",
@@ -63,7 +51,5 @@ public void __ext_tf2_spread_patterns_SetNTVOptional()
 	MarkNativeAsOptional("TF2Spread_SetAmbassadorAccuracy");
 	MarkNativeAsOptional("TF2Spread_IsAmbassadorAccuracyRecovered");
 	MarkNativeAsOptional("TF2Weapon_SetPunchAngle");
-	MarkNativeAsOptional("TF2Weapon_SetScattergunKnockback");
-	MarkNativeAsOptional("TF2Weapon_SetScattergunSelfKnockback");
 }
 #endif
