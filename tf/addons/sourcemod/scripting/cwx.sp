@@ -692,6 +692,8 @@ void ApplyClientCustomLoadout(int client) {
 				"persisted_loadout");
 			CWX_MarkValidatedAttachedEntity(currentLoadoutItem, client,
 				"persisted_loadout");
+			ScheduleCustomItemRuntimeRepair(client, currentLoadoutItem, item,
+				"post_regeneration");
 		}
 	}
 	

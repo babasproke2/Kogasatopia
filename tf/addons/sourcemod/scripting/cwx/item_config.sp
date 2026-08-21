@@ -387,6 +387,7 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 		TF2_RemoveItemByLoadoutSlot(client, loadoutSlot);
 	}
 	TF2_EquipPlayerEconItem(client, itemEntity);
+	ScheduleCustomItemRuntimeRepair(client, itemEntity, item, "post_equip");
 	return itemEntity;
 }
 
@@ -443,6 +444,48 @@ bool EnsureCustomItemRuntimeAttributes(int itemEntity,
 		CWX_NotifyItemRuntimeStateReady(client, itemEntity);
 	}
 	return restored;
+}
+
+void ScheduleCustomItemRuntimeRepair(int client, int itemEntity,
+		const CustomItemDefinition item, const char[] context) {
+	if (client <= 0 || client > MaxClients || !IsClientInGame(client)
+			|| !IsValidEntity(itemEntity)) {
+		return;
+	}
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(GetClientUserId(client));
+	pack.WriteCell(EntIndexToEntRef(itemEntity));
+	pack.WriteString(item.uid);
+	pack.WriteString(context);
+	RequestFrame(Frame_RepairCustomItemRuntimeState, pack);
+}
+
+void Frame_RepairCustomItemRuntimeState(any data) {
+	DataPack pack = view_as<DataPack>(data);
+	pack.Reset();
+
+	int userid = pack.ReadCell();
+	int itemRef = pack.ReadCell();
+	char uid[MAX_ITEM_IDENTIFIER_LENGTH];
+	char context[32];
+	pack.ReadString(uid, sizeof(uid));
+	pack.ReadString(context, sizeof(context));
+	delete pack;
+
+	int client = GetClientOfUserId(userid);
+	int itemEntity = EntRefToEntIndex(itemRef);
+	if (!client || !IsClientInGame(client) || itemEntity == INVALID_ENT_REFERENCE
+			|| !IsValidEntity(itemEntity)) {
+		return;
+	}
+
+	CustomItemDefinition item;
+	if (!GetCustomItemDefinition(uid, item)) {
+		return;
+	}
+
+	EnsureCustomItemRuntimeAttributes(itemEntity, item, client, context);
 }
 
 /**
