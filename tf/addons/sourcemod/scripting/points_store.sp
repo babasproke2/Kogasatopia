@@ -3904,22 +3904,29 @@ void ShowShopMenu(int client)
     char itemName[BP_TRANS_ITEM_NAME_MAX];
     char display[BP_TRANS_ITEM_NAME_MAX + 32];
 
-    for (int i = 0; i < g_ItemPrices.Length; i++)
+    for (int ownershipGroup = 0; ownershipGroup < 2; ownershipGroup++)
     {
-        g_ItemKeys.GetString(i, itemKey, sizeof(itemKey));
-        g_ItemNames.GetString(i, itemName, sizeof(itemName));
-        int price = g_ItemPrices.Get(i);
-        int ownedPrice = GetCachedPurchasePrice(client, itemKey);
+        bool showPurchased = ownershipGroup == 1;
+        for (int i = 0; i < g_ItemPrices.Length; i++)
+        {
+            g_ItemKeys.GetString(i, itemKey, sizeof(itemKey));
+            bool purchased = GetCachedPurchasePrice(client, itemKey) > 0;
+            if (purchased != showPurchased)
+            {
+                continue;
+            }
 
-        if (ownedPrice > 0)
-        {
-            Format(display, sizeof(display), "%s BOUGHT", itemName);
-            menu.AddItem(itemKey, display);
-        }
-        else
-        {
-            GetCurrencyShortLabelForAmount(price, currencyShort, sizeof(currencyShort));
-            Format(display, sizeof(display), "%s %d %s", itemName, price, currencyShort);
+            g_ItemNames.GetString(i, itemName, sizeof(itemName));
+            int price = g_ItemPrices.Get(i);
+            if (purchased)
+            {
+                Format(display, sizeof(display), "%s BOUGHT", itemName);
+            }
+            else
+            {
+                GetCurrencyShortLabelForAmount(price, currencyShort, sizeof(currencyShort));
+                Format(display, sizeof(display), "%s %d %s", itemName, price, currencyShort);
+            }
             menu.AddItem(itemKey, display);
         }
     }
