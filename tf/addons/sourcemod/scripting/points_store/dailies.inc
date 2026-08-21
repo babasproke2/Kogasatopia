@@ -9,7 +9,7 @@ static const char g_DailyGemTypes[][] =
 {
     "meatshot_kill",
     "sandman_cleaver_combo",
-    "meatshot_kills_life_8",
+    "meatshot_kills_life_5",
     "Sandman moonshot",
     "market_garden_kill",
     "soldier_sync_kill",

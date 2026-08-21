@@ -176,9 +176,9 @@ public void OnMedicAssistMilestone(int medic, int assistsThisLife)
 
 public void OnMeatshotMilestone(int client, int meatshotKillsThisLife)
 {
-	if (meatshotKillsThisLife == 8)
+	if (meatshotKillsThisLife == 5)
 	{
-		AwardGameplayReward(client, "meatshot_kills_life_8", 0);
+		AwardGameplayReward(client, "meatshot_kills_life_5", 0);
 	}
 }
 
