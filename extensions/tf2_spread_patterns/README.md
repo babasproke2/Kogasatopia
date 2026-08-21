@@ -34,3 +34,8 @@ the stock FaN self recoil separately. The bridge calls the engine's own `CTFScat
 and `CTFScatterGun::ApplyPostHitEffects` implementations and leaves ordinary and native
 scatterguns unchanged. WeaponReverts enables victim knockback with `"scattergun has knockback"
 "1"` and disables stock self recoil when `"recoil jumping"` supplies a custom impulse.
+
+## Building
+
+The default build target is 32-bit x86, matching TF2's SourceMod runtime. Pass an explicit
+`--targets` value only when building for a different runtime architecture.
