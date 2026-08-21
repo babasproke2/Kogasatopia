@@ -2,7 +2,6 @@
 // Sorted from most to least popular. One playable map per line.
 // Included 394 maps; skipped 103 mapsdb rows without an installed .bsp or known workshop mapcycle entry.
 
-workshop/koth_badmoon_b2.ugc3778832099
 workshop/pl_harpyhills_b8.ugc3758709084
 workshop/koth_spire_b1.ugc454131066
 plr_timebomb_a2
@@ -11,7 +10,6 @@ balloon_race_v2b_fix
 cp_mojave
 koth_shorelight
 cp_premuda
-koth_camp_saxton
 pl_redwood
 koth_dryfield
 workshop/cp_toiletbowl_a2.ugc2753864371
@@ -236,6 +234,7 @@ koth_creek_b1
 dm_heaven_b4
 arena_farm_feud_b1
 arena_hardhat_b2a
+workshop/arena_goldtooth_rc4.ugc475946266
 koth_badlands
 koth_overcast_final
 ctf_bluefort_rc1
