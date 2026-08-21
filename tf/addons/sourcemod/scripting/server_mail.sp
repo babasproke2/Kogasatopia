@@ -81,6 +81,7 @@ StringMap g_MailPendingRedemptions = null;
 StringMap g_MailRedemptionUsers = null;
 StringMap g_MailRedemptionTitles = null;
 StringMap g_MailRedemptionSteamIds = null;
+StringMap g_MailRedemptionAmounts = null;
 StringMap g_MailPendingAttachments = null;
 
 public Plugin myinfo =
@@ -158,6 +159,7 @@ public void OnPluginStart()
     g_MailRedemptionUsers = new StringMap();
     g_MailRedemptionTitles = new StringMap();
     g_MailRedemptionSteamIds = new StringMap();
+    g_MailRedemptionAmounts = new StringMap();
     g_MailPendingAttachments = new StringMap();
 
     for (int client = 1; client <= MaxClients; client++)
@@ -180,6 +182,7 @@ public void OnPluginEnd()
     delete g_MailRedemptionUsers;
     delete g_MailRedemptionTitles;
     delete g_MailRedemptionSteamIds;
+    delete g_MailRedemptionAmounts;
     delete g_MailPendingAttachments;
 
     for (int client = 1; client <= MaxClients; client++)
@@ -368,6 +371,7 @@ public void OnLibraryRemoved(const char[] name)
     g_MailRedemptionUsers.Clear();
     g_MailRedemptionTitles.Clear();
     g_MailRedemptionSteamIds.Clear();
+    g_MailRedemptionAmounts.Clear();
 }
 
 void ClearClientMailState(int client)
@@ -1920,6 +1924,35 @@ public void SQL_OnMailInserted(Database db, DBResultSet results, const char[] er
 
     int receiver = Kogasa_FindClientBySteamId64(receiverSteamId);
     int liveSender = Kogasa_FindClientBySteamId64(senderSteamId);
+    if (gems > 0 && StrContains(requestKey, "server_mail:stimulus:", false) == 0)
+    {
+        char coloredReceiver[256];
+        char currencyColor[40];
+        char currencyName[64];
+        BuildColoredMailName(receiver, receiverSteamId, receiverName, coloredReceiver, sizeof(coloredReceiver));
+        GetCurrencyFormatting(currencyColor, sizeof(currencyColor), currencyName, sizeof(currencyName));
+
+        if (IsMailClient(receiver))
+        {
+            CPrintToChatAllEx(receiver,
+                "{cornflowerblue}[Mail] %s{default} received a Stimulus Check! (%s%d %s{default})",
+                coloredReceiver,
+                currencyColor,
+                gems,
+                currencyName);
+        }
+        else
+        {
+            CPrintToChatAll(
+                "{cornflowerblue}[Mail] %s{default} received a Stimulus Check! (%s%d %s{default})",
+                coloredReceiver,
+                currencyColor,
+                gems,
+                currencyName);
+        }
+        return;
+    }
+
     if (gems > 0 && StrContains(requestKey, "server_mail:gift:", false) == 0)
     {
         char coloredSender[256];
@@ -2423,6 +2456,7 @@ MailRedemptionQueueResult QueueValidatedMailRedemption(
     g_MailRedemptionUsers.SetValue(awardKey, GetClientUserId(client));
     g_MailRedemptionTitles.SetString(awardKey, title);
     g_MailRedemptionSteamIds.SetString(awardKey, steamId);
+    g_MailRedemptionAmounts.SetValue(awardKey, gems);
 
     if (!PointsStore_ApplyBonusPointsSteamIdOnce(steamId, gems, awardKey, "server_mail_redemption"))
     {
@@ -2439,6 +2473,7 @@ void ClearPendingRedemption(const char[] awardKey)
     g_MailRedemptionUsers.Remove(awardKey);
     g_MailRedemptionTitles.Remove(awardKey);
     g_MailRedemptionSteamIds.Remove(awardKey);
+    g_MailRedemptionAmounts.Remove(awardKey);
 }
 
 public void PointsStore_OnApplyBonusPointsSteamIdOnce(const char[] awardKey, bool success, bool newlyApplied)
@@ -2450,9 +2485,11 @@ public void PointsStore_OnApplyBonusPointsSteamIdOnce(const char[] awardKey, boo
     }
 
     int userId;
+    int gems;
     char steamId[MAIL_STEAMID_MAX];
     char title[MAIL_TITLE_MAX];
     g_MailRedemptionUsers.GetValue(awardKey, userId);
+    g_MailRedemptionAmounts.GetValue(awardKey, gems);
     g_MailRedemptionSteamIds.GetString(awardKey, steamId, sizeof(steamId));
     g_MailRedemptionTitles.GetString(awardKey, title, sizeof(title));
 
@@ -2489,6 +2526,7 @@ public void PointsStore_OnApplyBonusPointsSteamIdOnce(const char[] awardKey, boo
     pack.WriteCell(userId);
     pack.WriteString(steamId);
     pack.WriteString(title);
+    pack.WriteCell(gems);
     g_MailDatabase.Query(SQL_OnMailMarkedRedeemed, query, pack);
 }
 
@@ -2503,6 +2541,7 @@ public void SQL_OnMailMarkedRedeemed(Database db, DBResultSet results, const cha
     int userId = pack.ReadCell();
     pack.ReadString(steamId, sizeof(steamId));
     pack.ReadString(title, sizeof(title));
+    int gems = pack.ReadCell();
     delete pack;
     ClearPendingRedemption(awardKey);
 
@@ -2532,7 +2571,27 @@ public void SQL_OnMailMarkedRedeemed(Database db, DBResultSet results, const cha
     char currencyName[64];
     BuildColoredMailName(client, steamId, fallbackName, coloredName, sizeof(coloredName));
     GetCurrencyFormatting(currencyColor, sizeof(currencyColor), currencyName, sizeof(currencyName));
-    if (IsMailClient(client))
+    if (StrEqual(title, "Stimulus Check", false) && IsMailClient(client))
+    {
+        CPrintToChatAllEx(client,
+            "{cornflowerblue}[Mail] %s{default} redeemed %s%d %s{default} from a %sStimulus Check{default}!",
+            coloredName,
+            currencyColor,
+            gems,
+            currencyName,
+            currencyColor);
+    }
+    else if (StrEqual(title, "Stimulus Check", false))
+    {
+        CPrintToChatAll(
+            "{cornflowerblue}[Mail] %s{default} redeemed %s%d %s{default} from a %sStimulus Check{default}!",
+            coloredName,
+            currencyColor,
+            gems,
+            currencyName,
+            currencyColor);
+    }
+    else if (IsMailClient(client))
     {
         CPrintToChatAllEx(client,
             "{cornflowerblue}[Mail] %s{default} redeemed %s%s{default}!",
