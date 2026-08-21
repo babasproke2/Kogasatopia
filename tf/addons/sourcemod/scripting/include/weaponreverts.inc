@@ -27,6 +27,19 @@ stock bool WR_IsValidWeaponEntity(int weapon)
     return (weapon > MaxClients && IsValidEntity(weapon));
 }
 
+stock bool WR_IsClipWeaponEntity(int weapon)
+{
+    if (!WR_IsValidWeaponEntity(weapon)
+        || !HasEntProp(weapon, Prop_Send, "m_iClip1"))
+    {
+        return false;
+    }
+
+    char classname[64];
+    GetEntityClassname(weapon, classname, sizeof(classname));
+    return StrContains(classname, "tf_weapon_", false) == 0;
+}
+
 stock int WR_GetPlayerAmmoOffset()
 {
     static bool resolved = false;
@@ -219,7 +232,7 @@ stock void SetAmmo_Weapon(int weapon, int newAmmo)
 
 stock int GetClip(int weapon)
 {
-    if (!WR_IsValidWeaponEntity(weapon))
+    if (!WR_IsClipWeaponEntity(weapon))
         return -1;
 
     int clipOffset = WR_GetWeaponClipOffset();
@@ -231,7 +244,7 @@ stock int GetClip(int weapon)
 
 int GetWeaponMaxClip(int weapon)
 {
-    if (!WR_IsValidWeaponEntity(weapon))
+    if (!WR_IsClipWeaponEntity(weapon))
         return -1;
 
     if (g_SDKGetMaxClip1 == null)
@@ -242,7 +255,7 @@ int GetWeaponMaxClip(int weapon)
 
 stock void SetClip_Weapon(int weapon, int newClip)
 {
-    if (!WR_IsValidWeaponEntity(weapon))
+    if (!WR_IsClipWeaponEntity(weapon))
         return;
 
     int clipOffset = WR_GetWeaponClipOffset();
