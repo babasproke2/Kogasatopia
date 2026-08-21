@@ -2,7 +2,7 @@
 #define _INCLUDE_TF2_SPREAD_PATTERNS_CONFIG_H_
 
 #define SMEXT_CONF_NAME         "TF2 Spread Patterns"
-#define SMEXT_CONF_DESCRIPTION  "Per-weapon spread, recoil, accuracy, and knockback controls for TF2"
+#define SMEXT_CONF_DESCRIPTION  "Per-weapon spread, recoil, and accuracy controls for TF2"
 #define SMEXT_CONF_VERSION      "1.6.0"
 #define SMEXT_CONF_AUTHOR       "Hombre"
 #define SMEXT_CONF_URL          ""
