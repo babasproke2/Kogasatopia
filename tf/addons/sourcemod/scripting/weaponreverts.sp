@@ -64,6 +64,7 @@
 #define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
 #define ATTR_PUNCH_ANGLE_IS_CONSISTENT "punch angle is consistent"
 #define ATTR_PUNCH_ANGLE_MOD "punch angle mod"
+#define ATTR_SCATTERGUN_HAS_KNOCKBACK "scattergun has knockback"
 #define ATTR_HEADSHOTS_ENABLED "headshots enabled"
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
@@ -140,6 +141,7 @@ int g_iAmbassadorCritParticle = INVALID_STRING_INDEX;
 
 #include <weaponreverts>
 #include "weaponreverts/gameplay_events.sp"
+#include "weaponreverts/scattergun_knockback.sp"
  
 ConVar g_sEnabled;
 ConVar g_hPomsonDamageMult;
@@ -295,6 +297,7 @@ stock void ResetClientArrays(int client)
 	g_iSandmanStunInflictorRef[client] = INVALID_ENT_REFERENCE;
 	g_iEnvironmentalKillAttackerUserId[client] = 0;
 	g_fEnvironmentalKillTime[client] = 0.0;
+	ScattergunKnockback_ResetClient(client);
 }
 
 public void OnPluginStart() {
@@ -1245,6 +1248,7 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
 
+	ScattergunKnockback_ResetClient(client);
 	VitaSaw_ApplyStoredCharge(client);
 
 	return Plugin_Continue;
@@ -2022,6 +2026,8 @@ public Action OnTakeDamageAlive(
 	Action ambassador102Action = Ambassador102_OnHeadshotDamage(victim, attacker, weapon, damage, damage_type, damage_custom);
 	if (ambassador102Action != Plugin_Continue)
 		return ambassador102Action;
+
+	ScattergunKnockback_OnDamage(victim, attacker, weapon, damage, damage_type);
 
 	if (
 		validWeapon &&
