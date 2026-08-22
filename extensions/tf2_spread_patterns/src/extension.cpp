@@ -315,12 +315,12 @@ cell_t TF2SpreadPatterns::Native_SetPunchAngle(IPluginContext *context, const ce
 		return context->ThrowNativeError("Weapon entity %d cannot be tracked.", params[1]);
 	}
 
-	const int amount = params[2];
-	m_punchAmounts[entity] = amount;
-	m_punchConsistent[entity] = params[3] != 0;
-	m_punchWeaponRefs[entity] = amount == 0
-		? 0
-		: gamehelpers->EntityToReference(weapon);
+	const bool enabled = params[2] != 0;
+	m_punchAmounts[entity] = enabled ? params[3] : 0;
+	m_punchConsistent[entity] = enabled && params[4] != 0;
+	m_punchWeaponRefs[entity] = enabled
+		? gamehelpers->EntityToReference(weapon)
+		: 0;
 	return 0;
 }
 
@@ -434,6 +434,12 @@ bool TF2SpreadPatterns::ApplyPunchAngleOverride(CBaseEntity *weapon, CBaseEntity
 		m_punchAmounts[entity] = 0;
 		m_punchConsistent[entity] = false;
 		return false;
+	}
+
+	// An enabled zero override intentionally suppresses stock recoil.
+	if (m_punchAmounts[entity] == 0)
+	{
+		return true;
 	}
 
 	const int amount = m_punchConsistent[entity]

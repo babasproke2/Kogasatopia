@@ -23,10 +23,20 @@ after 1.0 second.
 `TF2Spread_IsAmbassadorAccuracyRecovered(weapon)` returns true when an enabled weapon has not fired
 for at least 1.0 second.
 
-`TF2Weapon_SetPunchAngle(weapon, amount, consistent)` replaces a weapon's stock punch-angle recoil.
-Consistent mode applies the exact integer amount. Non-consistent mode calls TF2's own
-`SharedRandomInt("ShotgunPunchAngle", amount - 1, amount + 1)` path. Passing zero clears the
-override.
+`TF2Weapon_SetPunchAngle(weapon, enabled, amount, consistent)` replaces a weapon's stock
+punch-angle recoil. Consistent mode applies the exact integer amount. Non-consistent mode calls
+TF2's own `SharedRandomInt("ShotgunPunchAngle", amount - 1, amount + 1)` path. An enabled override
+with amount `0` suppresses stock recoil without adding punch angle. Pass `enabled = false` to clear
+the override.
+
+```sourcepawn
+TF2Weapon_SetPunchAngle(weapon, true, 0, true);  // No recoil.
+TF2Weapon_SetPunchAngle(weapon, true, 4, true);  // Consistent 4-degree recoil.
+TF2Weapon_SetPunchAngle(weapon, false, 0, false); // Restore stock recoil.
+```
+
+CWX and WeaponReverts derive `enabled` from whether `"punch angle mod"` exists, so
+`"punch angle mod" "0"` is distinct from an item with no such custom attribute.
 
 ## Building
 

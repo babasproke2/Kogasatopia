@@ -133,9 +133,12 @@ void CWX_ApplyEngineOverrides(int weapon)
 
 	if (GetFeatureStatus(FeatureType_Native, "TF2Weapon_SetPunchAngle") == FeatureStatus_Available)
 	{
-		int amount = TF2CustAttr_GetInt(weapon, ATTR_PUNCH_ANGLE_MOD, 0);
+		char amountValue[16];
+		TF2CustAttr_GetString(weapon, ATTR_PUNCH_ANGLE_MOD, amountValue, sizeof(amountValue));
+		bool enabled = amountValue[0] != '\0';
+		int amount = enabled ? StringToInt(amountValue) : 0;
 		bool consistent = TF2CustAttr_GetInt(weapon, ATTR_PUNCH_ANGLE_IS_CONSISTENT, 0) != 0;
-		TF2Weapon_SetPunchAngle(weapon, amount, consistent);
+		TF2Weapon_SetPunchAngle(weapon, enabled, amount, consistent);
 	}
 
 }
