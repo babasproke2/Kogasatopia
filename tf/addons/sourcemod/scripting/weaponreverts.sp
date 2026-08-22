@@ -1086,6 +1086,11 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 		return;
 	}
 
+	if (g_hMeatshotDebug.BoolValue && !IsFakeClient(attacker))
+	{
+		PrintToChat(attacker, "[debug] You got a meatshot!");
+	}
+
 	int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
 	if (IsPlayerAlive(victim) && IsValidWeaponEntity(weapon))
 	{
@@ -1099,11 +1104,6 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 	if (!kill || IsFakeClient(attacker) || IsFakeClient(victim))
 	{
 		return;
-	}
-
-	if (g_hMeatshotDebug.BoolValue)
-	{
-		PrintToChat(attacker, "[debug] You got a meatshot!");
 	}
 
 	FireMeatshotKill(attacker, victim);
