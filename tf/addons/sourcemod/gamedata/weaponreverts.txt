@@ -53,6 +53,11 @@
 				"windows"    "325"
 				"linux"      "331"
 			}
+			"CTFWeaponBase::GetAfterburnRateOnHit()"
+			{
+				"windows"    "460"
+				"linux"      "467"
+			}
 			"CObjectCartDispenser::DispenseMetal"
 			{
 				"windows"	"404"

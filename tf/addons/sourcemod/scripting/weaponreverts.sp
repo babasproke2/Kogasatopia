@@ -134,6 +134,7 @@ enum struct tf2_player
 }
 
 Handle g_SDKGetMaxClip1 = null;
+Handle g_SDKGetAfterburnRateOnHit = null;
 int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
 bool g_bAccuracyExploding[MAXPLAYERS + 1];
@@ -338,6 +339,7 @@ public void OnPluginStart() {
 				SDKHook(i, SDKHook_WeaponSwitch, OnWeaponSwitch);
 				SDKHook(i, SDKHook_TraceAttack, OnTraceAttack);
 				SDKHook(i, SDKHook_OnTakeDamageAlive, OnTakeDamageAlive);
+				SDKHook(i, SDKHook_OnTakeDamageAlivePost, WeaponReverts_OnTakeDamageAlivePost);
 			}
 		}
 
@@ -370,6 +372,16 @@ public void OnPluginStart() {
 		if (g_SDKGetMaxClip1 == null)
 		{
 			SetFailState("Failed to create SDKCall for GetMaxClip1");
+		}
+
+		StartPrepSDKCall(SDKCall_Entity);
+		PrepSDKCall_SetFromConf(conf, SDKConf_Virtual, "CTFWeaponBase::GetAfterburnRateOnHit()");
+		PrepSDKCall_SetReturnInfo(SDKType_Float, SDKPass_Plain);
+		g_SDKGetAfterburnRateOnHit = EndPrepSDKCall();
+
+		if (g_SDKGetAfterburnRateOnHit == null)
+		{
+			SetFailState("Failed to create SDKCall for GetAfterburnRateOnHit");
 		}
 
 		// Virtual dispatch preserves TF2's native ranged/melee crit algorithms.
@@ -518,6 +530,7 @@ public void OnClientPutInServer(int client)
 		SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
 		SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
 		SDKHook(client, SDKHook_OnTakeDamageAlive, OnTakeDamageAlive);
+		SDKHook(client, SDKHook_OnTakeDamageAlivePost, WeaponReverts_OnTakeDamageAlivePost);
 		ResetClientArrays(client);
 	}
 }
@@ -2095,6 +2108,48 @@ public Action OnTakeDamageAlive(
 	}
 
 	return Plugin_Continue;
+}
+
+static float WeaponReverts_GetAfterburnRateOnHit(int weapon)
+{
+	return SDKCall(g_SDKGetAfterburnRateOnHit, weapon);
+}
+
+// Set DamageType Ignite compatibility based on nosoop's SM-TFAttributeSupport:
+// https://github.com/nosoop/SM-TFAttributeSupport
+static void WeaponReverts_ApplyDamageTypeIgniteDuration(int weapon, int victim, int attacker)
+{
+	if (WeaponReverts_GetAfterburnRateOnHit(weapon) > 0.0
+		|| !TF2_IsPlayerInCondition(victim, TFCond_OnFire))
+	{
+		return;
+	}
+
+	float desiredDuration = TF2Attrib_HookValueFloat(0.0, "set_dmgtype_ignite", weapon);
+	if (desiredDuration <= 0.0)
+	{
+		return;
+	}
+
+	float additionalDuration = desiredDuration - TF2Util_GetPlayerBurnDuration(victim);
+	if (additionalDuration > 0.0)
+	{
+		TF2Util_IgnitePlayer(victim, attacker, additionalDuration, weapon);
+	}
+}
+
+public void WeaponReverts_OnTakeDamageAlivePost(
+	int victim, int attacker, int inflictor, float damage, int damageType,
+	int weapon, const float damageForce[3], const float damagePosition[3], int damageCustom)
+{
+	if (!WeaponReverts_IsEnabled() || damageCustom == TF_CUSTOM_BURNING
+		|| !WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker)
+		|| weapon <= MaxClients || !IsValidEntity(weapon) || !TF2Util_IsEntityWeapon(weapon))
+	{
+		return;
+	}
+
+	WeaponReverts_ApplyDamageTypeIgniteDuration(weapon, victim, attacker);
 }
 
 MRESReturn CalculateMaxSpeed(int client, DHookReturn returnValue) {
