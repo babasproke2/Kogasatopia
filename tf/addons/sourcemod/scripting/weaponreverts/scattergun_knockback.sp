@@ -202,7 +202,7 @@ static void ScattergunKnockback_ApplyFrame(any data)
 void ScattergunKnockback_OnDamage(
 	int victim, int attacker, int weapon, float damage, int damageType)
 {
-	if (damage <= 0.0 || (damageType & DMG_BULLET) == 0
+	if (damage <= 0.0 || (damageType & DMG_BUCKSHOT) == 0
 		|| !WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker)
 		|| victim == attacker || GetClientTeam(victim) == GetClientTeam(attacker)
 		|| !WR_IsValidWeaponEntity(weapon)
