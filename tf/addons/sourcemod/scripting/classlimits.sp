@@ -57,6 +57,7 @@ ConVar g_hImmunity;
 ConVar g_hTopScore;
 ConVar g_hDisplayUnlim;
 ConVar g_hDisableOverhealPcount;
+ConVar g_hDisableOverhealMedicImbalance;
 ConVar g_hRestrictHeaviesPcount;
 ConVar g_hRestrictMedicsPcount;
 ConVar g_hPlayerRestrictions;
@@ -64,10 +65,14 @@ ConVar g_hMaxHealthBoost;
 ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[64] = "this map";
 Handle g_hClassStatsTimer = null;
+Handle g_hOverhealStateTimer = null;
 StringMap g_ClassBans = null;
 bool g_bOverhealDisabled = false;
 bool g_bOverhealUpdateQueued = false;
 bool g_bOverhealWarningShown[MAXPLAYERS + 1];
+bool g_bMedicImbalanceActive = false;
+bool g_bMedicImbalanceDisabledAlertShown = false;
+bool g_bMedicImbalanceReturnedAlertShown = false;
 float g_fEnabledMaxHealthBoost = 1.5;
 DynamicDetour g_hStartHealingTarget = null;
 
@@ -104,6 +109,16 @@ public void OnPluginStart()
         true,
         0.0
     );
+    g_hDisableOverhealMedicImbalance = CreateConVar(
+        "disable_overheal_medic_imbalance",
+        "0",
+        "Disable overheal while exactly one combat team has a Medic.",
+        _,
+        true,
+        0.0,
+        true,
+        1.0
+    );
     g_hPlayerRestrictions = CreateConVar(
         "classlimits_player_restrictions",
         "1",
@@ -137,6 +152,7 @@ public void OnPluginStart()
     }
 
     g_hDisableOverhealPcount.AddChangeHook(OnOverhealPopulationThresholdChanged);
+    g_hDisableOverhealMedicImbalance.AddChangeHook(OnOverhealPopulationThresholdChanged);
     for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
     {
         char cvarName[32];
@@ -155,6 +171,7 @@ public void OnPluginStart()
     RegAdminCmd("sm_classlimits_historical", Command_RecordClassPopularityHistorical, ADMFLAG_GENERIC, "Record a daily class popularity snapshot.");
 
     g_hClassStatsTimer = CreateTimer(CLASSLIMITS_STATS_INTERVAL, Timer_RecordClassStats, _, TIMER_REPEAT);
+    g_hOverhealStateTimer = CreateTimer(3.0, Timer_UpdateOverhealState, _, TIMER_REPEAT);
 }
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
@@ -168,6 +185,9 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 
 public void OnMapStart()
 {
+    g_bMedicImbalanceActive = false;
+    g_bMedicImbalanceDisabledAlertShown = false;
+    g_bMedicImbalanceReturnedAlertShown = false;
     QueueOverhealStateUpdate();
     for (int client = 1; client <= MaxClients; client++)
     {
@@ -196,6 +216,12 @@ public void OnPluginEnd()
     {
         KillTimer(g_hClassStatsTimer);
         g_hClassStatsTimer = null;
+    }
+
+    if (g_hOverhealStateTimer != null)
+    {
+        KillTimer(g_hOverhealStateTimer);
+        g_hOverhealStateTimer = null;
     }
 
     delete g_ClassBans;
@@ -242,6 +268,12 @@ public Action Timer_RecordClassStats(Handle timer, any data)
         PluginStats_Record("class_snapshot", message);
     }
 
+    return Plugin_Continue;
+}
+
+public Action Timer_UpdateOverhealState(Handle timer, any data)
+{
+    UpdateOverhealState();
     return Plugin_Continue;
 }
 
@@ -597,13 +629,22 @@ public void Frame_UpdateOverhealState(any data)
 
 static void UpdateOverhealState()
 {
-    if (g_hDisableOverhealPcount == null || g_hMaxHealthBoost == null)
+    if (g_hDisableOverhealPcount == null
+        || g_hDisableOverhealMedicImbalance == null
+        || g_hMaxHealthBoost == null)
     {
         return;
     }
 
     int threshold = g_hDisableOverhealPcount.IntValue;
-    bool shouldDisable = threshold > 0 && GetGameplayHumanClientCount() < threshold;
+    bool populationDisabled = threshold > 0 && GetGameplayHumanClientCount() < threshold;
+    bool redHasMedic;
+    bool bluHasMedic;
+    bool medicImbalanceDisabled = IsMedicImbalanceOverhealDisabled(redHasMedic, bluHasMedic);
+    bool medicImbalanceEnded = g_bMedicImbalanceActive && !medicImbalanceDisabled;
+    g_bMedicImbalanceActive = medicImbalanceDisabled;
+
+    bool shouldDisable = populationDisabled || medicImbalanceDisabled;
 
     if (shouldDisable)
     {
@@ -612,6 +653,11 @@ static void UpdateOverhealState()
             g_fEnabledMaxHealthBoost = g_hMaxHealthBoost.FloatValue;
             g_hMaxHealthBoost.SetFloat(1.0);
             g_bOverhealDisabled = true;
+        }
+
+        if (medicImbalanceDisabled)
+        {
+            AlertMedicsOverhealDisabledByImbalance();
         }
         return;
     }
@@ -623,6 +669,74 @@ static void UpdateOverhealState()
     else
     {
         g_fEnabledMaxHealthBoost = g_hMaxHealthBoost.FloatValue;
+    }
+
+    if (medicImbalanceEnded && redHasMedic && bluHasMedic)
+    {
+        AlertMedicsOverhealReturned();
+    }
+}
+
+static bool IsMedicImbalanceOverhealDisabled(bool &redHasMedic, bool &bluHasMedic)
+{
+    redHasMedic = TeamHasHumanMedic(TF_TEAM_RED);
+    bluHasMedic = TeamHasHumanMedic(TF_TEAM_BLU);
+    return g_hDisableOverhealMedicImbalance.BoolValue && redHasMedic != bluHasMedic;
+}
+
+static bool TeamHasHumanMedic(int team)
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientInGame(client)
+            && !IsFakeClient(client)
+            && GetClientTeam(client) == team
+            && TF2_GetPlayerClass(client) == TFClass_Medic)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void AlertMedicsOverhealDisabledByImbalance()
+{
+    if (g_bMedicImbalanceDisabledAlertShown)
+    {
+        return;
+    }
+
+    g_bMedicImbalanceDisabledAlertShown = true;
+    for (int medic = 1; medic <= MaxClients; medic++)
+    {
+        if (IsClientInGame(medic)
+            && !IsFakeClient(medic)
+            && GetClientTeam(medic) >= TF_TEAM_RED
+            && TF2_GetPlayerClass(medic) == TFClass_Medic)
+        {
+            CPrintToChat(medic, "{green}[Server]{default} Overheal is disabled when the enemy team has no Medics, sit tight!");
+        }
+    }
+}
+
+static void AlertMedicsOverhealReturned()
+{
+    if (g_bMedicImbalanceReturnedAlertShown)
+    {
+        return;
+    }
+
+    g_bMedicImbalanceReturnedAlertShown = true;
+    for (int medic = 1; medic <= MaxClients; medic++)
+    {
+        if (IsClientInGame(medic)
+            && !IsFakeClient(medic)
+            && GetClientTeam(medic) >= TF_TEAM_RED
+            && TF2_GetPlayerClass(medic) == TFClass_Medic)
+        {
+            CPrintToChat(medic, "{green}[Server]{default} Both teams have a Medic, overheal has returned!");
+        }
     }
 }
 
