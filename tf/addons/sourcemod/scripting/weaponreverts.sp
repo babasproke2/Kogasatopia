@@ -209,7 +209,12 @@ static void WeaponReverts_ApplyEngineOverrides(int weapon)
 
 	if (GetFeatureStatus(FeatureType_Native, "TF2Scatter_SetWeaponPelletCount") == FeatureStatus_Available)
 	{
-		int pelletsFired = TF2Attrib_HookValueInt(10, "mult_bullets_per_shot", weapon);
+		float pelletCount = TF2Attrib_HookValueFloat(10.0, "mult_bullets_per_shot", weapon);
+		int pelletsFired = RoundToNearest(pelletCount);
+		if (pelletsFired < 1)
+		{
+			pelletsFired = 1;
+		}
 		TF2Scatter_SetWeaponPelletCount(weapon, pelletsFired);
 	}
 
