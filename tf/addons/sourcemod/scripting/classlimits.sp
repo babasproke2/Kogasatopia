@@ -22,6 +22,7 @@
 #define PL_VERSION "1.0.2"
 #define CLASSLIMITS_STATS_INTERVAL 180.0
 #define CLASSLIMITS_CONFIG "configs/classlimits.cfg"
+#define CLASS_AVAILABILITY_REQUEST_LIFETIME 240
 
 #define TF_CLASS_DEMOMAN        4
 #define TF_CLASS_ENGINEER       9
@@ -51,6 +52,8 @@ public Plugin myinfo =
 int g_iClass[MAXPLAYERS + 1];
 bool g_bForcedRespawn[MAXPLAYERS + 1];
 int g_iForcedRespawnAttempts[MAXPLAYERS + 1];
+int g_iPendingClassAvailability[MAXPLAYERS + 1];
+int g_iPendingClassAvailabilityExpiresAt[MAXPLAYERS + 1];
 ConVar g_hEnabled;
 ConVar g_hFlags;
 ConVar g_hImmunity;
@@ -65,7 +68,7 @@ ConVar g_hMaxHealthBoost;
 ConVar g_hLimits[TF_CLASS_ENGINEER + 1];
 char g_sGameMode[64] = "this map";
 Handle g_hClassStatsTimer = null;
-Handle g_hOverhealStateTimer = null;
+Handle g_hClassStateTimer = null;
 StringMap g_ClassBans = null;
 bool g_bOverhealDisabled = false;
 bool g_bOverhealUpdateQueued = false;
@@ -166,12 +169,14 @@ public void OnPluginStart()
     HookEvent("player_spawn",       Event_PlayerSpawn);
     HookEvent("player_team",        Event_PlayerTeam);
     HookEvent("player_say",         Event_PlayerSay, EventHookMode_Post);
+    HookEvent("teamplay_round_win", Event_ClearClassAvailabilityRequests, EventHookMode_PostNoCopy);
+    HookEvent("teamplay_round_stalemate", Event_ClearClassAvailabilityRequests, EventHookMode_PostNoCopy);
     RegConsoleCmd("sm_classlimits", Command_ShowClassLimits, "Show current class limits.");
     RegConsoleCmd("sm_cl",          Command_ShowClassLimits, "Show current class limits.");
     RegAdminCmd("sm_classlimits_historical", Command_RecordClassPopularityHistorical, ADMFLAG_GENERIC, "Record a daily class popularity snapshot.");
 
     g_hClassStatsTimer = CreateTimer(CLASSLIMITS_STATS_INTERVAL, Timer_RecordClassStats, _, TIMER_REPEAT);
-    g_hOverhealStateTimer = CreateTimer(3.0, Timer_UpdateOverhealState, _, TIMER_REPEAT);
+    g_hClassStateTimer = CreateTimer(3.0, Timer_UpdateClassState, _, TIMER_REPEAT);
 }
 
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
@@ -188,6 +193,7 @@ public void OnMapStart()
     g_bMedicImbalanceActive = false;
     g_bMedicImbalanceDisabledAlertShown = false;
     g_bMedicImbalanceReturnedAlertShown = false;
+    ClearAllClassAvailabilityRequests();
     QueueOverhealStateUpdate();
     for (int client = 1; client <= MaxClients; client++)
     {
@@ -218,10 +224,10 @@ public void OnPluginEnd()
         g_hClassStatsTimer = null;
     }
 
-    if (g_hOverhealStateTimer != null)
+    if (g_hClassStateTimer != null)
     {
-        KillTimer(g_hOverhealStateTimer);
-        g_hOverhealStateTimer = null;
+        KillTimer(g_hClassStateTimer);
+        g_hClassStateTimer = null;
     }
 
     delete g_ClassBans;
@@ -233,12 +239,14 @@ public void OnClientPutInServer(int client)
     g_bForcedRespawn[client]         = false;
     g_iForcedRespawnAttempts[client] = 0;
     g_bOverhealWarningShown[client]   = false;
+    ClearClassAvailabilityRequest(client);
     QueueOverhealStateUpdate();
 }
 
 public void OnClientDisconnect(int client)
 {
     g_bOverhealWarningShown[client] = false;
+    ClearClassAvailabilityRequest(client);
     QueueOverhealStateUpdate();
 }
 
@@ -271,9 +279,10 @@ public Action Timer_RecordClassStats(Handle timer, any data)
     return Plugin_Continue;
 }
 
-public Action Timer_UpdateOverhealState(Handle timer, any data)
+public Action Timer_UpdateClassState(Handle timer, any data)
 {
     UpdateOverhealState();
+    CheckPendingClassAvailability();
     return Plugin_Continue;
 }
 
@@ -390,12 +399,22 @@ public void OnConfigsExecuted()
 public void Event_PlayerClass(Event event, const char[] name, bool dontBroadcast)
 {
     int iClient = GetClientOfUserId(event.GetInt("userid"));
+    if (iClient <= 0 || !IsClientInGame(iClient))
+    {
+        return;
+    }
+
     int iClass  = event.GetInt("class");
     int iTeam   = GetClientTeam(iClient);
 
     int limit;
     if (IsClientClassRestricted(iClient, iTeam, iClass, limit))
     {
+        if (!IsClientClassBanned(iClient, iClass))
+        {
+            RememberClassAvailabilityRequest(iClient, iClass);
+        }
+
         if (iClass >= 0 && iClass < sizeof(g_sSounds) && g_sSounds[iClass][0])
             EmitSoundToClient(iClient, g_sSounds[iClass]);
 
@@ -407,6 +426,15 @@ public void Event_PlayerClass(Event event, const char[] name, bool dontBroadcast
         TF2_SetPlayerClass(iClient, view_as<TFClassType>(g_iClass[iClient]));
         ShowVGUIPanel(iClient, iTeam == TF_TEAM_BLU ? "class_blue" : "class_red");
     }
+    else if (g_iPendingClassAvailability[iClient] == iClass)
+    {
+        ClearClassAvailabilityRequest(iClient);
+    }
+}
+
+public void Event_ClearClassAvailabilityRequests(Event event, const char[] name, bool dontBroadcast)
+{
+    ClearAllClassAvailabilityRequests();
 }
 
 public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
@@ -929,6 +957,121 @@ void NotifyClassRestricted(int client, int classId, int limit)
     char modeName[64];
     strcopy(modeName, sizeof(modeName), g_sGameMode[0] ? g_sGameMode : "this map");
     CPrintToChat(client, "{olive}[Class Limits]{default} Class {yellow}%s{default} is restricted to {gold}%d{default} on {gold}%s{default}!", className, limit >= 0 ? limit : 0, modeName);
+}
+
+static void RememberClassAvailabilityRequest(int client, int classId)
+{
+    if (client <= 0 || client > MaxClients
+        || classId < TF_CLASS_SCOUT || classId > TF_CLASS_ENGINEER)
+    {
+        return;
+    }
+
+    g_iPendingClassAvailability[client] = classId;
+    g_iPendingClassAvailabilityExpiresAt[client] = GetTime() + CLASS_AVAILABILITY_REQUEST_LIFETIME;
+}
+
+static void ClearClassAvailabilityRequest(int client)
+{
+    if (client <= 0 || client > MaxClients)
+    {
+        return;
+    }
+
+    g_iPendingClassAvailability[client] = TF_CLASS_UNKNOWN;
+    g_iPendingClassAvailabilityExpiresAt[client] = 0;
+}
+
+static void ClearAllClassAvailabilityRequests()
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        ClearClassAvailabilityRequest(client);
+    }
+}
+
+static void CheckPendingClassAvailability()
+{
+    int now = GetTime();
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        int classId = g_iPendingClassAvailability[client];
+        if (classId == TF_CLASS_UNKNOWN)
+        {
+            continue;
+        }
+
+        if (!IsClientInGame(client)
+            || g_iPendingClassAvailabilityExpiresAt[client] <= now)
+        {
+            ClearClassAvailabilityRequest(client);
+            continue;
+        }
+
+        if (!IsClassAvailableForClient(client, classId))
+        {
+            continue;
+        }
+
+        CPrintToChat(client,
+            "{olive}[Class Limits]{default} {yellow}%s{default} is now available.",
+            g_ClassNames[classId]);
+        ClearClassAvailabilityRequest(client);
+    }
+}
+
+static bool IsClassAvailableForClient(int client, int classId)
+{
+    if (g_hEnabled == null || !g_hEnabled.BoolValue || IsClassLimitImmune(client))
+    {
+        return true;
+    }
+    if (IsClientClassBanned(client, classId) || IsClassPopulationRestricted(classId))
+    {
+        return false;
+    }
+
+    int team = GetClientTeam(client);
+    if (team < TF_TEAM_RED || team > TF_TEAM_BLU)
+    {
+        return false;
+    }
+
+    ConVar limitCvar = g_hLimits[classId];
+    if (limitCvar == null || limitCvar.FloatValue < 0.0)
+    {
+        return true;
+    }
+
+    float configuredLimit = limitCvar.FloatValue;
+    int limit = configuredLimit > 0.0 && configuredLimit < 1.0
+        ? RoundToNearest(configuredLimit * GetHumanTeamClientCount(team))
+        : RoundToNearest(configuredLimit);
+    if (limit <= 0)
+    {
+        return false;
+    }
+
+    int scoreThreshold = 0;
+    bool haveThreshold = g_hTopScore.BoolValue && GetTeamTopScoreThreshold(team, scoreThreshold);
+    int occupiedSlots = 0;
+    for (int other = 1; other <= MaxClients; other++)
+    {
+        if (other == client || !IsClientInGame(other) || IsFakeClient(other)
+            || GetClientTeam(other) != team
+            || view_as<int>(TF2_GetPlayerClass(other)) != classId)
+        {
+            continue;
+        }
+        if (haveThreshold && GetClientScore(other) >= scoreThreshold)
+        {
+            continue;
+        }
+
+        occupiedSlots++;
+    }
+
+    return occupiedSlots < limit;
 }
 
 void FormatClassLimitText(int classId, char[] buffer, int maxlen)
