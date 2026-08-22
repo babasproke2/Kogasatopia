@@ -36,7 +36,8 @@ void ScattergunKnockback_ResetClient(int client)
 
 static bool ScattergunKnockback_IsPushImmune(int victim)
 {
-	if (TF2_IsPlayerInCondition(victim, TFCond_MegaHeal)
+	if (TF2_IsPlayerInCondition(victim, TFCond_Disguised)
+		|| TF2_IsPlayerInCondition(victim, TFCond_MegaHeal)
 		|| TF2_IsPlayerInCondition(victim, TFCond_ImmuneToPushback)
 		|| TF2_IsPlayerInCondition(victim, TFCond_RuneKnockout))
 	{
