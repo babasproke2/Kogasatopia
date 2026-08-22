@@ -174,13 +174,43 @@ void Stimulus_BackfillExistingExpiry()
         return;
     }
 
-    char query[512];
-    FormatEx(query, sizeof(query),
-        "UPDATE %s SET expires_at = created_at + %d "
-        ... "WHERE title = '%s' AND gems_redeemed = 0 AND expires_at = 0",
-        MAIL_TABLE,
-        expirySeconds,
-        MAIL_STIMULUS_TITLE);
+    char query[1536];
+    if (g_MailDatabaseIsMySql)
+    {
+        FormatEx(query, sizeof(query),
+            "UPDATE %s m "
+            ... "INNER JOIN %s r ON r.mail_id = m.mail_id "
+            ... "INNER JOIN %s d ON d.deployment_id = r.deployment_id "
+            ... "SET m.created_at = d.created_at, m.expires_at = d.created_at + %d "
+            ... "WHERE m.title = '%s' AND m.gems_redeemed = 0",
+            MAIL_TABLE,
+            MAIL_STIMULUS_RECIPIENTS_TABLE,
+            MAIL_STIMULUS_DEPLOYMENTS_TABLE,
+            expirySeconds,
+            MAIL_STIMULUS_TITLE);
+    }
+    else
+    {
+        FormatEx(query, sizeof(query),
+            "UPDATE %s SET "
+            ... "created_at = COALESCE((SELECT d.created_at FROM %s r "
+            ... "INNER JOIN %s d ON d.deployment_id = r.deployment_id "
+            ... "WHERE r.mail_id = %s.mail_id), created_at), "
+            ... "expires_at = COALESCE((SELECT d.created_at + %d FROM %s r "
+            ... "INNER JOIN %s d ON d.deployment_id = r.deployment_id "
+            ... "WHERE r.mail_id = %s.mail_id), created_at + %d) "
+            ... "WHERE title = '%s' AND gems_redeemed = 0",
+            MAIL_TABLE,
+            MAIL_STIMULUS_RECIPIENTS_TABLE,
+            MAIL_STIMULUS_DEPLOYMENTS_TABLE,
+            MAIL_TABLE,
+            expirySeconds,
+            MAIL_STIMULUS_RECIPIENTS_TABLE,
+            MAIL_STIMULUS_DEPLOYMENTS_TABLE,
+            MAIL_TABLE,
+            expirySeconds,
+            MAIL_STIMULUS_TITLE);
+    }
     g_MailDatabase.Query(SQL_OnStimulusMaintenance, query);
 }
 
@@ -196,6 +226,32 @@ void Stimulus_CleanupExpiredMail()
         "DELETE FROM %s WHERE expires_at > 0 AND expires_at <= %d AND gems_redeemed = 0",
         MAIL_TABLE,
         GetTime());
+    g_MailDatabase.Query(SQL_OnStimulusMaintenance, query);
+
+    int expirySeconds = Stimulus_GetExpirySeconds();
+    if (expirySeconds <= 0)
+    {
+        return;
+    }
+
+    if (g_MailDatabaseIsMySql)
+    {
+        FormatEx(query, sizeof(query),
+            "DELETE r FROM %s r INNER JOIN %s d ON d.deployment_id = r.deployment_id "
+            ... "WHERE r.awarded_at = 0 AND d.created_at <= %d",
+            MAIL_STIMULUS_RECIPIENTS_TABLE,
+            MAIL_STIMULUS_DEPLOYMENTS_TABLE,
+            GetTime() - expirySeconds);
+    }
+    else
+    {
+        FormatEx(query, sizeof(query),
+            "DELETE FROM %s WHERE awarded_at = 0 AND deployment_id IN "
+            ... "(SELECT deployment_id FROM %s WHERE created_at <= %d)",
+            MAIL_STIMULUS_RECIPIENTS_TABLE,
+            MAIL_STIMULUS_DEPLOYMENTS_TABLE,
+            GetTime() - expirySeconds);
+    }
     g_MailDatabase.Query(SQL_OnStimulusMaintenance, query);
 }
 
@@ -537,14 +593,18 @@ bool Stimulus_CheckPendingForClient(int client)
     }
 
     char query[1536];
+    int expirySeconds = Stimulus_GetExpirySeconds();
     FormatEx(query, sizeof(query),
-        "SELECT d.deployment_id, d.sender_steamid64, d.sender_name, d.contents, d.gems "
+        "SELECT d.deployment_id, d.sender_steamid64, d.sender_name, d.contents, d.gems, d.created_at "
         ... "FROM %s r INNER JOIN %s d ON d.deployment_id = r.deployment_id "
         ... "WHERE r.steamid64 = '%s' AND r.awarded_at = 0 "
+        ... "AND (%d = 0 OR d.created_at > %d) "
         ... "ORDER BY d.deployment_id ASC",
         MAIL_STIMULUS_RECIPIENTS_TABLE,
         MAIL_STIMULUS_DEPLOYMENTS_TABLE,
-        escapedSteam);
+        escapedSteam,
+        expirySeconds,
+        GetTime() - expirySeconds);
 
     DataPack pack = new DataPack();
     pack.WriteCell(GetClientUserId(client));
@@ -600,6 +660,7 @@ public void SQL_OnPendingStimulusLoaded(Database db, DBResultSet rows, const cha
         rows.FetchString(2, senderName, sizeof(senderName));
         rows.FetchString(3, contents, sizeof(contents));
         int gems = rows.FetchInt(4);
+        int deploymentCreatedAt = rows.FetchInt(5);
 
         char requestKey[MAIL_REQUEST_KEY_MAX];
         FormatEx(requestKey, sizeof(requestKey),
@@ -617,7 +678,11 @@ public void SQL_OnPendingStimulusLoaded(Database db, DBResultSet rows, const cha
             gems,
             requestKey,
             0,
-            true))
+            true,
+            false,
+            "",
+            0,
+            deploymentCreatedAt))
         {
             g_MailStimulusChecked[client] = false;
         }

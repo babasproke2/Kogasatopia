@@ -1748,7 +1748,8 @@ bool QueueMailInsert(
     bool notifyPlayers = false,
     bool userInitiated = false,
     const char[] attachmentType = "",
-    int senderCost = 0)
+    int senderCost = 0,
+    int createdAtOverride = 0)
 {
     if (!g_MailDatabaseReady || g_MailDatabase == null
         || !Kogasa_IsSteamId64(receiverSteamId)
@@ -1802,7 +1803,7 @@ bool QueueMailInsert(
         Format(idempotencyValue, sizeof(idempotencyValue), "'%s'", escapedRequest);
     }
 
-    int createdAt = GetTime();
+    int createdAt = createdAtOverride > 0 ? createdAtOverride : GetTime();
     int expiresAt = Stimulus_GetMailExpiry(title, createdAt);
     char query[4096];
     if (g_MailDatabaseIsMySql)
