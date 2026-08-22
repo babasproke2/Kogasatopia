@@ -149,6 +149,7 @@ ConVar g_sEnabled;
 ConVar g_hPomsonDamageMult;
 ConVar g_hBisonDamageMult;
 ConVar g_hScattergunPelletsDebug;
+ConVar g_hMeatshotDebug;
 ConVar g_hFallingStompAllWeapons;
 ConVar g_hSandmanBaseDuration;
 ConVar g_hSandmanMaxStunFlightTime;
@@ -318,6 +319,7 @@ public void OnPluginStart() {
 	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hScattergunPelletsDebug = CreateConVar("reverts_scattergun_pellets_debug", "0", "Log tracked shotgun/scattergun pellet forward diagnostics.");
+	g_hMeatshotDebug = CreateConVar("meatshot_debug", "0", "Print a client debug message after a valid meatshot kill.", FCVAR_NONE, true, 0.0, true, 1.0);
 	g_hFallingStompAllWeapons = CreateConVar("reverts_falling_stomp_all_weapons", "1", "Enable boots falling stomp on all player weapons.", FCVAR_NONE, true, 0.0, true, 1.0);
 	g_hSandmanMaxStunFlightTime = CreateConVar("reverts_sandman_max_stun_flight_time", "1.5", "Flight time at which the reverted Sandman reaches maximum stun duration.", FCVAR_NONE, true, 0.1);
 	g_hSandmanFallbackBaseDuration = CreateConVar("reverts_sandman_fallback_base_duration", "2.0", "Fallback maximum Sandman stun duration when tf_scout_stunball_base_duration is unavailable.", FCVAR_NONE, true, 0.1);
@@ -1097,6 +1099,11 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 	if (!kill || IsFakeClient(attacker) || IsFakeClient(victim))
 	{
 		return;
+	}
+
+	if (g_hMeatshotDebug.BoolValue)
+	{
+		PrintToChat(attacker, "[debug] You got a meatshot!");
 	}
 
 	FireMeatshotKill(attacker, victim);
