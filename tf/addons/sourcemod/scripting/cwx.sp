@@ -25,6 +25,10 @@
 #include <tf2_spread_patterns>
 #define REQUIRE_EXTENSIONS
 
+#undef REQUIRE_EXTENSIONS
+#include <scattergun_pellets>
+#define REQUIRE_EXTENSIONS
+
 #undef REQUIRE_PLUGIN
 #include <dgm_api>
 #include <points_store_api>
@@ -123,6 +127,17 @@ void CWX_ApplyEngineOverrides(int weapon)
 			pattern = TF2Spread_Circular15;
 		}
 		TF2Spread_SetPattern(weapon, pattern);
+	}
+
+	if (GetFeatureStatus(FeatureType_Native, "TF2Scatter_SetWeaponPelletCount") == FeatureStatus_Available)
+	{
+		float pelletCount = TF2Attrib_HookValueFloat(10.0, "mult_bullets_per_shot", weapon);
+		int pelletsFired = RoundToNearest(pelletCount);
+		if (pelletsFired < 1)
+		{
+			pelletsFired = 1;
+		}
+		TF2Scatter_SetWeaponPelletCount(weapon, pelletsFired);
 	}
 
 	if (GetFeatureStatus(FeatureType_Native, "TF2Spread_SetAmbassadorAccuracy") == FeatureStatus_Available)
