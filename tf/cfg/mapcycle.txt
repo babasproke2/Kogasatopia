@@ -67,7 +67,7 @@ cp_sunshine
 pl_snowycoast
 koth_manjuu_final
 koth_nucleus
-workshop/koth_bagel_rc12.ugc2514036946
+koth_bagel_rc13
 workshop/ctf_moonman.ugc2868831162
 koth_icetower_rc7
 cp_steel_trad
