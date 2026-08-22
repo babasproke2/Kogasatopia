@@ -1509,27 +1509,35 @@ bool CanPlayerEquipItemForClass(int client, int playerClass, const CustomItemDef
 }
 
 /**
+ * Returns whether the item should be visible to the client. Store-gated items
+ * remain visible so the loadout menu can direct players to !shop.
+ */
+bool CanPlayerViewItem(int client, const CustomItemDefinition item) {
+	return !item.access[0] || CheckCommandAccess(client, item.access, 0, true);
+}
+
+bool ItemRequiresPointsStorePurchase(int client, const CustomItemDefinition item) {
+	if (!item.pointsStorePurchase[0]) {
+		return false;
+	}
+
+	return client <= 0 || client > MaxClients || !IsClientInGame(client)
+		|| GetFeatureStatus(FeatureType_Native, POINTS_STORE_HAS_PURCHASE_NATIVE)
+			!= FeatureStatus_Available
+		|| !PointsStore_HasPurchase(client, item.pointsStorePurchase);
+}
+
+/**
  * Returns whether or not the player has access to this item.
  */
 bool CanPlayerAccessItem(int client, const CustomItemDefinition item) {
-	if (item.access[0] && !CheckCommandAccess(client, item.access, 0, true)) {
+	if (!CanPlayerViewItem(client, item)) {
 		// this item requires access
 		return false;
 	}
 	
-	if (item.pointsStorePurchase[0]) {
-		if (client <= 0 || client > MaxClients || !IsClientInGame(client)) {
-			return false;
-		}
-		
-		if (GetFeatureStatus(FeatureType_Native, POINTS_STORE_HAS_PURCHASE_NATIVE)
-				!= FeatureStatus_Available) {
-			return false;
-		}
-		
-		if (!PointsStore_HasPurchase(client, item.pointsStorePurchase)) {
-			return false;
-		}
+	if (ItemRequiresPointsStorePurchase(client, item)) {
+		return false;
 	}
 	
 	return true;

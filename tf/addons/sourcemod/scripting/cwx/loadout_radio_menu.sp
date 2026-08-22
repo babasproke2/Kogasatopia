@@ -182,8 +182,25 @@ static bool ItemVisibleInEquipMenu(int client, const CustomItemDefinition item) 
 		return false;
 	}
 	
-	// visible for submenu, but player can't equip it for other reasons
-	return CanPlayerEquipItem(client, item);
+	// Keep store-gated items visible; only private access rules hide them.
+	return CanPlayerViewItem(client, item);
+}
+
+static void PrintShopPurchaseRequired(int client) {
+	char currencyColor[32] = "{cyan}";
+	ConVar currencyColorCvar = FindConVar("sm_points_store_currency_color");
+	if (currencyColorCvar != null) {
+		char colorName[24];
+		currencyColorCvar.GetString(colorName, sizeof(colorName));
+		TrimString(colorName);
+		if (colorName[0]) {
+			FormatEx(currencyColor, sizeof(currencyColor), "{%s}", colorName);
+		}
+	}
+
+	CPrintToChat(client,
+		"{gold}[cwx]{default} This requires a {gold}!shop{default} purchase; use %s!shop{default}",
+		currencyColor);
 }
 
 /**
@@ -306,6 +323,16 @@ static int OnEquipMenuEvent(Menu menu, MenuAction action, int param1, int param2
 			
 			// TODO: we should be making this a submenu with item description?
 			if (uid[0]) {
+				CustomItemDefinition selectedItem;
+				if (!GetCustomItemDefinition(uid, selectedItem)) {
+					return 0;
+				}
+				if (ItemRequiresPointsStorePurchase(client, selectedItem)) {
+					PrintShopPurchaseRequired(client);
+					s_EquipMenu.Display(client, 30);
+					return 0;
+				}
+
 				if (SetClientCustomLoadoutItem(client, g_iPlayerClassInMenu[client], uid,
 						LOADOUT_FLAG_UPDATE_BACKEND | LOADOUT_FLAG_ATTEMPT_REGEN)) {
 					CustomItemDefinition item;
@@ -387,6 +414,11 @@ static int OnEquipMenuEvent(Menu menu, MenuAction action, int param1, int param2
 				redraw = true;
 			} else if (uid[0] && override) {
 				Format(itemName, sizeof(itemName), "%s %t", itemName, "ItemForcedByServer");
+				redraw = true;
+			}
+
+			if (uid[0] && ItemRequiresPointsStorePurchase(client, item)) {
+				Format(itemName, sizeof(itemName), "%s [!Shop]", itemName);
 				redraw = true;
 			}
 			
