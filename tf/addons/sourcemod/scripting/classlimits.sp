@@ -115,7 +115,7 @@ public void OnPluginStart()
     g_hDisableOverhealMedicImbalance = CreateConVar(
         "disable_overheal_medic_imbalance",
         "0",
-        "Disable overheal while exactly one combat team has a Medic.",
+        "Disable overheal while exactly one team has a Medic.",
         _,
         true,
         0.0,
