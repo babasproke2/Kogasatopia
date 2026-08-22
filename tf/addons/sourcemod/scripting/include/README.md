@@ -196,7 +196,8 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 ## scattergun_pellets.inc
 - `TF2Shotgun_OnPelletShot` - Fires when shotgun pellet damage is recorded.
 - `TF2Scatter_GetLastKillPellets` - Returns pellet count for the last matching scattergun kill.
-- `TF2Scatter_WasLastKillFull` - Returns whether the last matching scattergun kill used a full pellet hit.
+- `TF2Scatter_WasLastKillFull` - Returns whether every pellet fired by the last matching scattergun kill hit the victim.
+- `TF2Scatter_SetWeaponPelletCount` - Registers the actual pellet count fired by a weapon.
 
 ## tags_api.inc
 - `Tags_GetTag` - Writes the resolved tag for a live client or SteamID64.

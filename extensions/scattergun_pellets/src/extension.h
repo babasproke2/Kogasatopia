@@ -26,6 +26,7 @@ public:
 
 	int GetLastKillPellets(int attacker, int victim) const;
 	bool WasLastKillFull(int attacker, int victim) const;
+	void SetWeaponPelletCount(CBaseEntity *weapon, int pelletsFired);
 
 private:
 	bool SetupTraceAttackHook(char *error, size_t maxlen);
@@ -33,15 +34,17 @@ private:
 	void UnhookClient(int client);
 	void HookExistingClients();
 	bool IsValidClientIndex(int client) const;
-	bool IsTrackedPelletDamage(const CTakeDamageInfo &info, int attacker) const;
+	CBaseEntity *GetTrackedPelletWeapon(const CTakeDamageInfo &info, int attacker) const;
 	bool IsTrackedPelletWeapon(CBaseEntity *weapon) const;
 	CBaseEntity *GetActiveWeapon(int client) const;
+	int GetWeaponPelletCount(CBaseEntity *weapon) const;
 	bool IsDuplicatePelletTrace(int attacker, int victim, CGameTrace *trace, int tick) const;
 	bool RememberPelletTrace(int attacker, int victim, CGameTrace *trace, int tick);
-	void RecordPelletHit(int attacker, int victim, CGameTrace *trace);
+	void RecordPelletHit(int attacker, int victim, CGameTrace *trace, int pelletsFired);
 	void ClearPelletShot(int attacker, int victim);
 	void ClearPelletState();
-	void DispatchPelletShotForward(int attacker, int victim, int pellets, bool kill);
+	void DispatchPelletShotForward(
+		int attacker, int victim, int pellets, int pelletsFired, bool kill);
 
 private:
 	IGameEventManager2 *m_gameEvents = nullptr;
@@ -52,12 +55,18 @@ private:
 	int m_clientTraceHooks[SM_MAXPLAYERS + 1] = {};
 	int m_pelletTick[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
 	int m_pelletCount[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
+	int m_pelletTotal[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
 	int m_lastTraceTick[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
 	int m_lastTraceHitbox[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
 	int m_lastTraceHitgroup[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
 	float m_lastTraceEnd[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1][3] = {};
 	int m_lastKillTick[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
 	int m_lastKillPellets[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
+	int m_lastKillTotal[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
+
+	static constexpr int kMaxTrackedEntities = 2048;
+	cell_t m_weaponRefs[kMaxTrackedEntities] = {};
+	int m_weaponPelletCounts[kMaxTrackedEntities] = {};
 };
 
 extern ScattergunPellets g_ScattergunPellets;

@@ -63,15 +63,16 @@ SourceMod strips the Linux `.so` suffix when resolving the extension key.
 forward void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int total, bool kill);
 native int TF2Scatter_GetLastKillPellets(int attacker, int victim);
 native bool TF2Scatter_WasLastKillFull(int attacker, int victim);
+native void TF2Scatter_SetWeaponPelletCount(int weapon, int pelletsFired);
 ```
 
 The full-pellet check is:
 
 ```sourcepawn
-pellets == total
+pellets >= total
 ```
 
-For tracked scattergun and shotgun classes, `total` is currently `10`. `kill` is true when the shot produced the `player_death` event. Non-kill shots are emitted on the next game frame so the extension does not fire both a non-kill and kill event for the same shot.
+`total` is the actual pellet count registered for the weapon. The extension falls back to the stock shotgun count of 10 when no count is registered. `kill` is true when the shot produced the `player_death` event. Non-kill shots are emitted on the next game frame so the extension does not fire both a non-kill and kill event for the same shot.
 
 ## weaponreverts Integration
 
@@ -82,6 +83,8 @@ For tracked scattergun and shotgun classes, `total` is currently `10`. `kill` is
 #include <points_store_api>
 ```
 
+After applying item attributes, WeaponReverts evaluates TF2's `mult_bullets_per_shot` hook and registers the result through `TF2Scatter_SetWeaponPelletCount`. This makes full-hit checks account for custom 15- and 20-pellet weapons while preserving stock 10-pellet behavior.
+
 When the extension fires `TF2Shotgun_OnPelletShot` with `kill=true`, the plugin checks for a full pellet kill and calls:
 
 ```sourcepawn
@@ -89,6 +92,8 @@ PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "meatshot_kill");
 ```
 
 The points store plugin is responsible for awarding points and printing any chat output.
+
+The custom WeaponReverts attribute `"ignite on full pellet hit" "5"` ignites a living victim for five seconds only when `pellets >= total`. Ignition uses `TF2Util_IgnitePlayer` and TF2's native burn pipeline.
 
 Useful debug commands and cvars:
 
@@ -146,4 +151,5 @@ build/scattergun_pellets.ext.2.tf2/linux-x86/scattergun_pellets.ext.2.tf2.so
 - Counts buckshot damage from `tf_weapon_scattergun` and any weapon class containing `tf_weapon_shotgun`.
 - Emits one SourcePawn forward per completed tracked shot instead of one forward per pellet.
 - Falls back to the attacker's active weapon when TF2 does not populate the damage-info weapon handle.
+- Tracks configured pellet totals by weapon entity reference so recycled entity indexes cannot inherit stale values.
 - Deduplicates repeated `TraceAttack` callbacks for the same pellet trace so a 10/10 shot is reported as `pellets=10`, not `pellets=20`.

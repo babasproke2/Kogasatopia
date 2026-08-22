@@ -65,6 +65,7 @@
 #define ATTR_PUNCH_ANGLE_IS_CONSISTENT "punch angle is consistent"
 #define ATTR_PUNCH_ANGLE_MOD "punch angle mod"
 #define ATTR_SCATTERGUN_HAS_KNOCKBACK "scattergun has knockback"
+#define ATTR_IGNITE_ON_FULL_PELLET_HIT "ignite on full pellet hit"
 #define ATTR_HEADSHOTS_ENABLED "headshots enabled"
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
@@ -203,6 +204,12 @@ static void WeaponReverts_ApplyEngineOverrides(int weapon)
 			pattern = TF2Spread_Circular15;
 		}
 		TF2Spread_SetPattern(weapon, pattern);
+	}
+
+	if (GetFeatureStatus(FeatureType_Native, "TF2Scatter_SetWeaponPelletCount") == FeatureStatus_Available)
+	{
+		int pelletsFired = TF2Attrib_HookValueInt(10, "mult_bullets_per_shot", weapon);
+		TF2Scatter_SetWeaponPelletCount(weapon, pelletsFired);
 	}
 
 	if (GetFeatureStatus(FeatureType_Native, "TF2Spread_SetAmbassadorAccuracy") == FeatureStatus_Available)
@@ -1075,6 +1082,16 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 	{
 		ScatterPellets_Debug("ignored: not a full pellet shot");
 		return;
+	}
+
+	int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
+	if (IsPlayerAlive(victim) && IsValidWeaponEntity(weapon))
+	{
+		float burnDuration = TF2CustAttr_GetFloat(weapon, ATTR_IGNITE_ON_FULL_PELLET_HIT, 0.0);
+		if (burnDuration > 0.0)
+		{
+			TF2Util_IgnitePlayer(victim, attacker, burnDuration, weapon);
+		}
 	}
 
 	if (!kill || IsFakeClient(attacker) || IsFakeClient(victim))

@@ -10,7 +10,7 @@
  * @param attacker  Client index of the shooter.
  * @param victim    Client index of the player hit or killed.
  * @param pellets   Number of deduplicated pellets that hit this victim.
- * @param total     Full pellet count for the tracked weapon family, currently 10.
+ * @param total     Actual number of pellets fired by this shot.
  * @param kill      True if this shot produced the player_death event.
  */
 forward void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int total, bool kill);
@@ -21,9 +21,16 @@ forward void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int 
 native int TF2Scatter_GetLastKillPellets(int attacker, int victim);
 
 /**
- * Returns true when the stored last tracked buckshot kill from attacker to victim was 10/10.
+ * Returns true when every pellet fired by the stored last tracked buckshot kill
+ * hit the victim.
  */
 native bool TF2Scatter_WasLastKillFull(int attacker, int victim);
+
+/**
+ * Registers the actual pellet count for a weapon. Passing zero or less clears
+ * the override and restores the stock 10-pellet fallback.
+ */
+native void TF2Scatter_SetWeaponPelletCount(int weapon, int pelletsFired);
 
 public Extension __ext_scattergun_pellets =
 {
@@ -42,5 +49,6 @@ public void __ext_scattergun_pellets_SetNTVOptional()
 {
 	MarkNativeAsOptional("TF2Scatter_GetLastKillPellets");
 	MarkNativeAsOptional("TF2Scatter_WasLastKillFull");
+	MarkNativeAsOptional("TF2Scatter_SetWeaponPelletCount");
 }
 #endif
