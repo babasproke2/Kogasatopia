@@ -55,6 +55,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_steam", Command_Steam, "Prints the steam group URL to the client");
     RegConsoleCmd("sm_steamchat", Command_chat, "Steam chat link");
     RegConsoleCmd("sm_chatlink", Command_chat, "Steam chat link");
+    RegConsoleCmd("sm_discord", Command_chat, "Steam chat link");
     RegConsoleCmd("sm_welcome", Command_Welcome, "Reprints the welcome message.");
     RegConsoleCmd("sm_diamond", Command_DiamondPickaxe, "Prints Diamond Pickaxe info.");
     RegConsoleCmd("sm_diamondpickaxe", Command_DiamondPickaxe, "Prints Diamond Pickaxe info.");
