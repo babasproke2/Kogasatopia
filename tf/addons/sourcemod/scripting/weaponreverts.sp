@@ -1072,6 +1072,13 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 		ScatterPellets_Debug("ignored: invalid attacker/victim");
 		return;
 	}
+	if (GetClientTeam(attacker) <= 1
+		|| GetClientTeam(victim) <= 1
+		|| GetClientTeam(attacker) == GetClientTeam(victim))
+	{
+		ScatterPellets_Debug("ignored: friendly/noncombat target");
+		return;
+	}
 	if (g_bAccuracyExploding[attacker])
 	{
 		ScatterPellets_Debug("ignored: accuracy explosion in progress");
