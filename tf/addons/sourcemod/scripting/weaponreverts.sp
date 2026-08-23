@@ -1873,13 +1873,15 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 		SecondaryDamageRefill_OnDamage(attacker, damageWeapon, damage);
 		ReloadOnHit_OnDamage(damageWeapon);
 
-		int duelAttr = TF2CustAttr_GetInt(damageWeapon, "duel declared");
-		if (duelAttr != 0)
+		// Resolve duel damage without falling back to the attacker's active weapon.
+		int duelWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
+		if (duelWeapon > MaxClients && IsValidEntity(duelWeapon)
+			&& TF2CustAttr_GetInt(duelWeapon, "duel declared") != 0)
 		{
 			int victimWeapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
 			if (victimWeapon > MaxClients && IsValidEntity(victimWeapon) && TF2CustAttr_GetInt(victimWeapon, "duel declared") != 0)
 			{
-				if (GetClip(damageWeapon) == 6)
+				if (GetClip(duelWeapon) == 6)
 				{
 					damage = 100.0;
 					damagetype |= DMG_CRIT;
