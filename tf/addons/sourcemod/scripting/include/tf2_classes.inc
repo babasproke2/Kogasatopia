@@ -5,6 +5,24 @@
 
 #include <tf2>
 
+stock TFClassType TF2Classes_GetCurrentOrDesired(int client)
+{
+    TFClassType playerClass = TF2_GetPlayerClass(client);
+    if (IsPlayerAlive(client))
+    {
+        return playerClass;
+    }
+
+    int desiredClass = GetEntProp(client, Prop_Send, "m_iDesiredPlayerClass");
+    if (desiredClass > view_as<int>(TFClass_Unknown)
+        && desiredClass <= view_as<int>(TFClass_Engineer))
+    {
+        return view_as<TFClassType>(desiredClass);
+    }
+
+    return playerClass;
+}
+
 stock bool TF2Classes_GetKey(TFClassType playerClass, char[] buffer, int maxlen, const char[] fallback = "")
 {
     switch (playerClass)

@@ -74,7 +74,7 @@ static int bitsSlotVisibility[NUM_PLAYER_CLASSES] = {
  * Command callback to display items to a player.
  */
 Action DisplayItems(int client, int argc) {
-	g_iPlayerClassInMenu[client] = view_as<int>(TF2_GetPlayerClass(client));
+	g_iPlayerClassInMenu[client] = view_as<int>(TF2Classes_GetCurrentOrDesired(client));
 	if (!g_iPlayerClassInMenu[client]) {
 		return Plugin_Handled;
 	}

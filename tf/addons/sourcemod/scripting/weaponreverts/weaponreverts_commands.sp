@@ -97,7 +97,7 @@ public Action Command_InfoReverts(int client, int args)
 	}
 
 	char classKey[16];
-	TF2Classes_GetKey(TF2_GetPlayerClass(client), classKey, sizeof(classKey));
+	TF2Classes_GetKey(TF2Classes_GetCurrentOrDesired(client), classKey, sizeof(classKey));
 	if (classKey[0] == '\0')
 		return Plugin_Handled;
 
