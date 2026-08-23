@@ -164,15 +164,8 @@ void Lotteries_OnMapEnd()
     {
         interruptedLotteryId = g_LotteryCallLotteryId;
     }
-    else if (g_LotteryDrawInProgress)
-    {
-        interruptedLotteryId = g_LotteryDrawLotteryId > 0
-            ? g_LotteryDrawLotteryId
-            : g_CurrentLotteryId;
-    }
 
     CancelPendingLotteryCall();
-    CancelActiveLotteryDrawForMapChange();
 
     if (interruptedLotteryId > 0)
     {
@@ -2831,7 +2824,8 @@ public void SQL_OnLotteryWinnerSelected(Database db, DBResultSet results, const 
     GetLotteryShortHash(g_LotteryDrawHash, shortHash, sizeof(shortHash));
     CPrintToChatAll("%s[Lotto]{default} Drawing lottery %s%s{default}...", colorTag, g_LotteryDrawHashColor, shortHash);
 
-    g_LotteryDrawTimer = CreateTimer(LOTTO_REVEAL_INTERVAL, Timer_LotteryReveal, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+    // Reveals survive map changes so the already-selected winner is still paid.
+    g_LotteryDrawTimer = CreateTimer(LOTTO_REVEAL_INTERVAL, Timer_LotteryReveal, _, TIMER_REPEAT);
 }
 
 int PickLotteryWinnerIndex(ArrayList ticketChances, ArrayList selectedWinners)
@@ -3075,23 +3069,6 @@ void CancelPendingLotteryCall()
     }
     g_LotteryCallRequesterUserId = 0;
     g_LotteryCallLotteryId = 0;
-}
-
-void CancelActiveLotteryDrawForMapChange()
-{
-    if (g_LotteryDrawTimer != null)
-    {
-        KillTimer(g_LotteryDrawTimer);
-        g_LotteryDrawTimer = null;
-    }
-
-    if (g_LotteryDrawInProgress)
-    {
-        LogMessage("[points_store] Lottery draw state cleared on map end for lottery %d.", g_LotteryDrawLotteryId);
-    }
-
-    g_LotteryDrawInProgress = false;
-    ResetLotteryDrawState();
 }
 
 void ReplyToLotteryRequester(int userId, const char[] format, any ...)
