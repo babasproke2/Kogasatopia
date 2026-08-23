@@ -19,6 +19,7 @@
 #define LOTTO_EXTRA_WINNER_PERCENT 5
 #define LOTTO_WELFARE_POOL_PERCENT 5
 #define LOTTO_TICKET_WRITE_TIMEOUT 15.0
+#define LOTTO_MAP_CHANGE_DELAY 120.0
 
 ConVar g_CvarLotteryDisabled = null;
 ConVar g_CvarLotteryMaxTicketValue = null;
@@ -52,6 +53,7 @@ Handle g_LotteryDrawTimer = null;
 Handle g_LotteryCallTimer = null;
 int g_LotteryCallRequesterUserId = 0;
 int g_LotteryCallLotteryId = 0;
+int g_LotteryMapChangeLotteryId = 0;
 int g_LotteryDrawIndex = 0;
 int g_LotteryDrawLotteryId = 0;
 int g_LotteryDrawPrizePool = 0;
@@ -157,8 +159,49 @@ void Lotteries_OnPluginEnd()
 
 void Lotteries_OnMapEnd()
 {
+    int interruptedLotteryId = 0;
+    if (g_LotteryCallTimer != null)
+    {
+        interruptedLotteryId = g_LotteryCallLotteryId;
+    }
+    else if (g_LotteryDrawInProgress)
+    {
+        interruptedLotteryId = g_LotteryDrawLotteryId > 0
+            ? g_LotteryDrawLotteryId
+            : g_CurrentLotteryId;
+    }
+
     CancelPendingLotteryCall();
     CancelActiveLotteryDrawForMapChange();
+
+    if (interruptedLotteryId > 0)
+    {
+        g_LotteryMapChangeLotteryId = interruptedLotteryId;
+    }
+}
+
+void Lotteries_OnMapStart()
+{
+    if (g_LotteryMapChangeLotteryId <= 0 || g_LotteryCallTimer != null
+        || g_LotteryDrawInProgress)
+    {
+        return;
+    }
+
+    g_LotteryCallRequesterUserId = 0;
+    g_LotteryCallLotteryId = g_LotteryMapChangeLotteryId;
+    g_LotteryMapChangeLotteryId = 0;
+    g_LotteryCallTimer = CreateTimer(
+        LOTTO_MAP_CHANGE_DELAY,
+        Timer_LotteryCall,
+        _,
+        TIMER_FLAG_NO_MAPCHANGE);
+
+    if (g_LotteryCallTimer == null)
+    {
+        LogError("[points_store] Could not reschedule lottery %d after a map change.", g_LotteryCallLotteryId);
+        g_LotteryCallLotteryId = 0;
+    }
 }
 
 void Lotteries_OnClientAuthorized(int client)

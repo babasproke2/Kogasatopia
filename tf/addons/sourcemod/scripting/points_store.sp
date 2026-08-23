@@ -286,6 +286,7 @@ public void OnPluginEnd()
 
 public void OnMapStart()
 {
+    Lotteries_OnMapStart();
     Bounties_OnMapStart();
     RefreshPerMapAwardScope();
     if (g_PerMapIgnoreInitialMapStart)
