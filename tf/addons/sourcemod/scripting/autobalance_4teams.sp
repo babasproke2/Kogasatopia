@@ -128,6 +128,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_swap", Command_RequestTeamSwap, "sm_swap [name] - Request a team swap with an enemy player.");
     RegConsoleCmd("sm_requestswap", Command_RequestTeamSwap, "sm_requestswap [name] - Request a team swap with an enemy player.");
     RegConsoleCmd("sm_sw", Command_RequestTeamSwap, "sm_sw [name] - Request a team swap with an enemy player.");
+    RegAdminCmd("sm_forceswap", Command_ForceTeamSwap, ADMFLAG_GENERIC, "sm_forceswap <name> [name] - Force two players to swap teams.");
     RegConsoleCmd("sm_yes", Command_AcceptTeamSwap, "Accept a pending team-swap request.");
     LogBalance("[autobalance_4teams] Plugin started.");
     g_hMapImmunity = new StringMap();
@@ -239,6 +240,78 @@ public Action Command_RequestTeamSwap(int client, int args)
     return Plugin_Handled;
 }
 
+public Action Command_ForceTeamSwap(int client, int args)
+{
+    if (args < 1 || args > 2 || (args == 1 && client == 0))
+    {
+        ReplyToCommand(client, "[Team Swap] Usage: sm_forceswap <name> [name]");
+        return Plugin_Handled;
+    }
+
+    int first = client;
+    int second;
+    char targetArg[MAX_TARGET_LENGTH];
+
+    if (args == 1)
+    {
+        GetCmdArg(1, targetArg, sizeof(targetArg));
+        second = FindTarget(client, targetArg, true, false);
+    }
+    else
+    {
+        GetCmdArg(1, targetArg, sizeof(targetArg));
+        first = FindTarget(client, targetArg, true, false);
+        if (first <= 0)
+        {
+            return Plugin_Handled;
+        }
+
+        GetCmdArg(2, targetArg, sizeof(targetArg));
+        second = FindTarget(client, targetArg, true, false);
+    }
+
+    if (first <= 0 || second <= 0)
+    {
+        return Plugin_Handled;
+    }
+
+    if (first == second)
+    {
+        ReplyToCommand(client, "[Team Swap] Select two different players.");
+        return Plugin_Handled;
+    }
+
+    int firstTeam = GetClientTeam(first);
+    int secondTeam = GetClientTeam(second);
+    if (!IsTeamSwapClient(first) || !IsTeamSwapClient(second)
+        || !IsGameTeam(firstTeam) || !IsGameTeam(secondTeam) || firstTeam == secondTeam)
+    {
+        ReplyToCommand(client, "[Team Swap] Both players must be on different playing teams.");
+        return Plugin_Handled;
+    }
+
+    if (DuelDetection_IsClientInDuel(first) || DuelDetection_IsClientInDuel(second))
+    {
+        ReplyToCommand(client, "[Team Swap] Players in a duel cannot swap teams.");
+        return Plugin_Handled;
+    }
+
+    ClearTeamSwapRequestsForClient(first);
+    ClearTeamSwapRequestsForClient(second);
+    SwapTeamClients(first, second);
+
+    ReplyToCommand(client, "[Team Swap] Force-swapped %N with %N.", first, second);
+    if (first != client)
+    {
+        CPrintToChat(first, "[Team Swap] An admin force-swapped you with %N.", second);
+    }
+    if (second != client)
+    {
+        CPrintToChat(second, "[Team Swap] An admin force-swapped you with %N.", first);
+    }
+    return Plugin_Handled;
+}
+
 public Action Command_AcceptTeamSwap(int client, int args)
 {
     if (!IsTeamSwapClient(client) || !HasPendingTeamSwap(client))
@@ -306,18 +379,7 @@ public Action Command_AcceptTeamSwap(int client, int args)
         return Plugin_Handled;
     }
 
-    bool senderWasAlive = IsPlayerAlive(sender);
-    bool targetWasAlive = IsPlayerAlive(client);
-    ChangeClientTeam(sender, targetTeam);
-    ChangeClientTeam(client, senderTeam);
-    if (senderWasAlive)
-    {
-        TF2_RespawnPlayer(sender);
-    }
-    if (targetWasAlive)
-    {
-        TF2_RespawnPlayer(client);
-    }
+    SwapTeamClients(sender, client);
 
     char senderName[256];
     char targetName[256];
@@ -541,6 +603,25 @@ static void ClearAllTeamSwapRequests()
 static bool IsTeamSwapClient(int client)
 {
     return client > 0 && client <= MaxClients && IsClientInGame(client) && !IsFakeClient(client);
+}
+
+static void SwapTeamClients(int first, int second)
+{
+    int firstTeam = GetClientTeam(first);
+    int secondTeam = GetClientTeam(second);
+    bool firstWasAlive = IsPlayerAlive(first);
+    bool secondWasAlive = IsPlayerAlive(second);
+
+    ChangeClientTeam(first, secondTeam);
+    ChangeClientTeam(second, firstTeam);
+    if (firstWasAlive)
+    {
+        TF2_RespawnPlayer(first);
+    }
+    if (secondWasAlive)
+    {
+        TF2_RespawnPlayer(second);
+    }
 }
 
 static bool CanUseTeamSwapStore(int client, bool printFailure)
