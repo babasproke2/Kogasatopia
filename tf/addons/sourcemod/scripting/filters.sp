@@ -1057,6 +1057,38 @@ public Action Command_RandomMemomanMessage(int client, int args)
     return Filters_CommandRandomArchivedMessage(client, ArchivedSpeaker_Memoman);
 }
 
+static void Filters_ScheduleArchivedMessageTriggers(int client, const char[] message)
+{
+    if (StrContains(message, "memo", false) != -1)
+    {
+        Filters_ScheduleArchivedMessageTrigger(client, ArchivedSpeaker_Memoman);
+    }
+    if (StrContains(message, "parsee", false) != -1)
+    {
+        Filters_ScheduleArchivedMessageTrigger(client, ArchivedSpeaker_Parsee);
+    }
+}
+
+static void Filters_ScheduleArchivedMessageTrigger(int client, ArchivedSpeaker speaker)
+{
+    DataPack pack;
+    CreateDataTimer(GetRandomFloat(2.0, 5.0), Timer_ArchivedMessageTrigger, pack, TIMER_FLAG_NO_MAPCHANGE);
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(speaker);
+}
+
+public Action Timer_ArchivedMessageTrigger(Handle timer, DataPack pack)
+{
+    pack.Reset();
+    int client = GetClientOfUserId(pack.ReadCell());
+    ArchivedSpeaker speaker = pack.ReadCell();
+    if (client > 0 && IsClientInGame(client))
+    {
+        Filters_CommandRandomArchivedMessage(client, speaker);
+    }
+    return Plugin_Stop;
+}
+
 static Action Filters_CommandRandomArchivedMessage(int client, ArchivedSpeaker speaker)
 {
     int now = GetTime();
@@ -1955,6 +1987,8 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
         PrintToServer("%s", sArgs);
         return Plugin_Continue;
     }
+
+    Filters_ScheduleArchivedMessageTriggers(client, sArgs);
 
     if (TryHandleTeamChat(client, command, sArgs, dead))
     {
