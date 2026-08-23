@@ -18,6 +18,7 @@
 #include <plugin_statistics>
 
 #include "include/steam_identity.inc"
+#include "include/tf2_classes.inc"
 
 #define PL_VERSION "1.0.2"
 #define CLASSLIMITS_STATS_INTERVAL 180.0
@@ -550,7 +551,7 @@ static bool IsClientClassRestricted(int client, int team, int classId, int &limi
         return true;
     }
 
-    return !IsClassLimitImmune(client) && IsClassAtLimit(team, classId, limitOut);
+    return !IsClassLimitImmune(client) && IsClassAtLimit(client, team, classId, limitOut);
 }
 
 static bool IsClientClassBanned(int client, int classId)
@@ -804,7 +805,7 @@ static bool GetClassPopulationRestrictionState(int classId, int &currentPlayers,
     return threshold > 0 && currentPlayers >= POPULATION_RESTRICTION_MIN_PLAYERS && currentPlayers < threshold;
 }
 
-bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
+bool IsClassAtLimit(int client, int iTeam, int iClass, int &limitOut)
 {
     limitOut = -1;
     if (!g_hEnabled.BoolValue || iTeam < TF_TEAM_RED || iClass < TF_CLASS_SCOUT || iClass > TF_CLASS_ENGINEER)
@@ -834,9 +835,14 @@ bool IsClassAtLimit(int iTeam, int iClass, int &limitOut)
 
     for (int i = 1, iCount = 0; i <= MaxClients; i++)
     {
-        if (!IsClientInGame(i) || IsFakeClient(i) || GetClientTeam(i) != iTeam || view_as<int>(TF2_GetPlayerClass(i)) != iClass) continue;
+        if (i == client || !IsClientInGame(i) || IsFakeClient(i)
+            || GetClientTeam(i) != iTeam
+            || view_as<int>(TF2Classes_GetCurrentOrDesired(i)) != iClass)
+        {
+            continue;
+        }
         if (haveThreshold && GetClientScore(i) >= scoreThreshold) continue;
-        if (++iCount > limitOut) return true;
+        if (++iCount >= limitOut) return true;
     }
     return false;
 }
@@ -1059,7 +1065,7 @@ static bool IsClassAvailableForClient(int client, int classId)
     {
         if (other == client || !IsClientInGame(other) || IsFakeClient(other)
             || GetClientTeam(other) != team
-            || view_as<int>(TF2_GetPlayerClass(other)) != classId)
+            || view_as<int>(TF2Classes_GetCurrentOrDesired(other)) != classId)
         {
             continue;
         }
