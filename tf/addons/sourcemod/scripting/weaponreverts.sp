@@ -1107,7 +1107,9 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 	if (IsPlayerAlive(victim) && IsValidWeaponEntity(weapon))
 	{
 		float burnDuration = TF2CustAttr_GetFloat(weapon, ATTR_IGNITE_ON_FULL_PELLET_HIT, 0.0);
-		if (burnDuration > 0.0)
+		if (burnDuration > 0.0
+			&& !TF2_IsPlayerInCondition(victim, TFCond_Disguised)
+			&& !TF2_IsPlayerInCondition(victim, TFCond_Cloaked))
 		{
 			TF2Util_IgnitePlayer(victim, attacker, burnDuration, weapon);
 		}
