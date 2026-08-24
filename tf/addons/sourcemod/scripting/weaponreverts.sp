@@ -300,14 +300,9 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 stock void ResetClientArrays(int client)
 {
 	if (!WR_IsValidPlayerIndex(client)) return;
-	Harvester_StopHealTimer(client);
-	Harvester_StopHintTimer(client);
+	Harvester_ClearState(client);
 	ShockCharge_StopTimer(client);
-	Harvester_ClearRevengeCrit(client);
-	tf2_players[client].scytheWeapon = 0;
 	tf2_players[client].shockCharge = 30;
-	tf2_players[client].healCount = 0;
-	tf2_players[client].lastHarvesterDirectHealTime = -1.0;
 	tf2_players[client].lastUber = 0.0;
 	tf2_players[client].lastUberMedigunDefIndex = 0;
 	tf2_players[client].engiMetal = 0;
@@ -380,6 +375,8 @@ public void OnPluginStart() {
 		HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
 		HookEvent("post_inventory_application", Event_Resupply, EventHookMode_Post);
 		HookEvent("player_spawn", OnPlayerSpawn);
+		HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
+		HookEvent("player_team", Event_PlayerTeam, EventHookMode_Post);
 
 		// Blast jumping hooks
 
@@ -536,10 +533,8 @@ public void OnMapEnd()
 {
 	for (int client = 1; client <= MaxClients; client++)
 	{
-		Harvester_StopHealTimer(client);
-		Harvester_StopHintTimer(client);
+		Harvester_ClearState(client);
 		ShockCharge_StopTimer(client);
-		tf2_players[client].lastHarvesterDirectHealTime = -1.0;
 	}
 }
 
@@ -1205,12 +1200,8 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 		return Plugin_Continue;
 
 	Sproke_ClearEffect(client, false, true);
-	Harvester_StopHealTimer(client);
-	Harvester_StopHintTimer(client);
+	Harvester_ClearState(client);
 	ShockCharge_StopTimer(client);
-	Harvester_ClearRevengeCrit(client);
-	tf2_players[client].healCount = 0;
-	tf2_players[client].lastHarvesterDirectHealTime = -1.0;
 	tf2_players[client].shockCharge = 30;
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
@@ -1306,6 +1297,10 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
+	if (!Harvester_IsEligibleClient(client))
+	{
+		Harvester_ClearState(client);
+	}
 
 	VitaSaw_ApplyStoredCharge(client);
 	RequestFrame(Harvester_FrameSyncHealTimer, GetClientUserId(client));
@@ -1338,12 +1333,34 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
+	if (!Harvester_IsEligibleClient(client))
+	{
+		Harvester_ClearState(client);
+	}
 
 	ScattergunKnockback_ResetClient(client);
 	VitaSaw_ApplyStoredCharge(client);
 	RequestFrame(Harvester_FrameSyncHealTimer, GetClientUserId(client));
 
 	return Plugin_Continue;
+}
+
+public void Event_PlayerChangeClass(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (client > 0)
+	{
+		Harvester_ClearState(client);
+	}
+}
+
+public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
+{
+	int client = GetClientOfUserId(event.GetInt("userid"));
+	if (client > 0)
+	{
+		Harvester_ClearState(client);
+	}
 }
 
 #define FSOLID_USE_TRIGGER_BOUNDS 0x80
@@ -1621,6 +1638,26 @@ public Action OnWeaponSwitch(int client, int weapon)
 	return Plugin_Continue;
 }
 
+static bool Harvester_IsEligibleClient(int client)
+{
+	return IsClientInGame(client) && TF2_GetPlayerClass(client) == TFClass_Pyro;
+}
+
+static void Harvester_ClearState(int client)
+{
+	if (!WR_IsValidPlayerIndex(client))
+	{
+		return;
+	}
+
+	Harvester_StopHealTimer(client);
+	Harvester_StopHintTimer(client);
+	Harvester_ClearRevengeCrit(client);
+	tf2_players[client].scytheWeapon = 0;
+	tf2_players[client].healCount = 0;
+	tf2_players[client].lastHarvesterDirectHealTime = -1.0;
+}
+
 static bool Harvester_IsWeapon(int weapon)
 {
 	return IsValidWeaponEntity(weapon)
@@ -1629,7 +1666,7 @@ static bool Harvester_IsWeapon(int weapon)
 
 static void Harvester_AddHealCount(int client, int amount)
 {
-	if (!IsClientInGame(client) || amount <= 0
+	if (!Harvester_IsEligibleClient(client) || amount <= 0
 		|| GetEntProp(client, Prop_Send, "m_iRevengeCrits") > 0)
 	{
 		return;
@@ -1646,7 +1683,7 @@ static void Harvester_AddHealCount(int client, int amount)
 
 static void Harvester_OnAfterburnDamage(int client)
 {
-	if (!IsPlayerAlive(client))
+	if (!Harvester_IsEligibleClient(client) || !IsPlayerAlive(client))
 	{
 		return;
 	}
@@ -1673,7 +1710,7 @@ static void Harvester_OnAfterburnDamage(int client)
 
 static void Harvester_StartHealTimer(int client)
 {
-	if (!IsClientInGame(client) || !IsPlayerAlive(client) || !WeaponReverts_IsEnabled()
+	if (!Harvester_IsEligibleClient(client) || !IsPlayerAlive(client) || !WeaponReverts_IsEnabled()
 		|| tf2_players[client].harvesterHealTimer != null)
 	{
 		return;
@@ -1738,8 +1775,9 @@ static void Harvester_ClearHealHint(int client)
 
 static bool Harvester_HasHintStatus(int client)
 {
-	return tf2_players[client].healCount > 0
-		|| GetEntProp(client, Prop_Send, "m_iRevengeCrits") > 0;
+	return Harvester_IsEligibleClient(client)
+		&& (tf2_players[client].healCount > 0
+		|| GetEntProp(client, Prop_Send, "m_iRevengeCrits") > 0);
 }
 
 static void Harvester_StartHintTimer(int client)
@@ -1787,7 +1825,12 @@ static void Harvester_SyncHintTimer(int client)
 
 static void Harvester_SyncHealTimer(int client)
 {
-	if (!IsClientInGame(client) || !IsPlayerAlive(client) || !WeaponReverts_IsEnabled())
+	if (!Harvester_IsEligibleClient(client))
+	{
+		Harvester_ClearState(client);
+		return;
+	}
+	if (!IsPlayerAlive(client) || !WeaponReverts_IsEnabled())
 	{
 		Harvester_StopHealTimer(client);
 		return;
@@ -1809,6 +1852,11 @@ public void Harvester_FrameSyncHealTimer(any userId)
 	int client = GetClientOfUserId(userId);
 	if (client > 0)
 	{
+		if (!Harvester_IsEligibleClient(client) || CheckScythe(client) == 0)
+		{
+			Harvester_ClearState(client);
+			return;
+		}
 		Harvester_SyncHealTimer(client);
 		Harvester_SyncHintTimer(client);
 	}
