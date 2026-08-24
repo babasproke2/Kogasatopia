@@ -2,6 +2,7 @@
 // Sorted from most to least popular. One playable map per line.
 // Included 394 maps; skipped 103 mapsdb rows without an installed .bsp or known workshop mapcycle entry.
 
+workshop/koth_spillway_rc3a.ugc1962574007
 workshop/pl_harpyhills_b8.ugc3758709084
 workshop/koth_spire_b1.ugc454131066
 plr_timebomb_a2
@@ -285,7 +286,6 @@ cp_cargo
 cp_coldlands_rc3
 cp_conifer
 cp_well
-koth_spillway_rc3a
 pd_monster_bash
 cp_reckoner
 pl_rust
