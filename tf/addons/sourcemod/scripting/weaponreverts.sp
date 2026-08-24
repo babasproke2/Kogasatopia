@@ -53,6 +53,7 @@
 #define ATTR_RESTORE_PRIMARY_SHOT_BY_DAMAGE "restore primary shot by damage"
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
 #define ATTR_SECONDARY_REFILL_SOUND "ui/item_metal_tiny_pickup.wav"
+#define ATTR_HARVESTER_HEAL 3
 #define ATTR_RELOAD_ON_HIT "reload on hit"
 #define ATTR_RELOAD_ON_KILL "reload on kill"
 #define ATTR_AMBASSADOR_102 "ambassador 102"
@@ -1237,7 +1238,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	}
 
 	if (tf2_players[attacker].scytheWeapon != 0 && TF2_IsPlayerInCondition(client, TFCond_OnFire))
-		tf2_players[attacker].healCount += 4;
+		tf2_players[attacker].healCount += 3;
 
 	if (tf2_players[client].scytheWeapon != 0 && TF2_IsPlayerInCondition(attacker, TFCond_OnFire))
 	{
@@ -1962,10 +1963,6 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 				if (tf2_players[attacker].scytheWeapon == 2) {
 					AddPlayerHealth(attacker, 4, 1.0, false, true);
 					//EmitAmbientSound(SOUND_DISPENSER_METAL, damagePosition, attacker, SNDLEVEL_NORMAL);
-					return Plugin_Changed;
-				} else {
-					// Queue the heal for the timer instead of extinguishing
-					tf2_players[attacker].healCount++;
 					return Plugin_Changed;
 				}
 			}
@@ -2778,7 +2775,7 @@ static void StartHealTimer()
 {
 	if (g_hHealTimer == INVALID_HANDLE)
 	{
-		g_hHealTimer = CreateTimer(1.0, Timer_HealTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+		g_hHealTimer = CreateTimer(0.5, Timer_HealTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 	}
 }
 
