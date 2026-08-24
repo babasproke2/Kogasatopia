@@ -52,7 +52,7 @@
 #define ATTR_CLIP_SIZE_BONUS "clip size bonus"
 #define ATTR_RESTORE_PRIMARY_SHOT_BY_DAMAGE "restore primary shot by damage"
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
-#define ATTR_SECONDARY_REFILL_SOUND "tools/ifm/beep.wav"
+#define ATTR_SECONDARY_REFILL_SOUND "ui/item_metal_tiny_pickup.wav"
 #define ATTR_RELOAD_ON_HIT "reload on hit"
 #define ATTR_RELOAD_ON_KILL "reload on kill"
 #define ATTR_AMBASSADOR_102 "ambassador 102"
@@ -1420,6 +1420,7 @@ public Action Timer_HealTimer(Handle timer)
         {
             tf2_players[client].healCount--;
             AddPlayerHealth(client, 4, 1.0, false, true);
+	    	ClientCommand(client, "playgamesound ui/item_metal_tiny_pickup.wav");
         }
 
         // Shock charge refill runs independently
