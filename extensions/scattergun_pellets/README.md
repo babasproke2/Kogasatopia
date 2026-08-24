@@ -63,6 +63,7 @@ SourceMod strips the Linux `.so` suffix when resolving the extension key.
 forward void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int total, bool kill);
 native int TF2Scatter_GetLastKillPellets(int attacker, int victim);
 native bool TF2Scatter_WasLastKillFull(int attacker, int victim);
+native bool TF2Scatter_IsCurrentShotFull(int attacker, int victim, int weapon);
 native void TF2Scatter_SetWeaponPelletCount(int weapon, int pelletsFired);
 ```
 
@@ -93,7 +94,7 @@ PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "meatshot_kill");
 
 The points store plugin is responsible for awarding points and printing any chat output.
 
-The custom WeaponReverts attribute `"ignite on full pellet hit" "5"` ignites a living victim for five seconds only when `pellets >= total`. Ignition uses `TF2Util_IgnitePlayer` and TF2's native burn pipeline.
+The custom WeaponReverts attribute `"ignite on full pellet hit" "5"` uses `TF2Scatter_IsCurrentShotFull` in the pre-damage hook. WeaponReverts preserves bullet damage flags, suppresses the stock physics force, and defers `TF2Util_IgnitePlayer` until the corresponding post-damage hook so Dead Ringer afterburn immunity resolves first.
 
 Useful debug commands and cvars:
 
@@ -150,6 +151,7 @@ build/scattergun_pellets.ext.2.tf2/linux-x86/scattergun_pellets.ext.2.tf2.so
 - Uses SourceMod gamedata for the `TraceAttack` virtual offset.
 - Counts buckshot damage from `tf_weapon_scattergun` and any weapon class containing `tf_weapon_shotgun`.
 - Emits one SourcePawn forward per completed tracked shot instead of one forward per pellet.
+- Exposes exact current-tick full-pellet state keyed by attacker, victim, and weapon for damage-hook consumers.
 - Falls back to the attacker's active weapon when TF2 does not populate the damage-info weapon handle.
 - Tracks configured pellet totals by weapon entity reference so recycled entity indexes cannot inherit stale values.
 - Deduplicates repeated `TraceAttack` callbacks for the same pellet trace so a 10/10 shot is reported as `pellets=10`, not `pellets=20`.

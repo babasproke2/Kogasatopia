@@ -154,6 +154,10 @@ int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
 bool g_bAccuracyExploding[MAXPLAYERS + 1];
 int g_iAmbassadorCritParticle = INVALID_STRING_INDEX;
+bool g_bPendingFullPelletIgnite[MAXPLAYERS + 1][MAXPLAYERS + 1];
+int g_iPendingFullPelletWeaponRef[MAXPLAYERS + 1][MAXPLAYERS + 1];
+float g_fPendingFullPelletBurnDuration[MAXPLAYERS + 1][MAXPLAYERS + 1];
+int g_iPendingFullPelletTick[MAXPLAYERS + 1][MAXPLAYERS + 1];
 
 #include <weaponreverts>
 #include "weaponreverts/gameplay_events.sp"
@@ -301,6 +305,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 stock void ResetClientArrays(int client)
 {
 	if (!WR_IsValidPlayerIndex(client)) return;
+	FullPelletIgnite_ClearClient(client);
 	Harvester_ClearState(client);
 	ShockCharge_StopTimer(client);
 	tf2_players[client].shockCharge = 30;
@@ -525,6 +530,7 @@ static void Ambassador102_CacheCritParticle()
 }
 
 public void OnMapStart() {
+	FullPelletIgnite_ClearAll();
 	LoadWeaponRevertsConfig();
 	PreCacheWeaponSounds();
 	Ambassador102_CacheCritParticle();
@@ -532,6 +538,7 @@ public void OnMapStart() {
 
 public void OnMapEnd()
 {
+	FullPelletIgnite_ClearAll();
 	for (int client = 1; client <= MaxClients; client++)
 	{
 		Harvester_ClearState(client);
@@ -1123,18 +1130,6 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 	if (g_hMeatshotDebug.BoolValue && !IsFakeClient(attacker))
 	{
 		PrintToChat(attacker, "[debug] You got a meatshot!");
-	}
-
-	int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
-	if (IsPlayerAlive(victim) && IsValidWeaponEntity(weapon))
-	{
-		float burnDuration = TF2CustAttr_GetFloat(weapon, ATTR_IGNITE_ON_FULL_PELLET_HIT, 0.0);
-		if (burnDuration > 0.0
-			&& !TF2_IsPlayerInCondition(victim, TFCond_Disguised)
-			&& !TF2_IsPlayerInCondition(victim, TFCond_Cloaked))
-		{
-			TF2Util_IgnitePlayer(victim, attacker, burnDuration, weapon);
-		}
 	}
 
 	if (!kill || IsFakeClient(attacker) || IsFakeClient(victim))
@@ -2045,6 +2040,104 @@ static int GetDamageSourceWeapon(int attacker, int weapon, int inflictor)
 	return -1;
 }
 
+static void FullPelletIgnite_ClearPair(int attacker, int victim)
+{
+	if (!WR_IsValidPlayerIndex(attacker) || !WR_IsValidPlayerIndex(victim))
+	{
+		return;
+	}
+
+	g_bPendingFullPelletIgnite[attacker][victim] = false;
+	g_iPendingFullPelletWeaponRef[attacker][victim] = INVALID_ENT_REFERENCE;
+	g_fPendingFullPelletBurnDuration[attacker][victim] = 0.0;
+	g_iPendingFullPelletTick[attacker][victim] = 0;
+}
+
+static void FullPelletIgnite_ClearClient(int client)
+{
+	if (!WR_IsValidPlayerIndex(client))
+	{
+		return;
+	}
+
+	for (int other = 1; other <= MaxClients; other++)
+	{
+		FullPelletIgnite_ClearPair(client, other);
+		FullPelletIgnite_ClearPair(other, client);
+	}
+}
+
+static void FullPelletIgnite_ClearAll()
+{
+	for (int attacker = 1; attacker <= MaxClients; attacker++)
+	{
+		for (int victim = 1; victim <= MaxClients; victim++)
+		{
+			FullPelletIgnite_ClearPair(attacker, victim);
+		}
+	}
+}
+
+static bool FullPelletIgnite_TryMark(int attacker, int victim, int weapon, int &damageType)
+{
+	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
+	{
+		return false;
+	}
+
+	FullPelletIgnite_ClearPair(attacker, victim);
+	if (!WeaponReverts_IsEnabled()
+		|| !IsPlayerAlive(victim)
+		|| GetClientTeam(attacker) <= 1
+		|| GetClientTeam(victim) <= 1
+		|| GetClientTeam(attacker) == GetClientTeam(victim)
+		|| g_bAccuracyExploding[attacker]
+		|| !IsValidWeaponEntity(weapon)
+		|| GetFeatureStatus(FeatureType_Native, "TF2Scatter_IsCurrentShotFull") != FeatureStatus_Available)
+	{
+		return false;
+	}
+
+	float burnDuration = TF2CustAttr_GetFloat(weapon, ATTR_IGNITE_ON_FULL_PELLET_HIT, 0.0);
+	if (burnDuration <= 0.0 || !TF2Scatter_IsCurrentShotFull(attacker, victim, weapon))
+	{
+		return false;
+	}
+
+	g_bPendingFullPelletIgnite[attacker][victim] = true;
+	g_iPendingFullPelletWeaponRef[attacker][victim] = EntIndexToEntRef(weapon);
+	g_fPendingFullPelletBurnDuration[attacker][victim] = burnDuration;
+	g_iPendingFullPelletTick[attacker][victim] = GetGameTickCount();
+	damageType |= DMG_BULLET | DMG_PREVENT_PHYSICS_FORCE;
+	return true;
+}
+
+static void FullPelletIgnite_TryConsumePost(int victim, int attacker, int weapon, int inflictor)
+{
+	if (!WR_IsValidPlayerIndex(attacker) || !WR_IsValidPlayerIndex(victim)
+		|| !g_bPendingFullPelletIgnite[attacker][victim])
+	{
+		return;
+	}
+
+	int damageWeapon = GetDamageSourceWeapon(attacker, weapon, inflictor);
+	bool matches = g_iPendingFullPelletTick[attacker][victim] == GetGameTickCount()
+		&& IsValidWeaponEntity(damageWeapon)
+		&& EntIndexToEntRef(damageWeapon) == g_iPendingFullPelletWeaponRef[attacker][victim];
+	float burnDuration = g_fPendingFullPelletBurnDuration[attacker][victim];
+	FullPelletIgnite_ClearPair(attacker, victim);
+
+	if (!matches || burnDuration <= 0.0 || !IsPlayerAlive(victim)
+		|| TF2_IsPlayerInCondition(victim, TFCond_Disguised)
+		|| TF2_IsPlayerInCondition(victim, TFCond_Cloaked)
+		|| TF2_IsPlayerInCondition(victim, TFCond_AfterburnImmune))
+	{
+		return;
+	}
+
+	TF2Util_IgnitePlayer(victim, attacker, burnDuration, damageWeapon);
+}
+
 static int GetProjectileOwner(int projectile)
 {
 	if (projectile <= MaxClients || !IsValidEntity(projectile))
@@ -2283,6 +2376,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 	}
 
 	int damageWeapon = GetDamageSourceWeapon(attacker, weapon, inflictor);
+	bool fullPelletIgnitePending = FullPelletIgnite_TryMark(attacker, client, damageWeapon, damagetype);
 	int directDamageWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
 	if (attackerIsPlayer
 		&& damage > 0.0
@@ -2387,7 +2481,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 		}
 
 		if (!validWeapon) {
-			return Plugin_Continue;
+			return fullPelletIgnitePending ? Plugin_Changed : Plugin_Continue;
 		}
 
 		if (TF2CustAttr_GetInt(weapon, "shock therapy attributes") != 0) {
@@ -2405,11 +2499,11 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 				TF2_IgnitePlayer(client, attacker, 4.0);
 				return Plugin_Changed;
 			}
-		return Plugin_Continue;
+		return fullPelletIgnitePending ? Plugin_Changed : Plugin_Continue;
 		}
 	}
 		
-	return Plugin_Continue;
+	return fullPelletIgnitePending ? Plugin_Changed : Plugin_Continue;
 }
 
 bool IsWorldInflictedDeath(Event event)
@@ -2600,8 +2694,15 @@ public void WeaponReverts_OnTakeDamageAlivePost(
 	int victim, int attacker, int inflictor, float damage, int damageType,
 	int weapon, const float damageForce[3], const float damagePosition[3], int damageCustom)
 {
-	if (!WeaponReverts_IsEnabled() || damageCustom == TF_CUSTOM_BURNING
-		|| !WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker)
+	if (!WeaponReverts_IsEnabled()
+		|| !WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker))
+	{
+		return;
+	}
+
+	FullPelletIgnite_TryConsumePost(victim, attacker, weapon, inflictor);
+
+	if (damageCustom == TF_CUSTOM_BURNING
 		|| weapon <= MaxClients || !IsValidEntity(weapon) || !TF2Util_IsEntityWeapon(weapon))
 	{
 		return;

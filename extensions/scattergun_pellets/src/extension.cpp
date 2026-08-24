@@ -47,6 +47,17 @@ static cell_t Native_WasLastKillFull(IPluginContext *context, const cell_t *para
 	return g_ScattergunPellets.WasLastKillFull(params[1], params[2]) ? 1 : 0;
 }
 
+static cell_t Native_IsCurrentShotFull(IPluginContext *context, const cell_t *params)
+{
+	CBaseEntity *weapon = gamehelpers->ReferenceToEntity(params[3]);
+	if (!weapon)
+	{
+		return 0;
+	}
+
+	return g_ScattergunPellets.IsCurrentShotFull(params[1], params[2], weapon) ? 1 : 0;
+}
+
 static cell_t Native_SetWeaponPelletCount(IPluginContext *context, const cell_t *params)
 {
 	CBaseEntity *weapon = gamehelpers->ReferenceToEntity(params[1]);
@@ -63,6 +74,7 @@ static sp_nativeinfo_t g_Natives[] =
 {
 	{"TF2Scatter_GetLastKillPellets", Native_GetLastKillPellets},
 	{"TF2Scatter_WasLastKillFull", Native_WasLastKillFull},
+	{"TF2Scatter_IsCurrentShotFull", Native_IsCurrentShotFull},
 	{"TF2Scatter_SetWeaponPelletCount", Native_SetWeaponPelletCount},
 	{nullptr, nullptr},
 };
@@ -190,6 +202,7 @@ void ScattergunPellets::OnClientDisconnecting(int client)
 		m_pelletTick[client][other] = 0;
 		m_pelletCount[client][other] = 0;
 		m_pelletTotal[client][other] = 0;
+		m_pelletWeaponRefs[client][other] = 0;
 		m_lastTraceTick[client][other] = 0;
 		m_lastKillTick[client][other] = 0;
 		m_lastKillPellets[client][other] = 0;
@@ -198,6 +211,7 @@ void ScattergunPellets::OnClientDisconnecting(int client)
 		m_pelletTick[other][client] = 0;
 		m_pelletCount[other][client] = 0;
 		m_pelletTotal[other][client] = 0;
+		m_pelletWeaponRefs[other][client] = 0;
 		m_lastTraceTick[other][client] = 0;
 		m_lastKillTick[other][client] = 0;
 		m_lastKillPellets[other][client] = 0;
@@ -380,7 +394,7 @@ void ScattergunPellets::Hook_TraceAttack(const CTakeDamageInfo &info, const Vect
 		RETURN_META(MRES_IGNORED);
 	}
 
-	RecordPelletHit(attacker, victim, trace, GetWeaponPelletCount(weapon));
+	RecordPelletHit(attacker, victim, weapon, trace, GetWeaponPelletCount(weapon));
 	RETURN_META(MRES_IGNORED);
 }
 
@@ -419,7 +433,7 @@ bool ScattergunPellets::RememberPelletTrace(int attacker, int victim, CGameTrace
 }
 
 void ScattergunPellets::RecordPelletHit(
-	int attacker, int victim, CGameTrace *trace, int pelletsFired)
+	int attacker, int victim, CBaseEntity *weapon, CGameTrace *trace, int pelletsFired)
 {
 	int tick = gpGlobals ? gpGlobals->tickcount : 0;
 	if (m_pelletTick[attacker][victim] != tick)
@@ -427,6 +441,7 @@ void ScattergunPellets::RecordPelletHit(
 		m_pelletTick[attacker][victim] = tick;
 		m_pelletCount[attacker][victim] = 0;
 		m_pelletTotal[attacker][victim] = pelletsFired;
+		m_pelletWeaponRefs[attacker][victim] = gamehelpers->EntityToReference(weapon);
 		m_lastTraceTick[attacker][victim] = 0;
 	}
 
@@ -436,6 +451,21 @@ void ScattergunPellets::RecordPelletHit(
 	}
 
 	++m_pelletCount[attacker][victim];
+}
+
+bool ScattergunPellets::IsCurrentShotFull(
+	int attacker, int victim, CBaseEntity *weapon) const
+{
+	if (!gpGlobals || !weapon || !IsValidClientIndex(attacker) || !IsValidClientIndex(victim))
+	{
+		return false;
+	}
+
+	int pelletsFired = m_pelletTotal[attacker][victim];
+	return m_pelletTick[attacker][victim] == gpGlobals->tickcount
+		&& m_pelletWeaponRefs[attacker][victim] == gamehelpers->EntityToReference(weapon)
+		&& pelletsFired > 0
+		&& m_pelletCount[attacker][victim] >= pelletsFired;
 }
 
 void ScattergunPellets::OnGameFrame(bool simulating)
@@ -507,6 +537,7 @@ void ScattergunPellets::ClearPelletShot(int attacker, int victim)
 	m_pelletTick[attacker][victim] = 0;
 	m_pelletCount[attacker][victim] = 0;
 	m_pelletTotal[attacker][victim] = 0;
+	m_pelletWeaponRefs[attacker][victim] = 0;
 }
 
 void ScattergunPellets::DispatchPelletShotForward(
@@ -552,6 +583,7 @@ void ScattergunPellets::ClearPelletState()
 	memset(m_pelletTick, 0, sizeof(m_pelletTick));
 	memset(m_pelletCount, 0, sizeof(m_pelletCount));
 	memset(m_pelletTotal, 0, sizeof(m_pelletTotal));
+	memset(m_pelletWeaponRefs, 0, sizeof(m_pelletWeaponRefs));
 	memset(m_lastTraceTick, 0, sizeof(m_lastTraceTick));
 	memset(m_lastTraceHitbox, 0, sizeof(m_lastTraceHitbox));
 	memset(m_lastTraceHitgroup, 0, sizeof(m_lastTraceHitgroup));

@@ -26,6 +26,7 @@ public:
 
 	int GetLastKillPellets(int attacker, int victim) const;
 	bool WasLastKillFull(int attacker, int victim) const;
+	bool IsCurrentShotFull(int attacker, int victim, CBaseEntity *weapon) const;
 	void SetWeaponPelletCount(CBaseEntity *weapon, int pelletsFired);
 
 private:
@@ -40,7 +41,8 @@ private:
 	int GetWeaponPelletCount(CBaseEntity *weapon) const;
 	bool IsDuplicatePelletTrace(int attacker, int victim, CGameTrace *trace, int tick) const;
 	bool RememberPelletTrace(int attacker, int victim, CGameTrace *trace, int tick);
-	void RecordPelletHit(int attacker, int victim, CGameTrace *trace, int pelletsFired);
+	void RecordPelletHit(
+		int attacker, int victim, CBaseEntity *weapon, CGameTrace *trace, int pelletsFired);
 	void ClearPelletShot(int attacker, int victim);
 	void ClearPelletState();
 	void DispatchPelletShotForward(
@@ -56,6 +58,7 @@ private:
 	int m_pelletTick[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
 	int m_pelletCount[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
 	int m_pelletTotal[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
+	cell_t m_pelletWeaponRefs[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
 	int m_lastTraceTick[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
 	int m_lastTraceHitbox[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};
 	int m_lastTraceHitgroup[SM_MAXPLAYERS + 1][SM_MAXPLAYERS + 1] = {};

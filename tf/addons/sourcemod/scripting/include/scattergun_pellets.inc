@@ -27,6 +27,12 @@ native int TF2Scatter_GetLastKillPellets(int attacker, int victim);
 native bool TF2Scatter_WasLastKillFull(int attacker, int victim);
 
 /**
+ * Returns true when every pellet in the current game-tick shot from attacker
+ * hit victim with the specified weapon.
+ */
+native bool TF2Scatter_IsCurrentShotFull(int attacker, int victim, int weapon);
+
+/**
  * Registers the actual pellet count for a weapon. Passing zero or less clears
  * the override and restores the stock 10-pellet fallback.
  */
@@ -49,6 +55,7 @@ public void __ext_scattergun_pellets_SetNTVOptional()
 {
 	MarkNativeAsOptional("TF2Scatter_GetLastKillPellets");
 	MarkNativeAsOptional("TF2Scatter_WasLastKillFull");
+	MarkNativeAsOptional("TF2Scatter_IsCurrentShotFull");
 	MarkNativeAsOptional("TF2Scatter_SetWeaponPelletCount");
 }
 #endif
