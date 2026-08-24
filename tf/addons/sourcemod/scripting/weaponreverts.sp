@@ -59,6 +59,7 @@
 #define HARVESTER_HEAL_COUNT_MAX 30
 #define HARVESTER_HEAL_TIMER_INTERVAL 0.5
 #define HARVESTER_DIRECT_HEAL_BLOCK_TIME 0.5
+#define HARVESTER_HINT_DURATION 1.0
 #define ATTR_RELOAD_ON_HIT "reload on hit"
 #define ATTR_RELOAD_ON_KILL "reload on kill"
 #define ATTR_AMBASSADOR_102 "ambassador 102"
@@ -1501,13 +1502,13 @@ public Action Timer_HealTimer(Handle timer, any userId)
 		tf2_players[client].healCount--;
 		AddPlayerHealth(client, ATTR_HARVESTER_HEALING, 1.0, false, true);
 		ClientCommand(client, "playgamesound ui/item_metal_tiny_pickup.wav");
+		Harvester_ShowHealHint(client);
 	}
-	Harvester_SyncHintTimer(client);
 
 	return Plugin_Continue;
 }
 
-public Action Timer_HarvesterHint(Handle timer, any userId)
+public Action Timer_ClearHarvesterHint(Handle timer, any userId)
 {
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client)
@@ -1516,15 +1517,9 @@ public Action Timer_HarvesterHint(Handle timer, any userId)
 		return Plugin_Stop;
 	}
 
-	if (!WeaponReverts_IsEnabled() || !Harvester_HasHintStatus(client))
-	{
-		tf2_players[client].harvesterHintTimer = null;
-		Harvester_ClearHealHint(client);
-		return Plugin_Stop;
-	}
-
-	Harvester_UpdateHealHint(client);
-	return Plugin_Continue;
+	tf2_players[client].harvesterHintTimer = null;
+	Harvester_ClearHealHint(client);
+	return Plugin_Stop;
 }
 
 public Action Timer_ShockCharge(Handle timer, any userId)
@@ -1678,7 +1673,7 @@ static void Harvester_AddHealCount(int client, int amount)
 		Harvester_SetRevengeCrit(client);
 		tf2_players[client].healCount = 0;
 	}
-	Harvester_SyncHintTimer(client);
+	Harvester_ShowHealHint(client);
 }
 
 static void Harvester_OnAfterburnDamage(int client)
@@ -1737,28 +1732,34 @@ static void Harvester_StopHealTimer(int client)
 	}
 }
 
-static void Harvester_UpdateHealHint(int client)
+static void Harvester_ShowHealHint(int client)
 {
-	if (!IsClientInGame(client))
+	if (!Harvester_IsEligibleClient(client) || !WeaponReverts_IsEnabled())
 	{
 		return;
 	}
 
-	if (tf2_players[client].healCount > 0)
+	if (tf2_players[client].harvesterHintTimer != null)
 	{
-		PrintHintText(client, "Heal count: %d/%d",
-			tf2_players[client].healCount, HARVESTER_HEAL_COUNT_MAX);
-		tf2_players[client].harvesterHealHintVisible = true;
+		KillTimer(tf2_players[client].harvesterHintTimer);
+		tf2_players[client].harvesterHintTimer = null;
 	}
-	else if (GetEntProp(client, Prop_Send, "m_iRevengeCrits") > 0)
+
+	if (GetEntProp(client, Prop_Send, "m_iRevengeCrits") > 0)
 	{
 		PrintHintText(client, "Heal count: revenge");
-		tf2_players[client].harvesterHealHintVisible = true;
 	}
 	else
 	{
-		Harvester_ClearHealHint(client);
+		PrintHintText(client, "Heal count: %d/%d",
+			tf2_players[client].healCount, HARVESTER_HEAL_COUNT_MAX);
 	}
+	tf2_players[client].harvesterHealHintVisible = true;
+	tf2_players[client].harvesterHintTimer = CreateTimer(
+		HARVESTER_HINT_DURATION,
+		Timer_ClearHarvesterHint,
+		GetClientUserId(client),
+		TIMER_FLAG_NO_MAPCHANGE);
 }
 
 static void Harvester_ClearHealHint(int client)
@@ -1771,28 +1772,6 @@ static void Harvester_ClearHealHint(int client)
 		}
 		tf2_players[client].harvesterHealHintVisible = false;
 	}
-}
-
-static bool Harvester_HasHintStatus(int client)
-{
-	return Harvester_IsEligibleClient(client)
-		&& (tf2_players[client].healCount > 0
-		|| GetEntProp(client, Prop_Send, "m_iRevengeCrits") > 0);
-}
-
-static void Harvester_StartHintTimer(int client)
-{
-	if (!IsClientInGame(client) || !WeaponReverts_IsEnabled()
-		|| tf2_players[client].harvesterHintTimer != null)
-	{
-		return;
-	}
-
-	tf2_players[client].harvesterHintTimer = CreateTimer(
-		HARVESTER_HEAL_TIMER_INTERVAL,
-		Timer_HarvesterHint,
-		GetClientUserId(client),
-		TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
 }
 
 static void Harvester_StopHintTimer(int client)
@@ -1808,19 +1787,6 @@ static void Harvester_StopHintTimer(int client)
 		tf2_players[client].harvesterHintTimer = null;
 	}
 	Harvester_ClearHealHint(client);
-}
-
-static void Harvester_SyncHintTimer(int client)
-{
-	if (IsClientInGame(client) && WeaponReverts_IsEnabled() && Harvester_HasHintStatus(client))
-	{
-		Harvester_StartHintTimer(client);
-		Harvester_UpdateHealHint(client);
-	}
-	else
-	{
-		Harvester_StopHintTimer(client);
-	}
 }
 
 static void Harvester_SyncHealTimer(int client)
@@ -1858,7 +1824,6 @@ public void Harvester_FrameSyncHealTimer(any userId)
 			return;
 		}
 		Harvester_SyncHealTimer(client);
-		Harvester_SyncHintTimer(client);
 	}
 }
 
@@ -1941,7 +1906,7 @@ public void Harvester_ConsumeRevengeCrit(any userId)
 	tf2_players[client].harvesterCritConsumePending = false;
 	SetEntProp(client, Prop_Send, "m_iRevengeCrits", 0);
 	Harvester_SetCritBoost(client, false);
-	Harvester_SyncHintTimer(client);
+	Harvester_ShowHealHint(client);
 }
 
 static void SecondaryDamageRefill_Reset(int client)
@@ -2850,7 +2815,6 @@ public Action Command_ReloadWeaponRevertsConfig(int client, int args)
 		if (IsClientInGame(target))
 		{
 			Harvester_SyncHealTimer(target);
-			Harvester_SyncHintTimer(target);
 		}
 	}
 	ReplyToCommand(client, "[WeaponReverts] Reloaded configs/weapons.cfg");
