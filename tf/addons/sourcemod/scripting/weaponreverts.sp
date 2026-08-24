@@ -1404,14 +1404,6 @@ public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname
 	if (!IsClientInGame(client) || weapon <= MaxClients || !IsValidEntity(weapon))
 		return Plugin_Continue;
 
-	if (Harvester_IsWeapon(weapon)
-		&& GetEntProp(client, Prop_Send, "m_iRevengeCrits") > 0
-		&& !tf2_players[client].harvesterCritConsumePending)
-	{
-		tf2_players[client].harvesterCritConsumePending = true;
-		RequestFrame(Harvester_ConsumeRevengeCrit, GetClientUserId(client));
-	}
-
 	// The SDKCall re-enters this forward through SourceMod's crit hook.
 	if (g_bCalculatingRandomCritOverride)
 		return Plugin_Continue;
@@ -2291,6 +2283,20 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 	}
 
 	int damageWeapon = GetDamageSourceWeapon(attacker, weapon, inflictor);
+	int directDamageWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
+	if (attackerIsPlayer
+		&& damage > 0.0
+		&& client != attacker
+		&& GetClientTeam(client) != GetClientTeam(attacker)
+		&& directDamageWeapon > MaxClients
+		&& IsValidEntity(directDamageWeapon)
+		&& Harvester_IsWeapon(directDamageWeapon)
+		&& GetEntProp(attacker, Prop_Send, "m_iRevengeCrits") > 0
+		&& !tf2_players[attacker].harvesterCritConsumePending)
+	{
+		tf2_players[attacker].harvesterCritConsumePending = true;
+		RequestFrame(Harvester_ConsumeRevengeCrit, GetClientUserId(attacker));
+	}
 
 	if (attackerIsPlayer && damageWeapon > MaxClients && IsValidEntity(damageWeapon))
 	{
