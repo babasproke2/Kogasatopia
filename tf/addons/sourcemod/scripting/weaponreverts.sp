@@ -53,7 +53,9 @@
 #define ATTR_RESTORE_PRIMARY_SHOT_BY_DAMAGE "restore primary shot by damage"
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
 #define ATTR_SECONDARY_REFILL_SOUND "ui/item_metal_tiny_pickup.wav"
-#define ATTR_HARVESTER_HEAL 3
+#define ATTR_HARVESTER_HEALING 3
+#define ATTR_HARVESTER_HEALING_COUNT 6
+#define HARVESTER_HEAL_COUNT_MAX 30
 #define ATTR_RELOAD_ON_HIT "reload on hit"
 #define ATTR_RELOAD_ON_KILL "reload on kill"
 #define ATTR_AMBASSADOR_102 "ambassador 102"
@@ -1238,7 +1240,14 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	}
 
 	if (tf2_players[attacker].scytheWeapon != 0 && TF2_IsPlayerInCondition(client, TFCond_OnFire))
-		tf2_players[attacker].healCount += 3;
+	{
+		tf2_players[attacker].healCount += ATTR_HARVESTER_HEALING_COUNT;
+		if (tf2_players[attacker].healCount >= HARVESTER_HEAL_COUNT_MAX)
+		{
+			SetEntProp(attacker, Prop_Send, "m_iNextMeleeCrit", 2);
+			tf2_players[attacker].healCount = 0;
+		}
+	}
 
 	if (tf2_players[client].scytheWeapon != 0 && TF2_IsPlayerInCondition(attacker, TFCond_OnFire))
 	{
@@ -1420,7 +1429,7 @@ public Action Timer_HealTimer(Handle timer)
 				CheckScythe(client) == 2)
         {
             tf2_players[client].healCount--;
-            AddPlayerHealth(client, 4, 1.0, false, true);
+            AddPlayerHealth(client, ATTR_HARVESTER_HEALING, 1.0, false, true);
 	    	ClientCommand(client, "playgamesound ui/item_metal_tiny_pickup.wav");
         }
 
