@@ -120,6 +120,8 @@ enum struct tf2_player
 	int scytheWeapon;
 	int shockCharge;
 	int healCount;
+	Handle harvesterHealTimer;
+	Handle shockChargeTimer;
 	bool harvesterCritConsumePending;
 	bool harvesterCritBoostApplied;
 	float lastUber;
@@ -162,7 +164,6 @@ ConVar g_hSandmanFallbackBaseDuration;
 KeyValues g_hWeaponRevertsConfig = null;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 MemoryPatch patch_AllowRandomCritOverride;
-Handle g_hHealTimer = INVALID_HANDLE;
 
 MemoryPatch patch_Wrangler_CustomShieldRepair;
 MemoryPatch patch_Wrangler_CustomShieldShellRefill;
@@ -293,6 +294,8 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 stock void ResetClientArrays(int client)
 {
 	if (!WR_IsValidPlayerIndex(client)) return;
+	Harvester_StopHealTimer(client);
+	ShockCharge_StopTimer(client);
 	Harvester_ClearRevengeCrit(client);
 	tf2_players[client].scytheWeapon = 0;
 	tf2_players[client].shockCharge = 30;
@@ -471,7 +474,13 @@ public void OnPluginStart() {
 		delete overrideConf;
 		delete conf;
 
-		StartHealTimer();
+		for (int i = 1; i <= MaxClients; i++)
+		{
+			if (IsClientInGame(i))
+			{
+				Harvester_SyncHealTimer(i);
+			}
+		}
 	}
 }
 
@@ -513,18 +522,20 @@ public void OnMapStart() {
 	LoadWeaponRevertsConfig();
 	PreCacheWeaponSounds();
 	Ambassador102_CacheCritParticle();
-	StartHealTimer();
 }
 
 public void OnMapEnd()
 {
-	StopHealTimer();
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		Harvester_StopHealTimer(client);
+		ShockCharge_StopTimer(client);
+	}
 }
 
 public void OnPluginEnd()
 {
 	WeaponRevertsEvents_Shutdown();
-	StopHealTimer();
 	for (int i = 1; i <= MaxClients; i++)
 	{
 		ResetClientArrays(i);
@@ -1185,6 +1196,8 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 		return Plugin_Continue;
 
 	Sproke_ClearEffect(client, false, true);
+	Harvester_StopHealTimer(client);
+	ShockCharge_StopTimer(client);
 	Harvester_ClearRevengeCrit(client);
 	tf2_players[client].healCount = 0;
 	tf2_players[client].shockCharge = 30;
@@ -1289,10 +1302,12 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 		return Plugin_Continue;
 
 	VitaSaw_ApplyStoredCharge(client);
+	RequestFrame(Harvester_FrameSyncHealTimer, GetClientUserId(client));
 
 	if (tf2_players[client].shockCharge != 30)
 	{
 		tf2_players[client].shockCharge = 29; // The 29 is for visual effect
+		ShockCharge_StartTimer(client);
 		return Plugin_Changed;
 	}
 
@@ -1320,6 +1335,7 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 
 	ScattergunKnockback_ResetClient(client);
 	VitaSaw_ApplyStoredCharge(client);
+	RequestFrame(Harvester_FrameSyncHealTimer, GetClientUserId(client));
 
 	return Plugin_Continue;
 }
@@ -1432,32 +1448,70 @@ public MRESReturn IsFixedWeaponSpreadEnabled_Pre(DHookReturn returnValue, DHookP
 	return MRES_Supercede;
 }
 
-public Action Timer_HealTimer(Handle timer)
+public Action Timer_HealTimer(Handle timer, any userId)
 {
-    for (int client = 1; client <= MaxClients; client++)
-    {
-        if (!IsClientInGame(client)) continue;
+	int client = GetClientOfUserId(userId);
+	if (client <= 0 || !IsClientInGame(client)
+		|| tf2_players[client].harvesterHealTimer != timer)
+	{
+		return Plugin_Stop;
+	}
+	if (!WeaponReverts_IsEnabled())
+	{
+		tf2_players[client].harvesterHealTimer = null;
+		return Plugin_Stop;
+	}
 
-        if (tf2_players[client].healCount > 0 && IsPlayerAlive(client) &&
-            GetClientHealth(client) < TF2_GetPlayerMaxHealth(client) &&
-				CheckScythe(client) == 2)
-        {
-            tf2_players[client].healCount--;
-            AddPlayerHealth(client, ATTR_HARVESTER_HEALING, 1.0, false, true);
-	    	ClientCommand(client, "playgamesound ui/item_metal_tiny_pickup.wav");
-        }
+	int activeWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	if (!IsPlayerAlive(client) || !Harvester_IsWeapon(activeWeapon))
+	{
+		tf2_players[client].harvesterHealTimer = null;
+		return Plugin_Stop;
+	}
 
-        // Shock charge refill runs independently
-        if (tf2_players[client].shockCharge < 30)
-        {
-            tf2_players[client].shockCharge++;
-            if (tf2_players[client].shockCharge % 2 == 0 || tf2_players[client].shockCharge == 1)
-            {
-                PrintHintText(client, "Shock Charge: %i%%%", (tf2_players[client].shockCharge * 100 / 30));
-            }
-        }
-    }
-    return Plugin_Continue;
+	if (tf2_players[client].healCount > 0
+		&& GetClientHealth(client) < TF2_GetPlayerMaxHealth(client))
+	{
+		tf2_players[client].healCount--;
+		AddPlayerHealth(client, ATTR_HARVESTER_HEALING, 1.0, false, true);
+		ClientCommand(client, "playgamesound ui/item_metal_tiny_pickup.wav");
+	}
+
+	return Plugin_Continue;
+}
+
+public Action Timer_ShockCharge(Handle timer, any userId)
+{
+	int client = GetClientOfUserId(userId);
+	if (client <= 0 || !IsClientInGame(client)
+		|| tf2_players[client].shockChargeTimer != timer)
+	{
+		return Plugin_Stop;
+	}
+	if (!WeaponReverts_IsEnabled())
+	{
+		tf2_players[client].shockChargeTimer = null;
+		return Plugin_Stop;
+	}
+
+	if (tf2_players[client].shockCharge >= 30)
+	{
+		tf2_players[client].shockChargeTimer = null;
+		return Plugin_Stop;
+	}
+
+	tf2_players[client].shockCharge++;
+	if (tf2_players[client].shockCharge % 2 == 0 || tf2_players[client].shockCharge == 1)
+	{
+		PrintHintText(client, "Shock Charge: %i%%%", (tf2_players[client].shockCharge * 100 / 30));
+	}
+
+	if (tf2_players[client].shockCharge >= 30)
+	{
+		tf2_players[client].shockChargeTimer = null;
+		return Plugin_Stop;
+	}
+	return Plugin_Continue;
 }
 
 static bool TryApplyHolsterReload(int weapon)
@@ -1505,6 +1559,17 @@ public Action OnWeaponSwitch(int client, int weapon)
 	}
 
 	int previousWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	if (weapon != previousWeapon)
+	{
+		if (Harvester_IsWeapon(weapon))
+		{
+			Harvester_StartHealTimer(client);
+		}
+		else if (Harvester_IsWeapon(previousWeapon))
+		{
+			Harvester_StopHealTimer(client);
+		}
+	}
 	if (weapon != previousWeapon && GetEntProp(client, Prop_Send, "m_iRevengeCrits") > 0)
 	{
 		if (Harvester_IsWeapon(previousWeapon) && !Harvester_IsWeapon(weapon))
@@ -1530,6 +1595,86 @@ static bool Harvester_IsWeapon(int weapon)
 {
 	return IsValidWeaponEntity(weapon)
 		&& TF2CustAttr_GetInt(weapon, "harvester attributes", 0) == 1;
+}
+
+static void Harvester_StartHealTimer(int client)
+{
+	if (!IsClientInGame(client) || !IsPlayerAlive(client) || !WeaponReverts_IsEnabled()
+		|| tf2_players[client].harvesterHealTimer != null)
+	{
+		return;
+	}
+
+	tf2_players[client].harvesterHealTimer = CreateTimer(
+		0.5,
+		Timer_HealTimer,
+		GetClientUserId(client),
+		TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+}
+
+static void Harvester_StopHealTimer(int client)
+{
+	if (!WR_IsValidPlayerIndex(client) || tf2_players[client].harvesterHealTimer == null)
+	{
+		return;
+	}
+
+	KillTimer(tf2_players[client].harvesterHealTimer);
+	tf2_players[client].harvesterHealTimer = null;
+}
+
+static void Harvester_SyncHealTimer(int client)
+{
+	if (!IsClientInGame(client) || !IsPlayerAlive(client) || !WeaponReverts_IsEnabled())
+	{
+		Harvester_StopHealTimer(client);
+		return;
+	}
+
+	int activeWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	if (Harvester_IsWeapon(activeWeapon))
+	{
+		Harvester_StartHealTimer(client);
+	}
+	else
+	{
+		Harvester_StopHealTimer(client);
+	}
+}
+
+public void Harvester_FrameSyncHealTimer(any userId)
+{
+	int client = GetClientOfUserId(userId);
+	if (client > 0)
+	{
+		Harvester_SyncHealTimer(client);
+	}
+}
+
+static void ShockCharge_StartTimer(int client)
+{
+	if (!IsClientInGame(client) || !WeaponReverts_IsEnabled() || tf2_players[client].shockCharge >= 30
+		|| tf2_players[client].shockChargeTimer != null)
+	{
+		return;
+	}
+
+	tf2_players[client].shockChargeTimer = CreateTimer(
+		0.5,
+		Timer_ShockCharge,
+		GetClientUserId(client),
+		TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+}
+
+static void ShockCharge_StopTimer(int client)
+{
+	if (!WR_IsValidPlayerIndex(client) || tf2_players[client].shockChargeTimer == null)
+	{
+		return;
+	}
+
+	KillTimer(tf2_players[client].shockChargeTimer);
+	tf2_players[client].shockChargeTimer = null;
 }
 
 static void Harvester_SetCritBoost(int client, bool enabled)
@@ -2070,6 +2215,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 		if (TF2CustAttr_GetInt(weapon, "shock therapy attributes") != 0) {
 			damage = float(tf2_players[attacker].shockCharge * 100 / 30);
 			tf2_players[attacker].shockCharge = 0;
+			ShockCharge_StartTimer(attacker);
 			EmitAmbientSound(SOUND_NEON_SIGN, damagePosition, client, SNDLEVEL_NORMAL);
 			return Plugin_Changed;
 		} else if (TF2CustAttr_GetInt(weapon, "hitscan ignite targets") != 0) {
@@ -2157,6 +2303,7 @@ public Action OnTraceAttack(int victim, int &attacker, int &inflictor, float &da
     GetClientAbsOrigin(victim, pos);  // was GetClientAbsAngles — wrong data
     TF2_SetHealth(victim, buff);
     tf2_players[attacker].shockCharge = 0;
+    ShockCharge_StartTimer(attacker);
     EmitAmbientSound(SOUND_ARROW_HEAL, pos, victim, SNDLEVEL_NORMAL);
 
     float uber = (float(buff - health) / 5000.0) + GetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel");
@@ -2491,6 +2638,13 @@ static void LoadWeaponRevertsConfig()
 public Action Command_ReloadWeaponRevertsConfig(int client, int args)
 {
 	LoadWeaponRevertsConfig();
+	for (int target = 1; target <= MaxClients; target++)
+	{
+		if (IsClientInGame(target))
+		{
+			Harvester_SyncHealTimer(target);
+		}
+	}
 	ReplyToCommand(client, "[WeaponReverts] Reloaded configs/weapons.cfg");
 	return Plugin_Handled;
 }
@@ -2817,6 +2971,7 @@ static void WeaponReverts_QueuePrimaryClipBonusRefresh(int client)
 public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemDefinitionIndex, int itemLevel, int itemQuality, int entityIndex)
 {
 	if (WeaponReverts_IsEnabled()) {
+		ShockCharge_StopTimer(client);
 		tf2_players[client].shockCharge = 30;
 		TF2Attrib_SetByName(entityIndex, "crit mod disabled hidden", 0.00);
 
@@ -2864,23 +3019,6 @@ static void DestroyPatch(MemoryPatch patch)
 public float clamp(float a, float b, float c)
 {
 	return (a > c ? c : (a < b ? b : a));
-}
-
-static void StartHealTimer()
-{
-	if (g_hHealTimer == INVALID_HANDLE)
-	{
-		g_hHealTimer = CreateTimer(0.5, Timer_HealTimer, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
-	}
-}
-
-static void StopHealTimer()
-{
-	if (g_hHealTimer != INVALID_HANDLE)
-	{
-		KillTimer(g_hHealTimer);
-		g_hHealTimer = INVALID_HANDLE;
-	}
 }
 
 static void HookAllBuildings()
