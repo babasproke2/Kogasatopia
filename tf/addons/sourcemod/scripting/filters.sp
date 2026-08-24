@@ -1063,7 +1063,8 @@ static void Filters_ScheduleArchivedMessageTriggers(int client, const char[] mes
     {
         Filters_ScheduleArchivedMessageTrigger(client, ArchivedSpeaker_Memoman);
     }
-    if (StrContains(message, "parsee", false) != -1)
+    if (StrContains(message, "parsee", false) != -1
+        || StrContains(message, "kig", false) != -1)
     {
         Filters_ScheduleArchivedMessageTrigger(client, ArchivedSpeaker_Parsee);
     }
