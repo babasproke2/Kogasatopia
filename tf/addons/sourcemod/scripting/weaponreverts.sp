@@ -55,8 +55,10 @@
 #define ATTR_SECONDARY_REFILL_SOUND "ui/item_metal_tiny_pickup.wav"
 #define ATTR_HARVESTER_HEALING 3
 #define ATTR_HARVESTER_HEALING_COUNT 6
+#define ATTR_HARVESTER_AFTERBURN_HEALING_COUNT 2
 #define HARVESTER_HEAL_COUNT_MAX 30
 #define HARVESTER_HEAL_TIMER_INTERVAL 0.5
+#define HARVESTER_DIRECT_HEAL_BLOCK_TIME 0.5
 #define ATTR_RELOAD_ON_HIT "reload on hit"
 #define ATTR_RELOAD_ON_KILL "reload on kill"
 #define ATTR_AMBASSADOR_102 "ambassador 102"
@@ -121,6 +123,7 @@ enum struct tf2_player
 	int scytheWeapon;
 	int shockCharge;
 	int healCount;
+	float lastHarvesterDirectHealTime;
 	Handle harvesterHealTimer;
 	Handle harvesterHintTimer;
 	Handle shockChargeTimer;
@@ -304,6 +307,7 @@ stock void ResetClientArrays(int client)
 	tf2_players[client].scytheWeapon = 0;
 	tf2_players[client].shockCharge = 30;
 	tf2_players[client].healCount = 0;
+	tf2_players[client].lastHarvesterDirectHealTime = -1.0;
 	tf2_players[client].lastUber = 0.0;
 	tf2_players[client].lastUberMedigunDefIndex = 0;
 	tf2_players[client].engiMetal = 0;
@@ -535,6 +539,7 @@ public void OnMapEnd()
 		Harvester_StopHealTimer(client);
 		Harvester_StopHintTimer(client);
 		ShockCharge_StopTimer(client);
+		tf2_players[client].lastHarvesterDirectHealTime = -1.0;
 	}
 }
 
@@ -1205,6 +1210,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	ShockCharge_StopTimer(client);
 	Harvester_ClearRevengeCrit(client);
 	tf2_players[client].healCount = 0;
+	tf2_players[client].lastHarvesterDirectHealTime = -1.0;
 	tf2_players[client].shockCharge = 30;
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
@@ -1265,13 +1271,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 		&& GetEntProp(attacker, Prop_Send, "m_iRevengeCrits") <= 0
 		&& TF2_IsPlayerInCondition(client, TFCond_OnFire))
 	{
-		tf2_players[attacker].healCount += ATTR_HARVESTER_HEALING_COUNT;
-		if (tf2_players[attacker].healCount >= HARVESTER_HEAL_COUNT_MAX)
-		{
-			Harvester_SetRevengeCrit(attacker);
-			tf2_players[attacker].healCount = 0;
-		}
-		Harvester_SyncHintTimer(attacker);
+		Harvester_AddHealCount(attacker, ATTR_HARVESTER_HEALING_COUNT);
 	}
 
 	if (tf2_players[client].scytheWeapon != 0 && TF2_IsPlayerInCondition(attacker, TFCond_OnFire))
@@ -1475,7 +1475,10 @@ public Action Timer_HealTimer(Handle timer, any userId)
 		return Plugin_Stop;
 	}
 
-	if (tf2_players[client].healCount > 0
+	bool directHealBlocked = tf2_players[client].lastHarvesterDirectHealTime >= 0.0
+		&& GetGameTime() - tf2_players[client].lastHarvesterDirectHealTime < HARVESTER_DIRECT_HEAL_BLOCK_TIME;
+	if (!directHealBlocked
+		&& tf2_players[client].healCount > 0
 		&& GetClientHealth(client) < TF2_GetPlayerMaxHealth(client))
 	{
 		tf2_players[client].healCount--;
@@ -1622,6 +1625,50 @@ static bool Harvester_IsWeapon(int weapon)
 {
 	return IsValidWeaponEntity(weapon)
 		&& TF2CustAttr_GetInt(weapon, "harvester attributes", 0) == 1;
+}
+
+static void Harvester_AddHealCount(int client, int amount)
+{
+	if (!IsClientInGame(client) || amount <= 0
+		|| GetEntProp(client, Prop_Send, "m_iRevengeCrits") > 0)
+	{
+		return;
+	}
+
+	tf2_players[client].healCount += amount;
+	if (tf2_players[client].healCount >= HARVESTER_HEAL_COUNT_MAX)
+	{
+		Harvester_SetRevengeCrit(client);
+		tf2_players[client].healCount = 0;
+	}
+	Harvester_SyncHintTimer(client);
+}
+
+static void Harvester_OnAfterburnDamage(int client)
+{
+	if (!IsPlayerAlive(client))
+	{
+		return;
+	}
+
+	tf2_players[client].scytheWeapon = CheckScythe(client);
+	if (tf2_players[client].scytheWeapon == 0)
+	{
+		return;
+	}
+
+	Harvester_AddHealCount(client, ATTR_HARVESTER_AFTERBURN_HEALING_COUNT);
+	if (tf2_players[client].scytheWeapon != 2)
+	{
+		return;
+	}
+
+	int healthBefore = GetClientHealth(client);
+	AddPlayerHealth(client, 4, 1.0, false, true);
+	if (GetClientHealth(client) > healthBefore)
+	{
+		tf2_players[client].lastHarvesterDirectHealTime = GetGameTime();
+	}
 }
 
 static void Harvester_StartHealTimer(int client)
@@ -2225,6 +2272,11 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 	if (attacker < 1) return Plugin_Continue;
 
 	bool attackerIsPlayer = (attacker >= 1 && attacker <= MaxClients && IsClientInGame(attacker));
+	if (attackerIsPlayer && CheckIfAfterburn(damagecustom))
+	{
+		Harvester_OnAfterburnDamage(attacker);
+	}
+
 	int damageWeapon = GetDamageSourceWeapon(attacker, weapon, inflictor);
 
 	if (attackerIsPlayer && damageWeapon > MaxClients && IsValidEntity(damageWeapon))
@@ -2312,16 +2364,6 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 				SetEntPropFloat(client, Prop_Send, "m_flCloakMeter", flCloakMeter);
 				EmitAmbientSound(SOUND_POMSON_DRAIN, damagePosition, client, SNDLEVEL_NORMAL);
 				return Plugin_Changed;
-			}
-		} else if (CheckIfAfterburn(damagecustom)) {
-			if (!IsPlayerAlive(attacker)) return Plugin_Continue;
-			tf2_players[attacker].scytheWeapon = CheckScythe(attacker);
-			if (tf2_players[attacker].scytheWeapon != 0) {
-				if (tf2_players[attacker].scytheWeapon == 2) {
-					AddPlayerHealth(attacker, 4, 1.0, false, true);
-					//EmitAmbientSound(SOUND_DISPENSER_METAL, damagePosition, attacker, SNDLEVEL_NORMAL);
-					return Plugin_Changed;
-				}
 			}
 		}
 
