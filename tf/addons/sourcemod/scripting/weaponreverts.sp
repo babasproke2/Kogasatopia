@@ -120,6 +120,8 @@ enum struct tf2_player
 	int scytheWeapon;
 	int shockCharge;
 	int healCount;
+	bool harvesterCritConsumePending;
+	bool harvesterCritBoostApplied;
 	float lastUber;
 	int lastUberMedigunDefIndex;
 	int engiMetal;
@@ -291,6 +293,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 stock void ResetClientArrays(int client)
 {
 	if (!WR_IsValidPlayerIndex(client)) return;
+	Harvester_ClearRevengeCrit(client);
 	tf2_players[client].scytheWeapon = 0;
 	tf2_players[client].shockCharge = 30;
 	tf2_players[client].healCount = 0;
@@ -1182,6 +1185,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 		return Plugin_Continue;
 
 	Sproke_ClearEffect(client, false, true);
+	Harvester_ClearRevengeCrit(client);
 	tf2_players[client].healCount = 0;
 	tf2_players[client].shockCharge = 30;
 	tf2_players[client].accuracyStreak = 0;
@@ -1244,7 +1248,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 		tf2_players[attacker].healCount += ATTR_HARVESTER_HEALING_COUNT;
 		if (tf2_players[attacker].healCount >= HARVESTER_HEAL_COUNT_MAX)
 		{
-			SetEntProp(attacker, Prop_Send, "m_iNextMeleeCrit", 2);
+			Harvester_SetRevengeCrit(attacker);
 			tf2_players[attacker].healCount = 0;
 		}
 	}
@@ -1357,6 +1361,14 @@ Action OnEnergyRingTouch(int entity, int other) {
 public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname, bool &result) {
 	if (!IsClientInGame(client) || weapon <= MaxClients || !IsValidEntity(weapon))
 		return Plugin_Continue;
+
+	if (Harvester_IsWeapon(weapon)
+		&& GetEntProp(client, Prop_Send, "m_iRevengeCrits") > 0
+		&& !tf2_players[client].harvesterCritConsumePending)
+	{
+		tf2_players[client].harvesterCritConsumePending = true;
+		RequestFrame(Harvester_ConsumeRevengeCrit, GetClientUserId(client));
+	}
 
 	// The SDKCall re-enters this forward through SourceMod's crit hook.
 	if (g_bCalculatingRandomCritOverride)
@@ -1491,6 +1503,17 @@ public Action OnWeaponSwitch(int client, int weapon)
 	}
 
 	int previousWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	if (weapon != previousWeapon && GetEntProp(client, Prop_Send, "m_iRevengeCrits") > 0)
+	{
+		if (Harvester_IsWeapon(previousWeapon) && !Harvester_IsWeapon(weapon))
+		{
+			Harvester_SetCritBoost(client, false);
+		}
+		else if (Harvester_IsWeapon(weapon))
+		{
+			Harvester_SetCritBoost(client, true);
+		}
+	}
 	TryApplyHolsterReload(previousWeapon);
 
 	if (weapon != previousWeapon)
@@ -1499,6 +1522,67 @@ public Action OnWeaponSwitch(int client, int weapon)
 	}
 
 	return Plugin_Continue;
+}
+
+static bool Harvester_IsWeapon(int weapon)
+{
+	return IsValidWeaponEntity(weapon)
+		&& TF2CustAttr_GetInt(weapon, "harvester attributes", 0) == 1;
+}
+
+static void Harvester_SetCritBoost(int client, bool enabled)
+{
+	if (enabled)
+	{
+		if (!IsClientInGame(client) || !IsPlayerAlive(client)
+			|| TF2_IsPlayerInCondition(client, TFCond_Kritzkrieged))
+		{
+			return;
+		}
+
+		TF2_AddCondition(client, TFCond_Kritzkrieged, TFCondDuration_Infinite);
+		tf2_players[client].harvesterCritBoostApplied = true;
+		return;
+	}
+
+	if (tf2_players[client].harvesterCritBoostApplied)
+	{
+		if (IsClientInGame(client))
+		{
+			TF2_RemoveCondition(client, TFCond_Kritzkrieged);
+		}
+		tf2_players[client].harvesterCritBoostApplied = false;
+	}
+}
+
+static void Harvester_SetRevengeCrit(int client)
+{
+	SetEntProp(client, Prop_Send, "m_iRevengeCrits", 1);
+	int activeWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	Harvester_SetCritBoost(client, Harvester_IsWeapon(activeWeapon));
+}
+
+static void Harvester_ClearRevengeCrit(int client)
+{
+	tf2_players[client].harvesterCritConsumePending = false;
+	if (IsClientInGame(client))
+	{
+		SetEntProp(client, Prop_Send, "m_iRevengeCrits", 0);
+	}
+	Harvester_SetCritBoost(client, false);
+}
+
+public void Harvester_ConsumeRevengeCrit(any userId)
+{
+	int client = GetClientOfUserId(userId);
+	if (client <= 0 || !IsClientInGame(client))
+	{
+		return;
+	}
+
+	tf2_players[client].harvesterCritConsumePending = false;
+	SetEntProp(client, Prop_Send, "m_iRevengeCrits", 0);
+	Harvester_SetCritBoost(client, false);
 }
 
 static void SecondaryDamageRefill_Reset(int client)
