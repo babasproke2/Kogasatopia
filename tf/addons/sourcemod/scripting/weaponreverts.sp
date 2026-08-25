@@ -79,6 +79,7 @@
 #define ATTR_HUNTING_REVOLVER "hunting revolver attributes"
 #define ATTR_MAX_PRIMARY_CLIP_OVERRIDE "mod max primary clip override"
 #define HUNTING_REVOLVER_FOV 48
+#define HUNTING_REVOLVER_MAX_ZOOM_SPEED 190.0
 #define TF_AMMO_PRIMARY_INDEX 1
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
@@ -1831,16 +1832,7 @@ static void HuntingRevolver_SetZoom(int client, bool enabled)
 	tf2_players[client].huntingRevolverZoomed = enabled;
 	SetEntProp(client, Prop_Send, "m_iFOV", enabled ? HUNTING_REVOLVER_FOV : 0);
 	HuntingRevolver_SetReloadLock(client, enabled);
-	if (enabled)
-	{
-		TF2_AddCondition(client, TFCond_Slowed, TFCondDuration_Infinite);
-		HuntingRevolver_RecalculateSpeed(client);
-	}
-	else
-	{
-		TF2_RemoveCondition(client, TFCond_Slowed);
-		HuntingRevolver_RecalculateSpeed(client);
-	}
+	HuntingRevolver_RecalculateSpeed(client);
 }
 
 static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
@@ -1857,15 +1849,14 @@ static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
 		|| tf2_players[client].huntingRevolverAttack2Held
 		|| HuntingRevolver_IsWeapon(knownWeapon);
 
+	tf2_players[client].huntingRevolverZoomed = false;
 	HuntingRevolver_SetReloadLock(client, false, knownWeapon);
 	if (customContext && IsClientInGame(client))
 	{
 		SetEntProp(client, Prop_Send, "m_iFOV", 0);
-		TF2_RemoveCondition(client, TFCond_Slowed);
 		HuntingRevolver_RecalculateSpeed(client);
 	}
 
-	tf2_players[client].huntingRevolverZoomed = false;
 	tf2_players[client].huntingRevolverAttack2Held = false;
 	tf2_players[client].huntingRevolverWeaponRef = INVALID_ENT_REFERENCE;
 }
@@ -2991,6 +2982,18 @@ MRESReturn CalculateMaxSpeed(int client, DHookReturn returnValue) {
 		IsValidEntity(client) &&
 		IsClientInGame(client)
 	) {
+		int activeWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+		if (tf2_players[client].huntingRevolverZoomed
+			&& HuntingRevolver_IsWeapon(activeWeapon))
+		{
+			float speed = view_as<float>(returnValue.Value);
+			if (speed > HUNTING_REVOLVER_MAX_ZOOM_SPEED)
+			{
+				returnValue.Value = HUNTING_REVOLVER_MAX_ZOOM_SPEED;
+				return MRES_Override;
+			}
+		}
+
 		switch (TF2_GetPlayerClass(client))
 		{
 			case TFClass_Scout:
