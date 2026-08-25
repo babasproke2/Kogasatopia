@@ -81,6 +81,8 @@ public Plugin myinfo = {
 #define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
 #define ATTR_PUNCH_ANGLE_IS_CONSISTENT "punch angle is consistent"
 #define ATTR_PUNCH_ANGLE_MOD "punch angle mod"
+#define ATTR_HUNTING_REVOLVER "hunting revolver attributes"
+#define TF_AMMO_PRIMARY_INDEX 1
 
 // we're recycling the following attribute to ensure that the item UID persists across dropped
 // weapons - it's kinda icky and if anyone else happened to get the same idea it'd be bad, but
@@ -113,6 +115,11 @@ void CWX_ApplyEngineOverrides(int weapon)
 	if (!IsValidEntity(weapon))
 	{
 		return;
+	}
+
+	if (TF2CustAttr_GetInt(weapon, ATTR_HUNTING_REVOLVER, 0) != 0)
+	{
+		SetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", TF_AMMO_PRIMARY_INDEX);
 	}
 
 	if (GetFeatureStatus(FeatureType_Native, "TF2Spread_SetPattern") == FeatureStatus_Available)

@@ -78,6 +78,7 @@
 #define ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED "headshots enabled while zoomed"
 #define ATTR_HUNTING_REVOLVER "hunting revolver attributes"
 #define HUNTING_REVOLVER_FOV 48
+#define TF_AMMO_PRIMARY_INDEX 1
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
 #define RESTORE_PRIMARY_SHOT_DAMAGE_WINDOW 5.0
@@ -216,6 +217,11 @@ static void WeaponReverts_ApplyEngineOverrides(int weapon)
 	if (!IsValidWeaponEntity(weapon))
 	{
 		return;
+	}
+
+	if (TF2CustAttr_GetInt(weapon, ATTR_HUNTING_REVOLVER, 0) != 0)
+	{
+		SetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", TF_AMMO_PRIMARY_INDEX);
 	}
 
 	if (GetFeatureStatus(FeatureType_Native, "TF2Spread_SetPattern") == FeatureStatus_Available)
