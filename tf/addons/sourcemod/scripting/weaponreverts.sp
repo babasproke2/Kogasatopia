@@ -2898,10 +2898,26 @@ public Action OnTraceAttack(int victim, int &attacker, int &inflictor, float &da
 	if (damagetype & DMG_BULLET)
 	{
 		int weapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
-		if (weapon > MaxClients && IsValidEntity(weapon) && WeaponReverts_CanHeadshotNow(weapon))
+		if (weapon > MaxClients && IsValidEntity(weapon))
 		{
-			damagetype |= DMG_USE_HITLOCATIONS;
-			return Plugin_Changed;
+			if (TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED, 0) != 0)
+			{
+				if (WeaponReverts_CanHeadshotNow(weapon))
+				{
+					damagetype |= DMG_USE_HITLOCATIONS;
+				}
+				else
+				{
+					damagetype &= ~DMG_USE_HITLOCATIONS;
+				}
+				return Plugin_Changed;
+			}
+
+			if (WeaponReverts_CanHeadshotNow(weapon))
+			{
+				damagetype |= DMG_USE_HITLOCATIONS;
+				return Plugin_Changed;
+			}
 		}
 	}
 
