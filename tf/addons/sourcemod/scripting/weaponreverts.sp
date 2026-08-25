@@ -73,6 +73,7 @@
 #define ATTR_PUNCH_ANGLE_MOD "punch angle mod"
 #define ATTR_SCATTERGUN_HAS_KNOCKBACK "scattergun has knockback"
 #define ATTR_IGNITE_ON_FULL_PELLET_HIT "ignite on full pellet hit"
+#define ATTR_HITSCAN_NO_DAMAGE_PHYSICS "hitscan no damage physics"
 #define ATTR_HEADSHOTS_ENABLED "headshots enabled"
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
@@ -2078,11 +2079,11 @@ static void FullPelletIgnite_ClearAll()
 	}
 }
 
-static bool FullPelletIgnite_TryMark(int attacker, int victim, int weapon, int &damageType)
+static void FullPelletIgnite_TryMark(int attacker, int victim, int weapon)
 {
 	if (!Accuracy_IsValidClient(attacker) || !Accuracy_IsValidClient(victim) || attacker == victim)
 	{
-		return false;
+		return;
 	}
 
 	FullPelletIgnite_ClearPair(attacker, victim);
@@ -2095,21 +2096,19 @@ static bool FullPelletIgnite_TryMark(int attacker, int victim, int weapon, int &
 		|| !IsValidWeaponEntity(weapon)
 		|| GetFeatureStatus(FeatureType_Native, "TF2Scatter_IsCurrentShotFull") != FeatureStatus_Available)
 	{
-		return false;
+		return;
 	}
 
 	float burnDuration = TF2CustAttr_GetFloat(weapon, ATTR_IGNITE_ON_FULL_PELLET_HIT, 0.0);
 	if (burnDuration <= 0.0 || !TF2Scatter_IsCurrentShotFull(attacker, victim, weapon))
 	{
-		return false;
+		return;
 	}
 
 	g_bPendingFullPelletIgnite[attacker][victim] = true;
 	g_iPendingFullPelletWeaponRef[attacker][victim] = EntIndexToEntRef(weapon);
 	g_fPendingFullPelletBurnDuration[attacker][victim] = burnDuration;
 	g_iPendingFullPelletTick[attacker][victim] = GetGameTickCount();
-	damageType |= DMG_BULLET | DMG_PREVENT_PHYSICS_FORCE;
-	return true;
 }
 
 static void FullPelletIgnite_TryConsumePost(int victim, int attacker, int weapon, int inflictor)
@@ -2376,7 +2375,19 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 	}
 
 	int damageWeapon = GetDamageSourceWeapon(attacker, weapon, inflictor);
-	bool fullPelletIgnitePending = FullPelletIgnite_TryMark(attacker, client, damageWeapon, damagetype);
+	bool damageChanged = false;
+	if (attackerIsPlayer
+		&& damageWeapon > MaxClients
+		&& IsValidEntity(damageWeapon)
+		&& inflictor == attacker
+		&& (damagetype & (DMG_BULLET | DMG_BUCKSHOT))
+		&& TF2CustAttr_GetInt(damageWeapon, ATTR_HITSCAN_NO_DAMAGE_PHYSICS, 0) != 0)
+	{
+		damagetype |= DMG_PREVENT_PHYSICS_FORCE;
+		damageChanged = true;
+	}
+
+	FullPelletIgnite_TryMark(attacker, client, damageWeapon);
 	int directDamageWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
 	if (attackerIsPlayer
 		&& damage > 0.0
@@ -2420,7 +2431,8 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 
 	if (damagecustom == SANDMAN_DAMAGE_CUSTOM)
 	{
-		return SandmanPreJI_OnBaseballDamage(client, attacker, weapon, inflictor, damage);
+		Action sandmanAction = SandmanPreJI_OnBaseballDamage(client, attacker, weapon, inflictor, damage);
+		return damageChanged && sandmanAction == Plugin_Continue ? Plugin_Changed : sandmanAction;
 	}
 
 	if (wepindex == 442 || wepindex == 588)	 // Pomson, bison
@@ -2481,7 +2493,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 		}
 
 		if (!validWeapon) {
-			return fullPelletIgnitePending ? Plugin_Changed : Plugin_Continue;
+			return damageChanged ? Plugin_Changed : Plugin_Continue;
 		}
 
 		if (TF2CustAttr_GetInt(weapon, "shock therapy attributes") != 0) {
@@ -2499,11 +2511,11 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 				TF2_IgnitePlayer(client, attacker, 4.0);
 				return Plugin_Changed;
 			}
-		return fullPelletIgnitePending ? Plugin_Changed : Plugin_Continue;
+		return damageChanged ? Plugin_Changed : Plugin_Continue;
 		}
 	}
 		
-	return fullPelletIgnitePending ? Plugin_Changed : Plugin_Continue;
+	return damageChanged ? Plugin_Changed : Plugin_Continue;
 }
 
 bool IsWorldInflictedDeath(Event event)
