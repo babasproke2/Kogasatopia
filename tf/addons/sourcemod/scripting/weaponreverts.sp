@@ -81,6 +81,7 @@
 #define ATTR_MAX_PRIMARY_CLIP_OVERRIDE "mod max primary clip override"
 #define ESCAMPETTE_WATCH_SLOT 4
 #define HUNTING_REVOLVER_FOV 48
+#define HUNTING_REVOLVER_ZOOM_TIME 0.20
 #define HUNTING_REVOLVER_MAX_ZOOM_SPEED 120.0
 #define TF_AMMO_PRIMARY_INDEX 1
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
@@ -156,6 +157,7 @@ enum struct tf2_player
 	int bonkFrame;
 	int oldHealth;
 	bool huntingRevolverZoomed;
+	float huntingRevolverZoomReadyTime;
 	bool huntingRevolverAttack2Held;
 	int huntingRevolverWeaponRef;
 }
@@ -163,6 +165,7 @@ enum struct tf2_player
 Handle g_SDKGetMaxClip1 = null;
 Handle g_SDKGetAfterburnRateOnHit = null;
 Handle g_SDKTeamFortressSetSpeed = null;
+Handle g_SDKSetFOV = null;
 int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
 bool g_bAccuracyExploding[MAXPLAYERS + 1];
@@ -294,6 +297,8 @@ static bool WeaponReverts_IsHeadshotZoomed(int weapon)
 
 	return GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon") == weapon
 		&& tf2_players[client].huntingRevolverZoomed
+		&& tf2_players[client].huntingRevolverZoomReadyTime > 0.0
+		&& GetGameTime() >= tf2_players[client].huntingRevolverZoomReadyTime
 		&& EntRefToEntIndex(tf2_players[client].huntingRevolverWeaponRef) == weapon;
 }
 
@@ -482,6 +487,20 @@ public void OnPluginStart() {
 		if (g_SDKTeamFortressSetSpeed == null)
 		{
 			SetFailState("Failed to create SDKCall for TeamFortress_SetSpeed");
+		}
+
+		StartPrepSDKCall(SDKCall_Player);
+		PrepSDKCall_SetFromConf(conf, SDKConf_Signature, "CBasePlayer::SetFOV");
+		PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
+		PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
+		PrepSDKCall_AddParameter(SDKType_Float, SDKPass_Plain);
+		PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
+		PrepSDKCall_SetReturnInfo(SDKType_Bool, SDKPass_Plain);
+		g_SDKSetFOV = EndPrepSDKCall();
+
+		if (g_SDKSetFOV == null)
+		{
+			SetFailState("Failed to create SDKCall for CBasePlayer::SetFOV");
 		}
 
 		// Virtual dispatch preserves TF2's native ranged/melee crit algorithms.
@@ -1865,7 +1884,6 @@ static void HuntingRevolver_RecognizeWeapon(int client, int weapon)
 
 	HuntingRevolver_ResetClient(client);
 	tf2_players[client].huntingRevolverWeaponRef = weaponRef;
-	SetEntProp(client, Prop_Send, "m_iFOV", 0);
 }
 
 static void HuntingRevolver_RecalculateSpeed(int client)
@@ -1876,6 +1894,16 @@ static void HuntingRevolver_RecalculateSpeed(int client)
 	}
 
 	SDKCall(g_SDKTeamFortressSetSpeed, client);
+}
+
+static void HuntingRevolver_SetFOV(int client, int fov)
+{
+	if (g_SDKSetFOV == null || !WR_IsValidPlayerIndex(client) || !IsClientInGame(client))
+	{
+		return;
+	}
+
+	SDKCall(g_SDKSetFOV, client, client, fov, HUNTING_REVOLVER_ZOOM_TIME, 0);
 }
 
 static int HuntingRevolver_GetWeapon(int client, int knownWeapon = -1)
@@ -1925,7 +1953,10 @@ static void HuntingRevolver_SetReloadLock(int client, bool enabled, int knownWea
 static void HuntingRevolver_SetZoom(int client, bool enabled)
 {
 	tf2_players[client].huntingRevolverZoomed = enabled;
-	SetEntProp(client, Prop_Send, "m_iFOV", enabled ? HUNTING_REVOLVER_FOV : 0);
+	tf2_players[client].huntingRevolverZoomReadyTime = enabled
+		? GetGameTime() + HUNTING_REVOLVER_ZOOM_TIME
+		: 0.0;
+	HuntingRevolver_SetFOV(client, enabled ? HUNTING_REVOLVER_FOV : 0);
 	HuntingRevolver_SetReloadLock(client, enabled);
 	HuntingRevolver_RecalculateSpeed(client);
 }
@@ -1945,10 +1976,11 @@ static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
 		|| HuntingRevolver_IsWeapon(knownWeapon);
 
 	tf2_players[client].huntingRevolverZoomed = false;
+	tf2_players[client].huntingRevolverZoomReadyTime = 0.0;
 	HuntingRevolver_SetReloadLock(client, false, knownWeapon);
 	if (customContext && IsClientInGame(client))
 	{
-		SetEntProp(client, Prop_Send, "m_iFOV", 0);
+		HuntingRevolver_SetFOV(client, 0);
 		HuntingRevolver_RecalculateSpeed(client);
 	}
 
