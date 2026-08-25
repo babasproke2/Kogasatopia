@@ -18,7 +18,6 @@
 #pragma semicolon 1
 
 #include <rtd2>
-#include <clientprefs>
 #include <sdktools>
 #include <sdkhooks>
 #include <tf2_stocks>
@@ -91,9 +90,7 @@ Rollers g_hRollers = null;
 int g_iActiveEntitySpawnedSubscribers = 0;
 int g_iLastEntitySpawnTime = 0;
 bool g_bFreeRtdNoticeScheduled[MAXPLAYERS + 1];
-bool g_bRtdCooldownHudEnabled[MAXPLAYERS + 1];
 bool g_bRtdCooldownHudVisible[MAXPLAYERS + 1];
-Cookie g_hRtdCooldownHudCookie;
 Handle g_hRtdCooldownHudTimer;
 
 Handle g_hFwdCanRoll;
@@ -176,8 +173,6 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_firework", Command_Firework, "Purchase the Firework RTD effect.");
 	RegConsoleCmd("sm_rtdhelp", Command_RTDHelp, "Show RTD help.");
 	RegConsoleCmd("sm_rtdh", Command_RTDHelp, "Show RTD help.");
-	RegConsoleCmd("sm_rtdhud", Command_RTDHud, "Toggle the RTD cooldown HUD.");
-	RegConsoleCmd("sm_hudrtd", Command_RTDHud, "Toggle the RTD cooldown HUD.");
 	RegAdminCmd("sm_perks", Command_DescMenu, 0, "Display a description menu of RTD perks.");
 
 	RegAdminCmd("sm_forcertd", Command_ForceRTD, ADMFLAG_SLAY, "Applies perk to selected player(s).");
@@ -200,7 +195,6 @@ public void OnPluginStart()
 
 	g_hRollers = new Rollers();
 	g_hPerkHistory = new PerkList();
-	g_hRtdCooldownHudCookie = new Cookie("rtd_cooldown_hud", "Display the RTD cooldown HUD.", CookieAccess_Private);
 	g_hRtdCooldownHudTimer = CreateTimer(1.0, Timer_RtdCooldownHud, _, TIMER_REPEAT);
 
 	for (int i = 1; i <= MaxClients; ++i)
@@ -298,15 +292,11 @@ public void OnMapEnd()
 public void OnClientPutInServer(int client)
 {
 	g_bFreeRtdNoticeScheduled[client] = false;
-	g_bRtdCooldownHudEnabled[client] = false;
 	g_bRtdCooldownHudVisible[client] = false;
 	g_hRollers.Reset(client);
 
 	if (g_hRollers.GetHud(client) == null)
 		g_hRollers.SetHud(client, CreateHudSynchronizer());
-
-	if (!IsFakeClient(client) && AreClientCookiesCached(client))
-		LoadRtdCooldownHudPreference(client);
 
 	SDKHook(client, SDKHook_GetMaxHealth, OnGetMaxHealth);
 }
@@ -314,7 +304,6 @@ public void OnClientPutInServer(int client)
 public void OnClientDisconnect(int client)
 {
 	g_bFreeRtdNoticeScheduled[client] = false;
-	g_bRtdCooldownHudEnabled[client] = false;
 	g_bRtdCooldownHudVisible[client] = false;
 	Events.PlayerDisconnected(client);
 
@@ -325,27 +314,11 @@ public void OnClientDisconnect(int client)
 	SDKUnhook(client, SDKHook_GetMaxHealth, OnGetMaxHealth);
 }
 
-public void OnClientCookiesCached(int client)
-{
-	if (!IsFakeClient(client))
-		LoadRtdCooldownHudPreference(client);
-}
-
-void LoadRtdCooldownHudPreference(int client)
-{
-	char value[8];
-	g_hRtdCooldownHudCookie.Get(client, value, sizeof(value));
-	g_bRtdCooldownHudEnabled[client] = StringToInt(value) != 0;
-
-	if (g_bRtdCooldownHudEnabled[client])
-		UpdateRtdCooldownHud(client);
-}
-
 public Action Timer_RtdCooldownHud(Handle timer)
 {
 	for (int client = 1; client <= MaxClients; client++)
 	{
-		if (g_bRtdCooldownHudEnabled[client] && IsClientInGame(client) && !IsFakeClient(client))
+		if (IsClientInGame(client) && !IsFakeClient(client))
 			UpdateRtdCooldownHud(client);
 	}
 
@@ -531,34 +504,6 @@ public Action Command_RTDHelp(const int client, const int args)
 	GetRollCurrencyName(currencyName, sizeof(currencyName));
 
 	CPrintToChat(client, CHAT_PREFIX ... " Use !rtd or type 'rtd' to roll for an epic effect, results can be good or bad, lasts %d seconds, cooldown is %d seconds. Costs %d %s, the server currency. {gold}!votemenu{default} can make rtd free!", g_iCvarPerkDuration, g_iCvarRollInterval, g_iCvarRollCost, currencyName);
-	return Plugin_Handled;
-}
-
-public Action Command_RTDHud(const int client, const int args)
-{
-	if (!IsValidClient(client))
-		return Plugin_Handled;
-
-	if (!AreClientCookiesCached(client))
-	{
-		CPrintToChat(client, CHAT_PREFIX ... " Your preferences are still loading. Try again shortly.");
-		return Plugin_Handled;
-	}
-
-	g_bRtdCooldownHudEnabled[client] = !g_bRtdCooldownHudEnabled[client];
-	g_hRtdCooldownHudCookie.Set(client, g_bRtdCooldownHudEnabled[client] ? "1" : "0");
-
-	if (g_bRtdCooldownHudEnabled[client])
-	{
-		CPrintToChat(client, CHAT_PREFIX ... " Cooldown HUD {green}enabled{default}.");
-		UpdateRtdCooldownHud(client);
-	}
-	else
-	{
-		CPrintToChat(client, CHAT_PREFIX ... " Cooldown HUD {red}disabled{default}.");
-		ClearRtdCooldownHud(client);
-	}
-
 	return Plugin_Handled;
 }
 
