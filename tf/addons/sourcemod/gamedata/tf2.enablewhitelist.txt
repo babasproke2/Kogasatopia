@@ -4,6 +4,34 @@
 	{
 		"Signatures"
 		{
+			"TFInventoryManager"
+			{
+				"library"	"server"
+				"linux"		"@_Z18TFInventoryManagerv"
+				"linux64"	"@_Z18TFInventoryManagerv"
+			}
+
+			"CTFInventoryManager::GetBaseItemForClass"
+			{
+				"library"	"server"
+				"linux"		"@_ZN19CTFInventoryManager19GetBaseItemForClassEii"
+				"linux64"	"@_ZN19CTFInventoryManager19GetBaseItemForClassEii"
+			}
+
+			"CTFPlayerInventory::GetItemInLoadout"
+			{
+				"library"	"server"
+				"linux"		"@_ZN18CTFPlayerInventory16GetItemInLoadoutEii"
+				"linux64"	"@_ZN18CTFPlayerInventory16GetItemInLoadoutEii"
+			}
+
+			"CEconItemView::GetItemDefIndex"
+			{
+				"library"	"server"
+				"linux"		"@_ZNK13CEconItemView15GetItemDefIndexEv"
+				"linux64"	"@_ZNK13CEconItemView15GetItemDefIndexEv"
+			}
+
 			"GetLoadoutItem"
 			{
 				"library"	"server"
@@ -27,6 +55,21 @@
 				"callconv" "thiscall"
 				"this" "entity"
 				"return" "int"
+				"arguments"
+				{
+					"player_class"
+					{
+						"type" "int"
+					}
+					"loadout_position"
+					{
+						"type" "int"
+					}
+					"report_whitelist_fails"
+					{
+						"type" "bool"
+					}
+				}
 			}
 
 			"ReloadWhitelist"
@@ -35,6 +78,15 @@
 				"callconv" "thiscall"
 				"this" "ignore"
 				"return" "void"
+			}
+		}
+
+		"Offsets"
+		{
+			"CTFPlayer::m_Inventory"
+			{
+				"linux"		"4892"
+				"linux64"	"5616"
 			}
 		}
 	}
