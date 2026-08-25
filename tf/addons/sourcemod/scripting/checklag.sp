@@ -6,6 +6,10 @@
 #include <multicolors>
 #include <plugin_statistics>
 
+#undef REQUIRE_PLUGIN
+#include <dgm_api>
+#define REQUIRE_PLUGIN
+
 #define CHECKLAG_HEALTHY_TICKRATE 62.0
 #define CHECKLAG_MONITOR_INTERVAL 1.0
 #define CHECKLAG_ADMIN_ALERT_INTERVAL 4.0
@@ -22,6 +26,12 @@ public Plugin myinfo =
     url = "https://kogasa.tf"
 };
 
+public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
+{
+    MarkNativeAsOptional("DGM_IsRoundRunning");
+    return APLRes_Success;
+}
+
 public void OnPluginStart()
 {
     RegConsoleCmd("sm_lag", Command_CheckLag, "Broadcast the server tickrate.");
@@ -30,6 +40,12 @@ public void OnPluginStart()
     AddCommandListener(Listener_Chat, "say");
     AddCommandListener(Listener_Chat, "say_team");
     g_AdminMonitorTimer = CreateTimer(CHECKLAG_MONITOR_INTERVAL, Timer_MonitorTickrate, _, TIMER_REPEAT);
+}
+
+bool CheckLag_IsRoundRunning()
+{
+    return GetFeatureStatus(FeatureType_Native, "DGM_IsRoundRunning") == FeatureStatus_Available
+        && DGM_IsRoundRunning();
 }
 
 public void OnPluginEnd()
@@ -110,6 +126,11 @@ void PrintTickrateToClient(int client)
 
 public Action Timer_MonitorTickrate(Handle timer)
 {
+    if (!CheckLag_IsRoundRunning())
+    {
+        return Plugin_Continue;
+    }
+
     float current = PluginStats_GetObservedTickrate();
     if (current >= CHECKLAG_HEALTHY_TICKRATE)
     {
@@ -146,7 +167,8 @@ public Action Timer_MonitorTickrate(Handle timer)
 
 public Action Listener_Chat(int client, const char[] command, int argc)
 {
-    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    if (!CheckLag_IsRoundRunning()
+        || client <= 0 || client > MaxClients || !IsClientInGame(client))
     {
         return Plugin_Continue;
     }
@@ -165,6 +187,11 @@ public Action Listener_Chat(int client, const char[] command, int argc)
 
 public Action Command_CheckLag(int client, int args)
 {
+    if (!CheckLag_IsRoundRunning())
+    {
+        return Plugin_Handled;
+    }
+
     char message[128];
     FormatTickrateMessage(message, sizeof(message));
     CPrintToChatAll("%s", message);
