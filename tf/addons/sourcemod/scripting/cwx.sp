@@ -394,7 +394,7 @@ bool FormatItemDescription(const CustomItemDefinition item, char[] buffer, int m
 		return false;
 	}
 
-	Format(buffer, maxlen, "{default}%s:", item.displayName);
+	Format(buffer, maxlen, "{gold}%s{default}:", item.displayName);
 	bool needsComma = false;
 
 	if (hasPositive) {
