@@ -157,6 +157,7 @@ enum struct tf2_player
 
 Handle g_SDKGetMaxClip1 = null;
 Handle g_SDKGetAfterburnRateOnHit = null;
+Handle g_SDKTeamFortressSetSpeed = null;
 int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
 bool g_bAccuracyExploding[MAXPLAYERS + 1];
@@ -453,6 +454,15 @@ public void OnPluginStart() {
 		if (g_SDKGetAfterburnRateOnHit == null)
 		{
 			SetFailState("Failed to create SDKCall for GetAfterburnRateOnHit");
+		}
+
+		StartPrepSDKCall(SDKCall_Player);
+		PrepSDKCall_SetFromConf(conf, SDKConf_Signature, "CTFPlayer::TeamFortress_SetSpeed()");
+		g_SDKTeamFortressSetSpeed = EndPrepSDKCall();
+
+		if (g_SDKTeamFortressSetSpeed == null)
+		{
+			SetFailState("Failed to create SDKCall for TeamFortress_SetSpeed");
 		}
 
 		// Virtual dispatch preserves TF2's native ranged/melee crit algorithms.
@@ -1754,6 +1764,16 @@ static void HuntingRevolver_RecognizeWeapon(int client, int weapon)
 	SetEntProp(client, Prop_Send, "m_iFOV", 0);
 }
 
+static void HuntingRevolver_RecalculateSpeed(int client)
+{
+	if (g_SDKTeamFortressSetSpeed == null || !WR_IsValidPlayerIndex(client) || !IsClientInGame(client))
+	{
+		return;
+	}
+
+	SDKCall(g_SDKTeamFortressSetSpeed, client);
+}
+
 static void HuntingRevolver_SetZoom(int client, bool enabled)
 {
 	tf2_players[client].huntingRevolverZoomed = enabled;
@@ -1761,10 +1781,12 @@ static void HuntingRevolver_SetZoom(int client, bool enabled)
 	if (enabled)
 	{
 		TF2_AddCondition(client, TFCond_Slowed, TFCondDuration_Infinite);
+		HuntingRevolver_RecalculateSpeed(client);
 	}
 	else
 	{
 		TF2_RemoveCondition(client, TFCond_Slowed);
+		HuntingRevolver_RecalculateSpeed(client);
 	}
 }
 
@@ -1786,6 +1808,7 @@ static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
 	{
 		SetEntProp(client, Prop_Send, "m_iFOV", 0);
 		TF2_RemoveCondition(client, TFCond_Slowed);
+		HuntingRevolver_RecalculateSpeed(client);
 	}
 
 	tf2_players[client].huntingRevolverZoomed = false;
