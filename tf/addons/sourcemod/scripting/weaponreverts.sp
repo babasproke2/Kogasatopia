@@ -2716,6 +2716,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 		&& inflictor == attacker
 		&& (damagetype & DMG_BULLET)
 		&& (damagetype & DMG_USEDISTANCEMOD)
+		&& !(damagetype & DMG_CRIT)
 		&& TF2CustAttr_GetInt(directDamageWeapon, ATTR_HUNTING_REVOLVER, 0) != 0)
 	{
 		damagetype &= ~DMG_USEDISTANCEMOD;
