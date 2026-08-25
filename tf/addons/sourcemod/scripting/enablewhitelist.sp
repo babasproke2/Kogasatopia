@@ -23,7 +23,7 @@
 #include <tf_econ_data>
 #include <morecolors>
 
-#define PLUGIN_VERSION "1.1.0"
+#define PLUGIN_VERSION "1.1.1"
 
 #define LOADOUT_POSITION_PRIMARY 0
 #define LOADOUT_POSITION_SECONDARY 1
@@ -232,7 +232,8 @@ bool IsForbiddenLoadoutCombo(int client, int playerClass)
 			LOADOUT_POSITION_PRIMARY,
 			itemClass,
 			sizeof(itemClass))
-		|| !StrEqual(itemClass, "tf_weapon_wearable"))
+		|| (!StrEqual(itemClass, "tf_wearable")
+			&& !StrEqual(itemClass, "tf_weapon_wearable")))
 	{
 		return false;
 	}
