@@ -1071,6 +1071,11 @@ bool DGM_AreRespawnTimesForcedOn()
 
 bool DGM_InternalIsRoundRunning()
 {
+    if (FindEntityByClassname(-1, "tf_gamerules") == -1)
+    {
+        return false;
+    }
+
     return (GameRules_GetRoundState() == RoundState_RoundRunning);
 }
 
@@ -1081,6 +1086,11 @@ bool DGM_IsSetupTimeExtensionAvailable()
 
 bool DGM_IsSetupGameRulesActive()
 {
+    if (FindEntityByClassname(-1, "tf_gamerules") == -1)
+    {
+        return false;
+    }
+
     if (GameRules_GetProp("m_bInSetup", 1) != 0)
     {
         return true;
