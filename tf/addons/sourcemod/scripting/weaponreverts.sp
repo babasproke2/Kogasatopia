@@ -77,6 +77,7 @@
 #define ATTR_HEADSHOTS_ENABLED "headshots enabled"
 #define ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED "headshots enabled while zoomed"
 #define ATTR_HUNTING_REVOLVER "hunting revolver attributes"
+#define ATTR_MAX_PRIMARY_CLIP_OVERRIDE "mod max primary clip override"
 #define HUNTING_REVOLVER_FOV 48
 #define TF_AMMO_PRIMARY_INDEX 1
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
@@ -1742,11 +1743,6 @@ public Action OnPlayerRunCmd(
 		commandChanged = true;
 	}
 
-	if ((buttons & IN_RELOAD) != 0 && tf2_players[client].huntingRevolverZoomed)
-	{
-		HuntingRevolver_SetZoom(client, false);
-	}
-
 	return commandChanged ? Plugin_Changed : Plugin_Continue;
 }
 
@@ -1786,10 +1782,55 @@ static void HuntingRevolver_RecalculateSpeed(int client)
 	SDKCall(g_SDKTeamFortressSetSpeed, client);
 }
 
+static int HuntingRevolver_GetWeapon(int client, int knownWeapon = -1)
+{
+	int weapon = EntRefToEntIndex(tf2_players[client].huntingRevolverWeaponRef);
+	if (IsValidWeaponEntity(weapon))
+	{
+		return weapon;
+	}
+
+	if (HuntingRevolver_IsWeapon(knownWeapon))
+	{
+		return knownWeapon;
+	}
+
+	if (IsClientInGame(client))
+	{
+		weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+		if (HuntingRevolver_IsWeapon(weapon))
+		{
+			return weapon;
+		}
+	}
+
+	return INVALID_ENT_REFERENCE;
+}
+
+static void HuntingRevolver_SetReloadLock(int client, bool enabled, int knownWeapon = -1)
+{
+	int weapon = HuntingRevolver_GetWeapon(client, knownWeapon);
+	if (!IsValidWeaponEntity(weapon))
+	{
+		return;
+	}
+
+	if (enabled
+		&& TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED, 0) != 0)
+	{
+		TF2Attrib_SetByName(weapon, ATTR_MAX_PRIMARY_CLIP_OVERRIDE, -1.0);
+	}
+	else
+	{
+		TF2Attrib_RemoveByName(weapon, ATTR_MAX_PRIMARY_CLIP_OVERRIDE);
+	}
+}
+
 static void HuntingRevolver_SetZoom(int client, bool enabled)
 {
 	tf2_players[client].huntingRevolverZoomed = enabled;
 	SetEntProp(client, Prop_Send, "m_iFOV", enabled ? HUNTING_REVOLVER_FOV : 0);
+	HuntingRevolver_SetReloadLock(client, enabled);
 	if (enabled)
 	{
 		TF2_AddCondition(client, TFCond_Slowed, TFCondDuration_Infinite);
@@ -1816,6 +1857,7 @@ static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
 		|| tf2_players[client].huntingRevolverAttack2Held
 		|| HuntingRevolver_IsWeapon(knownWeapon);
 
+	HuntingRevolver_SetReloadLock(client, false, knownWeapon);
 	if (customContext && IsClientInGame(client))
 	{
 		SetEntProp(client, Prop_Send, "m_iFOV", 0);
@@ -3152,6 +3194,7 @@ public Action Command_ReloadWeaponRevertsConfig(int client, int args)
 	{
 		if (IsClientInGame(target))
 		{
+			HuntingRevolver_ResetClient(target);
 			Harvester_SyncHealTimer(target);
 		}
 	}
