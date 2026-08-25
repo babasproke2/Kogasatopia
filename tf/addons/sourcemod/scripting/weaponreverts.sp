@@ -1758,6 +1758,14 @@ static void HuntingRevolver_SetZoom(int client, bool enabled)
 {
 	tf2_players[client].huntingRevolverZoomed = enabled;
 	SetEntProp(client, Prop_Send, "m_iFOV", enabled ? HUNTING_REVOLVER_FOV : 0);
+	if (enabled)
+	{
+		TF2_AddCondition(client, TFCond_Slowed, TFCondDuration_Infinite);
+	}
+	else
+	{
+		TF2_RemoveCondition(client, TFCond_Slowed);
+	}
 }
 
 static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
@@ -1777,6 +1785,7 @@ static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
 	if (customContext && IsClientInGame(client))
 	{
 		SetEntProp(client, Prop_Send, "m_iFOV", 0);
+		TF2_RemoveCondition(client, TFCond_Slowed);
 	}
 
 	tf2_players[client].huntingRevolverZoomed = false;
