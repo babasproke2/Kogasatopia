@@ -24,6 +24,7 @@ enum struct CustomItemDefinition {
 	KeyValues customAttributes;
 	
 	bool bKeepStaticAttributes;
+	bool reskinOnly;
 	
 	void Init() {
 		this.defindex = TF_ITEMDEF_DEFAULT;
@@ -186,6 +187,10 @@ bool CreateItemFromSection(KeyValues config) {
 	config.GetString("item_class", item.className, sizeof(item.className), item.className);
 	
 	item.bKeepStaticAttributes = !!config.GetNum("keep_static_attrs", true);
+
+	char reskinOnly[8];
+	config.GetString("reskin_only", reskinOnly, sizeof(reskinOnly), "false");
+	item.reskinOnly = StrEqual(reskinOnly, "true", false) || StringToInt(reskinOnly) != 0;
 	
 	// allows restricting access to the item
 	config.GetString("access", item.access, sizeof(item.access));
