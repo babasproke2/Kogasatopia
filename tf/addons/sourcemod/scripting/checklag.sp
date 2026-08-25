@@ -167,8 +167,7 @@ public Action Timer_MonitorTickrate(Handle timer)
 
 public Action Listener_Chat(int client, const char[] command, int argc)
 {
-    if (!CheckLag_IsRoundRunning()
-        || client <= 0 || client > MaxClients || !IsClientInGame(client))
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
     {
         return Plugin_Continue;
     }
@@ -187,11 +186,6 @@ public Action Listener_Chat(int client, const char[] command, int argc)
 
 public Action Command_CheckLag(int client, int args)
 {
-    if (!CheckLag_IsRoundRunning())
-    {
-        return Plugin_Handled;
-    }
-
     char message[128];
     FormatTickrateMessage(message, sizeof(message));
     CPrintToChatAll("%s", message);
