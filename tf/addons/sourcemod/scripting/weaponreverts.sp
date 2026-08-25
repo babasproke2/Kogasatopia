@@ -1819,6 +1819,13 @@ public Action OnPlayerRunCmd(
 	}
 	tf2_players[client].huntingRevolverAttack2Held = attack2;
 
+	bool jump = (buttons & IN_JUMP) != 0;
+	if (jump && !tf2_players[client].holdingJump && tf2_players[client].huntingRevolverZoomed)
+	{
+		HuntingRevolver_SetZoom(client, false);
+	}
+	tf2_players[client].holdingJump = jump;
+
 	bool commandChanged = false;
 	if (attack2)
 	{
@@ -1940,6 +1947,7 @@ static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
 	}
 
 	tf2_players[client].huntingRevolverAttack2Held = false;
+	tf2_players[client].holdingJump = false;
 	tf2_players[client].huntingRevolverWeaponRef = INVALID_ENT_REFERENCE;
 }
 
