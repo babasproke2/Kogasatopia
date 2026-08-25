@@ -194,7 +194,6 @@ float g_flWranglerCustomShieldValue = 0.85;
 DynamicDetour dhook_CTFPlayer_CalculateMaxSpeed;
 DynamicDetour dhook_CTFLunchBox_ApplyBiteEffects;
 DynamicDetour dhook_CTFPlayerShared_StunPlayer;
-DynamicDetour dhook_CTFWeaponBase_Reload;
 DynamicDetour dhook_IsFixedWeaponSpreadEnabled;
 DynamicHook dhook_CObjectCartDispenser_DispenseMetal;
 DynamicHook dhook_CTFWeaponBase_CanFireCriticalShot;
@@ -480,7 +479,6 @@ public void OnPluginStart() {
 		dhook_CTFPlayer_CalculateMaxSpeed = DynamicDetour.FromConf(conf, "CTFPlayer::TeamFortress_CalculateMaxSpeed");
 		dhook_CTFLunchBox_ApplyBiteEffects = DynamicDetour.FromConf(conf, "CTFLunchBox::ApplyBiteEffects");
 		dhook_CTFPlayerShared_StunPlayer = DynamicDetour.FromConf(conf, "CTFPlayerShared::StunPlayer");
-		dhook_CTFWeaponBase_Reload = DynamicDetour.FromConf(conf, "CTFWeaponBase::Reload");
 		dhook_IsFixedWeaponSpreadEnabled = DynamicDetour.FromConf(overrideConf, "IsFixedWeaponSpreadEnabled");
 		dhook_CObjectCartDispenser_DispenseMetal = DynamicHook.FromConf(conf, "CObjectCartDispenser::DispenseMetal");
 		dhook_CTFWeaponBase_CanFireCriticalShot = DynamicHook.FromConf(conf, "CTFWeaponBase::CanFireCriticalShot");
@@ -489,7 +487,6 @@ public void OnPluginStart() {
 		if (dhook_CTFPlayer_CalculateMaxSpeed == null) SetFailState("Failed to create dhook_CTFPlayer_CalculateMaxSpeed");
 		if (dhook_CTFLunchBox_ApplyBiteEffects == null) SetFailState("Failed to create dhook_CTFLunchBox_ApplyBiteEffects");
 		if (dhook_CTFPlayerShared_StunPlayer == null) SetFailState("Failed to create dhook_CTFPlayerShared_StunPlayer");
-		if (dhook_CTFWeaponBase_Reload == null) SetFailState("Failed to create dhook_CTFWeaponBase_Reload");
 		if (dhook_IsFixedWeaponSpreadEnabled == null) SetFailState("Failed to create dhook_IsFixedWeaponSpreadEnabled");
 		if (dhook_CObjectCartDispenser_DispenseMetal == null) SetFailState("Failed to create dhook_CObjectCartDispenser_DispenseMetal");
 		if (dhook_CTFWeaponBase_CanFireCriticalShot == null) SetFailState("Failed to create dhook_CTFWeaponBase_CanFireCriticalShot");
@@ -499,7 +496,6 @@ public void OnPluginStart() {
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Pre, ApplyBiteEffects_Pre);
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Post, ApplyBiteEffects_Post);
 		dhook_CTFPlayerShared_StunPlayer.Enable(Hook_Pre, SandmanPreJI_StunPlayer_Pre);
-		dhook_CTFWeaponBase_Reload.Enable(Hook_Pre, WeaponReverts_Reload_Pre);
 		dhook_IsFixedWeaponSpreadEnabled.Enable(Hook_Pre, IsFixedWeaponSpreadEnabled_Pre);
 		WeaponReverts_HookExistingCriticalShotWeapons();
 
@@ -1740,28 +1736,12 @@ public Action OnPlayerRunCmd(
 		commandChanged = true;
 	}
 
-	if ((buttons & IN_RELOAD) != 0
-		&& TF2CustAttr_GetInt(activeWeapon, ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED, 0) != 0
-		&& WeaponReverts_IsHeadshotZoomed(activeWeapon))
+	if ((buttons & IN_RELOAD) != 0 && tf2_players[client].huntingRevolverZoomed)
 	{
-		buttons &= ~IN_RELOAD;
-		commandChanged = true;
+		HuntingRevolver_SetZoom(client, false);
 	}
 
 	return commandChanged ? Plugin_Changed : Plugin_Continue;
-}
-
-public MRESReturn WeaponReverts_Reload_Pre(int weapon, DHookReturn returnValue)
-{
-	if (!WeaponReverts_IsEnabled() || !IsValidWeaponEntity(weapon)
-		|| TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED, 0) == 0
-		|| !WeaponReverts_IsHeadshotZoomed(weapon))
-	{
-		return MRES_Ignored;
-	}
-
-	returnValue.Value = false;
-	return MRES_Supercede;
 }
 
 static bool HuntingRevolver_IsWeapon(int weapon)
