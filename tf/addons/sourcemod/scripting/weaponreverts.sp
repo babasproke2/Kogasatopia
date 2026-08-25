@@ -1707,23 +1707,8 @@ static bool HuntingRevolver_IsWeapon(int weapon)
 
 	char classname[64];
 	GetEntityClassname(weapon, classname, sizeof(classname));
-	return StrEqual(classname, "tf_weapon_sniperrifle")
+	return StrEqual(classname, "tf_weapon_revolver")
 		&& TF2CustAttr_GetInt(weapon, ATTR_HUNTING_REVOLVER, 0) != 0;
-}
-
-static void HuntingRevolver_ClearCharge(int weapon)
-{
-	if (IsValidWeaponEntity(weapon) && HasEntProp(weapon, Prop_Send, "m_flChargedDamage"))
-	{
-		SetEntPropFloat(weapon, Prop_Send, "m_flChargedDamage", 0.0);
-	}
-}
-
-static void HuntingRevolver_RemoveNativeSniperState(int client)
-{
-	TF2_RemoveCondition(client, TFCond_Zoomed);
-	// SourceMod names TF_COND_AIMING (condition 0) TFCond_Slowed.
-	TF2_RemoveCondition(client, TFCond_Slowed);
 }
 
 static void HuntingRevolver_RecognizeWeapon(int client, int weapon)
@@ -1736,16 +1721,11 @@ static void HuntingRevolver_RecognizeWeapon(int client, int weapon)
 
 	HuntingRevolver_ResetClient(client);
 	tf2_players[client].huntingRevolverWeaponRef = weaponRef;
-	HuntingRevolver_ClearCharge(weapon);
-	HuntingRevolver_RemoveNativeSniperState(client);
 	SetEntProp(client, Prop_Send, "m_iFOV", 0);
 }
 
 static void HuntingRevolver_SetZoom(int client, bool enabled)
 {
-	int weapon = EntRefToEntIndex(tf2_players[client].huntingRevolverWeaponRef);
-	HuntingRevolver_ClearCharge(weapon);
-	HuntingRevolver_RemoveNativeSniperState(client);
 	tf2_players[client].huntingRevolverZoomed = enabled;
 	SetEntProp(client, Prop_Send, "m_iFOV", enabled ? HUNTING_REVOLVER_FOV : 0);
 }
@@ -1759,24 +1739,14 @@ static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
 
 	bool hasTrackedWeapon = tf2_players[client].huntingRevolverWeaponRef != INVALID_ENT_REFERENCE
 		&& tf2_players[client].huntingRevolverWeaponRef != 0;
-	int trackedWeapon = hasTrackedWeapon
-		? EntRefToEntIndex(tf2_players[client].huntingRevolverWeaponRef)
-		: INVALID_ENT_REFERENCE;
 	bool customContext = hasTrackedWeapon
 		|| tf2_players[client].huntingRevolverZoomed
 		|| tf2_players[client].huntingRevolverAttack2Held
 		|| HuntingRevolver_IsWeapon(knownWeapon);
 
-	HuntingRevolver_ClearCharge(trackedWeapon);
-	if (knownWeapon != trackedWeapon)
-	{
-		HuntingRevolver_ClearCharge(knownWeapon);
-	}
-
 	if (customContext && IsClientInGame(client))
 	{
 		SetEntProp(client, Prop_Send, "m_iFOV", 0);
-		HuntingRevolver_RemoveNativeSniperState(client);
 	}
 
 	tf2_players[client].huntingRevolverZoomed = false;
