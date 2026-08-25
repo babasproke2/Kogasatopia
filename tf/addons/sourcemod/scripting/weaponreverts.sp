@@ -306,7 +306,13 @@ static bool WeaponReverts_CanHeadshotNow(int weapon)
 
 	if (TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED, 0) != 0)
 	{
-		return WeaponReverts_IsHeadshotZoomed(weapon);
+		if (!WeaponReverts_IsHeadshotZoomed(weapon))
+		{
+			return false;
+		}
+
+		float lastFireTime = GetEntPropFloat(weapon, Prop_Send, "m_flLastFireTime");
+		return GetGameTime() - lastFireTime >= 1.0;
 	}
 
 	if (TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) == 0)
