@@ -2590,7 +2590,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 	if (attacker < 1) return Plugin_Continue;
 
 	bool attackerIsPlayer = (attacker >= 1 && attacker <= MaxClients && IsClientInGame(attacker));
-	if (attackerIsPlayer && CheckIfAfterburn(damagecustom))
+	if (attackerIsPlayer && inflictor == attacker && CheckIfAfterburn(damagecustom))
 	{
 		Harvester_OnAfterburnDamage(attacker);
 	}
