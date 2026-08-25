@@ -2538,6 +2538,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 	}
 
 	int damageWeapon = GetDamageSourceWeapon(attacker, weapon, inflictor);
+	int directDamageWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
 	bool damageChanged = false;
 	if (attackerIsPlayer
 		&& damageWeapon > MaxClients
@@ -2550,8 +2551,19 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 		damageChanged = true;
 	}
 
+	if (attackerIsPlayer
+		&& directDamageWeapon > MaxClients
+		&& IsValidEntity(directDamageWeapon)
+		&& inflictor == attacker
+		&& (damagetype & DMG_BULLET)
+		&& (damagetype & DMG_USEDISTANCEMOD)
+		&& TF2CustAttr_GetInt(directDamageWeapon, ATTR_HUNTING_REVOLVER, 0) != 0)
+	{
+		damagetype &= ~DMG_USEDISTANCEMOD;
+		damageChanged = true;
+	}
+
 	FullPelletIgnite_TryMark(attacker, client, damageWeapon);
-	int directDamageWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
 	if (attackerIsPlayer
 		&& damage > 0.0
 		&& client != attacker
