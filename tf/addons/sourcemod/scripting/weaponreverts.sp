@@ -81,7 +81,7 @@
 #define ATTR_MAX_PRIMARY_CLIP_OVERRIDE "mod max primary clip override"
 #define ESCAMPETTE_WATCH_SLOT 4
 #define HUNTING_REVOLVER_FOV 48
-#define HUNTING_REVOLVER_MAX_ZOOM_SPEED 150.0
+#define HUNTING_REVOLVER_MAX_ZOOM_SPEED 120.0
 #define TF_AMMO_PRIMARY_INDEX 1
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
