@@ -75,6 +75,8 @@
 #define ATTR_IGNITE_ON_FULL_PELLET_HIT "ignite on full pellet hit"
 #define ATTR_HITSCAN_NO_DAMAGE_PHYSICS "hitscan no damage physics"
 #define ATTR_HEADSHOTS_ENABLED "headshots enabled"
+#define ATTR_HUNTING_REVOLVER "hunting revolver attributes"
+#define HUNTING_REVOLVER_FOV 48
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
 #define RESTORE_PRIMARY_SHOT_DAMAGE_WINDOW 5.0
@@ -147,6 +149,9 @@ enum struct tf2_player
 	int markVictims[FAN_O_WAR_MAX_MARK_COUNT+1];
 	int bonkFrame;
 	int oldHealth;
+	bool huntingRevolverZoomed;
+	bool huntingRevolverAttack2Held;
+	int huntingRevolverWeaponRef;
 }
 
 Handle g_SDKGetMaxClip1 = null;
@@ -306,6 +311,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 stock void ResetClientArrays(int client)
 {
 	if (!WR_IsValidPlayerIndex(client)) return;
+	HuntingRevolver_ResetClient(client);
 	FullPelletIgnite_ClearClient(client);
 	Harvester_ClearState(client);
 	ShockCharge_StopTimer(client);
@@ -542,6 +548,7 @@ public void OnMapEnd()
 	FullPelletIgnite_ClearAll();
 	for (int client = 1; client <= MaxClients; client++)
 	{
+		HuntingRevolver_ResetClient(client);
 		Harvester_ClearState(client);
 		ShockCharge_StopTimer(client);
 	}
@@ -1197,6 +1204,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 		return Plugin_Continue;
 
 	Sproke_ClearEffect(client, false, true);
+	HuntingRevolver_ResetClient(client);
 	Harvester_ClearState(client);
 	ShockCharge_StopTimer(client);
 	tf2_players[client].shockCharge = 30;
@@ -1294,6 +1302,7 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
+	HuntingRevolver_ResetClient(client);
 	if (!Harvester_IsEligibleClient(client))
 	{
 		Harvester_ClearState(client);
@@ -1330,6 +1339,7 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
+	HuntingRevolver_ResetClient(client);
 	if (!Harvester_IsEligibleClient(client))
 	{
 		Harvester_ClearState(client);
@@ -1347,6 +1357,7 @@ public void Event_PlayerChangeClass(Event event, const char[] name, bool dontBro
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (client > 0)
 	{
+		HuntingRevolver_ResetClient(client);
 		Harvester_ClearState(client);
 	}
 }
@@ -1356,6 +1367,7 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (client > 0)
 	{
+		HuntingRevolver_ResetClient(client);
 		Harvester_ClearState(client);
 	}
 }
@@ -1591,6 +1603,19 @@ public Action OnWeaponSwitch(int client, int weapon)
 	int previousWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
 	if (weapon != previousWeapon)
 	{
+		if (tf2_players[client].huntingRevolverWeaponRef != INVALID_ENT_REFERENCE
+			|| HuntingRevolver_IsWeapon(previousWeapon))
+		{
+			HuntingRevolver_ResetClient(client, previousWeapon);
+		}
+
+		if (HuntingRevolver_IsWeapon(weapon))
+		{
+			HuntingRevolver_RecognizeWeapon(client, weapon);
+		}
+	}
+	if (weapon != previousWeapon)
+	{
 		if (Harvester_IsWeapon(weapon))
 		{
 			Harvester_StartHealTimer(client);
@@ -1619,6 +1644,144 @@ public Action OnWeaponSwitch(int client, int weapon)
 	}
 
 	return Plugin_Continue;
+}
+
+public Action OnPlayerRunCmd(
+	int client,
+	int &buttons,
+	int &impulse,
+	float velocity[3],
+	float angles[3],
+	int &weapon,
+	int &subtype,
+	int &commandNumber,
+	int &tickCount,
+	int &randomSeed,
+	int mouse[2])
+{
+	if (!WeaponReverts_IsEnabled() || !WR_IsClientInGame(client) || !IsPlayerAlive(client))
+	{
+		return Plugin_Continue;
+	}
+
+	int activeWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	bool trackedActiveWeapon = tf2_players[client].huntingRevolverWeaponRef != INVALID_ENT_REFERENCE
+		&& tf2_players[client].huntingRevolverWeaponRef != 0
+		&& EntRefToEntIndex(tf2_players[client].huntingRevolverWeaponRef) == activeWeapon;
+	if (!trackedActiveWeapon && !HuntingRevolver_IsWeapon(activeWeapon))
+	{
+		if (tf2_players[client].huntingRevolverWeaponRef != INVALID_ENT_REFERENCE)
+		{
+			HuntingRevolver_ResetClient(client);
+		}
+		return Plugin_Continue;
+	}
+
+	if (!trackedActiveWeapon)
+	{
+		HuntingRevolver_RecognizeWeapon(client, activeWeapon);
+	}
+
+	bool attack2 = (buttons & IN_ATTACK2) != 0;
+	if (attack2 && !tf2_players[client].huntingRevolverAttack2Held)
+	{
+		HuntingRevolver_SetZoom(client, !tf2_players[client].huntingRevolverZoomed);
+	}
+	tf2_players[client].huntingRevolverAttack2Held = attack2;
+
+	if (attack2)
+	{
+		buttons &= ~IN_ATTACK2;
+		return Plugin_Changed;
+	}
+
+	return Plugin_Continue;
+}
+
+static bool HuntingRevolver_IsWeapon(int weapon)
+{
+	if (!IsValidWeaponEntity(weapon))
+	{
+		return false;
+	}
+
+	char classname[64];
+	GetEntityClassname(weapon, classname, sizeof(classname));
+	return StrEqual(classname, "tf_weapon_sniperrifle")
+		&& TF2CustAttr_GetInt(weapon, ATTR_HUNTING_REVOLVER, 0) != 0;
+}
+
+static void HuntingRevolver_ClearCharge(int weapon)
+{
+	if (IsValidWeaponEntity(weapon) && HasEntProp(weapon, Prop_Send, "m_flChargedDamage"))
+	{
+		SetEntPropFloat(weapon, Prop_Send, "m_flChargedDamage", 0.0);
+	}
+}
+
+static void HuntingRevolver_RemoveNativeSniperState(int client)
+{
+	TF2_RemoveCondition(client, TFCond_Zoomed);
+	// SourceMod names TF_COND_AIMING (condition 0) TFCond_Slowed.
+	TF2_RemoveCondition(client, TFCond_Slowed);
+}
+
+static void HuntingRevolver_RecognizeWeapon(int client, int weapon)
+{
+	int weaponRef = EntIndexToEntRef(weapon);
+	if (tf2_players[client].huntingRevolverWeaponRef == weaponRef)
+	{
+		return;
+	}
+
+	HuntingRevolver_ResetClient(client);
+	tf2_players[client].huntingRevolverWeaponRef = weaponRef;
+	HuntingRevolver_ClearCharge(weapon);
+	HuntingRevolver_RemoveNativeSniperState(client);
+	SetEntProp(client, Prop_Send, "m_iFOV", 0);
+}
+
+static void HuntingRevolver_SetZoom(int client, bool enabled)
+{
+	int weapon = EntRefToEntIndex(tf2_players[client].huntingRevolverWeaponRef);
+	HuntingRevolver_ClearCharge(weapon);
+	HuntingRevolver_RemoveNativeSniperState(client);
+	tf2_players[client].huntingRevolverZoomed = enabled;
+	SetEntProp(client, Prop_Send, "m_iFOV", enabled ? HUNTING_REVOLVER_FOV : 0);
+}
+
+static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
+{
+	if (!WR_IsValidPlayerIndex(client))
+	{
+		return;
+	}
+
+	bool hasTrackedWeapon = tf2_players[client].huntingRevolverWeaponRef != INVALID_ENT_REFERENCE
+		&& tf2_players[client].huntingRevolverWeaponRef != 0;
+	int trackedWeapon = hasTrackedWeapon
+		? EntRefToEntIndex(tf2_players[client].huntingRevolverWeaponRef)
+		: INVALID_ENT_REFERENCE;
+	bool customContext = hasTrackedWeapon
+		|| tf2_players[client].huntingRevolverZoomed
+		|| tf2_players[client].huntingRevolverAttack2Held
+		|| HuntingRevolver_IsWeapon(knownWeapon);
+
+	HuntingRevolver_ClearCharge(trackedWeapon);
+	if (knownWeapon != trackedWeapon)
+	{
+		HuntingRevolver_ClearCharge(knownWeapon);
+	}
+
+	if (customContext && IsClientInGame(client))
+	{
+		SetEntProp(client, Prop_Send, "m_iFOV", 0);
+		HuntingRevolver_RemoveNativeSniperState(client);
+	}
+
+	tf2_players[client].huntingRevolverZoomed = false;
+	tf2_players[client].huntingRevolverAttack2Held = false;
+	tf2_players[client].huntingRevolverWeaponRef = INVALID_ENT_REFERENCE;
 }
 
 static bool Harvester_IsEligibleClient(int client)
