@@ -45,6 +45,11 @@
 				"library" "server"
 				"linux"   "@_ZN15CTFPlayerShared10StunPlayerEffiP9CTFPlayer"
 			}
+			"CTFWeaponBase::Reload"
+			{
+				"library" "server"
+				"linux"   "@_ZN13CTFWeaponBase6ReloadEv"
+			}
         }
 
 		"Offsets"
@@ -246,6 +251,13 @@
 						"type"	"int"
 					}
 				}
+			}
+			"CTFWeaponBase::Reload"
+			{
+				"signature"	"CTFWeaponBase::Reload"
+				"callconv"	"thiscall"
+				"this"		"entity"
+				"return"	"bool"
 			}
 		}
     }
