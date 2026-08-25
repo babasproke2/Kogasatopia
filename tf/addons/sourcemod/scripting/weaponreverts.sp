@@ -75,6 +75,7 @@
 #define ATTR_IGNITE_ON_FULL_PELLET_HIT "ignite on full pellet hit"
 #define ATTR_HITSCAN_NO_DAMAGE_PHYSICS "hitscan no damage physics"
 #define ATTR_HEADSHOTS_ENABLED "headshots enabled"
+#define ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED "headshots enabled while zoomed"
 #define ATTR_HUNTING_REVOLVER "hunting revolver attributes"
 #define HUNTING_REVOLVER_FOV 48
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
@@ -262,14 +263,43 @@ static void WeaponReverts_ApplyEngineOverrides(int weapon)
 static bool WeaponReverts_HasHeadshotFeature(int weapon)
 {
 	return TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED, 0) != 0
+		|| TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED, 0) != 0
 		|| TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) != 0;
+}
+
+static bool WeaponReverts_IsHeadshotZoomed(int weapon)
+{
+	if (!IsValidWeaponEntity(weapon))
+	{
+		return false;
+	}
+
+	int client = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
+	if (!WR_IsValidPlayerIndex(client) || !IsClientInGame(client) || !IsPlayerAlive(client))
+	{
+		return false;
+	}
+
+	return GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon") == weapon
+		&& tf2_players[client].huntingRevolverZoomed
+		&& EntRefToEntIndex(tf2_players[client].huntingRevolverWeaponRef) == weapon;
 }
 
 static bool WeaponReverts_CanHeadshotNow(int weapon)
 {
+	if (TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED, 0) != 0)
+	{
+		return true;
+	}
+
+	if (TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED, 0) != 0)
+	{
+		return WeaponReverts_IsHeadshotZoomed(weapon);
+	}
+
 	if (TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) == 0)
 	{
-		return TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED, 0) != 0;
+		return false;
 	}
 
 	return GetFeatureStatus(
