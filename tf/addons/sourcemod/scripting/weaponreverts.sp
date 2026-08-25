@@ -77,7 +77,9 @@
 #define ATTR_HEADSHOTS_ENABLED "headshots enabled"
 #define ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED "headshots enabled while zoomed"
 #define ATTR_HUNTING_REVOLVER "hunting revolver attributes"
+#define ATTR_ESCAMPETTE "escampette attributes"
 #define ATTR_MAX_PRIMARY_CLIP_OVERRIDE "mod max primary clip override"
+#define ESCAMPETTE_WATCH_SLOT 4
 #define HUNTING_REVOLVER_FOV 48
 #define HUNTING_REVOLVER_MAX_ZOOM_SPEED 190.0
 #define TF_AMMO_PRIMARY_INDEX 1
@@ -184,6 +186,7 @@ ConVar g_hSandmanBaseDuration;
 ConVar g_hSandmanMaxStunFlightTime;
 ConVar g_hSandmanFallbackBaseDuration;
 KeyValues g_hWeaponRevertsConfig = null;
+bool g_bPluginEnding = false;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 MemoryPatch patch_AllowRandomCritOverride;
 
@@ -206,7 +209,7 @@ bool g_bCalculatingRandomCritOverride = false;
 
 static bool WeaponReverts_IsEnabled()
 {
-	return g_sEnabled != null && GetConVarBool(g_sEnabled);
+	return !g_bPluginEnding && g_sEnabled != null && GetConVarBool(g_sEnabled);
 }
 
 static bool WeaponReverts_IsEntityIndex(int entity)
@@ -382,9 +385,11 @@ stock void ResetClientArrays(int client)
 }
 
 public void OnPluginStart() {
+	g_bPluginEnding = false;
 	WeaponRevertsEvents_Init();
 	PreCacheWeaponSounds();
 	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
+	g_sEnabled.AddChangeHook(WeaponReverts_OnEnabledChanged);
 	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
 	g_hScattergunPelletsDebug = CreateConVar("reverts_scattergun_pellets_debug", "0", "Log tracked shotgun/scattergun pellet forward diagnostics.");
@@ -501,6 +506,7 @@ public void OnPluginStart() {
 		if (dhook_CTFStunBall_ApplyBallImpactEffectOnVictim == null) SetFailState("Failed to create dhook_CTFStunBall_ApplyBallImpactEffectOnVictim");
 
 		dhook_CTFPlayer_CalculateMaxSpeed.Enable(Hook_Post, CalculateMaxSpeed);
+		Escampette_RecalculateAllSpeeds();
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Pre, ApplyBiteEffects_Pre);
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Post, ApplyBiteEffects_Post);
 		dhook_CTFPlayerShared_StunPlayer.Enable(Hook_Pre, SandmanPreJI_StunPlayer_Pre);
@@ -587,6 +593,7 @@ static void Ambassador102_CacheCritParticle()
 public void OnMapStart() {
 	FullPelletIgnite_ClearAll();
 	LoadWeaponRevertsConfig();
+	Escampette_RecalculateAllSpeeds();
 	PreCacheWeaponSounds();
 	Ambassador102_CacheCritParticle();
 }
@@ -604,6 +611,8 @@ public void OnMapEnd()
 
 public void OnPluginEnd()
 {
+	g_bPluginEnding = true;
+	Escampette_RecalculateAllSpeeds();
 	WeaponRevertsEvents_Shutdown();
 	for (int i = 1; i <= MaxClients; i++)
 	{
@@ -1344,12 +1353,89 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	return Plugin_Continue;
 }
 
+static bool Escampette_IsEquipped(int client)
+{
+	if (!WeaponReverts_IsEnabled()
+		|| !WR_IsClientInGame(client)
+		|| !IsPlayerAlive(client)
+		|| TF2_GetPlayerClass(client) != TFClass_Spy)
+	{
+		return false;
+	}
+
+	int watch = GetPlayerWeaponSlot(client, ESCAMPETTE_WATCH_SLOT);
+	return watch > MaxClients
+		&& IsValidEntity(watch)
+		&& TF2CustAttr_GetInt(watch, ATTR_ESCAMPETTE, 0) != 0;
+}
+
+static bool Escampette_HasSpeedBonus(int client)
+{
+	return Escampette_IsEquipped(client)
+		&& TF2_IsPlayerInCondition(client, TFCond_Cloaked);
+}
+
+static void Escampette_RecalculateSpeed(int client)
+{
+	if (g_SDKTeamFortressSetSpeed != null
+		&& WR_IsClientInGame(client)
+		&& IsPlayerAlive(client))
+	{
+		SDKCall(g_SDKTeamFortressSetSpeed, client);
+	}
+}
+
+static void Escampette_RecalculateAllSpeeds()
+{
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		Escampette_RecalculateSpeed(client);
+	}
+}
+
+static void Escampette_FrameRecalculateSpeed(any userId)
+{
+	Escampette_RecalculateSpeed(GetClientOfUserId(userId));
+}
+
+static void Escampette_QueueSpeedRecalculation(int client)
+{
+	if (WR_IsValidPlayerIndex(client))
+	{
+		RequestFrame(Escampette_FrameRecalculateSpeed, GetClientUserId(client));
+	}
+}
+
+public void WeaponReverts_OnEnabledChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+	Escampette_RecalculateAllSpeeds();
+}
+
+static void Escampette_OnDamageTaken(int victim, int attacker, float damage, const float damagePosition[3])
+{
+	// Preserve the prior behavior: positive damage from any non-world source counts.
+	if (damage <= 0.0 || attacker <= 0 || !Escampette_HasSpeedBonus(victim))
+	{
+		return;
+	}
+
+	float cloakMeter = GetEntPropFloat(victim, Prop_Send, "m_flCloakMeter") - 10.0;
+	if (cloakMeter < 0.0)
+	{
+		cloakMeter = 0.0;
+	}
+
+	SetEntPropFloat(victim, Prop_Send, "m_flCloakMeter", cloakMeter);
+	EmitAmbientSound(SOUND_POMSON_DRAIN, damagePosition, victim, SNDLEVEL_NORMAL);
+}
+
 public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 {
 	int userId = event.GetInt("userid");
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
+	Escampette_QueueSpeedRecalculation(client);
 	HuntingRevolver_ResetClient(client);
 	if (!Harvester_IsEligibleClient(client))
 	{
@@ -1363,13 +1449,6 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 	{
 		tf2_players[client].shockCharge = 29; // The 29 is for visual effect
 		ShockCharge_StartTimer(client);
-		return Plugin_Changed;
-	}
-
-	int watch = GetPlayerWeaponSlot(client, 4);
-	if (watch > MaxClients && IsValidEntity(watch) && TF2CustAttr_GetInt(watch, "escampette attributes") != 1)
-	{
-		TF2_RemoveCondition(client, TFCond_SpeedBuffAlly);
 		return Plugin_Changed;
 	}
 
@@ -1387,6 +1466,7 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
+	Escampette_QueueSpeedRecalculation(client);
 	HuntingRevolver_ResetClient(client);
 	if (!Harvester_IsEligibleClient(client))
 	{
@@ -1405,6 +1485,7 @@ public void Event_PlayerChangeClass(Event event, const char[] name, bool dontBro
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (client > 0)
 	{
+		Escampette_QueueSpeedRecalculation(client);
 		HuntingRevolver_ResetClient(client);
 		Harvester_ClearState(client);
 	}
@@ -1415,6 +1496,7 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (client > 0)
 	{
+		Escampette_QueueSpeedRecalculation(client);
 		HuntingRevolver_ResetClient(client);
 		Harvester_ClearState(client);
 	}
@@ -2732,18 +2814,6 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 			return Plugin_Changed;
 		}
 	} else {
-		// Moved watch lookup here so it's only called when actually needed
-		int watch = GetPlayerWeaponSlot(client, 4);
-		if (watch > MaxClients && IsValidEntity(watch) && TF2CustAttr_GetInt(watch, "escampette attributes") != 0) { // TF2C Custom Attribute for Spy
-			if (TF2_IsPlayerInCondition(client, TFCond_Cloaked)) { // if cloaked
-				float flCloakMeter = GetEntPropFloat(client, Prop_Send, "m_flCloakMeter");
-				flCloakMeter -= 10;
-				SetEntPropFloat(client, Prop_Send, "m_flCloakMeter", flCloakMeter);
-				EmitAmbientSound(SOUND_POMSON_DRAIN, damagePosition, client, SNDLEVEL_NORMAL);
-				return Plugin_Changed;
-			}
-		}
-
 		if (!validWeapon) {
 			return damageChanged ? Plugin_Changed : Plugin_Continue;
 		}
@@ -2958,8 +3028,13 @@ public void WeaponReverts_OnTakeDamageAlivePost(
 	int victim, int attacker, int inflictor, float damage, int damageType,
 	int weapon, const float damageForce[3], const float damagePosition[3], int damageCustom)
 {
-	if (!WeaponReverts_IsEnabled()
-		|| !WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker))
+	if (!WeaponReverts_IsEnabled() || !WR_IsClientInGame(victim))
+	{
+		return;
+	}
+
+	Escampette_OnDamageTaken(victim, attacker, damage, damagePosition);
+	if (!WR_IsClientInGame(attacker))
 	{
 		return;
 	}
@@ -3015,6 +3090,14 @@ MRESReturn CalculateMaxSpeed(int client, DHookReturn returnValue) {
 					view_as<float>(returnValue.Value) < 230.0 * 1.35
 				) {
 					returnValue.Value = view_as<float>(returnValue.Value) * 1.35 / 1.30;
+					return MRES_Override;
+				}
+			}
+			case TFClass_Spy:
+			{
+				if (Escampette_HasSpeedBonus(client))
+				{
+					returnValue.Value = view_as<float>(returnValue.Value) * 1.30;
 					return MRES_Override;
 				}
 			}
@@ -3118,10 +3201,7 @@ public void TF2_OnConditionAdded(int client, TFCond condition)
 
 	if (condition == TFCond_Cloaked)
 	{
-		int weapon = GetPlayerWeaponSlot(client, 4);
-		if (weapon > MaxClients && IsValidEntity(weapon) && TF2CustAttr_GetInt(weapon, "escampette attributes") != 0) {
-				TF2_AddCondition(client, TFCond_SpeedBuffAlly, 120.0);
-		}
+		Escampette_RecalculateSpeed(client);
 	}
 
 	if (condition == TFCond_Taunting) {
@@ -3153,10 +3233,7 @@ public void TF2_OnConditionRemoved(int client, TFCond condition)
 {
 	if (condition == TFCond_Cloaked)
 	{
-		int weapon = GetPlayerWeaponSlot(client, 4);
-		if (weapon > MaxClients && IsValidEntity(weapon) && TF2CustAttr_GetInt(weapon, "escampette attributes") != 0) {
-				TF2_RemoveCondition(client, TFCond_SpeedBuffAlly);
-		}
+		Escampette_RecalculateSpeed(client);
 	}
 }
 
@@ -3199,6 +3276,7 @@ public Action Command_ReloadWeaponRevertsConfig(int client, int args)
 		{
 			HuntingRevolver_ResetClient(target);
 			Harvester_SyncHealTimer(target);
+			Escampette_RecalculateSpeed(target);
 		}
 	}
 	ReplyToCommand(client, "[WeaponReverts] Reloaded configs/weapons.cfg");
