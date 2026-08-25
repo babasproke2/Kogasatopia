@@ -1,0 +1,36 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"CTFGameStats::Event_PlayerUsedTeleport"
+			{
+				"library" "server"
+				"linux" "@_ZN12CTFGameStats24Event_PlayerUsedTeleportEP9CTFPlayerS1_"
+			}
+		}
+
+		"Functions"
+		{
+			"CTFGameStats::Event_PlayerUsedTeleport"
+			{
+				"signature" "CTFGameStats::Event_PlayerUsedTeleport"
+				"callconv" "thiscall"
+				"this" "address"
+				"return" "void"
+				"arguments"
+				{
+					"pTeleportOwner"
+					{
+						"type" "cbaseentity"
+					}
+					"pTeleportingPlayer"
+					{
+						"type" "cbaseentity"
+					}
+				}
+			}
+		}
+	}
+}
