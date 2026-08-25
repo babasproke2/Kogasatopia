@@ -634,7 +634,7 @@ public Action OnPadTouch(int iPad, int iToucher)
 			{
 				SetEntProp(iPad, Prop_Send, "m_iTimesUsed", GetEntProp(iPad, Prop_Send, "m_iTimesUsed") + 1);
 				
-				if (!(GetEntProp(iPad, Prop_Send, "m_iTimesUsed") % 6)) //Add +2 points every 6 uses
+				*/if (!(GetEntProp(iPad, Prop_Send, "m_iTimesUsed") % 6)) //Add +2 points every 6 uses
 				{
 					Event event = CreateEvent("player_escort_score", true);	//Using player_teleported unfortunately does not work.
 					if (event != null)
@@ -643,7 +643,7 @@ public Action OnPadTouch(int iPad, int iToucher)
 						event.SetInt("points", 1);	//Not sure why this is adding double points
 						event.Fire();
 					}
-				}
+				}*/
 			}
 			#if defined DEBUG
 			PrintToChatAll("Conds: %i", view_as<int>(Pad_GetConds(iToucher)));
