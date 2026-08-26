@@ -697,6 +697,11 @@ static bool StartYesNoVote(int initiator)
 
     CaptureCurrentVoteInitiator(initiator);
     ResetWeightedVoteState();
+    if (DoesClientHideVoteMenus(initiator))
+    {
+        g_WeightedVoteChoice[initiator] = 1;
+        g_WeightedVoteWeight[initiator] = GetVoteMenuClientVoteWeight(initiator);
+    }
 
     char startMsg[384];
     char announcer[128];
@@ -769,35 +774,24 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
     }
     else if (action == MenuAction_VoteEnd)
     {
-        int yesVotes = 0;
-        int noVotes = 0;
-        int totalVotes = 0;
-        GetWeightedVoteTotals(yesVotes, noVotes, totalVotes);
-
-        float ratio = (totalVotes > 0) ? float(yesVotes) / float(totalVotes) : 0.0;
-        bool passed = (totalVotes > 0) && (ratio >= g_CurrentVote.ratio);
-
-        LogVoteMenuVoteResult(passed ? "passed" : "failed", yesVotes, noVotes, totalVotes, ratio);
-        AnnounceVoteResult(yesVotes, noVotes, ratio, passed);
-        if (passed)
-        {
-            ChargePassedVoteAndExecuteOutcome();
-        }
-        else
-        {
-            SetFailedVoteCooldown(g_CurrentVote.id);
-            ClearPendingVoteCharge();
-            ExecuteVoteOutcome(false);
-        }
+        ResolveCurrentWeightedVote();
     }
     else if (action == MenuAction_VoteCancel)
     {
         g_VoteInProgress = false;
-        ResetWeightedVoteState();
-        ClearPendingVoteCharge();
         int reason = param1;
         if (reason == VoteCancel_NoVotes)
         {
+            int yesVotes = 0;
+            int noVotes = 0;
+            int totalVotes = 0;
+            GetWeightedVoteTotals(yesVotes, noVotes, totalVotes);
+            if (totalVotes > 0)
+            {
+                ResolveCurrentWeightedVote();
+                return 0;
+            }
+
             SetFailedVoteCooldown(g_CurrentVote.id);
             CPrintToChatAll("{red}[Vote]{default} Vote failed: no votes received.");
         }
@@ -805,6 +799,8 @@ public int YesNoVoteHandler(Menu menu, MenuAction action, int param1, int param2
         {
             CPrintToChatAll("{red}[Vote]{default} Vote cancelled.");
         }
+        ResetWeightedVoteState();
+        ClearPendingVoteCharge();
         ClearCurrentVoteInitiator();
     }
     return 0;
@@ -886,6 +882,30 @@ static void GetWeightedVoteTotals(int &yesVotes, int &noVotes, int &totalVotes)
             noVotes += weight;
             totalVotes += weight;
         }
+    }
+}
+
+static void ResolveCurrentWeightedVote()
+{
+    int yesVotes = 0;
+    int noVotes = 0;
+    int totalVotes = 0;
+    GetWeightedVoteTotals(yesVotes, noVotes, totalVotes);
+
+    float ratio = (totalVotes > 0) ? float(yesVotes) / float(totalVotes) : 0.0;
+    bool passed = (totalVotes > 0) && (ratio >= g_CurrentVote.ratio);
+
+    LogVoteMenuVoteResult(passed ? "passed" : "failed", yesVotes, noVotes, totalVotes, ratio);
+    AnnounceVoteResult(yesVotes, noVotes, ratio, passed);
+    if (passed)
+    {
+        ChargePassedVoteAndExecuteOutcome();
+    }
+    else
+    {
+        SetFailedVoteCooldown(g_CurrentVote.id);
+        ClearPendingVoteCharge();
+        ExecuteVoteOutcome(false);
     }
 }
 
