@@ -25,6 +25,7 @@
 #define VOTEMENU_EXCLUDED_GAMEMODES_MAX 128
 #define VOTEMENU_MAX_EXCLUDED_GAMEMODES 16
 #define VOTEMENU_DB_CONFIG_DEFAULT "default"
+#define VOTEMENU_FREE_PLAYERCOUNT_THRESHOLD 10
 #define POINTS_STORE_BALANCE_TABLE "points_store_balances"
 
 enum struct VoteOption
@@ -86,6 +87,7 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
     MarkNativeAsOptional("DGM_GetGameModeKey");
     MarkNativeAsOptional("DGM_NormalizeMapName");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
+    MarkNativeAsOptional("DGM_RealPlayerCount");
     return APLRes_Success;
 }
 
@@ -426,6 +428,25 @@ static bool AreVoteMenuAdminsFree()
     return g_CvarAdminsFree != null && g_CvarAdminsFree.BoolValue;
 }
 
+static int GetVoteMenuPlayerCount()
+{
+    if (GetFeatureStatus(FeatureType_Native, "DGM_RealPlayerCount") == FeatureStatus_Available)
+    {
+        return DGM_RealPlayerCount();
+    }
+
+    int count = 0;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientInGame(client) && !IsFakeClient(client) && GetClientTeam(client) >= 2)
+        {
+            count++;
+        }
+    }
+
+    return count;
+}
+
 static int GetVoteMenuCost()
 {
     if (g_CvarShopCost == null)
@@ -456,7 +477,8 @@ static void GetVoteMenuCurrencyShort(char[] buffer, int maxlen)
 
 static bool IsVoteMenuShopEnabled(int client)
 {
-    if (AreVoteMenuAdminsFree() && IsVoteMenuAdmin(client))
+    if (GetVoteMenuPlayerCount() < VOTEMENU_FREE_PLAYERCOUNT_THRESHOLD
+        || (AreVoteMenuAdminsFree() && IsVoteMenuAdmin(client)))
     {
         return false;
     }
