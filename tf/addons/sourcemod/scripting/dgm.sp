@@ -10,6 +10,7 @@
 #include <tf2>
 #include <tf2_stocks>
 #include <controlpoints>
+#include <morecolors>
 #include <plugin_statistics>
 
 #undef REQUIRE_EXTENSIONS
@@ -34,6 +35,7 @@
 #define DGM_RESPAWN_LOW_POP_RESTORE_TIME 5.0
 #define DGM_RESPAWN_HIGH_POP_RESTORE_TIME 10.0
 #define DGM_RESPAWN_HIGH_POP_THRESHOLD 15
+#define DGM_RESPAWN_REMINDER_INTERVAL 20.0
 
 ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
@@ -62,6 +64,7 @@ Handle g_hSetupStateTimer = INVALID_HANDLE;
 Handle g_hSetupStartTimer = INVALID_HANDLE;
 Handle g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
 Handle g_hRespawnTimers[MAXPLAYERS + 1];
+Handle g_hRespawnReminderTimers[MAXPLAYERS + 1];
 bool g_bSetupActive = false;
 bool g_bNoEngineerSetupReduced = false;
 bool g_bSetupUberUnavailableLogged = false;
@@ -1815,6 +1818,7 @@ public void OnPluginStart()
 public void OnPluginEnd()
 {
     DGM_ClearAllRespawnTimers();
+    DGM_ClearAllRespawnReminderTimers();
 
     if (g_cvMpDisableRespawnTimes != null)
     {
@@ -1829,6 +1833,7 @@ public void OnMapStart()
     DGM_ClearSetupStartTimer();
     g_hSetupStateTimer = INVALID_HANDLE;
     DGM_ResetRespawnTimerHandles();
+    DGM_ResetRespawnReminderTimerHandles();
     DGM_ResetCaptureIntervalStats(0);
 
     g_bSetupActive = false;
@@ -1845,6 +1850,7 @@ public void OnMapEnd()
     DGM_ClearSetupStartTimer();
     g_hSetupStateTimer = INVALID_HANDLE;
     DGM_ClearAllRespawnTimers();
+    DGM_ResetRespawnReminderTimerHandles();
 }
 
 public void ConVarChange_RespawnSetting(ConVar convar, const char[] oldValue, const char[] newValue)
@@ -1962,6 +1968,7 @@ public void Event_PlayerChangeClass(Event event, const char[] name, bool dontBro
 public void OnClientDisconnect(int client)
 {
     DGM_ClearRespawnTimer(client);
+    DGM_ClearRespawnReminderTimer(client);
 
     if (g_bRoundStartedOnce)
     {
@@ -2146,6 +2153,11 @@ public Action Command_RespawnToggle(int client, int args)
 
     DGM_RefreshRespawnVisualState();
     DGM_RespawnDeadClients();
+    DGM_ClearAllRespawnReminderTimers();
+    if (!g_InternalOverride && client > 0 && IsClientInGame(client))
+    {
+        DGM_StartRespawnReminderTimer(client);
+    }
 
     float respawnTime = g_cvRespawnTime.FloatValue;
     int roundedRespawnTime = RoundToNearest(respawnTime);
@@ -2171,6 +2183,71 @@ public Action Command_RespawnToggle(int client, int args)
         PrintToChat(client, "Respawn times %s (%ss)", g_InternalOverride ? "forced on" : "forced off", respawnTimeText);
     }
     return Plugin_Handled;
+}
+
+void DGM_StartRespawnReminderTimer(int client)
+{
+    DGM_ClearRespawnReminderTimer(client);
+    g_hRespawnReminderTimers[client] = CreateTimer(
+        DGM_RESPAWN_REMINDER_INTERVAL,
+        Timer_RespawnReminder,
+        GetClientUserId(client),
+        TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
+}
+
+public Action Timer_RespawnReminder(Handle timer, int userId)
+{
+    int owner = 0;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (g_hRespawnReminderTimers[client] == timer)
+        {
+            owner = client;
+            break;
+        }
+    }
+
+    int client = GetClientOfUserId(userId);
+    if (owner == 0 || client != owner || !IsClientInGame(client)
+        || g_InternalOverride || DGM_AreRespawnTimesForcedOn())
+    {
+        if (owner > 0)
+        {
+            g_hRespawnReminderTimers[owner] = null;
+        }
+        return Plugin_Stop;
+    }
+
+    CPrintToChat(client,
+        "You currently have respawn times disabled. Use {gold}sm_respawn{default} to toggle back.");
+    return Plugin_Continue;
+}
+
+void DGM_ClearRespawnReminderTimer(int client)
+{
+    if (client <= 0 || client > MaxClients || g_hRespawnReminderTimers[client] == null)
+    {
+        return;
+    }
+
+    delete g_hRespawnReminderTimers[client];
+    g_hRespawnReminderTimers[client] = null;
+}
+
+void DGM_ClearAllRespawnReminderTimers()
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        DGM_ClearRespawnReminderTimer(client);
+    }
+}
+
+void DGM_ResetRespawnReminderTimerHandles()
+{
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        g_hRespawnReminderTimers[client] = null;
+    }
 }
 
 int DGM_RespawnDeadClients()
