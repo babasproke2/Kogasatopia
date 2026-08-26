@@ -29,6 +29,7 @@
 ConVar		sv_fov_min;
 ConVar		sv_fov_max;
 int			g_nFOVOverride[ MAXPLAYERS + 1 ] = { -1, ... };
+bool		g_bClearZoomOwnerAfterSetFOV[ MAXPLAYERS + 1 ];
 Handle		g_hCookie_FOV;
 
 DHookSetup	g_hDetour_BasePlayer_SetFOV;
@@ -77,6 +78,11 @@ public void OnPluginStart()
 		SetFailState( "Failed to detour CBasePlayer::SetFOV, tell Andrew to update the signatures." );
 	}
 
+	if ( !DHookEnableDetour( g_hDetour_BasePlayer_SetFOV, true, Detour_BasePlayer_SetFOV_Post ) )
+	{
+		SetFailState( "Failed to post-detour CBasePlayer::SetFOV, tell Andrew to update the signatures." );
+	}
+
 	if ( !DHookEnableDetour( g_hDetour_BasePlayer_SetDefaultFOV, false, Detour_BasePlayer_SetDefaultFOV ) )
 	{
 		SetFailState( "Failed to detour CBasePlayer::SetDefaultFOV, tell Andrew to update the signatures." );
@@ -112,7 +118,7 @@ public void OnClientCookiesCached( int nClientIdx )
 	}
 
 	g_nFOVOverride[ nClientIdx ] = StringToInt( szFOV );
-	if ( g_nFOVOverride[ nClientIdx ] != -1 )
+	if ( g_nFOVOverride[ nClientIdx ] != -1 && IsClientInGame( nClientIdx ) )
 	{
 		SetClientFOV( nClientIdx );
 	}
@@ -121,6 +127,7 @@ public void OnClientCookiesCached( int nClientIdx )
 public void OnClientDisconnect( int nClientIdx )
 {
 	g_nFOVOverride[ nClientIdx ] = -1;
+	g_bClearZoomOwnerAfterSetFOV[ nClientIdx ] = false;
 }
 
 public Action Cmd_FOV( int nClientIdx, int nNumArgs )
@@ -202,18 +209,44 @@ public void ConVar_FOV_MinMax( ConVar hConVar, const char[] szOldValue, const ch
 
 public MRESReturn Detour_BasePlayer_SetFOV( int pBasePlayer, DHookReturn hReturn, DHookParam hParams )
 {
-	if ( g_nFOVOverride[ pBasePlayer ] == -1 )
+	if ( pBasePlayer <= 0 || pBasePlayer > MaxClients || g_nFOVOverride[ pBasePlayer ] == -1 )
 	{
 		return MRES_Ignored;
 	}
 
+	int nRequestedFOV = hParams.Get( 2 );
 	float flZoomRate = hParams.Get( 3 );
+	if ( nRequestedFOV == 0 )
+	{
+		hParams.Set( 2, g_nFOVOverride[ pBasePlayer ] );
+		g_bClearZoomOwnerAfterSetFOV[ pBasePlayer ] = true;
+		return MRES_ChangedHandled;
+	}
+
 	if ( flZoomRate > 0.0 )
 	{
 		return MRES_Ignored;
 	}
 
 	RequestFrame( Frame_SetFOV, pBasePlayer );
+
+	return MRES_Ignored;
+}
+
+public MRESReturn Detour_BasePlayer_SetFOV_Post( int pBasePlayer, DHookReturn hReturn, DHookParam hParams )
+{
+	if ( pBasePlayer <= 0
+		|| pBasePlayer > MaxClients
+		|| !g_bClearZoomOwnerAfterSetFOV[ pBasePlayer ] )
+	{
+		return MRES_Ignored;
+	}
+
+	g_bClearZoomOwnerAfterSetFOV[ pBasePlayer ] = false;
+	if ( hReturn.Value && IsClientInGame( pBasePlayer ) )
+	{
+		SetEntPropEnt( pBasePlayer, Prop_Data, "m_hZoomOwner", -1 );
+	}
 
 	return MRES_Ignored;
 }
