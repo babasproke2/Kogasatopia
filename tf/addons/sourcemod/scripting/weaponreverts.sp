@@ -2756,19 +2756,6 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 		damageChanged = true;
 	}
 
-	if (attackerIsPlayer
-		&& directDamageWeapon > MaxClients
-		&& IsValidEntity(directDamageWeapon)
-		&& inflictor == attacker
-		&& (damagetype & DMG_BULLET)
-		&& (damagetype & DMG_USEDISTANCEMOD)
-		&& !(damagetype & DMG_CRIT)
-		&& TF2CustAttr_GetInt(directDamageWeapon, ATTR_HUNTING_REVOLVER, 0) != 0)
-	{
-		damagetype &= ~DMG_USEDISTANCEMOD;
-		damageChanged = true;
-	}
-
 	FullPelletIgnite_TryMark(attacker, client, damageWeapon);
 	if (attackerIsPlayer
 		&& damage > 0.0
