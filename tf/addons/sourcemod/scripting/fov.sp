@@ -195,6 +195,12 @@ public MRESReturn Detour_BasePlayer_SetFOV( int pBasePlayer, DHookReturn hReturn
 		return MRES_Ignored;
 	}
 
+	float flZoomRate = hParams.Get( 3 );
+	if ( flZoomRate > 0.0 )
+	{
+		return MRES_Ignored;
+	}
+
 	RequestFrame( Frame_SetFOV, pBasePlayer );
 
 	return MRES_Ignored;
