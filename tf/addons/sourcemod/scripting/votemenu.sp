@@ -2,6 +2,7 @@
 #pragma newdecls required
 
 #include <sourcemod>
+#include <clientprefs>
 #include <adt_array>
 
 #include <morecolors>
@@ -58,6 +59,7 @@ Database g_Database = null;
 bool g_DatabaseReady = false;
 Handle g_hDatabaseReconnectTimer = null;
 StringMap g_FailedVoteCooldowns = null;
+Handle g_NoVotesCookie = INVALID_HANDLE;
 bool g_PendingVoteCharge = false;
 int g_PendingChargeUserId = 0;
 int g_PendingChargeCost = 0;
@@ -94,6 +96,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
 public void OnPluginStart()
 {
     RegConsoleCmd("sm_votemenu", Command_VoteMenu, "Open the vote menu");
+    RegConsoleCmd("sm_novote", Command_NoVotes, "Toggle Votemenu vote visibility");
+    RegConsoleCmd("sm_novotes", Command_NoVotes, "Toggle Votemenu vote visibility");
     AddCommandListener(CommandListener_VoteMenuAlias, "votemenu");
     AddCommandListener(CommandListener_VoteOption, "say");
     AddCommandListener(CommandListener_VoteOption, "say_team");
@@ -109,6 +113,11 @@ public void OnPluginStart()
     g_CvarDatabase.AddChangeHook(OnVoteMenuDatabaseChanged);
     g_VoteOptions = new ArrayList(sizeof(VoteOption));
     g_FailedVoteCooldowns = new StringMap();
+    g_NoVotesCookie = RegClientCookie(
+        "votemenu_hide_votes",
+        "Do not display Votemenu votes.",
+        CookieAccess_Private
+    );
     g_MapStartedAt = GetTime();
     LoadVoteMenuConfig();
     ConnectVoteMenuDatabase();
@@ -221,6 +230,35 @@ public Action Command_VoteMenu(int client, int args)
 public Action CommandListener_VoteMenuAlias(int client, const char[] command, int argc)
 {
     return Command_VoteMenu(client, 0);
+}
+
+public Action Command_NoVotes(int client, int args)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (!AreClientCookiesCached(client))
+    {
+        CPrintToChat(client, "{gold}[Votemenu]{default} Your preference is still loading.");
+        return Plugin_Handled;
+    }
+
+    bool hideVotes = !DoesClientHideVoteMenus(client);
+    SetClientCookie(client, g_NoVotesCookie, hideVotes ? "1" : "0");
+
+    if (hideVotes)
+    {
+        CPrintToChat(client,
+            "{gold}[Votemenu]{default} You won't receive Votemenu votes anymore; use {gold}!novotes{default} again to toggle!");
+    }
+    else
+    {
+        CPrintToChat(client, "{gold}[Votemenu]{default} You can now see Votemenu votes again!");
+    }
+
+    return Plugin_Handled;
 }
 
 public int VoteMenuHandler(Menu menu, MenuAction action, int param1, int param2)
@@ -416,6 +454,18 @@ static bool IsPointsStoreAvailable()
 static bool IsVoteMenuAdmin(int client)
 {
     return client > 0 && CheckCommandAccess(client, "sm_votemenu", ADMFLAG_GENERIC, true);
+}
+
+static bool DoesClientHideVoteMenus(int client)
+{
+    if (client <= 0 || client > MaxClients || !AreClientCookiesCached(client))
+    {
+        return false;
+    }
+
+    char value[4];
+    GetClientCookie(client, g_NoVotesCookie, value, sizeof(value));
+    return StringToInt(value) != 0;
 }
 
 static bool AreVoteMenuAdminsRequired()
@@ -629,6 +679,22 @@ static bool StartYesNoVote(int initiator)
         return false;
     }
 
+    int recipients[MAXPLAYERS];
+    int recipientCount = 0;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientInGame(client) && !IsFakeClient(client) && !DoesClientHideVoteMenus(client))
+        {
+            recipients[recipientCount++] = client;
+        }
+    }
+
+    if (recipientCount == 0)
+    {
+        CPrintToChat(initiator, "{red}[Vote]{default} No clients are accepting Votemenu votes.");
+        return false;
+    }
+
     CaptureCurrentVoteInitiator(initiator);
     ResetWeightedVoteState();
 
@@ -678,7 +744,7 @@ static bool StartYesNoVote(int initiator)
     vote.ExitBackButton = false;
 
     int voteDuration = RoundToNearest(g_CvarVoteDuration.FloatValue);
-    if (!vote.DisplayVoteToAll(voteDuration))
+    if (!vote.DisplayVote(recipients, recipientCount, voteDuration))
     {
         delete vote;
         ClearCurrentVoteInitiator();
