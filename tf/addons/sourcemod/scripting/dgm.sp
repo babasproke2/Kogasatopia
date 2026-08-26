@@ -48,8 +48,10 @@ ConVar g_cvNoEngineerSetupReduction;
 ConVar g_cvTimeOverride;
 ConVar g_cvRespawnTime;
 ConVar g_cvPopulationConfigs;
+ConVar g_cvLowPopThreshold;
 bool g_bSymmetrical;
 bool g_bRoundStartedOnce;
+bool g_bRespawnAdminTouchedThisMap;
 
 ConVar g_cHostname;
 
@@ -1651,6 +1653,24 @@ public void AdjustByPlayerCount(any data)
     }
 }
 
+public void DGM_AdjustRespawnByPlayerCount(any data)
+{
+    if (g_bRespawnAdminTouchedThisMap || DGM_ShouldDisableInstantRespawn())
+    {
+        return;
+    }
+
+    bool enableRespawnTimes = DGM_CountConnectedHumans() >= g_cvLowPopThreshold.IntValue;
+    if (DGM_AreRespawnTimesForcedOn() == enableRespawnTimes)
+    {
+        return;
+    }
+
+    DGM_SetRespawnTimesEnabled(enableRespawnTimes);
+    DGM_RespawnDeadClients();
+    DGM_ClearAllRespawnReminderTimers();
+}
+
 void DetectGameMode()
 {
     TF2_GameMode gameMode = TF2_DetectGameMode();
@@ -1792,6 +1812,7 @@ public void OnPluginStart()
 
     // The respawn time
     g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 30.0);
+    g_cvLowPopThreshold = CreateConVar("dgm_lowpop_threshhold", "10", "Connected human count below which respawn times are disabled.", _, true, 0.0, true, 100.0);
     // See description
     g_cvThreshold = CreateConVar("sm_highpop_threshhold", "18.0", "Threshhold for executing the highpop config", _, true, 0.0, true, 100.0);
     g_cvPopulationConfigs = CreateConVar("sm_dgm_population_configs", "0", "Enable DGM lowpop/highpop config execution.", _, true, 0.0, true, 1.0);
@@ -1865,6 +1886,7 @@ public void OnMapStart()
 
     g_bSetupActive = false;
     g_bNoEngineerSetupReduced = false;
+    g_bRespawnAdminTouchedThisMap = false;
     g_iSetupFalseChecks = 0;
     DGM_RefreshRespawnVisualState();
     DGM_UpdateSetupState();
@@ -1969,6 +1991,11 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
 
 public void OnClientPutInServer(int client)
 {
+    if (!IsFakeClient(client))
+    {
+        RequestFrame(DGM_AdjustRespawnByPlayerCount);
+    }
+
     if (g_bRoundStartedOnce)
     {
         RequestFrame(AdjustByPlayerCount);
@@ -1995,6 +2022,11 @@ public void OnClientDisconnect(int client)
 {
     DGM_ClearRespawnTimer(client);
     DGM_ClearRespawnReminderTimer(client);
+
+    if (!IsFakeClient(client))
+    {
+        RequestFrame(DGM_AdjustRespawnByPlayerCount);
+    }
 
     if (g_bRoundStartedOnce)
     {
@@ -2120,6 +2152,7 @@ public Action Command_CvarHelp(int client, int args)
 {
     char lines[][] = {
         "respawn_time: float - Default respawn delay (seconds). Set to 30 to disable plugin handling.",
+        "dgm_lowpop_threshhold: int - Disable respawn times below this connected human count.",
         "sm_highpop_threshhold: int - Player count threshold to execute high-pop configs",
         "sm_dgm_population_configs: 0/1 - Enables low-pop/high-pop config execution",
         "respawn_otime: float - If >0, forces this respawn delay for all players",
@@ -2162,6 +2195,7 @@ public Action Command_RespawnToggle(int client, int args)
         return Plugin_Handled;
     }
 
+    g_bRespawnAdminTouchedThisMap = true;
     DGM_SetRespawnTimesEnabled(!DGM_AreRespawnTimesForcedOn());
     DGM_RespawnDeadClients();
     DGM_ClearAllRespawnReminderTimers();
