@@ -123,7 +123,14 @@ public Action Cmd_FOV( int nClientIdx, int nNumArgs )
 {
 	if ( nNumArgs < 1 )
 	{
-		CReplyToCommand( nClientIdx, "%t", "FOV_Usage" );
+		if ( nClientIdx > 0 && g_nFOVOverride[ nClientIdx ] != -1 )
+		{
+			CReplyToCommand( nClientIdx, "{gold}[FOV]{default} Current fov: {green}%d", g_nFOVOverride[ nClientIdx ] );
+		}
+		else
+		{
+			CReplyToCommand( nClientIdx, "%t", "FOV_Usage" );
+		}
 		return Plugin_Continue;
 	}
 
