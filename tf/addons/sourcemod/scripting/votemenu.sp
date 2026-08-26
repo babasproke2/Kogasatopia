@@ -28,6 +28,9 @@
 #define VOTEMENU_DB_CONFIG_DEFAULT "default"
 #define VOTEMENU_FREE_PLAYERCOUNT_THRESHOLD 10
 #define POINTS_STORE_BALANCE_TABLE "points_store_balances"
+#define VOTEMENU_SHOW_VOTES 0
+#define VOTEMENU_HIDE_VOTES 1
+#define VOTEMENU_HIDE_AND_AUTO_YES 2
 
 enum struct VoteOption
 {
@@ -245,6 +248,22 @@ public Action Command_NoVotes(int client, int args)
         return Plugin_Handled;
     }
 
+    if (args > 0)
+    {
+        char preference[16];
+        GetCmdArg(1, preference, sizeof(preference));
+        if (!StrEqual(preference, "yes", false))
+        {
+            CPrintToChat(client, "{gold}[Votemenu]{default} Usage: {gold}!novote [yes]{default}");
+            return Plugin_Handled;
+        }
+
+        SetClientCookie(client, g_NoVotesCookie, "2");
+        CPrintToChat(client,
+            "{gold}[Votemenu]{default} You won't receive Votemenu votes and will automatically vote {green}Yes{default}; use {gold}!novotes{default} again to toggle!");
+        return Plugin_Handled;
+    }
+
     bool hideVotes = !DoesClientHideVoteMenus(client);
     SetClientCookie(client, g_NoVotesCookie, hideVotes ? "1" : "0");
 
@@ -458,14 +477,30 @@ static bool IsVoteMenuAdmin(int client)
 
 static bool DoesClientHideVoteMenus(int client)
 {
+    return GetClientVoteMenuPreference(client) != VOTEMENU_SHOW_VOTES;
+}
+
+static bool DoesClientAutoVoteYes(int client)
+{
+    return GetClientVoteMenuPreference(client) == VOTEMENU_HIDE_AND_AUTO_YES;
+}
+
+static int GetClientVoteMenuPreference(int client)
+{
     if (client <= 0 || client > MaxClients || !AreClientCookiesCached(client))
     {
-        return false;
+        return VOTEMENU_SHOW_VOTES;
     }
 
     char value[4];
     GetClientCookie(client, g_NoVotesCookie, value, sizeof(value));
-    return StringToInt(value) != 0;
+    int preference = StringToInt(value);
+    if (preference < VOTEMENU_SHOW_VOTES || preference > VOTEMENU_HIDE_AND_AUTO_YES)
+    {
+        return VOTEMENU_SHOW_VOTES;
+    }
+
+    return preference;
 }
 
 static bool AreVoteMenuAdminsRequired()
@@ -689,18 +724,32 @@ static bool StartYesNoVote(int initiator)
         }
     }
 
-    if (recipientCount == 0)
-    {
-        CPrintToChat(initiator, "{red}[Vote]{default} No clients are accepting Votemenu votes.");
-        return false;
-    }
-
     CaptureCurrentVoteInitiator(initiator);
     ResetWeightedVoteState();
-    if (DoesClientHideVoteMenus(initiator))
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (IsClientInGame(client) && !IsFakeClient(client) && DoesClientAutoVoteYes(client))
+        {
+            g_WeightedVoteChoice[client] = 1;
+            g_WeightedVoteWeight[client] = GetVoteMenuClientVoteWeight(client);
+        }
+    }
+
+    if (DoesClientHideVoteMenus(initiator) && !DoesClientAutoVoteYes(initiator))
     {
         g_WeightedVoteChoice[initiator] = 1;
         g_WeightedVoteWeight[initiator] = GetVoteMenuClientVoteWeight(initiator);
+    }
+
+    int automaticYesVotes = 0;
+    int automaticNoVotes = 0;
+    int automaticTotalVotes = 0;
+    GetWeightedVoteTotals(automaticYesVotes, automaticNoVotes, automaticTotalVotes);
+    if (recipientCount == 0 && automaticTotalVotes == 0)
+    {
+        ClearCurrentVoteInitiator();
+        CPrintToChat(initiator, "{red}[Vote]{default} No clients are accepting Votemenu votes.");
+        return false;
     }
 
     char startMsg[384];
@@ -731,6 +780,13 @@ static bool StartYesNoVote(int initiator)
     Format(startMsg, sizeof(startMsg), "%s {default}%s Required: {gold}%d%%{default}", announcer, detail, GetVoteRequiredPercent(g_CurrentVote.ratio));
     CPrintToChatAll("%s", startMsg);
     LogVoteMenuVoteStarted(initiator, detail);
+
+    if (recipientCount == 0)
+    {
+        ResolveCurrentWeightedVote();
+        ResetWeightedVoteState();
+        return true;
+    }
 
     Menu vote = new Menu(YesNoVoteHandler, MENU_ACTIONS_ALL);
     char title[256];
