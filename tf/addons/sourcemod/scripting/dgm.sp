@@ -2392,8 +2392,7 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
     DGM_ResetCaptureIntervalStats(g_iRoundStartTimestamp);
 
     if (g_cvTimeOverride != null)    g_cvTimeOverride.RestoreDefault();
-    g_InternalOverride = DGM_AreRespawnTimesForcedOn();
-    DGM_RefreshRespawnVisualState();
+    DGM_SetRespawnTimesEnabled(true);
     g_PointCaptures = 0;
     DGM_UpdateSetupState();
     if (!g_bRoundStartedOnce)
