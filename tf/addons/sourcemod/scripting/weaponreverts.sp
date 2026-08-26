@@ -2731,9 +2731,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 		GetEntityClassname(inflictor, classname, sizeof(classname));
 		if (StrEqual(classname, "obj_sentrygun"))
 		{
-			damageForce[0] = 0.0;
-			damageForce[1] = 0.0;
-			damageForce[2] = 0.0;
+			damagetype |= DMG_PREVENT_PHYSICS_FORCE;
 			damageChanged = true;
 		}
 	}
