@@ -2724,6 +2724,20 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
 {
 	if (client < 1 || client > MaxClients || !IsClientInGame(client)) return Plugin_Continue;
+	bool damageChanged = false;
+	if (inflictor > MaxClients && IsValidEntity(inflictor) && (damagetype & DMG_BULLET))
+	{
+		char classname[32];
+		GetEntityClassname(inflictor, classname, sizeof(classname));
+		if (StrEqual(classname, "obj_sentrygun"))
+		{
+			damageForce[0] = 0.0;
+			damageForce[1] = 0.0;
+			damageForce[2] = 0.0;
+			damageChanged = true;
+		}
+	}
+
 	if (damage > 0.0
 		&& attacker >= 1 && attacker <= MaxClients
 		&& IsClientInGame(attacker)
@@ -2734,7 +2748,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 		g_iEnvironmentalKillAttackerUserId[client] = GetClientUserId(attacker);
 		g_fEnvironmentalKillTime[client] = GetGameTime();
 	}
-	if (attacker < 1) return Plugin_Continue;
+	if (attacker < 1) return damageChanged ? Plugin_Changed : Plugin_Continue;
 
 	bool attackerIsPlayer = (attacker >= 1 && attacker <= MaxClients && IsClientInGame(attacker));
 	if (attackerIsPlayer && inflictor == attacker && CheckIfAfterburn(damagecustom))
@@ -2744,7 +2758,6 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 
 	int damageWeapon = GetDamageSourceWeapon(attacker, weapon, inflictor);
 	int directDamageWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
-	bool damageChanged = false;
 	if (attackerIsPlayer
 		&& damageWeapon > MaxClients
 		&& IsValidEntity(damageWeapon)
