@@ -1072,6 +1072,33 @@ bool DGM_AreRespawnTimesForcedOn()
     return FloatCompare(g_cvRespawnTime.FloatValue, DGM_RESPAWN_DISABLED_TIME) == 0;
 }
 
+void DGM_SetRespawnTimesEnabled(bool enabled)
+{
+    g_InternalOverride = enabled;
+
+    float targetTime = DGM_RESPAWN_DISABLED_TIME;
+    if (!enabled)
+    {
+        targetTime = DGM_CountRealPlayers() < DGM_RESPAWN_HIGH_POP_THRESHOLD
+            ? DGM_RESPAWN_LOW_POP_RESTORE_TIME
+            : DGM_RESPAWN_HIGH_POP_RESTORE_TIME;
+    }
+
+    if (FloatCompare(g_cvRespawnTime.FloatValue, targetTime) != 0)
+    {
+        g_cvRespawnTime.SetFloat(targetTime);
+    }
+    else
+    {
+        DGM_RefreshRespawnVisualState();
+    }
+
+    if (enabled)
+    {
+        DGM_ClearAllRespawnReminderTimers();
+    }
+}
+
 bool DGM_InternalIsRoundRunning()
 {
     if (FindEntityByClassname(-1, "tf_gamerules") == -1)
@@ -1924,8 +1951,7 @@ public void Event_PointCaptured(Event event, const char[] name, bool dontBroadca
 		g_PointCaptures++;
 		if (g_PointCaptures >= 3)
 		{
-			g_InternalOverride = true; // Stop managing respawn times if approaching last
-            DGM_RefreshRespawnVisualState();
+            DGM_SetRespawnTimesEnabled(true);
 		}
 		// Asymmetrical: respawn all dead RED players
 		if (GetConVarBool(g_cvAsymCapRespawn) && !g_bSymmetrical)
@@ -2136,22 +2162,7 @@ public Action Command_RespawnToggle(int client, int args)
         return Plugin_Handled;
     }
 
-    g_InternalOverride = !DGM_AreRespawnTimesForcedOn();
-
-    if (g_InternalOverride)
-    {
-        g_cvRespawnTime.SetFloat(DGM_RESPAWN_DISABLED_TIME);
-    }
-    else if (FloatCompare(g_cvRespawnTime.FloatValue, DGM_RESPAWN_DISABLED_TIME) == 0)
-    {
-        float restoreTime = DGM_CountRealPlayers() < DGM_RESPAWN_HIGH_POP_THRESHOLD
-            ? DGM_RESPAWN_LOW_POP_RESTORE_TIME
-            : DGM_RESPAWN_HIGH_POP_RESTORE_TIME;
-
-        g_cvRespawnTime.SetFloat(restoreTime);
-    }
-
-    DGM_RefreshRespawnVisualState();
+    DGM_SetRespawnTimesEnabled(!DGM_AreRespawnTimesForcedOn());
     DGM_RespawnDeadClients();
     DGM_ClearAllRespawnReminderTimers();
     if (!g_InternalOverride && client > 0 && IsClientInGame(client))
