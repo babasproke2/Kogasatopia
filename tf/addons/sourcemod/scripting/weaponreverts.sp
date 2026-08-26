@@ -152,7 +152,6 @@ enum struct tf2_player
 	int sprokePrimaryRef;
 	int sprokeParticleRef;
 	int sprokeClipRecord;
-	bool holdingJump;
 	int markVictims[FAN_O_WAR_MAX_MARK_COUNT+1];
 	int bonkFrame;
 	int oldHealth;
@@ -376,7 +375,6 @@ stock void ResetClientArrays(int client)
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
 	SecondaryDamageRefill_Reset(client);
 	tf2_players[client].jump_status = TF2_JUMP_NONE;
-	tf2_players[client].holdingJump = false;
 	tf2_players[client].oldHealth = 0;
 	if (tf2_players[client].sprokeTimer != null)
 	{
@@ -434,6 +432,7 @@ public void OnPluginStart() {
 				SDKHook(i, SDKHook_TraceAttack, OnTraceAttack);
 				SDKHook(i, SDKHook_OnTakeDamageAlive, OnTakeDamageAlive);
 				SDKHook(i, SDKHook_OnTakeDamageAlivePost, WeaponReverts_OnTakeDamageAlivePost);
+				SDKHook(i, SDKHook_PostThinkPost, HuntingRevolver_OnPostThinkPost);
 			}
 		}
 
@@ -664,6 +663,7 @@ public void OnClientPutInServer(int client)
 		SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
 		SDKHook(client, SDKHook_OnTakeDamageAlive, OnTakeDamageAlive);
 		SDKHook(client, SDKHook_OnTakeDamageAlivePost, WeaponReverts_OnTakeDamageAlivePost);
+		SDKHook(client, SDKHook_PostThinkPost, HuntingRevolver_OnPostThinkPost);
 		ResetClientArrays(client);
 	}
 }
@@ -1838,18 +1838,19 @@ public Action OnPlayerRunCmd(
 	}
 
 	bool attack2 = (buttons & IN_ATTACK2) != 0;
+	bool jumping = GetEntProp(client, Prop_Send, "m_bJumping") != 0;
 	if (attack2 && !tf2_players[client].huntingRevolverAttack2Held)
 	{
-		HuntingRevolver_SetZoom(client, !tf2_players[client].huntingRevolverZoomed);
+		if (tf2_players[client].huntingRevolverZoomed)
+		{
+			HuntingRevolver_SetZoom(client, false);
+		}
+		else if (!jumping)
+		{
+			HuntingRevolver_SetZoom(client, true);
+		}
 	}
 	tf2_players[client].huntingRevolverAttack2Held = attack2;
-
-	bool jump = (buttons & IN_JUMP) != 0;
-	if (jump && !tf2_players[client].holdingJump && tf2_players[client].huntingRevolverZoomed)
-	{
-		HuntingRevolver_SetZoom(client, false);
-	}
-	tf2_players[client].holdingJump = jump;
 
 	bool commandChanged = false;
 	if (attack2)
@@ -1859,6 +1860,25 @@ public Action OnPlayerRunCmd(
 	}
 
 	return commandChanged ? Plugin_Changed : Plugin_Continue;
+}
+
+public void HuntingRevolver_OnPostThinkPost(int client)
+{
+	if (!WeaponReverts_IsEnabled()
+		|| !WR_IsClientInGame(client)
+		|| !IsPlayerAlive(client)
+		|| !tf2_players[client].huntingRevolverZoomed
+		|| GetEntProp(client, Prop_Send, "m_bJumping") == 0)
+	{
+		return;
+	}
+
+	int weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	if (HuntingRevolver_IsWeapon(weapon)
+		&& EntRefToEntIndex(tf2_players[client].huntingRevolverWeaponRef) == weapon)
+	{
+		HuntingRevolver_SetZoom(client, false);
+	}
 }
 
 static bool HuntingRevolver_IsWeapon(int weapon)
@@ -1985,7 +2005,6 @@ static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
 	}
 
 	tf2_players[client].huntingRevolverAttack2Held = false;
-	tf2_players[client].holdingJump = false;
 	tf2_players[client].huntingRevolverWeaponRef = INVALID_ENT_REFERENCE;
 }
 
