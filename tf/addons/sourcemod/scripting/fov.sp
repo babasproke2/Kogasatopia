@@ -112,6 +112,10 @@ public void OnClientCookiesCached( int nClientIdx )
 	}
 
 	g_nFOVOverride[ nClientIdx ] = StringToInt( szFOV );
+	if ( g_nFOVOverride[ nClientIdx ] != -1 )
+	{
+		SetClientFOV( nClientIdx );
+	}
 }
 
 public void OnClientDisconnect( int nClientIdx )
