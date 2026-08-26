@@ -166,6 +166,7 @@ public Action Cmd_FOV( int nClientIdx, int nNumArgs )
 
 	SetClientCookie( nClientIdx, g_hCookie_FOV, szNewFOV );
 	SetClientFOV( nClientIdx );
+	CReplyToCommand( nClientIdx, "{gold}[FOV] Your current fov is {green}%d", nNewFOV );
 
 	return Plugin_Continue;
 }
