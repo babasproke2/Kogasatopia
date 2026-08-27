@@ -59,6 +59,7 @@
 #define GRADIENT_NAME_ACCESS_ITEM "gradient_name_access"
 #define TRIPLE_GRADIENT_ACCESS_ITEM "triple_gradient_upgrade"
 #define CHAT_PREFIX_MAXLEN 128
+#define FILTERS_CHAT_DATABASE_IMMUNE_STEAMID64 "76561198082255564"
 #define PARSEE_STEAMID64 "76561199812613650"
 #define PARSEE_STEAMID2 "STEAM_0:0:926173961"
 #define PARSEE_FALLBACK_NAME "Mizuhashi Parsee"
@@ -1548,6 +1549,16 @@ static void Filters_SanitizeDbMessage(const char[] message, char[] buffer, int m
     ReplaceString(buffer, maxlen, "{teamcolor}", "{grey}", false);
 }
 
+static bool Filters_IsChatDatabaseImmune(int client)
+{
+    char steamId64[KOGASA_STEAMID_MAX];
+    return client > 0
+        && client <= MaxClients
+        && IsClientInGame(client)
+        && Kogasa_GetClientSteamId64(client, steamId64, sizeof(steamId64), true)
+        && StrEqual(steamId64, FILTERS_CHAT_DATABASE_IMMUNE_STEAMID64);
+}
+
 static void Filters_QueueOutboxMessage(int timestamp, const char[] iphash, const char[] displayName, const char[] message, bool webchatOnly, bool alertFlag)
 {
     if (!g_bDbReady || g_hFiltersDb == null)
@@ -1602,7 +1613,9 @@ static void Filters_QueueOutboxMessage(int timestamp, const char[] iphash, const
 
 static void Filters_RelayChatToServers(int client, const char[] message)
 {
-    if (!Filters_DbAvailable() || !g_bOutboxStampReady)
+    if (Filters_IsChatDatabaseImmune(client)
+        || !Filters_DbAvailable()
+        || !g_bOutboxStampReady)
     {
         return;
     }
@@ -1640,6 +1653,11 @@ static void Filters_RelayChatToServers(int client, const char[] message)
 
 void Filters_LogChatMessage(int client, const char[] message)
 {
+    if (Filters_IsChatDatabaseImmune(client))
+    {
+        return;
+    }
+
     if (!Filters_DbAvailable())
     {
         Filters_LogDebug("DB not ready; skipping chat log for client %d", client);
