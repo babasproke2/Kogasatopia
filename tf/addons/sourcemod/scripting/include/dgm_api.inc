@@ -32,3 +32,12 @@ native int DGM_GetRoundDurationSeconds(int firstTimestamp, int secondTimestamp);
 native int DGM_GetRecentControlPointCaptureIntervalSeconds();
 native DGMObjectiveLeader DGM_GetObjectiveLeader(int &redOwned, int &blueOwned, int &neutralOwned, int &total);
 native int DGM_GetObjectiveLeaderTeam();
+
+/**
+ * Fired once per round during setup when at least 66 percent of all clients
+ * reported by GetClientCount(false) are human players on RED or BLU.
+ *
+ * @param realTeamPlayers  Human players currently on RED or BLU.
+ * @param connectedClients Current GetClientCount(false) value.
+ */
+forward void DGM_OnSetupTeamRatioReady(int realTeamPlayers, int connectedClients);

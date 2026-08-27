@@ -131,6 +131,7 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `DGM_GetRecentControlPointCaptureIntervalSeconds` - Returns the latest capture interval on maps with more than two control points.
 - `DGM_GetObjectiveLeader` - Counts objective ownership and returns the leading side.
 - `DGM_GetObjectiveLeaderTeam` - Returns the team currently leading objective ownership.
+- `DGM_OnSetupTeamRatioReady` - Fires once per round during setup when human RED/BLU players reach 66 percent of `GetClientCount(false)`.
 
 ## filters_api.inc
 - `Filters_IsRedlisted` - Returns whether a client is redlisted.

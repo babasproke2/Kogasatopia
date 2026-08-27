@@ -36,6 +36,7 @@
 #define DGM_RESPAWN_HIGH_POP_RESTORE_TIME 10.0
 #define DGM_RESPAWN_HIGH_POP_THRESHOLD 15
 #define DGM_RESPAWN_REMINDER_INTERVAL 20.0
+#define DGM_SETUP_TEAM_RATIO_PERCENT 66
 
 ConVar g_cvSetSetupTime;
 ConVar g_cvAsymCapRespawn;
@@ -53,6 +54,8 @@ ConVar g_cvLowPopThreshold;
 bool g_bSymmetrical;
 bool g_bRoundStartedOnce;
 bool g_bRespawnAdminTouchedThisMap;
+bool g_bSetupTeamRatioForwardFired;
+GlobalForward g_hSetupTeamRatioReadyForward;
 
 ConVar g_cHostname;
 
@@ -1018,6 +1021,11 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errMax)
     MarkNativeAsOptional("TF2SetupUber_IsAvailable");
     MarkNativeAsOptional("TF2_IsSetupTimeActive");
     RegPluginLibrary("dgm");
+    g_hSetupTeamRatioReadyForward = new GlobalForward(
+        "DGM_OnSetupTeamRatioReady",
+        ET_Ignore,
+        Param_Cell,
+        Param_Cell);
     CreateNative("DGM_GetGameMode", Native_DGM_GetGameMode);
     CreateNative("DGM_RealPlayerCount", Native_DGM_RealPlayerCount);
     CreateNative("DGM_RealTeamPlayerCount", Native_DGM_RealTeamPlayerCount);
@@ -1584,6 +1592,7 @@ void DGM_SetSetupActive(bool setupActive)
             g_hSetupStateTimer = CreateTimer(1.0, Timer_SetupStateMonitor, _, TIMER_REPEAT | TIMER_FLAG_NO_MAPCHANGE);
         }
 
+        DGM_CheckSetupTeamRatioForward();
         DGM_QueueNoEngineerSetupReductionCheck();
     }
     else
@@ -1622,6 +1631,37 @@ void DGM_UpdateSetupState()
     }
 
     DGM_QueueSetupStartCheck();
+}
+
+void DGM_CheckSetupTeamRatioForward()
+{
+    if (g_bSetupTeamRatioForwardFired || !DGM_IsRealSetupActive())
+    {
+        return;
+    }
+
+    int connectedClients = GetClientCount(false);
+    if (connectedClients <= 0)
+    {
+        return;
+    }
+
+    int realTeamPlayers = DGM_CountRealPlayers();
+    if ((realTeamPlayers * 100) < (connectedClients * DGM_SETUP_TEAM_RATIO_PERCENT))
+    {
+        return;
+    }
+
+    g_bSetupTeamRatioForwardFired = true;
+    Call_StartForward(g_hSetupTeamRatioReadyForward);
+    Call_PushCell(realTeamPlayers);
+    Call_PushCell(connectedClients);
+    Call_Finish();
+}
+
+public void DGM_FrameCheckSetupTeamRatio(any data)
+{
+    DGM_CheckSetupTeamRatioForward();
 }
 
 void SetSetupTime(int executor)
@@ -1883,6 +1923,8 @@ public void OnPluginEnd()
     {
         SetConVarBool(g_cvMpDisableRespawnTimes, true);
     }
+
+    delete g_hSetupTeamRatioReadyForward;
 }
 
 public void OnMapStart()
@@ -1899,6 +1941,7 @@ public void OnMapStart()
     g_bSetupActive = false;
     g_bNoEngineerSetupReduced = false;
     g_bRespawnAdminTouchedThisMap = false;
+    g_bSetupTeamRatioForwardFired = false;
     g_iSetupFalseChecks = 0;
     DGM_RefreshRespawnVisualState();
     DGM_UpdateSetupState();
@@ -1932,6 +1975,8 @@ public void ConVarChange_SetupUberMultiplier(ConVar convar, const char[] oldValu
 
 public Action Timer_SetupStateMonitor(Handle timer)
 {
+    DGM_CheckSetupTeamRatioForward();
+
     if (DGM_IsSetupBhopActive())
     {
         g_iSetupFalseChecks = 0;
@@ -2008,6 +2053,7 @@ public void OnClientPutInServer(int client)
     if (!IsFakeClient(client))
     {
         RequestFrame(DGM_AdjustRespawnByPlayerCount);
+        RequestFrame(DGM_FrameCheckSetupTeamRatio);
     }
 
     if (g_bRoundStartedOnce)
@@ -2020,6 +2066,7 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {
     DGM_ClearRespawnTimer(GetClientOfUserId(event.GetInt("userid")));
     DGM_QueueNoEngineerSetupReductionCheck();
+    RequestFrame(DGM_FrameCheckSetupTeamRatio);
 }
 
 public void Event_PlayerSpawn(Event event, const char[] name, bool dontBroadcast)
@@ -2040,6 +2087,7 @@ public void OnClientDisconnect(int client)
     if (!IsFakeClient(client))
     {
         RequestFrame(DGM_AdjustRespawnByPlayerCount);
+        RequestFrame(DGM_FrameCheckSetupTeamRatio);
     }
 
     if (g_bRoundStartedOnce)
@@ -2441,6 +2489,7 @@ public Action Timer_RespawnClient(Handle timer, int userId)
 public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast)
 {
     g_bGameRulesReady = true;
+    g_bSetupTeamRatioForwardFired = false;
     DGM_ClearAllRespawnTimers();
     g_iRoundStartTimestamp = GetTime();
     g_iLastRoundDuration = 0;
