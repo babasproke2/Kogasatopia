@@ -62,6 +62,7 @@
 #define HARVESTER_HINT_DURATION 1.0
 #define ATTR_RELOAD_ON_HIT "reload on hit"
 #define ATTR_RELOAD_ON_KILL "reload on kill"
+#define ATTR_REFILL_CLIP_ON_HIT "refill clip on hit"
 #define ATTR_AMBASSADOR_102 "ambassador 102"
 #define ATTR_RANDOM_SPREAD_OVERRIDE "random spread override"
 #define ATTR_RANDOM_CRITS_OVERRIDE "random crits override"
@@ -2336,6 +2337,11 @@ static void ReloadOnHit_OnDamage(int weapon)
 	ReloadWeaponClip(weapon, TF2CustAttr_GetInt(weapon, ATTR_RELOAD_ON_HIT));
 }
 
+static void RefillClipOnHit_OnDamage(int weapon)
+{
+	ReloadWeaponClip(weapon, TF2CustAttr_GetInt(weapon, ATTR_REFILL_CLIP_ON_HIT, 0));
+}
+
 static void ReloadOnKill_OnKill(int weapon)
 {
 	ReloadWeaponClip(weapon, TF2CustAttr_GetInt(weapon, ATTR_RELOAD_ON_KILL));
@@ -2758,6 +2764,15 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 	{
 		SecondaryDamageRefill_OnDamage(attacker, damageWeapon, damage);
 		ReloadOnHit_OnDamage(damageWeapon);
+		if (damage > 0.0
+			&& client != attacker
+			&& GetClientTeam(client) > 1
+			&& GetClientTeam(attacker) > 1
+			&& GetClientTeam(client) != GetClientTeam(attacker)
+			&& damageWeapon == directDamageWeapon)
+		{
+			RefillClipOnHit_OnDamage(damageWeapon);
+		}
 
 		// Resolve duel damage without falling back to the attacker's active weapon.
 		int duelWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
