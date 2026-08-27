@@ -69,6 +69,7 @@ Handle g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
 Handle g_hRespawnTimers[MAXPLAYERS + 1];
 Handle g_hRespawnReminderTimers[MAXPLAYERS + 1];
 bool g_bSetupActive = false;
+bool g_bGameRulesReady = false;
 bool g_bNoEngineerSetupReduced = false;
 bool g_bSetupUberUnavailableLogged = false;
 int g_iSetupStartChecks = 0;
@@ -1102,30 +1103,15 @@ void DGM_SetRespawnTimesEnabled(bool enabled)
     }
 }
 
-bool DGM_TryGetGameRulesInt(const char[] prop, int &value, int size = 4)
-{
-    int gameRules = FindEntityByClassname(-1, "tf_gamerules");
-    if (gameRules <= 0
-        || !IsValidEntity(gameRules)
-        || !HasEntProp(gameRules, Prop_Send, prop))
-    {
-        return false;
-    }
-
-    value = GetEntProp(gameRules, Prop_Send, prop, size);
-    return true;
-}
-
 bool DGM_InternalIsRoundRunning()
 {
-    int roundState;
-    if (!DGM_TryGetGameRulesInt("m_iRoundState", roundState)
-        || view_as<RoundState>(roundState) != RoundState_RoundRunning)
+    if (!g_bGameRulesReady || FindEntityByClassname(-1, "tf_gamerules") == -1)
     {
         return false;
     }
 
-    return !DGM_IsRealSetupActive();
+    return GameRules_GetRoundState() == RoundState_RoundRunning
+        && !DGM_IsRealSetupActive();
 }
 
 bool DGM_IsSetupTimeExtensionAvailable()
@@ -1135,8 +1121,9 @@ bool DGM_IsSetupTimeExtensionAvailable()
 
 bool DGM_IsSetupGameRulesActive()
 {
-    int inSetup;
-    if (DGM_TryGetGameRulesInt("m_bInSetup", inSetup, 1) && inSetup != 0)
+    if (g_bGameRulesReady
+        && FindEntityByClassname(-1, "tf_gamerules") != -1
+        && GameRules_GetProp("m_bInSetup", 1) != 0)
     {
         return true;
     }
@@ -1892,6 +1879,7 @@ public void OnPluginEnd()
 
 public void OnMapStart()
 {
+    g_bGameRulesReady = false;
     // NO_MAPCHANGE timers are closed by SourceMod during transitions; clear local handles.
     g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
     DGM_ClearSetupStartTimer();
@@ -1910,6 +1898,7 @@ public void OnMapStart()
 
 public void OnMapEnd()
 {
+    g_bGameRulesReady = false;
     // NO_MAPCHANGE timers are closed by SourceMod during transitions; clear local handles.
     g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
     DGM_ClearSetupStartTimer();
@@ -1956,6 +1945,7 @@ public Action Timer_SetupStateMonitor(Handle timer)
 // We can be sure entities are loaded by this point
 public void OnConfigsExecuted()
 {
+    g_bGameRulesReady = true;
     DetectGameMode();
     g_InternalOverride = DGM_AreRespawnTimesForcedOn();
     g_bRoundStartedOnce = false;
@@ -2442,6 +2432,7 @@ public Action Timer_RespawnClient(Handle timer, int userId)
 
 public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast)
 {
+    g_bGameRulesReady = true;
     DGM_ClearAllRespawnTimers();
     g_iRoundStartTimestamp = GetTime();
     g_iLastRoundDuration = 0;
@@ -2479,11 +2470,13 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
 
 public void Event_SetupFinished(Event event, const char[] name, bool dontBroadcast)
 {
+    g_bGameRulesReady = true;
     DGM_SetSetupActive(false);
 }
 
 public void Event_RoundFullyActive(Event event, const char[] name, bool dontBroadcast)
 {
+    g_bGameRulesReady = true;
     if (DGM_IsSetupBhopActive())
     {
         DGM_SetSetupActive(true);
@@ -2501,6 +2494,7 @@ public void Event_RoundFullyActive(Event event, const char[] name, bool dontBroa
 
 public void Event_RoundWin(Event event, const char[] name, bool dontBroadcast)
 {
+    g_bGameRulesReady = true;
     DGM_ClearAllRespawnTimers();
     int roundEndTimestamp = GetTime();
     g_iLastRoundDuration = DGM_CalculateRoundDurationSeconds(g_iRoundStartTimestamp, roundEndTimestamp);
