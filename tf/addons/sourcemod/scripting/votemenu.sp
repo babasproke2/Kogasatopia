@@ -31,6 +31,7 @@
 #define VOTEMENU_SHOW_VOTES 0
 #define VOTEMENU_HIDE_VOTES 1
 #define VOTEMENU_HIDE_AND_AUTO_YES 2
+#define VOTEMENU_HIDE_AND_AUTO_NO 3
 
 enum struct VoteOption
 {
@@ -252,15 +253,23 @@ public Action Command_NoVotes(int client, int args)
     {
         char preference[16];
         GetCmdArg(1, preference, sizeof(preference));
-        if (!StrEqual(preference, "yes", false))
+        if (StrEqual(preference, "yes", false))
         {
-            CPrintToChat(client, "{gold}[Votemenu]{default} Usage: {gold}!novote [yes]{default}");
+            SetClientCookie(client, g_NoVotesCookie, "2");
+            CPrintToChat(client,
+                "{gold}[Votemenu]{default} You won't receive Votemenu votes and will automatically vote {green}Yes{default}; use {gold}!novotes{default} again to toggle!");
             return Plugin_Handled;
         }
 
-        SetClientCookie(client, g_NoVotesCookie, "2");
-        CPrintToChat(client,
-            "{gold}[Votemenu]{default} You won't receive Votemenu votes and will automatically vote {green}Yes{default}; use {gold}!novotes{default} again to toggle!");
+        if (StrEqual(preference, "no", false))
+        {
+            SetClientCookie(client, g_NoVotesCookie, "3");
+            CPrintToChat(client,
+                "{gold}[Votemenu]{default} You won't receive Votemenu votes and will automatically vote {red}No{default}; use {gold}!novotes{default} again to toggle!");
+            return Plugin_Handled;
+        }
+
+        CPrintToChat(client, "{gold}[Votemenu]{default} Usage: {gold}!novote [yes|no]{default}");
         return Plugin_Handled;
     }
 
@@ -485,6 +494,11 @@ static bool DoesClientAutoVoteYes(int client)
     return GetClientVoteMenuPreference(client) == VOTEMENU_HIDE_AND_AUTO_YES;
 }
 
+static bool DoesClientAutoVoteNo(int client)
+{
+    return GetClientVoteMenuPreference(client) == VOTEMENU_HIDE_AND_AUTO_NO;
+}
+
 static int GetClientVoteMenuPreference(int client)
 {
     if (client <= 0 || client > MaxClients || !AreClientCookiesCached(client))
@@ -495,7 +509,7 @@ static int GetClientVoteMenuPreference(int client)
     char value[4];
     GetClientCookie(client, g_NoVotesCookie, value, sizeof(value));
     int preference = StringToInt(value);
-    if (preference < VOTEMENU_SHOW_VOTES || preference > VOTEMENU_HIDE_AND_AUTO_YES)
+    if (preference < VOTEMENU_SHOW_VOTES || preference > VOTEMENU_HIDE_AND_AUTO_NO)
     {
         return VOTEMENU_SHOW_VOTES;
     }
@@ -728,14 +742,24 @@ static bool StartYesNoVote(int initiator)
     ResetWeightedVoteState();
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (IsClientInGame(client) && !IsFakeClient(client) && DoesClientAutoVoteYes(client))
+        if (!IsClientInGame(client) || IsFakeClient(client))
+        {
+            continue;
+        }
+
+        if (DoesClientAutoVoteYes(client))
         {
             g_WeightedVoteChoice[client] = 1;
             g_WeightedVoteWeight[client] = GetVoteMenuClientVoteWeight(client);
         }
+        else if (DoesClientAutoVoteNo(client))
+        {
+            g_WeightedVoteChoice[client] = 2;
+            g_WeightedVoteWeight[client] = GetVoteMenuClientVoteWeight(client);
+        }
     }
 
-    if (DoesClientHideVoteMenus(initiator) && !DoesClientAutoVoteYes(initiator))
+    if (GetClientVoteMenuPreference(initiator) == VOTEMENU_HIDE_VOTES)
     {
         g_WeightedVoteChoice[initiator] = 1;
         g_WeightedVoteWeight[initiator] = GetVoteMenuClientVoteWeight(initiator);
