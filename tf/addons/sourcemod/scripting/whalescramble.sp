@@ -79,6 +79,7 @@ ConVar g_hCountBots = null;
 ConVar g_hTopSwap = null;
 ConVar g_hRandom = null;
 ConVar g_hFragBalance = null;
+ConVar g_hWhaleRankBalance = null;
 ConVar g_hDisableTfAuto = null;
 ConVar g_hShortRoundAutoSeconds = null;
 ConVar g_hKothNoCapAuto = null;
@@ -112,9 +113,15 @@ int g_iScrambleRespawnExpectedTeam[MAXPLAYERS + 1];
 #define MAX_TOP_SWAP  MAX_RANDOM_SWAP
 #define MAX_SWAP_BUFFER  MAX_RANDOM_SWAP
 #define MIN_SCRAMBLE_PLAYERS  3
-#define FRAG_BALANCE_ENTRY_SUM  0
-#define FRAG_BALANCE_ENTRY_CLIENT0  1
-#define FRAG_BALANCE_ENTRY_CELLS  (FRAG_BALANCE_ENTRY_CLIENT0 + MAX_SWAP_BUFFER)
+#define SCORE_BALANCE_ENTRY_SUM  0
+#define SCORE_BALANCE_ENTRY_CLIENT0  1
+#define SCORE_BALANCE_ENTRY_CELLS  (SCORE_BALANCE_ENTRY_CLIENT0 + MAX_SWAP_BUFFER)
+
+enum ScrambleScoreKind
+{
+    ScrambleScore_Frags = 0,
+    ScrambleScore_WhaleRank
+};
 #define SCRAMBLE_PLAYER_PERCENT_DIVISOR  5
 #define SCRAMBLE_RESPAWN_RETRY_DELAY  0.50
 #define SCRAMBLE_RESPAWN_RETRY_COUNT  8
@@ -150,6 +157,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
     MarkNativeAsOptional("DGM_GetRecentControlPointCaptureIntervalSeconds");
     MarkNativeAsOptional("DGM_IsSetupActive");
     MarkNativeAsOptional("SaySounds_PlayCommand");
+    MarkNativeAsOptional("WhaleTracker_AreStatsLoaded");
+    MarkNativeAsOptional("WhaleTracker_GetWhalePoints");
     return APLRes_Success;
 }
 
@@ -165,6 +174,7 @@ public void OnPluginStart()
     g_hTopSwap = CreateConVar("sm_ws_topswap", "0", "Enable topswap scramble mode.", _, true, 0.0, true, 1.0);
     g_hRandom = CreateConVar("sm_ws_random", "1", "Enable random scramble mode.", _, true, 0.0, true, 1.0);
     g_hFragBalance = CreateConVar("sm_ws_frags", "1", "Enable frag-balanced random scramble mode.", _, true, 0.0, true, 1.0);
+    g_hWhaleRankBalance = CreateConVar("sm_ws_whaletracker_ranks", "0", "Enable WhaleTracker rank-balanced scramble mode.", _, true, 0.0, true, 1.0);
     g_hDisableTfAuto = CreateConVar("sm_whalescramble_disable_tf_auto", "1", "Disable TF2's built-in mp_scrambleteams_auto while WhaleScramble owns auto scrambles.", _, true, 0.0, true, 1.0);
     g_hShortRoundAutoSeconds = CreateConVar("sm_whalescramble_short_round_seconds", "60", "Automatically whale scramble when the previous round duration is under this many seconds. 0 disables.", _, true, 0.0, true, 600.0);
     g_hKothNoCapAuto = CreateConVar("sm_whalescramble_koth_no_cap", "1", "Automatically whale scramble when a full KOTH round ends with either team never capturing the point.", _, true, 0.0, true, 1.0);
@@ -184,6 +194,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_itsover", Command_SurrenderRound);
     RegAdminCmd("sm_forcescramble", Command_WhaleScramble, ADMFLAG_GENERIC, "Immediately perform a whale scramble.");
     RegAdminCmd("sm_forcewhalescramble", Command_WhaleScramble, ADMFLAG_GENERIC, "Immediately perform a whale scramble.");
+    RegAdminCmd("sm_whalebalance", Command_WhaleBalance, ADMFLAG_GENERIC, "Immediately balance teams by WhaleTracker rank.");
     RegAdminCmd("sm_whalescramblevote", Command_ForceScrambleVote, ADMFLAG_GENERIC, "Force a whale scramble vote.");
     RegAdminCmd("sm_forcescramblevote", Command_ForceScrambleVote, ADMFLAG_GENERIC, "Force a whale scramble vote.");
 
@@ -304,6 +315,20 @@ public Action Command_WhaleScramble(int client, int args)
 {
     LogWhale("Admin whale scramble requested by %N (%d).", client, GetClientUserId(client));
     StartConfiguredWhaleScramble(client, true, true, true);
+    return Plugin_Handled;
+}
+
+public Action Command_WhaleBalance(int client, int args)
+{
+    if (client > 0)
+    {
+        LogWhale("Admin WhaleTracker rank balance requested by %N (%d).", client, GetClientUserId(client));
+    }
+    else
+    {
+        LogWhale("WhaleTracker rank balance requested by server console.");
+    }
+    StartWhaleRankBalanceScramble(client, true, true, true);
     return Plugin_Handled;
 }
 
@@ -1245,6 +1270,11 @@ static bool StartConfiguredWhaleScramble(int issuer, bool broadcastFailures, boo
         LogWhale("Configured scramble mode: topswap forced=%d.", forced ? 1 : 0);
         return StartWhaleScramble(issuer, broadcastFailures, allowLowPop, forced);
     }
+    else if (g_hWhaleRankBalance != null && g_hWhaleRankBalance.BoolValue)
+    {
+        LogWhale("Configured scramble mode: WhaleTracker ranks forced=%d.", forced ? 1 : 0);
+        return StartWhaleRankBalanceScramble(issuer, broadcastFailures, allowLowPop, forced);
+    }
     else if (g_hFragBalance != null && g_hFragBalance.BoolValue)
     {
         LogWhale("Configured scramble mode: frags forced=%d.", forced ? 1 : 0);
@@ -1908,7 +1938,53 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
 
 static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bool allowLowPop, bool forced)
 {
-    LogWhale("StartFragBalanceWhaleScramble: issuer=%d allowLowPop=%d forced=%d.", issuer, allowLowPop ? 1 : 0, forced ? 1 : 0);
+    return StartScoreBalanceWhaleScramble(issuer, broadcastFailures, allowLowPop, forced, ScrambleScore_Frags);
+}
+
+static bool StartWhaleRankBalanceScramble(int issuer, bool broadcastFailures, bool allowLowPop, bool forced)
+{
+    if (GetFeatureStatus(FeatureType_Native, "WhaleTracker_AreStatsLoaded") != FeatureStatus_Available
+        || GetFeatureStatus(FeatureType_Native, "WhaleTracker_GetWhalePoints") != FeatureStatus_Available)
+    {
+        NotifyFailure(issuer, broadcastFailures, "WhaleTracker rank data is unavailable.");
+        LogWhaleStat("scramble_result", "mode=whaletracker_rank|result=aborted|reason=native_unavailable");
+        return false;
+    }
+
+    return StartScoreBalanceWhaleScramble(issuer, broadcastFailures, allowLowPop, forced, ScrambleScore_WhaleRank);
+}
+
+static int GetScrambleBalanceScore(int client, ScrambleScoreKind scoreKind)
+{
+    if (scoreKind == ScrambleScore_Frags)
+    {
+        return GetClientFrags(client);
+    }
+
+    if (IsFakeClient(client) || !WhaleTracker_AreStatsLoaded(client))
+    {
+        return 0;
+    }
+
+    return WhaleTracker_GetWhalePoints(client);
+}
+
+static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, bool allowLowPop, bool forced, ScrambleScoreKind scoreKind)
+{
+    char modeKey[32];
+    char modeLabel[32];
+    if (scoreKind == ScrambleScore_WhaleRank)
+    {
+        strcopy(modeKey, sizeof(modeKey), "whaletracker_rank");
+        strcopy(modeLabel, sizeof(modeLabel), "WhaleTracker rank");
+    }
+    else
+    {
+        strcopy(modeKey, sizeof(modeKey), "frag_balance");
+        strcopy(modeLabel, sizeof(modeLabel), "Frag balance");
+    }
+
+    LogWhale("StartScoreBalanceWhaleScramble: mode=%s issuer=%d allowLowPop=%d forced=%d.", modeKey, issuer, allowLowPop ? 1 : 0, forced ? 1 : 0);
     g_iRoundsSinceAuto = 0;
 
     int totalPlayers = 0;
@@ -1920,9 +1996,9 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
     int bluCandidates[MAXPLAYERS + 1];
     int redCandidateCount = 0;
     int bluCandidateCount = 0;
-    int clientFrags[MAXPLAYERS + 1];
-    int redFragTotal = 0;
-    int bluFragTotal = 0;
+    int clientScores[MAXPLAYERS + 1];
+    int redScoreTotal = 0;
+    int bluScoreTotal = 0;
     int topRed[MAX_SWAP_BUFFER];
     int topBlu[MAX_SWAP_BUFFER];
 
@@ -1939,7 +2015,8 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
     if (ignoreImmunity)
     {
         LogWhale(
-            "Frag balance scramble: ignoring immunity due to %s total=%d threshold=%d.",
+            "%s scramble: ignoring immunity due to %s total=%d threshold=%d.",
+            modeLabel,
             smallFormatGamemode ? "small-format gamemode" : "low player count",
             totalPlayers,
             MAX_RANDOM_SWAP * 2);
@@ -1958,15 +2035,15 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
         if (team != TEAM_RED && team != TEAM_BLU)
             continue;
 
-        int frags = GetClientFrags(i);
-        clientFrags[i] = frags;
+        int score = GetScrambleBalanceScore(i, scoreKind);
+        clientScores[i] = score;
         if (team == TEAM_RED)
         {
-            redFragTotal += frags;
+            redScoreTotal += score;
         }
         else
         {
-            bluFragTotal += frags;
+            bluScoreTotal += score;
         }
 
         if (!ignoreImmunity && IsScrambleImmune(i))
@@ -1995,7 +2072,8 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
     int desiredSwapCount = CalculateDesiredScrambleSwapCount(totalPlayers, redCount, bluCount, MAX_RANDOM_SWAP);
     int swapCount = LimitSwapCountToEligibility(desiredSwapCount, redEligible, bluEligible);
     LogWhale(
-        "Frag balance counts: total=%d red=%d blu=%d eligibleRed=%d eligibleBlu=%d desiredSwap=%d swap=%d redFrags=%d bluFrags=%d.",
+        "%s counts: total=%d red=%d blu=%d eligibleRed=%d eligibleBlu=%d desiredSwap=%d swap=%d redScore=%d bluScore=%d.",
+        modeLabel,
         totalPlayers,
         redCount,
         bluCount,
@@ -2003,13 +2081,13 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
         bluEligible,
         desiredSwapCount,
         swapCount,
-        redFragTotal,
-        bluFragTotal);
+        redScoreTotal,
+        bluScoreTotal);
 
     bool needsFallback = (desiredSwapCount > 0 && swapCount < desiredSwapCount);
     if (needsFallback)
     {
-        LogWhale("Frag balance eligibility low; recalculating without class filters.");
+        LogWhale("%s eligibility low; recalculating without class filters.", modeLabel);
         redEligible = 0;
         bluEligible = 0;
         redCandidateCount = 0;
@@ -2051,7 +2129,8 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
         swapCount = LimitSwapCountToEligibility(desiredSwapCount, redEligible, bluEligible);
     }
 
-    LogWhaleStat("scramble_attempt", "mode=frag_balance|issuer=%d|allow_low_pop=%d|forced=%d|total=%d|red=%d|blu=%d|eligible_red=%d|eligible_blu=%d|candidate_red=%d|candidate_blu=%d|desired_swap=%d|swap=%d|ignore_immunity=%d|fallback=%d|red_frags=%d|blu_frags=%d",
+    LogWhaleStat("scramble_attempt", "mode=%s|issuer=%d|allow_low_pop=%d|forced=%d|total=%d|red=%d|blu=%d|eligible_red=%d|eligible_blu=%d|candidate_red=%d|candidate_blu=%d|desired_swap=%d|swap=%d|ignore_immunity=%d|fallback=%d|red_score=%d|blu_score=%d",
+        modeKey,
         issuer,
         allowLowPop ? 1 : 0,
         forced ? 1 : 0,
@@ -2066,64 +2145,66 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
         swapCount,
         ignoreImmunity ? 1 : 0,
         needsFallback ? 1 : 0,
-        redFragTotal,
-        bluFragTotal);
+        redScoreTotal,
+        bluScoreTotal);
 
     if (swapCount == 0)
     {
-        NotifySwapCountFailure(issuer, broadcastFailures, totalPlayers, redCount, bluCount, redEligible, bluEligible, "Frag balance");
+        NotifySwapCountFailure(issuer, broadcastFailures, totalPlayers, redCount, bluCount, redEligible, bluEligible, modeLabel);
         return false;
     }
 
     if (redCount < swapCount || bluCount < swapCount)
     {
         NotifyFailure(issuer, broadcastFailures, "Each team needs at least %d players (RED=%d BLU=%d).", swapCount, redCount, bluCount);
-        LogWhale("Frag balance scramble aborted: team size too small (swap=%d red=%d blu=%d).", swapCount, redCount, bluCount);
-        LogWhaleStat("scramble_result", "mode=frag_balance|result=aborted|reason=team_size|swap=%d|red=%d|blu=%d", swapCount, redCount, bluCount);
+        LogWhale("%s scramble aborted: team size too small (swap=%d red=%d blu=%d).", modeLabel, swapCount, redCount, bluCount);
+        LogWhaleStat("scramble_result", "mode=%s|result=aborted|reason=team_size|swap=%d|red=%d|blu=%d", modeKey, swapCount, redCount, bluCount);
         return false;
     }
 
     if (redEligible < swapCount || bluEligible < swapCount)
     {
         NotifyFailure(issuer, broadcastFailures, "Each team needs at least %d eligible players (RED=%d BLU=%d).", swapCount, redEligible, bluEligible);
-        LogWhale("Frag balance scramble aborted: eligible too small (swap=%d red=%d blu=%d).", swapCount, redEligible, bluEligible);
-        LogWhaleStat("scramble_result", "mode=frag_balance|result=aborted|reason=eligible_size|swap=%d|eligible_red=%d|eligible_blu=%d", swapCount, redEligible, bluEligible);
+        LogWhale("%s scramble aborted: eligible too small (swap=%d red=%d blu=%d).", modeLabel, swapCount, redEligible, bluEligible);
+        LogWhaleStat("scramble_result", "mode=%s|result=aborted|reason=eligible_size|swap=%d|eligible_red=%d|eligible_blu=%d", modeKey, swapCount, redEligible, bluEligible);
         return false;
     }
 
-    if (!SelectFragBalancePlayers(redCandidates, bluCandidates, clientFrags, redCandidateCount, bluCandidateCount, redFragTotal, bluFragTotal, topRed, topBlu, swapCount))
+    if (!SelectScoreBalancePlayers(redCandidates, bluCandidates, clientScores, redCandidateCount, bluCandidateCount, redScoreTotal, bluScoreTotal, topRed, topBlu, swapCount))
     {
-        NotifyFailure(issuer, broadcastFailures, "Failed to select frag-balanced swap targets.");
-        LogWhale("Frag balance scramble aborted: selection failed (swap=%d redCandidates=%d bluCandidates=%d redFrags=%d bluFrags=%d).", swapCount, redCandidateCount, bluCandidateCount, redFragTotal, bluFragTotal);
-        LogWhaleStat("scramble_result", "mode=frag_balance|result=aborted|reason=selection_failed|swap=%d|candidate_red=%d|candidate_blu=%d|red_frags=%d|blu_frags=%d", swapCount, redCandidateCount, bluCandidateCount, redFragTotal, bluFragTotal);
+        NotifyFailure(issuer, broadcastFailures, "Failed to select %s swap targets.", modeLabel);
+        LogWhale("%s scramble aborted: selection failed (swap=%d redCandidates=%d bluCandidates=%d redScore=%d bluScore=%d).", modeLabel, swapCount, redCandidateCount, bluCandidateCount, redScoreTotal, bluScoreTotal);
+        LogWhaleStat("scramble_result", "mode=%s|result=aborted|reason=selection_failed|swap=%d|candidate_red=%d|candidate_blu=%d|red_score=%d|blu_score=%d", modeKey, swapCount, redCandidateCount, bluCandidateCount, redScoreTotal, bluScoreTotal);
         return false;
     }
 
-    int selectedRedFrags = 0;
-    int selectedBluFrags = 0;
+    int selectedRedScore = 0;
+    int selectedBluScore = 0;
     for (int i = 0; i < swapCount; i++)
     {
-        selectedRedFrags += clientFrags[topRed[i]];
-        selectedBluFrags += clientFrags[topBlu[i]];
+        selectedRedScore += clientScores[topRed[i]];
+        selectedBluScore += clientScores[topBlu[i]];
     }
 
-    int beforeDiff = FragBalanceAbs(redFragTotal - bluFragTotal);
-    int afterDiff = FragBalanceAbs((redFragTotal - bluFragTotal) - (2 * selectedRedFrags) + (2 * selectedBluFrags));
+    int beforeDiff = ScoreBalanceAbs(redScoreTotal - bluScoreTotal);
+    int afterDiff = ScoreBalanceAbs((redScoreTotal - bluScoreTotal) - (2 * selectedRedScore) + (2 * selectedBluScore));
     LogWhale(
-        "Frag balance selected: swap=%d redFrags=%d bluFrags=%d selectedRedFrags=%d selectedBluFrags=%d beforeDiff=%d afterDiff=%d.",
+        "%s selected: swap=%d redScore=%d bluScore=%d selectedRedScore=%d selectedBluScore=%d beforeDiff=%d afterDiff=%d.",
+        modeLabel,
         swapCount,
-        redFragTotal,
-        bluFragTotal,
-        selectedRedFrags,
-        selectedBluFrags,
+        redScoreTotal,
+        bluScoreTotal,
+        selectedRedScore,
+        selectedBluScore,
         beforeDiff,
         afterDiff);
-    LogWhaleStat("scramble_result", "mode=frag_balance|result=selected|swap=%d|red_frags=%d|blu_frags=%d|selected_red_frags=%d|selected_blu_frags=%d|before_diff=%d|after_diff=%d",
+    LogWhaleStat("scramble_result", "mode=%s|result=selected|swap=%d|red_score=%d|blu_score=%d|selected_red_score=%d|selected_blu_score=%d|before_diff=%d|after_diff=%d",
+        modeKey,
         swapCount,
-        redFragTotal,
-        bluFragTotal,
-        selectedRedFrags,
-        selectedBluFrags,
+        redScoreTotal,
+        bluScoreTotal,
+        selectedRedScore,
+        selectedBluScore,
         beforeDiff,
         afterDiff);
 
@@ -2131,7 +2212,7 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
     pack.WriteCell(issuer > 0 ? GetClientUserId(issuer) : 0);
     pack.WriteCell(swapCount);
     pack.WriteCell(ignoreImmunity ? 1 : 0);
-    pack.WriteString("frag_balance");
+    pack.WriteString(modeKey);
     for (int i = 0; i < swapCount; i++)
     {
         pack.WriteCell(GetClientUserId(topRed[i]));
@@ -2143,26 +2224,26 @@ static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bo
 
     if (g_bExecuteSwapImmediately)
     {
-        LogWhale("Frag balance scramble executing immediately: swapCount=%d.", swapCount);
+        LogWhale("%s scramble executing immediately: swapCount=%d.", modeLabel, swapCount);
         Timer_DoSwap(null, pack);
     }
     else
     {
         CreateTimer(0.1, Timer_DoSwap, pack, TIMER_FLAG_NO_MAPCHANGE);
-        LogWhale("Frag balance scramble scheduled: swapCount=%d.", swapCount);
+        LogWhale("%s scramble scheduled: swapCount=%d.", modeLabel, swapCount);
     }
 
     return true;
 }
 
-static bool SelectFragBalancePlayers(
+static bool SelectScoreBalancePlayers(
     int redCandidates[MAXPLAYERS + 1],
     int bluCandidates[MAXPLAYERS + 1],
-    int clientFrags[MAXPLAYERS + 1],
+    int clientScores[MAXPLAYERS + 1],
     int redCandidateCount,
     int bluCandidateCount,
-    int redFragTotal,
-    int bluFragTotal,
+    int redScoreTotal,
+    int bluScoreTotal,
     int selectedRed[MAX_SWAP_BUFFER],
     int selectedBlu[MAX_SWAP_BUFFER],
     int selectedCount)
@@ -2172,23 +2253,23 @@ static bool SelectFragBalancePlayers(
         return false;
     }
 
-    ArrayList bluSubsets = new ArrayList(FRAG_BALANCE_ENTRY_CELLS);
+    ArrayList bluSubsets = new ArrayList(SCORE_BALANCE_ENTRY_CELLS);
     int chosenBlu[MAX_SWAP_BUFFER];
-    AddFragBalanceSubsetsRecursive(bluCandidates, clientFrags, bluCandidateCount, selectedCount, 0, 0, 0, chosenBlu, bluSubsets);
+    AddScoreBalanceSubsetsRecursive(bluCandidates, clientScores, bluCandidateCount, selectedCount, 0, 0, 0, chosenBlu, bluSubsets);
     if (bluSubsets.Length <= 0)
     {
         delete bluSubsets;
         return false;
     }
 
-    bluSubsets.SortCustom(SortFragBalanceSubsetBySum);
+    bluSubsets.SortCustom(SortScoreBalanceSubsetBySum);
 
     int chosenRed[MAX_SWAP_BUFFER];
     int bestFinalDiff = 0;
     bool found = false;
-    EvaluateFragBalanceRedSubsetsRecursive(
+    EvaluateScoreBalanceRedSubsetsRecursive(
         redCandidates,
-        clientFrags,
+        clientScores,
         redCandidateCount,
         selectedCount,
         0,
@@ -2196,7 +2277,7 @@ static bool SelectFragBalancePlayers(
         0,
         chosenRed,
         bluSubsets,
-        redFragTotal - bluFragTotal,
+        redScoreTotal - bluScoreTotal,
         selectedRed,
         selectedBlu,
         bestFinalDiff,
@@ -2206,9 +2287,9 @@ static bool SelectFragBalancePlayers(
     return found;
 }
 
-static void AddFragBalanceSubsetsRecursive(
+static void AddScoreBalanceSubsetsRecursive(
     int candidates[MAXPLAYERS + 1],
-    int clientFrags[MAXPLAYERS + 1],
+    int clientScores[MAXPLAYERS + 1],
     int candidateCount,
     int selectedCount,
     int start,
@@ -2219,11 +2300,11 @@ static void AddFragBalanceSubsetsRecursive(
 {
     if (chosenCount == selectedCount)
     {
-        int entry[FRAG_BALANCE_ENTRY_CELLS];
-        entry[FRAG_BALANCE_ENTRY_SUM] = currentSum;
+        int entry[SCORE_BALANCE_ENTRY_CELLS];
+        entry[SCORE_BALANCE_ENTRY_SUM] = currentSum;
         for (int i = 0; i < MAX_SWAP_BUFFER; i++)
         {
-            entry[FRAG_BALANCE_ENTRY_CLIENT0 + i] = (i < selectedCount) ? chosen[i] : 0;
+            entry[SCORE_BALANCE_ENTRY_CLIENT0 + i] = (i < selectedCount) ? chosen[i] : 0;
         }
         subsets.PushArray(entry, sizeof(entry));
         return;
@@ -2234,21 +2315,21 @@ static void AddFragBalanceSubsetsRecursive(
     {
         int client = candidates[i];
         chosen[chosenCount] = client;
-        AddFragBalanceSubsetsRecursive(candidates, clientFrags, candidateCount, selectedCount, i + 1, chosenCount + 1, currentSum + clientFrags[client], chosen, subsets);
+        AddScoreBalanceSubsetsRecursive(candidates, clientScores, candidateCount, selectedCount, i + 1, chosenCount + 1, currentSum + clientScores[client], chosen, subsets);
     }
 }
 
-static void EvaluateFragBalanceRedSubsetsRecursive(
+static void EvaluateScoreBalanceRedSubsetsRecursive(
     int redCandidates[MAXPLAYERS + 1],
-    int clientFrags[MAXPLAYERS + 1],
+    int clientScores[MAXPLAYERS + 1],
     int redCandidateCount,
     int selectedCount,
     int start,
     int chosenCount,
-    int currentRedSum,
+    int currentRedScore,
     int chosenRed[MAX_SWAP_BUFFER],
     ArrayList bluSubsets,
-    int teamFragDelta,
+    int teamScoreDelta,
     int selectedRed[MAX_SWAP_BUFFER],
     int selectedBlu[MAX_SWAP_BUFFER],
     int &bestFinalDiff,
@@ -2256,10 +2337,10 @@ static void EvaluateFragBalanceRedSubsetsRecursive(
 {
     if (chosenCount == selectedCount)
     {
-        int targetTwice = (2 * currentRedSum) - teamFragDelta;
-        int index = FindFirstFragBalanceSubsetAtLeastTwice(bluSubsets, targetTwice);
-        TryFragBalanceCandidate(bluSubsets, index, selectedCount, currentRedSum, chosenRed, teamFragDelta, selectedRed, selectedBlu, bestFinalDiff, found);
-        TryFragBalanceCandidate(bluSubsets, index - 1, selectedCount, currentRedSum, chosenRed, teamFragDelta, selectedRed, selectedBlu, bestFinalDiff, found);
+        int targetTwice = (2 * currentRedScore) - teamScoreDelta;
+        int index = FindFirstScoreBalanceSubsetAtLeastTwice(bluSubsets, targetTwice);
+        TryScoreBalanceCandidate(bluSubsets, index, selectedCount, currentRedScore, chosenRed, teamScoreDelta, selectedRed, selectedBlu, bestFinalDiff, found);
+        TryScoreBalanceCandidate(bluSubsets, index - 1, selectedCount, currentRedScore, chosenRed, teamScoreDelta, selectedRed, selectedBlu, bestFinalDiff, found);
         return;
     }
 
@@ -2268,17 +2349,17 @@ static void EvaluateFragBalanceRedSubsetsRecursive(
     {
         int client = redCandidates[i];
         chosenRed[chosenCount] = client;
-        EvaluateFragBalanceRedSubsetsRecursive(
+        EvaluateScoreBalanceRedSubsetsRecursive(
             redCandidates,
-            clientFrags,
+            clientScores,
             redCandidateCount,
             selectedCount,
             i + 1,
             chosenCount + 1,
-            currentRedSum + clientFrags[client],
+            currentRedScore + clientScores[client],
             chosenRed,
             bluSubsets,
-            teamFragDelta,
+            teamScoreDelta,
             selectedRed,
             selectedBlu,
             bestFinalDiff,
@@ -2286,13 +2367,13 @@ static void EvaluateFragBalanceRedSubsetsRecursive(
     }
 }
 
-static void TryFragBalanceCandidate(
+static void TryScoreBalanceCandidate(
     ArrayList bluSubsets,
     int index,
     int selectedCount,
-    int currentRedSum,
+    int currentRedScore,
     int chosenRed[MAX_SWAP_BUFFER],
-    int teamFragDelta,
+    int teamScoreDelta,
     int selectedRed[MAX_SWAP_BUFFER],
     int selectedBlu[MAX_SWAP_BUFFER],
     int &bestFinalDiff,
@@ -2303,10 +2384,10 @@ static void TryFragBalanceCandidate(
         return;
     }
 
-    int entry[FRAG_BALANCE_ENTRY_CELLS];
+    int entry[SCORE_BALANCE_ENTRY_CELLS];
     bluSubsets.GetArray(index, entry, sizeof(entry));
 
-    int finalDiff = FragBalanceAbs(teamFragDelta - (2 * currentRedSum) + (2 * entry[FRAG_BALANCE_ENTRY_SUM]));
+    int finalDiff = ScoreBalanceAbs(teamScoreDelta - (2 * currentRedScore) + (2 * entry[SCORE_BALANCE_ENTRY_SUM]));
     if (found && finalDiff >= bestFinalDiff)
     {
         return;
@@ -2315,24 +2396,24 @@ static void TryFragBalanceCandidate(
     for (int i = 0; i < MAX_SWAP_BUFFER; i++)
     {
         selectedRed[i] = (i < selectedCount) ? chosenRed[i] : 0;
-        selectedBlu[i] = (i < selectedCount) ? entry[FRAG_BALANCE_ENTRY_CLIENT0 + i] : 0;
+        selectedBlu[i] = (i < selectedCount) ? entry[SCORE_BALANCE_ENTRY_CLIENT0 + i] : 0;
     }
 
     bestFinalDiff = finalDiff;
     found = true;
 }
 
-static int FindFirstFragBalanceSubsetAtLeastTwice(ArrayList subsets, int targetTwice)
+static int FindFirstScoreBalanceSubsetAtLeastTwice(ArrayList subsets, int targetTwice)
 {
     int low = 0;
     int high = subsets.Length;
-    int entry[FRAG_BALANCE_ENTRY_CELLS];
+    int entry[SCORE_BALANCE_ENTRY_CELLS];
 
     while (low < high)
     {
         int mid = (low + high) / 2;
         subsets.GetArray(mid, entry, sizeof(entry));
-        if ((2 * entry[FRAG_BALANCE_ENTRY_SUM]) < targetTwice)
+        if ((2 * entry[SCORE_BALANCE_ENTRY_SUM]) < targetTwice)
         {
             low = mid + 1;
         }
@@ -2345,26 +2426,26 @@ static int FindFirstFragBalanceSubsetAtLeastTwice(ArrayList subsets, int targetT
     return low;
 }
 
-static int SortFragBalanceSubsetBySum(int index1, int index2, Handle array, Handle hndl)
+static int SortScoreBalanceSubsetBySum(int index1, int index2, Handle array, Handle hndl)
 {
     ArrayList subsets = view_as<ArrayList>(array);
-    int entry1[FRAG_BALANCE_ENTRY_CELLS];
-    int entry2[FRAG_BALANCE_ENTRY_CELLS];
+    int entry1[SCORE_BALANCE_ENTRY_CELLS];
+    int entry2[SCORE_BALANCE_ENTRY_CELLS];
     subsets.GetArray(index1, entry1, sizeof(entry1));
     subsets.GetArray(index2, entry2, sizeof(entry2));
 
-    if (entry1[FRAG_BALANCE_ENTRY_SUM] < entry2[FRAG_BALANCE_ENTRY_SUM])
+    if (entry1[SCORE_BALANCE_ENTRY_SUM] < entry2[SCORE_BALANCE_ENTRY_SUM])
     {
         return -1;
     }
-    if (entry1[FRAG_BALANCE_ENTRY_SUM] > entry2[FRAG_BALANCE_ENTRY_SUM])
+    if (entry1[SCORE_BALANCE_ENTRY_SUM] > entry2[SCORE_BALANCE_ENTRY_SUM])
     {
         return 1;
     }
     return 0;
 }
 
-static int FragBalanceAbs(int value)
+static int ScoreBalanceAbs(int value)
 {
     return value < 0 ? -value : value;
 }
