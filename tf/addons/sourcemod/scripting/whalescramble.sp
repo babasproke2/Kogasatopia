@@ -80,6 +80,7 @@ ConVar g_hTopSwap = null;
 ConVar g_hRandom = null;
 ConVar g_hFragBalance = null;
 ConVar g_hWhaleRankBalance = null;
+ConVar g_hStackRedPayload = null;
 ConVar g_hDisableTfAuto = null;
 ConVar g_hShortRoundAutoSeconds = null;
 ConVar g_hKothNoCapAuto = null;
@@ -103,6 +104,7 @@ bool g_bPendingFullRoundWin = false;
 int g_iPendingFullRoundWinningTeam = 0;
 bool g_bScrambledThisRound = false;
 bool g_bLastRoundHadScramble = false;
+bool g_bStackRedPayloadAttempted = false;
 int g_iRoundStartTimestamp = 0;
 int g_iScrambleRespawnAttempts[MAXPLAYERS + 1];
 int g_iScrambleRespawnExpectedTeam[MAXPLAYERS + 1];
@@ -175,6 +177,7 @@ public void OnPluginStart()
     g_hRandom = CreateConVar("sm_ws_random", "1", "Enable random scramble mode.", _, true, 0.0, true, 1.0);
     g_hFragBalance = CreateConVar("sm_ws_frags", "1", "Enable frag-balanced random scramble mode.", _, true, 0.0, true, 1.0);
     g_hWhaleRankBalance = CreateConVar("sm_ws_whaletracker_ranks", "0", "Enable WhaleTracker rank-balanced scramble mode.", _, true, 0.0, true, 1.0);
+    g_hStackRedPayload = CreateConVar("whalescramble_stack_red_pl", "1", "Run one RED-favored 60:40 WhaleTracker balance per payload map when setup teams become ready.", _, true, 0.0, true, 1.0);
     g_hDisableTfAuto = CreateConVar("sm_whalescramble_disable_tf_auto", "1", "Disable TF2's built-in mp_scrambleteams_auto while WhaleScramble owns auto scrambles.", _, true, 0.0, true, 1.0);
     g_hShortRoundAutoSeconds = CreateConVar("sm_whalescramble_short_round_seconds", "60", "Automatically whale scramble when the previous round duration is under this many seconds. 0 disables.", _, true, 0.0, true, 600.0);
     g_hKothNoCapAuto = CreateConVar("sm_whalescramble_koth_no_cap", "1", "Automatically whale scramble when a full KOTH round ends with either team never capturing the point.", _, true, 0.0, true, 1.0);
@@ -236,6 +239,7 @@ public void OnLibraryRemoved(const char[] name)
 
 public void OnMapStart()
 {
+    g_bStackRedPayloadAttempted = false;
     ResetVotes();
     ClearScrambleRespawnAttempts();
     ClearScrambleCooldown();
@@ -350,6 +354,35 @@ public Action Command_WhaleBalance(int client, int args)
     }
     StartWhaleRankBalanceScramble(client, true, true, true, favoredTeam);
     return Plugin_Handled;
+}
+
+public void DGM_OnSetupTeamRatioReady(int realTeamPlayers, int connectedClients)
+{
+    if (g_bStackRedPayloadAttempted || g_hStackRedPayload == null || !g_hStackRedPayload.BoolValue)
+    {
+        return;
+    }
+
+    char gamemodeKey[16];
+    if (GetFeatureStatus(FeatureType_Native, "DGM_GetGameModeKey") != FeatureStatus_Available
+        || !DGM_GetGameModeKey(gamemodeKey, sizeof(gamemodeKey))
+        || !StrEqual(gamemodeKey, "pl"))
+    {
+        return;
+    }
+
+    g_bStackRedPayloadAttempted = true;
+    LogWhale(
+        "Payload setup team ratio ready: realTeamPlayers=%d connectedClients=%d; starting RED-favored WhaleTracker balance.",
+        realTeamPlayers,
+        connectedClients);
+    LogWhaleStat(
+        "auto_scramble_decision",
+        "trigger=setup_team_ratio|result=triggered|mode=whaletracker_rank|favored_team=%d|real_team_players=%d|connected_clients=%d",
+        TEAM_RED,
+        realTeamPlayers,
+        connectedClients);
+    StartWhaleRankBalanceScramble(0, false, true, true, TEAM_RED);
 }
 
 public Action Command_ForceScrambleVote(int client, int args)
