@@ -165,6 +165,7 @@ public void OnPluginStart()
         Format(cvarName, sizeof(cvarName), "restrict_%s", g_ClassSuffixes[classId]);
         Format(description, sizeof(description), "Limit for %s.", g_ClassNames[classId]);
         g_hLimits[classId] = CreateConVar(cvarName, "-1", description);
+        g_hLimits[classId].AddChangeHook(OnClassLimitChanged);
     }
 
     HookEvent("player_changeclass", Event_PlayerClass);
@@ -647,6 +648,42 @@ public void OnOverhealPopulationThresholdChanged(ConVar convar, const char[] old
     UpdateOverhealState();
 }
 
+public void OnClassLimitChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    if (StringToFloat(newValue) != 0.0 || StringToFloat(oldValue) == 0.0)
+    {
+        return;
+    }
+
+    int disabledClass = TF_CLASS_UNKNOWN;
+    for (int classId = TF_CLASS_SCOUT; classId <= TF_CLASS_ENGINEER; classId++)
+    {
+        if (convar == g_hLimits[classId])
+        {
+            disabledClass = classId;
+            break;
+        }
+    }
+
+    if (disabledClass == TF_CLASS_UNKNOWN)
+    {
+        return;
+    }
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client)
+            || GetClientTeam(client) < TF_TEAM_RED
+            || view_as<int>(TF2_GetPlayerClass(client)) != disabledClass)
+        {
+            continue;
+        }
+
+        NotifyClassRestricted(client, disabledClass, 0);
+        PickClass(client, disabledClass, true);
+    }
+}
+
 static void QueueOverhealStateUpdate()
 {
     if (g_bOverhealUpdateQueued)
@@ -868,27 +905,41 @@ bool IsImmune(int iClient)
     return !StrEqual(sFlags, "") && CheckCommandAccess(iClient, "classrestrict", ReadFlagString(sFlags));
 }
 
-void PickClass(int iClient)
+bool PickClass(int iClient, int excludedClass = TF_CLASS_UNKNOWN, bool killFirst = false)
 {
-    if (iClient <= 0 || !IsClientInGame(iClient)) return;
-
-    for (int i = GetRandomInt(TF_CLASS_SCOUT, TF_CLASS_ENGINEER), iClass = i, iTeam = GetClientTeam(iClient);;)
+    if (iClient <= 0 || !IsClientInGame(iClient))
     {
-        int limit;
-        if (!IsClientClassRestricted(iClient, iTeam, i, limit))
+        return false;
+    }
+
+    int firstClass = GetRandomInt(TF_CLASS_SCOUT, TF_CLASS_ENGINEER);
+    int team = GetClientTeam(iClient);
+    for (int offset = 0; offset < TF_CLASS_ENGINEER; offset++)
+    {
+        int classId = ((firstClass - TF_CLASS_SCOUT + offset) % TF_CLASS_ENGINEER) + TF_CLASS_SCOUT;
+        if (classId == excludedClass)
         {
+            continue;
+        }
+
+        int limit;
+        if (!IsClientClassRestricted(iClient, team, classId, limit))
+        {
+            if (killFirst && IsPlayerAlive(iClient))
+            {
+                ForcePlayerSuicide(iClient);
+            }
+
             g_iForcedRespawnAttempts[iClient]++;
             g_bForcedRespawn[iClient] = true;
-            TF2_SetPlayerClass(iClient, view_as<TFClassType>(i));
+            TF2_SetPlayerClass(iClient, view_as<TFClassType>(classId));
             TF2_RespawnPlayer(iClient);
-            g_iClass[iClient] = i;
-            break;
+            g_iClass[iClient] = classId;
+            return true;
         }
-        else if (++i > TF_CLASS_ENGINEER)
-            i = TF_CLASS_SCOUT;
-        else if (i == iClass)
-            break;
     }
+
+    return false;
 }
 
 void LoadClassBans()
