@@ -3342,16 +3342,24 @@ static void LoadWeaponRevertsConfig()
 public Action Command_ReloadWeaponRevertsConfig(int client, int args)
 {
 	LoadWeaponRevertsConfig();
+	int regenerated = 0;
 	for (int target = 1; target <= MaxClients; target++)
 	{
 		if (IsClientInGame(target))
 		{
 			HuntingRevolver_ResetClient(target);
+			if (IsPlayerAlive(target))
+			{
+				TF2_RegeneratePlayer(target);
+				regenerated++;
+			}
 			Harvester_SyncHealTimer(target);
 			Escampette_RecalculateSpeed(target);
 		}
 	}
-	ReplyToCommand(client, "[WeaponReverts] Reloaded configs/weapons.cfg");
+	ReplyToCommand(client,
+		"[WeaponReverts] Reloaded configs/weapons.cfg and refreshed %d active loadouts.",
+		regenerated);
 	return Plugin_Handled;
 }
 
