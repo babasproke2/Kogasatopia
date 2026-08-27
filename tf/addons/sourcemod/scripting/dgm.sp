@@ -2237,6 +2237,11 @@ public Action Command_RespawnToggle(int client, int args)
 void DGM_StartRespawnReminderTimer(int client)
 {
     DGM_ClearRespawnReminderTimer(client);
+    if (!g_cvPopulationRespawns.BoolValue)
+    {
+        return;
+    }
+
     g_hRespawnReminderTimers[client] = CreateTimer(
         DGM_RESPAWN_REMINDER_INTERVAL,
         Timer_RespawnReminder,
@@ -2257,7 +2262,8 @@ public Action Timer_RespawnReminder(Handle timer, int userId)
     }
 
     int client = GetClientOfUserId(userId);
-    if (owner == 0 || client != owner || !IsClientInGame(client)
+    if (!g_cvPopulationRespawns.BoolValue
+        || owner == 0 || client != owner || !IsClientInGame(client)
         || g_InternalOverride || DGM_AreRespawnTimesForcedOn())
     {
         if (owner > 0)
