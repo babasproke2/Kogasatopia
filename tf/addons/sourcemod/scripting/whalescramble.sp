@@ -2101,6 +2101,8 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
 
         if (!ignoreImmunity && IsScrambleImmune(i))
             continue;
+        if (scoreKind == ScrambleScore_WhaleRank && IsWhaleRankBalanceIgnoredClass(i))
+            continue;
         if (!IsSimpleScrambleEligibleClass(i, forced))
             continue;
 
@@ -2159,6 +2161,8 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
             if (team != TEAM_RED && team != TEAM_BLU)
                 continue;
             if (!ignoreImmunity && IsScrambleImmune(i))
+                continue;
+            if (scoreKind == ScrambleScore_WhaleRank && IsWhaleRankBalanceIgnoredClass(i))
                 continue;
 
             if (team == TEAM_RED)
@@ -3026,6 +3030,12 @@ static bool IsSimpleScrambleEligibleClass(int client, bool forced)
 
     TFClassType cls = TF2_GetPlayerClass(client);
     return !forced || (!Kogasa_IsEngineerWithBuildings(client) && cls != TFClass_Medic);
+}
+
+static bool IsWhaleRankBalanceIgnoredClass(int client)
+{
+    TFClassType playerClass = TF2_GetPlayerClass(client);
+    return playerClass == TFClass_Medic || playerClass == TFClass_Engineer;
 }
 
 static bool SelectRandomPlayers(const int candidates[MAXPLAYERS + 1], int candidateCount, int selected[MAX_SWAP_BUFFER], int selectedCount)
