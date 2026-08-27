@@ -48,6 +48,7 @@ ConVar g_cvNoEngineerSetupReduction;
 ConVar g_cvTimeOverride;
 ConVar g_cvRespawnTime;
 ConVar g_cvPopulationConfigs;
+ConVar g_cvPopulationRespawns;
 ConVar g_cvLowPopThreshold;
 bool g_bSymmetrical;
 bool g_bRoundStartedOnce;
@@ -1655,7 +1656,9 @@ public void AdjustByPlayerCount(any data)
 
 public void DGM_AdjustRespawnByPlayerCount(any data)
 {
-    if (g_bRespawnAdminTouchedThisMap || DGM_ShouldDisableInstantRespawn())
+    if (!g_cvPopulationRespawns.BoolValue
+        || g_bRespawnAdminTouchedThisMap
+        || DGM_ShouldDisableInstantRespawn())
     {
         return;
     }
@@ -1812,6 +1815,7 @@ public void OnPluginStart()
 
     // The respawn time
     g_cvRespawnTime = CreateConVar("respawn_time", "3.0", "Respawn time length", _, true, 0.0, true, 30.0);
+    g_cvPopulationRespawns = CreateConVar("dgm_population_respawns", "1", "Allow playercount changes to adjust respawn times.", _, true, 0.0, true, 1.0);
     g_cvLowPopThreshold = CreateConVar("dgm_lowpop_threshhold", "10", "Connected human count below which respawn times are disabled.", _, true, 0.0, true, 100.0);
     // See description
     g_cvThreshold = CreateConVar("sm_highpop_threshhold", "18.0", "Threshhold for executing the highpop config", _, true, 0.0, true, 100.0);
