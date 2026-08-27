@@ -1562,6 +1562,14 @@ void DGM_SetSetupActive(bool setupActive)
         g_bNoEngineerSetupReduced = false;
         DGM_ClearNoEngineerSetupReductionTimer();
         DGM_ClearSetupStartTimer();
+
+        if (!g_bRespawnAdminTouchedThisMap && !DGM_ShouldDisableInstantRespawn())
+        {
+            DGM_SetRespawnTimesEnabled(false);
+            DGM_RespawnDeadClients();
+            DGM_ClearAllRespawnReminderTimers();
+        }
+
         PrintToChatAll("Setup detected, bhop enabled");
         ServerCommand("exec d_setup.cfg");
         ServerExecute();
