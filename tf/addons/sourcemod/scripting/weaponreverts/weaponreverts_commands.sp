@@ -55,7 +55,7 @@ static KeyValues LoadWeaponRevertsItemClassesConfig()
 
 static void FormatRevertLine(char[] buffer, int maxlen, const char[] weaponName, const char[] positive, const char[] neutral, const char[] negative)
 {
-	Format(buffer, maxlen, "{default}%s:", weaponName);
+	Format(buffer, maxlen, "{gold}%s{default}:", weaponName);
 	bool needsComma = false;
 
 	if (positive[0] != '\0')
