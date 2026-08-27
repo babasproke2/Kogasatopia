@@ -91,10 +91,30 @@ void EnsureFeedbackTable()
         ... "id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, "
         ... "player_name VARCHAR(64) NOT NULL, "
         ... "message TEXT NOT NULL, "
+        ... "is_admin TINYINT(1) NOT NULL DEFAULT 0, "
         ... "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"
         ... ")",
         FEEDBACK_TABLE);
 
+    SQL_TQuery(g_hDatabase, SQL_OnFeedbackTableCreated, query);
+}
+
+public void SQL_OnFeedbackTableCreated(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0])
+    {
+        LogError("[Feedback] Failed to ensure table: %s", error);
+        if (Db_IsTransientError(error))
+        {
+            ScheduleDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
+        }
+        return;
+    }
+
+    char query[256];
+    Format(query, sizeof(query),
+        "ALTER TABLE %s ADD COLUMN IF NOT EXISTS is_admin TINYINT(1) NOT NULL DEFAULT 0 AFTER message",
+        FEEDBACK_TABLE);
     SQL_TQuery(g_hDatabase, SQL_OnSchemaOpComplete, query);
 }
 
@@ -302,12 +322,17 @@ public Action Command_Feedback(int client, int args)
     Db_Escape(g_hDatabase, name, escapedName, sizeof(escapedName), "Feedback");
     Db_Escape(g_hDatabase, message, escapedMessage, sizeof(escapedMessage), "Feedback");
 
+    bool isAdmin = client > 0
+        && IsClientInGame(client)
+        && GetUserAdmin(client) != INVALID_ADMIN_ID;
+
     char query[2048];
     Format(query, sizeof(query),
-        "INSERT INTO %s (player_name, message, created_at) VALUES ('%s', '%s', NOW())",
+        "INSERT INTO %s (player_name, message, is_admin, created_at) VALUES ('%s', '%s', %d, NOW())",
         FEEDBACK_TABLE,
         escapedName,
-        escapedMessage);
+        escapedMessage,
+        isAdmin ? 1 : 0);
 
     SQL_TQuery(g_hDatabase, SQL_OnFeedbackInserted, query, (client > 0 && IsClientInGame(client)) ? GetClientUserId(client) : 0);
     ReplyToCommand(client, "[Kogasa] Feedback sent.");
