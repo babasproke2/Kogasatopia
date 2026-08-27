@@ -2339,7 +2339,32 @@ static void ReloadOnHit_OnDamage(int weapon)
 
 static void RefillClipOnHit_OnDamage(int weapon)
 {
-	ReloadWeaponClip(weapon, TF2CustAttr_GetInt(weapon, ATTR_REFILL_CLIP_ON_HIT, 0));
+	int refillAmount = TF2CustAttr_GetInt(weapon, ATTR_REFILL_CLIP_ON_HIT, 0);
+	if (refillAmount <= 0)
+	{
+		return;
+	}
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(EntIndexToEntRef(weapon));
+	pack.WriteCell(refillAmount);
+	RequestFrame(RefillClipOnHit_ApplyFrame, pack);
+}
+
+static void RefillClipOnHit_ApplyFrame(any data)
+{
+	DataPack pack = view_as<DataPack>(data);
+	pack.Reset();
+	int weapon = EntRefToEntIndex(pack.ReadCell());
+	int refillAmount = pack.ReadCell();
+	delete pack;
+
+	if (weapon <= MaxClients || !IsValidEntity(weapon))
+	{
+		return;
+	}
+
+	ReloadWeaponClip(weapon, refillAmount);
 }
 
 static void ReloadOnKill_OnKill(int weapon)
@@ -2768,8 +2793,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 			&& client != attacker
 			&& GetClientTeam(client) > 1
 			&& GetClientTeam(attacker) > 1
-			&& GetClientTeam(client) != GetClientTeam(attacker)
-			&& damageWeapon == directDamageWeapon)
+			&& GetClientTeam(client) != GetClientTeam(attacker))
 		{
 			RefillClipOnHit_OnDamage(damageWeapon);
 		}
