@@ -78,7 +78,6 @@
 #define ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED "headshots enabled while zoomed"
 #define ATTR_HUNTING_REVOLVER "hunting revolver attributes"
 #define ATTR_ESCAMPETTE "escampette attributes"
-#define ATTR_MAX_PRIMARY_CLIP_OVERRIDE "mod max primary clip override"
 #define ESCAMPETTE_WATCH_SLOT 4
 #define HUNTING_REVOLVER_FOV 48
 #define HUNTING_REVOLVER_ZOOM_TIME 0.20
@@ -1926,50 +1925,6 @@ static void HuntingRevolver_SetFOV(int client, int fov)
 	SDKCall(g_SDKSetFOV, client, client, fov, HUNTING_REVOLVER_ZOOM_TIME, 0);
 }
 
-static int HuntingRevolver_GetWeapon(int client, int knownWeapon = -1)
-{
-	int weapon = EntRefToEntIndex(tf2_players[client].huntingRevolverWeaponRef);
-	if (IsValidWeaponEntity(weapon))
-	{
-		return weapon;
-	}
-
-	if (HuntingRevolver_IsWeapon(knownWeapon))
-	{
-		return knownWeapon;
-	}
-
-	if (IsClientInGame(client))
-	{
-		weapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
-		if (HuntingRevolver_IsWeapon(weapon))
-		{
-			return weapon;
-		}
-	}
-
-	return INVALID_ENT_REFERENCE;
-}
-
-static void HuntingRevolver_SetReloadLock(int client, bool enabled, int knownWeapon = -1)
-{
-	int weapon = HuntingRevolver_GetWeapon(client, knownWeapon);
-	if (!IsValidWeaponEntity(weapon))
-	{
-		return;
-	}
-
-	if (enabled
-		&& TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED, 0) != 0)
-	{
-		TF2Attrib_SetByName(weapon, ATTR_MAX_PRIMARY_CLIP_OVERRIDE, -1.0);
-	}
-	else
-	{
-		TF2Attrib_RemoveByName(weapon, ATTR_MAX_PRIMARY_CLIP_OVERRIDE);
-	}
-}
-
 static void HuntingRevolver_SetZoom(int client, bool enabled)
 {
 	tf2_players[client].huntingRevolverZoomed = enabled;
@@ -1977,7 +1932,6 @@ static void HuntingRevolver_SetZoom(int client, bool enabled)
 		? GetGameTime() + HUNTING_REVOLVER_ZOOM_TIME
 		: 0.0;
 	HuntingRevolver_SetFOV(client, enabled ? HUNTING_REVOLVER_FOV : 0);
-	HuntingRevolver_SetReloadLock(client, enabled);
 	HuntingRevolver_RecalculateSpeed(client);
 }
 
@@ -1997,7 +1951,6 @@ static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
 
 	tf2_players[client].huntingRevolverZoomed = false;
 	tf2_players[client].huntingRevolverZoomReadyTime = 0.0;
-	HuntingRevolver_SetReloadLock(client, false, knownWeapon);
 	if (customContext && IsClientInGame(client))
 	{
 		HuntingRevolver_SetFOV(client, 0);
