@@ -3653,6 +3653,13 @@ public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemD
 			}
 		}
 
+		if (entityIndex > MaxClients
+			&& IsValidEntity(entityIndex)
+			&& TF2Attrib_HookValueInt(0, "killstreak tier", entityIndex) <= 0)
+		{
+			TF2Attrib_SetByName(entityIndex, "killstreak tier", 1.0);
+		}
+
 		int oldMax = GetWeaponMaxClip(entityIndex);
 		int oldClip = GetClip(entityIndex);
 
