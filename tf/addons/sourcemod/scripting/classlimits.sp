@@ -24,6 +24,7 @@
 #define CLASSLIMITS_STATS_INTERVAL 180.0
 #define CLASSLIMITS_CONFIG "configs/classlimits.cfg"
 #define CLASS_AVAILABILITY_REQUEST_LIFETIME 240
+#define DGM_PLAYERCOUNT_RELIABILITY_RATIO 0.66
 
 #define TF_CLASS_DEMOMAN        4
 #define TF_CLASS_ENGINEER       9
@@ -581,14 +582,18 @@ static int GetHumanTeamClientCount(int team)
     return count;
 }
 
-static int GetGameplayHumanClientCount()
+static bool GetReliableGameplayHumanClientCount(int &playerCount)
 {
     if (GetFeatureStatus(FeatureType_Native, "DGM_RealPlayerCount") == FeatureStatus_Available)
     {
-        return DGM_RealPlayerCount();
+        playerCount = DGM_RealPlayerCount();
+        int connectedClients = GetClientCount(false);
+        return connectedClients <= 0
+            || float(playerCount) / float(connectedClients) >= DGM_PLAYERCOUNT_RELIABILITY_RATIO;
     }
 
-    return GetHumanTeamClientCount(TF_TEAM_RED) + GetHumanTeamClientCount(TF_TEAM_BLU);
+    playerCount = GetHumanTeamClientCount(TF_TEAM_RED) + GetHumanTeamClientCount(TF_TEAM_BLU);
+    return true;
 }
 
 static void SetupOverhealWarningHook()
@@ -624,7 +629,10 @@ public MRESReturn StartHealingTarget_Pre(int weapon, DHookParam parameters)
     }
 
     int threshold = g_hDisableOverhealPcount.IntValue;
-    if (threshold <= 0 || GetGameplayHumanClientCount() >= threshold)
+    int playerCount;
+    if (threshold <= 0
+        || !GetReliableGameplayHumanClientCount(playerCount)
+        || playerCount >= threshold)
     {
         return MRES_Ignored;
     }
@@ -666,7 +674,10 @@ static void UpdateOverhealState()
     }
 
     int threshold = g_hDisableOverhealPcount.IntValue;
-    bool populationDisabled = threshold > 0 && GetGameplayHumanClientCount() < threshold;
+    int playerCount;
+    bool populationDisabled = threshold > 0
+        && GetReliableGameplayHumanClientCount(playerCount)
+        && playerCount < threshold;
     bool redHasMedic;
     bool bluHasMedic;
     bool medicImbalanceDisabled = IsMedicImbalanceOverhealDisabled(redHasMedic, bluHasMedic);
@@ -800,7 +811,9 @@ static bool GetClassPopulationRestrictionState(int classId, int &currentPlayers,
     if (restrictionCvar == null)
         return false;
 
-    currentPlayers = GetGameplayHumanClientCount();
+    if (!GetReliableGameplayHumanClientCount(currentPlayers))
+        return false;
+
     threshold = restrictionCvar.IntValue;
     return threshold > 0 && currentPlayers >= POPULATION_RESTRICTION_MIN_PLAYERS && currentPlayers < threshold;
 }
