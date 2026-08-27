@@ -1122,15 +1122,15 @@ static bool IsClassAvailableForClient(int client, int classId)
         return false;
     }
 
-    if (classId == TF_CLASS_MEDIC && !MedicCountsTowardClassLimit(client))
-    {
-        return true;
-    }
-
     int team = GetClientTeam(client);
     if (team < TF_TEAM_RED || team > TF_TEAM_BLU)
     {
         return false;
+    }
+
+    if (classId == TF_CLASS_MEDIC && !MedicCountsTowardClassLimit(client))
+    {
+        return true;
     }
 
     ConVar limitCvar = g_hLimits[classId];
