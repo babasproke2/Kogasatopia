@@ -173,23 +173,6 @@ stock int CheckDesertEagle(int client)
     return tally;
 }
 
-stock bool CheckRocketJumping(int client)
-{
-    if (!WR_IsClientInGame(client))
-        return false;
-
-    if (!(GetEntityFlags(client) & FL_ONGROUND))
-    {
-        float velocity[3];
-        GetEntPropVector(client, Prop_Data, "m_vecVelocity", velocity);
-        if (GetVectorLength(velocity) > 300.0)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 stock int GetAmmo_Weapon(int weapon)
 {
     if (!WR_IsValidWeaponEntity(weapon))

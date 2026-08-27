@@ -97,11 +97,6 @@
 #define SPROKE_PARTICLE_BLUE	 "soldierbuff_blue_buffed"
 #define BURP_SOUND		"vo/burp02.mp3"
 
-#define TF2_JUMP_NONE 0
-#define TF2_JUMP_ROCKET_START 1
-#define TF2_JUMP_ROCKET 2
-#define TF2_JUMP_STICKY 3
-
 #define FAN_O_WAR_MAX_MARK_COUNT 3
 #define BONK_MARK_FOR_DEATH_MIN 2.0
 #define BONK_MARK_FOR_DEATH_MAX 5.0
@@ -130,7 +125,6 @@ float g_fEnvironmentalKillTime[MAXPLAYERS + 1];
 
 enum struct tf2_player
 {
-	int jump_status;
 	int scytheWeapon;
 	int shockCharge;
 	int healCount;
@@ -374,7 +368,6 @@ stock void ResetClientArrays(int client)
 	tf2_players[client].accuracyStreak = 0;
 	tf2_players[client].accuracyStreakExpiresAt = 0.0;
 	SecondaryDamageRefill_Reset(client);
-	tf2_players[client].jump_status = TF2_JUMP_NONE;
 	tf2_players[client].oldHealth = 0;
 	if (tf2_players[client].sprokeTimer != null)
 	{
@@ -421,8 +414,6 @@ public void OnPluginStart() {
 			tf2_players[i].sprokePrimaryRef = INVALID_ENT_REFERENCE;
 			tf2_players[i].sprokeParticleRef = INVALID_ENT_REFERENCE;
 			tf2_players[i].sprokeClipRecord = 0;
-			tf2_players[i].jump_status = TF2_JUMP_NONE;
-
 			if (IsClientInGame(i))
 			{
 				ResetClientArrays(i);
@@ -444,13 +435,6 @@ public void OnPluginStart() {
 		HookEvent("player_spawn", OnPlayerSpawn);
 		HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
 		HookEvent("player_team", Event_PlayerTeam, EventHookMode_Post);
-
-		// Blast jumping hooks
-
-		HookEvent("rocket_jump",				Event_TF2RocketJump);
-		HookEvent("rocket_jump_landed",			Event_TF2JumpLanded);
-		HookEvent("sticky_jump",				Event_TF2StickyJump);
-		HookEvent("sticky_jump_landed",			Event_TF2JumpLanded);
 
 		GameData conf;
 		conf = new GameData("weaponreverts");
@@ -1244,37 +1228,6 @@ static int Accuracy_GetClassSubtractionValue(int client)
 			return 75;
 		default:
 			return 0;
-	}
-}
-
-public void Event_TF2RocketJump(Event event, const char[] name, bool dontBroadcast)
-{
-	int client = GetClientOfUserId(GetEventInt(event, "userid"));
-	if (client > 0) {
-		if (tf2_players[client].jump_status == TF2_JUMP_ROCKET_START) {
-			tf2_players[client].jump_status = TF2_JUMP_ROCKET;
-		} else if (tf2_players[client].jump_status != TF2_JUMP_ROCKET) {
-			tf2_players[client].jump_status = TF2_JUMP_ROCKET_START;
-		}
-	}
-}
-
-public void Event_TF2StickyJump(Event event, const char[] name, bool dontBroadcast)
-{
-	int client = GetClientOfUserId(GetEventInt(event, "userid"));
-	if (client > 0) {
-		if (tf2_players[client].jump_status != TF2_JUMP_STICKY) {
-			tf2_players[client].jump_status = TF2_JUMP_STICKY;
-		}
-	}
-}
-
-public void Event_TF2JumpLanded(Event event, const char[] name, bool dontBroadcast)
-{
-	int client = GetClientOfUserId(GetEventInt(event, "userid"));
-	if (client > 0)
-	{
-		tf2_players[client].jump_status = TF2_JUMP_NONE;
 	}
 }
 
@@ -2853,7 +2806,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 			return Plugin_Changed;
 		} else if (damagecustom == 42) {
 			damagetype|=TF_WEAPON_GRENADE_DEMOMAN;
-			if (CheckRocketJumping(attacker)) {
+			if (TF2_IsPlayerInCondition(attacker, TFCond_BlastJumping)) {
 				damage = 175.00;
 				damagetype|=DMG_CRIT;
 				return Plugin_Changed;
