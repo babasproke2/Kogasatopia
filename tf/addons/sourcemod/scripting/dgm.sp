@@ -1102,14 +1102,30 @@ void DGM_SetRespawnTimesEnabled(bool enabled)
     }
 }
 
-bool DGM_InternalIsRoundRunning()
+bool DGM_TryGetGameRulesInt(const char[] prop, int &value, int size = 4)
 {
-    if (FindEntityByClassname(-1, "tf_gamerules") == -1)
+    int gameRules = FindEntityByClassname(-1, "tf_gamerules");
+    if (gameRules <= 0
+        || !IsValidEntity(gameRules)
+        || !HasEntProp(gameRules, Prop_Send, prop))
     {
         return false;
     }
 
-    return (GameRules_GetRoundState() == RoundState_RoundRunning);
+    value = GetEntProp(gameRules, Prop_Send, prop, size);
+    return true;
+}
+
+bool DGM_InternalIsRoundRunning()
+{
+    int roundState;
+    if (!DGM_TryGetGameRulesInt("m_iRoundState", roundState)
+        || view_as<RoundState>(roundState) != RoundState_RoundRunning)
+    {
+        return false;
+    }
+
+    return !DGM_IsRealSetupActive();
 }
 
 bool DGM_IsSetupTimeExtensionAvailable()
@@ -1119,12 +1135,8 @@ bool DGM_IsSetupTimeExtensionAvailable()
 
 bool DGM_IsSetupGameRulesActive()
 {
-    if (FindEntityByClassname(-1, "tf_gamerules") == -1)
-    {
-        return false;
-    }
-
-    if (GameRules_GetProp("m_bInSetup", 1) != 0)
+    int inSetup;
+    if (DGM_TryGetGameRulesInt("m_bInSetup", inSetup, 1) && inSetup != 0)
     {
         return true;
     }
