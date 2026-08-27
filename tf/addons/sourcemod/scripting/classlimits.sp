@@ -14,6 +14,7 @@
 
 #undef REQUIRE_PLUGIN
 #include <dgm_api>
+#include <whaletracker_api>
 #define REQUIRE_PLUGIN
 #include <plugin_statistics>
 
@@ -188,6 +189,8 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int errMax)
     MarkNativeAsOptional("DGM_RealPlayerCount");
     MarkNativeAsOptional("DGM_CurrentNormalizedMap");
     MarkNativeAsOptional("DGM_NormalizeMapName");
+    MarkNativeAsOptional("WhaleTracker_AreStatsLoaded");
+    MarkNativeAsOptional("WhaleTracker_GetRankedPlaytimeSeconds");
     return APLRes_Success;
 }
 
@@ -867,6 +870,11 @@ bool IsClassAtLimit(int client, int iTeam, int iClass, int &limitOut)
         return true;
     }
 
+    if (iClass == TF_CLASS_MEDIC && !MedicCountsTowardClassLimit(client))
+    {
+        return false;
+    }
+
     ConVar limitCvar = g_hLimits[iClass];
     if (limitCvar == null) return false;
 
@@ -891,10 +899,23 @@ bool IsClassAtLimit(int client, int iTeam, int iClass, int &limitOut)
         {
             continue;
         }
+        if (iClass == TF_CLASS_MEDIC && !MedicCountsTowardClassLimit(i)) continue;
         if (haveThreshold && GetClientScore(i) >= scoreThreshold) continue;
         if (++iCount >= limitOut) return true;
     }
     return false;
+}
+
+static bool MedicCountsTowardClassLimit(int client)
+{
+    if (GetFeatureStatus(FeatureType_Native, "WhaleTracker_AreStatsLoaded") != FeatureStatus_Available
+        || GetFeatureStatus(FeatureType_Native, "WhaleTracker_GetRankedPlaytimeSeconds") != FeatureStatus_Available
+        || !WhaleTracker_AreStatsLoaded(client))
+    {
+        return true;
+    }
+
+    return WhaleTracker_GetRankedPlaytimeSeconds(client) > 0;
 }
 
 bool IsImmune(int iClient)
@@ -1101,6 +1122,11 @@ static bool IsClassAvailableForClient(int client, int classId)
         return false;
     }
 
+    if (classId == TF_CLASS_MEDIC && !MedicCountsTowardClassLimit(client))
+    {
+        return true;
+    }
+
     int team = GetClientTeam(client);
     if (team < TF_TEAM_RED || team > TF_TEAM_BLU)
     {
@@ -1130,6 +1156,10 @@ static bool IsClassAvailableForClient(int client, int classId)
         if (other == client || !IsClientInGame(other) || IsFakeClient(other)
             || GetClientTeam(other) != team
             || view_as<int>(TF2Classes_GetCurrentOrDesired(other)) != classId)
+        {
+            continue;
+        }
+        if (classId == TF_CLASS_MEDIC && !MedicCountsTowardClassLimit(other))
         {
             continue;
         }
