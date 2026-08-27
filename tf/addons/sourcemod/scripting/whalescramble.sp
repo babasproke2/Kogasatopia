@@ -194,7 +194,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_itsover", Command_SurrenderRound);
     RegAdminCmd("sm_forcescramble", Command_WhaleScramble, ADMFLAG_GENERIC, "Immediately perform a whale scramble.");
     RegAdminCmd("sm_forcewhalescramble", Command_WhaleScramble, ADMFLAG_GENERIC, "Immediately perform a whale scramble.");
-    RegAdminCmd("sm_whalebalance", Command_WhaleBalance, ADMFLAG_GENERIC, "Immediately balance teams by WhaleTracker rank.");
+    RegAdminCmd("sm_whalebalance", Command_WhaleBalance, ADMFLAG_GENERIC, "Balance by WhaleTracker rank; optionally favor red/blu 60:40.");
     RegAdminCmd("sm_whalescramblevote", Command_ForceScrambleVote, ADMFLAG_GENERIC, "Force a whale scramble vote.");
     RegAdminCmd("sm_forcescramblevote", Command_ForceScrambleVote, ADMFLAG_GENERIC, "Force a whale scramble vote.");
 
@@ -320,15 +320,35 @@ public Action Command_WhaleScramble(int client, int args)
 
 public Action Command_WhaleBalance(int client, int args)
 {
+    int favoredTeam = 0;
+    if (args > 0)
+    {
+        char teamArg[16];
+        GetCmdArg(1, teamArg, sizeof(teamArg));
+        if (StrEqual(teamArg, "red", false))
+        {
+            favoredTeam = TEAM_RED;
+        }
+        else if (StrEqual(teamArg, "blu", false) || StrEqual(teamArg, "blue", false))
+        {
+            favoredTeam = TEAM_BLU;
+        }
+        else
+        {
+            ReplyToCommand(client, "[whalescramble] Usage: sm_whalebalance [red|blu|blue]");
+            return Plugin_Handled;
+        }
+    }
+
     if (client > 0)
     {
-        LogWhale("Admin WhaleTracker rank balance requested by %N (%d).", client, GetClientUserId(client));
+        LogWhale("Admin WhaleTracker rank balance requested by %N (%d), favoredTeam=%d.", client, GetClientUserId(client), favoredTeam);
     }
     else
     {
-        LogWhale("WhaleTracker rank balance requested by server console.");
+        LogWhale("WhaleTracker rank balance requested by server console, favoredTeam=%d.", favoredTeam);
     }
-    StartWhaleRankBalanceScramble(client, true, true, true);
+    StartWhaleRankBalanceScramble(client, true, true, true, favoredTeam);
     return Plugin_Handled;
 }
 
@@ -1273,7 +1293,7 @@ static bool StartConfiguredWhaleScramble(int issuer, bool broadcastFailures, boo
     else if (g_hWhaleRankBalance != null && g_hWhaleRankBalance.BoolValue)
     {
         LogWhale("Configured scramble mode: WhaleTracker ranks forced=%d.", forced ? 1 : 0);
-        return StartWhaleRankBalanceScramble(issuer, broadcastFailures, allowLowPop, forced);
+        return StartWhaleRankBalanceScramble(issuer, broadcastFailures, allowLowPop, forced, 0);
     }
     else if (g_hFragBalance != null && g_hFragBalance.BoolValue)
     {
@@ -1938,10 +1958,10 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
 
 static bool StartFragBalanceWhaleScramble(int issuer, bool broadcastFailures, bool allowLowPop, bool forced)
 {
-    return StartScoreBalanceWhaleScramble(issuer, broadcastFailures, allowLowPop, forced, ScrambleScore_Frags);
+    return StartScoreBalanceWhaleScramble(issuer, broadcastFailures, allowLowPop, forced, ScrambleScore_Frags, 0);
 }
 
-static bool StartWhaleRankBalanceScramble(int issuer, bool broadcastFailures, bool allowLowPop, bool forced)
+static bool StartWhaleRankBalanceScramble(int issuer, bool broadcastFailures, bool allowLowPop, bool forced, int favoredTeam)
 {
     if (GetFeatureStatus(FeatureType_Native, "WhaleTracker_AreStatsLoaded") != FeatureStatus_Available
         || GetFeatureStatus(FeatureType_Native, "WhaleTracker_GetWhalePoints") != FeatureStatus_Available)
@@ -1951,7 +1971,7 @@ static bool StartWhaleRankBalanceScramble(int issuer, bool broadcastFailures, bo
         return false;
     }
 
-    return StartScoreBalanceWhaleScramble(issuer, broadcastFailures, allowLowPop, forced, ScrambleScore_WhaleRank);
+    return StartScoreBalanceWhaleScramble(issuer, broadcastFailures, allowLowPop, forced, ScrambleScore_WhaleRank, favoredTeam);
 }
 
 static int GetScrambleBalanceScore(int client, ScrambleScoreKind scoreKind)
@@ -1969,7 +1989,7 @@ static int GetScrambleBalanceScore(int client, ScrambleScoreKind scoreKind)
     return WhaleTracker_GetWhalePoints(client);
 }
 
-static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, bool allowLowPop, bool forced, ScrambleScoreKind scoreKind)
+static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, bool allowLowPop, bool forced, ScrambleScoreKind scoreKind, int favoredTeam)
 {
     char modeKey[32];
     char modeLabel[32];
@@ -1984,7 +2004,7 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
         strcopy(modeLabel, sizeof(modeLabel), "Frag balance");
     }
 
-    LogWhale("StartScoreBalanceWhaleScramble: mode=%s issuer=%d allowLowPop=%d forced=%d.", modeKey, issuer, allowLowPop ? 1 : 0, forced ? 1 : 0);
+    LogWhale("StartScoreBalanceWhaleScramble: mode=%s issuer=%d allowLowPop=%d forced=%d favoredTeam=%d.", modeKey, issuer, allowLowPop ? 1 : 0, forced ? 1 : 0, favoredTeam);
     g_iRoundsSinceAuto = 0;
 
     int totalPlayers = 0;
@@ -2129,7 +2149,7 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
         swapCount = LimitSwapCountToEligibility(desiredSwapCount, redEligible, bluEligible);
     }
 
-    LogWhaleStat("scramble_attempt", "mode=%s|issuer=%d|allow_low_pop=%d|forced=%d|total=%d|red=%d|blu=%d|eligible_red=%d|eligible_blu=%d|candidate_red=%d|candidate_blu=%d|desired_swap=%d|swap=%d|ignore_immunity=%d|fallback=%d|red_score=%d|blu_score=%d",
+    LogWhaleStat("scramble_attempt", "mode=%s|issuer=%d|allow_low_pop=%d|forced=%d|total=%d|red=%d|blu=%d|eligible_red=%d|eligible_blu=%d|candidate_red=%d|candidate_blu=%d|desired_swap=%d|swap=%d|ignore_immunity=%d|fallback=%d|red_score=%d|blu_score=%d|favored_team=%d",
         modeKey,
         issuer,
         allowLowPop ? 1 : 0,
@@ -2146,7 +2166,8 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
         ignoreImmunity ? 1 : 0,
         needsFallback ? 1 : 0,
         redScoreTotal,
-        bluScoreTotal);
+        bluScoreTotal,
+        favoredTeam);
 
     if (swapCount == 0)
     {
@@ -2170,7 +2191,7 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
         return false;
     }
 
-    if (!SelectScoreBalancePlayers(redCandidates, bluCandidates, clientScores, redCandidateCount, bluCandidateCount, redScoreTotal, bluScoreTotal, topRed, topBlu, swapCount))
+    if (!SelectScoreBalancePlayers(redCandidates, bluCandidates, clientScores, redCandidateCount, bluCandidateCount, redScoreTotal, bluScoreTotal, topRed, topBlu, swapCount, favoredTeam))
     {
         NotifyFailure(issuer, broadcastFailures, "Failed to select %s swap targets.", modeLabel);
         LogWhale("%s scramble aborted: selection failed (swap=%d redCandidates=%d bluCandidates=%d redScore=%d bluScore=%d).", modeLabel, swapCount, redCandidateCount, bluCandidateCount, redScoreTotal, bluScoreTotal);
@@ -2186,8 +2207,10 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
         selectedBluScore += clientScores[topBlu[i]];
     }
 
-    int beforeDiff = ScoreBalanceAbs(redScoreTotal - bluScoreTotal);
-    int afterDiff = ScoreBalanceAbs((redScoreTotal - bluScoreTotal) - (2 * selectedRedScore) + (2 * selectedBluScore));
+    int finalRedScore = redScoreTotal - selectedRedScore + selectedBluScore;
+    int finalBluScore = bluScoreTotal - selectedBluScore + selectedRedScore;
+    int beforeDiff = GetScoreBalanceDifference(redScoreTotal, bluScoreTotal, favoredTeam);
+    int afterDiff = GetScoreBalanceDifference(finalRedScore, finalBluScore, favoredTeam);
     LogWhale(
         "%s selected: swap=%d redScore=%d bluScore=%d selectedRedScore=%d selectedBluScore=%d beforeDiff=%d afterDiff=%d.",
         modeLabel,
@@ -2198,7 +2221,7 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
         selectedBluScore,
         beforeDiff,
         afterDiff);
-    LogWhaleStat("scramble_result", "mode=%s|result=selected|swap=%d|red_score=%d|blu_score=%d|selected_red_score=%d|selected_blu_score=%d|before_diff=%d|after_diff=%d",
+    LogWhaleStat("scramble_result", "mode=%s|result=selected|swap=%d|red_score=%d|blu_score=%d|selected_red_score=%d|selected_blu_score=%d|before_diff=%d|after_diff=%d|favored_team=%d",
         modeKey,
         swapCount,
         redScoreTotal,
@@ -2206,7 +2229,8 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
         selectedRedScore,
         selectedBluScore,
         beforeDiff,
-        afterDiff);
+        afterDiff,
+        favoredTeam);
 
     DataPack pack = new DataPack();
     pack.WriteCell(issuer > 0 ? GetClientUserId(issuer) : 0);
@@ -2246,7 +2270,8 @@ static bool SelectScoreBalancePlayers(
     int bluScoreTotal,
     int selectedRed[MAX_SWAP_BUFFER],
     int selectedBlu[MAX_SWAP_BUFFER],
-    int selectedCount)
+    int selectedCount,
+    int favoredTeam)
 {
     if (selectedCount <= 0 || selectedCount > MAX_SWAP_BUFFER || redCandidateCount < selectedCount || bluCandidateCount < selectedCount)
     {
@@ -2267,6 +2292,10 @@ static bool SelectScoreBalancePlayers(
     int chosenRed[MAX_SWAP_BUFFER];
     int bestFinalDiff = 0;
     bool found = false;
+    int redMultiplier;
+    int bluMultiplier;
+    GetScoreBalanceMultipliers(favoredTeam, redMultiplier, bluMultiplier);
+    int swapMultiplier = redMultiplier + bluMultiplier;
     EvaluateScoreBalanceRedSubsetsRecursive(
         redCandidates,
         clientScores,
@@ -2277,7 +2306,8 @@ static bool SelectScoreBalancePlayers(
         0,
         chosenRed,
         bluSubsets,
-        redScoreTotal - bluScoreTotal,
+        (redMultiplier * redScoreTotal) - (bluMultiplier * bluScoreTotal),
+        swapMultiplier,
         selectedRed,
         selectedBlu,
         bestFinalDiff,
@@ -2330,6 +2360,7 @@ static void EvaluateScoreBalanceRedSubsetsRecursive(
     int chosenRed[MAX_SWAP_BUFFER],
     ArrayList bluSubsets,
     int teamScoreDelta,
+    int swapMultiplier,
     int selectedRed[MAX_SWAP_BUFFER],
     int selectedBlu[MAX_SWAP_BUFFER],
     int &bestFinalDiff,
@@ -2337,10 +2368,10 @@ static void EvaluateScoreBalanceRedSubsetsRecursive(
 {
     if (chosenCount == selectedCount)
     {
-        int targetTwice = (2 * currentRedScore) - teamScoreDelta;
-        int index = FindFirstScoreBalanceSubsetAtLeastTwice(bluSubsets, targetTwice);
-        TryScoreBalanceCandidate(bluSubsets, index, selectedCount, currentRedScore, chosenRed, teamScoreDelta, selectedRed, selectedBlu, bestFinalDiff, found);
-        TryScoreBalanceCandidate(bluSubsets, index - 1, selectedCount, currentRedScore, chosenRed, teamScoreDelta, selectedRed, selectedBlu, bestFinalDiff, found);
+        int targetScaled = (swapMultiplier * currentRedScore) - teamScoreDelta;
+        int index = FindFirstScoreBalanceSubsetAtLeastScaled(bluSubsets, targetScaled, swapMultiplier);
+        TryScoreBalanceCandidate(bluSubsets, index, selectedCount, currentRedScore, chosenRed, teamScoreDelta, swapMultiplier, selectedRed, selectedBlu, bestFinalDiff, found);
+        TryScoreBalanceCandidate(bluSubsets, index - 1, selectedCount, currentRedScore, chosenRed, teamScoreDelta, swapMultiplier, selectedRed, selectedBlu, bestFinalDiff, found);
         return;
     }
 
@@ -2360,6 +2391,7 @@ static void EvaluateScoreBalanceRedSubsetsRecursive(
             chosenRed,
             bluSubsets,
             teamScoreDelta,
+            swapMultiplier,
             selectedRed,
             selectedBlu,
             bestFinalDiff,
@@ -2374,6 +2406,7 @@ static void TryScoreBalanceCandidate(
     int currentRedScore,
     int chosenRed[MAX_SWAP_BUFFER],
     int teamScoreDelta,
+    int swapMultiplier,
     int selectedRed[MAX_SWAP_BUFFER],
     int selectedBlu[MAX_SWAP_BUFFER],
     int &bestFinalDiff,
@@ -2387,7 +2420,7 @@ static void TryScoreBalanceCandidate(
     int entry[SCORE_BALANCE_ENTRY_CELLS];
     bluSubsets.GetArray(index, entry, sizeof(entry));
 
-    int finalDiff = ScoreBalanceAbs(teamScoreDelta - (2 * currentRedScore) + (2 * entry[SCORE_BALANCE_ENTRY_SUM]));
+    int finalDiff = ScoreBalanceAbs(teamScoreDelta - (swapMultiplier * currentRedScore) + (swapMultiplier * entry[SCORE_BALANCE_ENTRY_SUM]));
     if (found && finalDiff >= bestFinalDiff)
     {
         return;
@@ -2403,7 +2436,7 @@ static void TryScoreBalanceCandidate(
     found = true;
 }
 
-static int FindFirstScoreBalanceSubsetAtLeastTwice(ArrayList subsets, int targetTwice)
+static int FindFirstScoreBalanceSubsetAtLeastScaled(ArrayList subsets, int targetScaled, int multiplier)
 {
     int low = 0;
     int high = subsets.Length;
@@ -2413,7 +2446,7 @@ static int FindFirstScoreBalanceSubsetAtLeastTwice(ArrayList subsets, int target
     {
         int mid = (low + high) / 2;
         subsets.GetArray(mid, entry, sizeof(entry));
-        if ((2 * entry[SCORE_BALANCE_ENTRY_SUM]) < targetTwice)
+        if ((multiplier * entry[SCORE_BALANCE_ENTRY_SUM]) < targetScaled)
         {
             low = mid + 1;
         }
@@ -2448,6 +2481,31 @@ static int SortScoreBalanceSubsetBySum(int index1, int index2, Handle array, Han
 static int ScoreBalanceAbs(int value)
 {
     return value < 0 ? -value : value;
+}
+
+static void GetScoreBalanceMultipliers(int favoredTeam, int &redMultiplier, int &bluMultiplier)
+{
+    // A 60:40 target is equivalent to 2 * favored score == 3 * other score.
+    redMultiplier = 1;
+    bluMultiplier = 1;
+    if (favoredTeam == TEAM_RED)
+    {
+        redMultiplier = 2;
+        bluMultiplier = 3;
+    }
+    else if (favoredTeam == TEAM_BLU)
+    {
+        redMultiplier = 3;
+        bluMultiplier = 2;
+    }
+}
+
+static int GetScoreBalanceDifference(int redScore, int bluScore, int favoredTeam)
+{
+    int redMultiplier;
+    int bluMultiplier;
+    GetScoreBalanceMultipliers(favoredTeam, redMultiplier, bluMultiplier);
+    return ScoreBalanceAbs((redMultiplier * redScore) - (bluMultiplier * bluScore));
 }
 
 public Action Timer_DoSwap(Handle timer, DataPack pack)
