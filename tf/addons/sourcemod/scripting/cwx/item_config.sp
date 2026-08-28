@@ -217,6 +217,13 @@ bool CreateItemFromSection(KeyValues config) {
 		
 		config.GoBack();
 	}
+
+	if (!item.nativeAttributes) {
+		item.nativeAttributes = new KeyValues("attributes_game");
+	}
+	if (item.nativeAttributes.GetDataType("killstreak tier") == KvData_None) {
+		item.nativeAttributes.SetString("killstreak tier", "1");
+	}
 	
 	if (config.JumpToKey("attributes_custom")) {
 		item.customAttributes = new KeyValues("attributes_custom");
