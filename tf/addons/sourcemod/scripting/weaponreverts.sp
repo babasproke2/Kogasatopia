@@ -37,6 +37,7 @@
 #define SANDMAN_PRE_JI_MIN_STUN_RATIO 0.1
 #define SANDMAN_PRE_JI_SLOWDOWN 0.5
 #define MAX_TRACKED_ENTITIES 2049
+#define MEATSHOT_MIN_PELLETS 4
 
 #define FLS_EXPLODE_DAMAGE	 50.0
 #define FLS_EXPLODE_RADIUS	 180.0
@@ -1188,9 +1189,11 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 		return;
 	}
 
-	if (total < 1)
+	if (total < MEATSHOT_MIN_PELLETS)
+	{
+		ScatterPellets_Debug("ignored: shot fired fewer than %d pellets", MEATSHOT_MIN_PELLETS);
 		return;
-			
+	}
 
 	if (pellets > FLAME_SHOTGUN_FULL_PELLET_THRESHOLD) // 7/10, this is only for the flame shotgun, virtually 7/9
 			Accuracy_OnFlameShotgunStack(attacker, victim);
