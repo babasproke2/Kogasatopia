@@ -53,6 +53,7 @@
 #define ATTR_CLIP_SIZE_BONUS "clip size bonus"
 #define ATTR_RESTORE_PRIMARY_SHOT_BY_DAMAGE "restore primary shot by damage"
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
+#define ATTR_REFILL_PRIMARY_CLIP_ON_KILL "refill primary clip on kill"
 #define ATTR_SECONDARY_REFILL_SOUND "ui/item_metal_tiny_pickup.wav"
 #define ATTR_HARVESTER_HEALING 3
 #define ATTR_HARVESTER_HEALING_COUNT 6
@@ -1282,23 +1283,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 			return Plugin_Continue;
 
 		ReloadOnKill_OnKill(activeWeapon);
-
-		int restoreAmount = TF2CustAttr_GetInt(activeWeapon, ATTR_RESTORE_PRIMARY_SHOT_KILL, 0);
-		if (restoreAmount > 0)
-		{
-			int primary = GetPlayerWeaponSlot(attacker, 0);
-			if (primary > MaxClients && IsValidEntity(primary))
-			{
-				int maxClip = GetWeaponMaxClip(primary);
-				int clip = GetClip(primary);
-				if (maxClip > 0 && clip >= 0 && clip < maxClip)
-				{
-					int missing = maxClip - clip;
-					int restored = (restoreAmount < missing) ? restoreAmount : missing;
-					SetClip_Weapon(primary, clip + restored);
-				}
-			}
-		}
+		RefillPrimaryClipOnKill(attacker, activeWeapon);
 	}
 
 	if (tf2_players[attacker].scytheWeapon != 0
@@ -2326,6 +2311,27 @@ static void RefillClipOnHit_ApplyFrame(any data)
 static void ReloadOnKill_OnKill(int weapon)
 {
 	ReloadWeaponClip(weapon, TF2CustAttr_GetInt(weapon, ATTR_RELOAD_ON_KILL));
+}
+
+static void RefillPrimaryClipOnKill(int attacker, int weapon)
+{
+	if (!WR_IsClientInGame(attacker) || !WR_IsValidWeaponEntity(weapon))
+		return;
+
+	int amount = TF2CustAttr_GetInt(weapon, ATTR_REFILL_PRIMARY_CLIP_ON_KILL, 0);
+	if (amount <= 0)
+	{
+		amount = TF2CustAttr_GetInt(weapon, ATTR_RESTORE_PRIMARY_SHOT_KILL, 0);
+	}
+
+	if (amount <= 0)
+		return;
+
+	int primary = GetPlayerWeaponSlot(attacker, WEAPON_SLOT_PRIMARY);
+	if (!WR_IsClipWeaponEntity(primary))
+		return;
+
+	ReloadWeaponClip(primary, amount);
 }
 
 static int GetDamageSourceWeapon(int attacker, int weapon, int inflictor)
