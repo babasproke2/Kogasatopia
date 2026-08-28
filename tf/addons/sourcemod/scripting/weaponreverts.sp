@@ -54,6 +54,7 @@
 #define ATTR_RESTORE_PRIMARY_SHOT_BY_DAMAGE "restore primary shot by damage"
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
 #define ATTR_REFILL_PRIMARY_CLIP_ON_KILL "refill primary clip on kill"
+#define ATTR_REFILL_PRIMARY_CLIP_ON_CRIT "refill primary clip on crit"
 #define ATTR_SECONDARY_REFILL_SOUND "ui/item_metal_tiny_pickup.wav"
 #define ATTR_HARVESTER_HEALING 3
 #define ATTR_HARVESTER_HEALING_COUNT 6
@@ -2313,6 +2314,43 @@ static void ReloadOnKill_OnKill(int weapon)
 	ReloadWeaponClip(weapon, TF2CustAttr_GetInt(weapon, ATTR_RELOAD_ON_KILL));
 }
 
+static void RefillPrimaryClipFromWeapon(int attacker, int sourceWeapon, int amount)
+{
+	if (!WR_IsClientInGame(attacker)
+		|| !WR_IsValidWeaponEntity(sourceWeapon)
+		|| amount <= 0)
+	{
+		return;
+	}
+
+	int primary = GetPlayerWeaponSlot(attacker, WEAPON_SLOT_PRIMARY);
+	if (!WR_IsClipWeaponEntity(primary))
+		return;
+
+	ReloadWeaponClip(primary, amount);
+}
+
+static void RefillPrimaryClip_ApplyFrame(any data)
+{
+	DataPack pack = view_as<DataPack>(data);
+	pack.Reset();
+	int attacker = GetClientOfUserId(pack.ReadCell());
+	int sourceWeapon = EntRefToEntIndex(pack.ReadCell());
+	int amount = pack.ReadCell();
+	delete pack;
+
+	RefillPrimaryClipFromWeapon(attacker, sourceWeapon, amount);
+}
+
+static void RefillPrimaryClipNextFrame(int attacker, int sourceWeapon, int amount)
+{
+	DataPack pack = new DataPack();
+	pack.WriteCell(GetClientUserId(attacker));
+	pack.WriteCell(EntIndexToEntRef(sourceWeapon));
+	pack.WriteCell(amount);
+	RequestFrame(RefillPrimaryClip_ApplyFrame, pack);
+}
+
 static void RefillPrimaryClipOnKill(int attacker, int weapon)
 {
 	if (!WR_IsClientInGame(attacker) || !WR_IsValidWeaponEntity(weapon))
@@ -2327,11 +2365,29 @@ static void RefillPrimaryClipOnKill(int attacker, int weapon)
 	if (amount <= 0)
 		return;
 
-	int primary = GetPlayerWeaponSlot(attacker, WEAPON_SLOT_PRIMARY);
-	if (!WR_IsClipWeaponEntity(primary))
+	RefillPrimaryClipFromWeapon(attacker, weapon, amount);
+}
+
+static void RefillPrimaryClipOnCrit(int attacker, int victim, int weapon, float damage, int damageType)
+{
+	if (!WR_IsClientInGame(attacker)
+		|| !WR_IsClientInGame(victim)
+		|| !WR_IsValidWeaponEntity(weapon)
+		|| attacker == victim
+		|| damage <= 0.0
+		|| GetClientTeam(attacker) <= 1
+		|| GetClientTeam(victim) <= 1
+		|| GetClientTeam(attacker) == GetClientTeam(victim)
+		|| !(damageType & DMG_CRIT))
+	{
+		return;
+	}
+
+	int amount = TF2CustAttr_GetInt(weapon, ATTR_REFILL_PRIMARY_CLIP_ON_CRIT, 0);
+	if (amount <= 0)
 		return;
 
-	ReloadWeaponClip(primary, amount);
+	RefillPrimaryClipNextFrame(attacker, weapon, amount);
 }
 
 static int GetDamageSourceWeapon(int attacker, int weapon, int inflictor)
@@ -2721,6 +2777,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 
 	int damageWeapon = GetDamageSourceWeapon(attacker, weapon, inflictor);
 	int directDamageWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
+	RefillPrimaryClipOnCrit(attacker, client, directDamageWeapon, damage, damagetype);
 	if (attackerIsPlayer
 		&& damageWeapon > MaxClients
 		&& IsValidEntity(damageWeapon)
