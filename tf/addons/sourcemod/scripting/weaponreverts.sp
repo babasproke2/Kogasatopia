@@ -2754,6 +2754,24 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 	return MRES_ChangedHandled;
 }
 
+static bool HasTakeMinicritsProjectileAirborne(int client)
+{
+	if (!WR_IsClientInGame(client))
+		return false;
+
+	for (int slot = 0; slot <= WEAPON_SLOT_LAST; slot++)
+	{
+		int weapon = GetPlayerWeaponSlot(client, slot);
+		if (!WR_IsValidWeaponEntity(weapon))
+			continue;
+
+		if (TF2CustAttr_GetInt(weapon, ATTR_TAKE_MINICRITS_PROJECTILE_AIRBORNE, 0) != 0)
+			return true;
+	}
+
+	return false;
+}
+
 
 public Action TF2_OnTakeDamage(
 	int victim,
@@ -2779,9 +2797,7 @@ public Action TF2_OnTakeDamage(
 		return Plugin_Continue;
 	}
 
-	int activeWeapon = GetEntPropEnt(victim, Prop_Send, "m_hActiveWeapon");
-	if (!WR_IsValidWeaponEntity(activeWeapon)
-		|| TF2CustAttr_GetInt(activeWeapon, ATTR_TAKE_MINICRITS_PROJECTILE_AIRBORNE, 0) == 0
+	if (!HasTakeMinicritsProjectileAirborne(victim)
 		|| (GetEntityFlags(victim) & FL_ONGROUND))
 	{
 		return Plugin_Continue;
