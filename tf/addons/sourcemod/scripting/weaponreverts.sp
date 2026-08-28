@@ -93,6 +93,7 @@
 #define SOUND_AMBASSADOR_CRIT_RECEIVED "player/crit_received1.wav"
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
 #define RESTORE_PRIMARY_SHOT_DAMAGE_WINDOW 5.0
+#define SOUND_CLIP_REFILL_CRIT "minecraft/burp.mp3"
 
 #define SPROKE_ATTR_NAME		"sproke attribute"
 #define SPROKE_PRIMARY_ATTR		"mod max primary clip override"
