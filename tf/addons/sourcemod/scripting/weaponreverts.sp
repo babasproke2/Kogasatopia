@@ -72,6 +72,7 @@
 #define ATTR_RANDOM_SPREAD_OVERRIDE "random spread override"
 #define ATTR_RANDOM_CRITS_OVERRIDE "random crits override"
 #define ATTR_RECOIL_JUMPING "recoil jumping"
+#define ATTR_BLAST_JUMP_JARATE "blast jump jarate"
 #define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
 #define ATTR_WIDE_HORIZONTAL_BULLET_SPREAD "wide horizontal bullet spread"
 #define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
@@ -1695,6 +1696,22 @@ static bool TryApplyHolsterReload(int weapon)
 	return true;
 }
 
+static void BlastJumpJarate_OnDeploy(int client, int weapon)
+{
+	if (!WR_IsClientInGame(client)
+		|| !WR_IsValidWeaponEntity(weapon)
+		|| !TF2_IsPlayerInCondition(client, TFCond_BlastJumping))
+	{
+		return;
+	}
+
+	float duration = TF2CustAttr_GetFloat(weapon, ATTR_BLAST_JUMP_JARATE, 0.0);
+	if (duration > 0.0)
+	{
+		TF2_AddCondition(client, TFCond_Jarated, duration);
+	}
+}
+
 public Action OnWeaponSwitch(int client, int weapon)
 {
 	if (!WeaponReverts_IsEnabled())
@@ -1715,6 +1732,8 @@ public Action OnWeaponSwitch(int client, int weapon)
 		{
 			HuntingRevolver_RecognizeWeapon(client, weapon);
 		}
+
+		BlastJumpJarate_OnDeploy(client, weapon);
 	}
 	if (weapon != previousWeapon)
 	{
