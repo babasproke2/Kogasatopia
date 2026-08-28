@@ -39,7 +39,8 @@
 #define TF_ITEM_DEFINDEX_GUNSLINGER 142
 
 #define ATTR_EXTRA_WEARABLE_MODEL_OVERRIDE "extra wearable model override"
-#define ATTR_KILLSTREAK_IDLEEFFECT "killstreak idleeffect"
+#define ATTR_NAME_KILLSTREAK_IDLEEFFECT "killstreak idleeffect"
+#define ATTR_CLASS_KILLSTREAK_IDLEEFFECT "killstreak_idleeffect"
 
 bool g_bIgnoreWeaponSwitch[MAXPLAYERS + 1];
 ConVar g_cvEdictReserve;
@@ -293,15 +294,18 @@ static void CopyKillstreakSheen(int weapon, int wearable) {
 		return;
 	}
 
-	int sheen = TF2Attrib_HookValueInt(0, ATTR_KILLSTREAK_IDLEEFFECT, weapon);
+	int sheen = TF2Attrib_HookValueInt(0, ATTR_CLASS_KILLSTREAK_IDLEEFFECT, weapon);
 	if (sheen <= 0) {
 		return;
 	}
 
-	TF2Attrib_SetByName(
+	char value[16];
+	IntToString(sheen, value, sizeof(value));
+
+	TF2Attrib_SetFromStringValue(
 		wearable,
-		ATTR_KILLSTREAK_IDLEEFFECT,
-		float(sheen)
+		ATTR_NAME_KILLSTREAK_IDLEEFFECT,
+		value
 	);
 }
 
