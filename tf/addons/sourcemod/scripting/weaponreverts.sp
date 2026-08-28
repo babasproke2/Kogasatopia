@@ -130,6 +130,8 @@ int g_iSandmanStunInflictorRef[MAXPLAYERS + 1];
 
 int g_iEnvironmentalKillAttackerUserId[MAXPLAYERS + 1];
 float g_fEnvironmentalKillTime[MAXPLAYERS + 1];
+int g_iBlastJumpJaratePendingWeapon[MAXPLAYERS + 1];
+float g_flBlastJumpJaratePendingUntil[MAXPLAYERS + 1];
 
 enum struct tf2_player
 {
@@ -365,6 +367,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
 stock void ResetClientArrays(int client)
 {
 	if (!WR_IsValidPlayerIndex(client)) return;
+	BlastJumpJarate_ClearPending(client);
 	HuntingRevolver_ResetClient(client);
 	FullPelletIgnite_ClearClient(client);
 	Harvester_ClearState(client);
@@ -609,6 +612,10 @@ static void Ambassador102_CacheCritParticle()
 
 public void OnMapStart() {
 	FullPelletIgnite_ClearAll();
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		BlastJumpJarate_ClearPending(client);
+	}
 	LoadWeaponRevertsConfig();
 	Escampette_RecalculateAllSpeeds();
 	PreCacheWeaponSounds();
@@ -1249,6 +1256,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
 
+	BlastJumpJarate_ClearPending(client);
 	Sproke_ClearEffect(client, false, true);
 	HuntingRevolver_ResetClient(client);
 	Harvester_ClearState(client);
@@ -1408,6 +1416,7 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
+	BlastJumpJarate_ClearPending(client);
 	Escampette_QueueSpeedRecalculation(client);
 	HuntingRevolver_ResetClient(client);
 	if (!Harvester_IsEligibleClient(client))
@@ -1439,6 +1448,7 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
+	BlastJumpJarate_ClearPending(client);
 	Escampette_QueueSpeedRecalculation(client);
 	HuntingRevolver_ResetClient(client);
 	if (!Harvester_IsEligibleClient(client))
@@ -1696,20 +1706,35 @@ static bool TryApplyHolsterReload(int weapon)
 	return true;
 }
 
+static void BlastJumpJarate_ClearPending(int client)
+{
+	if (!WR_IsValidPlayerIndex(client))
+		return;
+
+	g_iBlastJumpJaratePendingWeapon[client] = INVALID_ENT_REFERENCE;
+	g_flBlastJumpJaratePendingUntil[client] = 0.0;
+}
+
 static void BlastJumpJarate_OnDeploy(int client, int weapon)
 {
 	if (!WR_IsClientInGame(client)
-		|| !WR_IsValidWeaponEntity(weapon)
-		|| (GetEntityFlags(client) & FL_ONGROUND))
+		|| !WR_IsValidWeaponEntity(weapon))
 	{
 		return;
 	}
 
 	float duration = TF2CustAttr_GetFloat(weapon, ATTR_BLAST_JUMP_JARATE, 0.0);
-	if (duration > 0.0)
+	if (duration <= 0.0)
+		return;
+
+	if (TF2_IsPlayerInCondition(client, TFCond_BlastJumping))
 	{
 		TF2_AddCondition(client, TFCond_Jarated, duration);
+		return;
 	}
+
+	g_iBlastJumpJaratePendingWeapon[client] = EntIndexToEntRef(weapon);
+	g_flBlastJumpJaratePendingUntil[client] = GetGameTime() + 0.15;
 }
 
 public Action OnWeaponSwitch(int client, int weapon)
@@ -1722,6 +1747,8 @@ public Action OnWeaponSwitch(int client, int weapon)
 	int previousWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
 	if (weapon != previousWeapon)
 	{
+		BlastJumpJarate_ClearPending(client);
+
 		if (tf2_players[client].huntingRevolverWeaponRef != INVALID_ENT_REFERENCE
 			|| HuntingRevolver_IsWeapon(previousWeapon))
 		{
@@ -3383,6 +3410,25 @@ public MRESReturn CanFireCriticalShot_Post(int weapon, DHookReturn hReturn, DHoo
 // Gas passer buff is a candidate for removal, it's uninspired and could be more creative
 public void TF2_OnConditionAdded(int client, TFCond condition)
 {
+	if (condition == TFCond_BlastJumping)
+	{
+		bool withinDeployWindow = g_flBlastJumpJaratePendingUntil[client] > 0.0
+			&& GetGameTime() <= g_flBlastJumpJaratePendingUntil[client];
+		int weapon = EntRefToEntIndex(g_iBlastJumpJaratePendingWeapon[client]);
+		BlastJumpJarate_ClearPending(client);
+
+		if (withinDeployWindow
+			&& WR_IsValidWeaponEntity(weapon)
+			&& GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon") == weapon)
+		{
+			float duration = TF2CustAttr_GetFloat(weapon, ATTR_BLAST_JUMP_JARATE, 0.0);
+			if (duration > 0.0)
+			{
+				TF2_AddCondition(client, TFCond_Jarated, duration);
+			}
+		}
+	}
+
 	if (condition == TFCond_Gas) //If gas is applied
 	{
 		TF2_AddCondition(client, TFCond_Jarated, 6.0); //Apply Jarate for 6 seconds
