@@ -12,6 +12,8 @@
 #include <tf2attributes>
 #include <tf2items>
 
+#include <tf_ontakedamage>
+
 #include <tf_custom_attributes>
 #include <sourcescramble>
 #include <dhooks>
@@ -78,6 +80,7 @@
 #define ATTR_SCATTERGUN_HAS_KNOCKBACK "scattergun has knockback"
 #define ATTR_IGNITE_ON_FULL_PELLET_HIT "ignite on full pellet hit"
 #define ATTR_HITSCAN_NO_DAMAGE_PHYSICS "hitscan no damage physics"
+#define ATTR_TAKE_MINICRITS_PROJECTILE_AIRBORNE "take minicrits from projectile airborne"
 #define ATTR_HEADSHOTS_ENABLED "headshots enabled"
 #define ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED "headshots enabled while zoomed"
 #define ATTR_HUNTING_REVOLVER "hunting revolver attributes"
@@ -2741,6 +2744,54 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 	return MRES_ChangedHandled;
 }
 
+
+public Action TF2_OnTakeDamage(
+	int victim,
+	int &attacker,
+	int &inflictor,
+	float &damage,
+	int &damageType,
+	int &weapon,
+	float damageForce[3],
+	float damagePosition[3],
+	int damageCustom,
+	CritType &critType)
+{
+	if (!WeaponReverts_IsEnabled()
+		|| !WR_IsClientInGame(victim)
+		|| !WR_IsClientInGame(attacker)
+		|| attacker == victim
+		|| damage <= 0.0
+		|| GetClientTeam(victim) <= 1
+		|| GetClientTeam(attacker) <= 1
+		|| GetClientTeam(victim) == GetClientTeam(attacker))
+	{
+		return Plugin_Continue;
+	}
+
+	int activeWeapon = GetEntPropEnt(victim, Prop_Send, "m_hActiveWeapon");
+	if (!WR_IsValidWeaponEntity(activeWeapon)
+		|| TF2CustAttr_GetInt(activeWeapon, ATTR_TAKE_MINICRITS_PROJECTILE_AIRBORNE, 0) == 0
+		|| (GetEntityFlags(victim) & FL_ONGROUND))
+	{
+		return Plugin_Continue;
+	}
+
+	if (inflictor <= MaxClients
+		|| !IsValidEntity(inflictor)
+		|| !HasEntProp(inflictor, Prop_Send, "m_hLauncher"))
+	{
+		return Plugin_Continue;
+	}
+
+	if (critType == CritType_None)
+	{
+		critType = CritType_MiniCrit;
+		return Plugin_Changed;
+	}
+
+	return Plugin_Continue;
+}
 
 public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
 {
