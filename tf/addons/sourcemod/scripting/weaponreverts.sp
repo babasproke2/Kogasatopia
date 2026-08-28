@@ -2777,7 +2777,6 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 
 	int damageWeapon = GetDamageSourceWeapon(attacker, weapon, inflictor);
 	int directDamageWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
-	RefillPrimaryClipOnCrit(attacker, client, directDamageWeapon, damage, damagetype);
 	if (attackerIsPlayer
 		&& damageWeapon > MaxClients
 		&& IsValidEntity(damageWeapon)
@@ -3129,6 +3128,9 @@ public void WeaponReverts_OnTakeDamageAlivePost(
 	{
 		return;
 	}
+
+	int damageWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
+	RefillPrimaryClipOnCrit(attacker, victim, damageWeapon, damage, damageType);
 
 	FullPelletIgnite_TryConsumePost(victim, attacker, weapon, inflictor);
 
