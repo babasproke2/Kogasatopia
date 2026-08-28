@@ -1700,7 +1700,7 @@ static void BlastJumpJarate_OnDeploy(int client, int weapon)
 {
 	if (!WR_IsClientInGame(client)
 		|| !WR_IsValidWeaponEntity(weapon)
-		|| !TF2_IsPlayerInCondition(client, TFCond_BlastJumping))
+		|| (GetEntityFlags(client) & FL_ONGROUND))
 	{
 		return;
 	}
