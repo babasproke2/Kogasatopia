@@ -581,6 +581,7 @@ public void PreCacheWeaponSounds() {
 	PrecacheSound(FLS_NOTIFY_SOUND, true);
 	PrecacheSound(FLS_NOTIFY_2, true);
 	PrecacheSound(BURP_SOUND, true);
+	PrecacheSound(SOUND_CLIP_REFILL_CRIT, true);
 	PrecacheSound(ATTR_SECONDARY_REFILL_SOUND, true);
 }
 
@@ -2318,20 +2319,20 @@ static void ReloadOnKill_OnKill(int weapon)
 	ReloadWeaponClip(weapon, TF2CustAttr_GetInt(weapon, ATTR_RELOAD_ON_KILL));
 }
 
-static void RefillPrimaryClipFromWeapon(int attacker, int sourceWeapon, int amount)
+static bool RefillPrimaryClipFromWeapon(int attacker, int sourceWeapon, int amount)
 {
 	if (!WR_IsClientInGame(attacker)
 		|| !WR_IsValidWeaponEntity(sourceWeapon)
 		|| amount <= 0)
 	{
-		return;
+		return false;
 	}
 
 	int primary = GetPlayerWeaponSlot(attacker, WEAPON_SLOT_PRIMARY);
 	if (!WR_IsClipWeaponEntity(primary))
-		return;
+		return false;
 
-	ReloadWeaponClip(primary, amount);
+	return ReloadWeaponClip(primary, amount);
 }
 
 static void RefillPrimaryClip_ApplyFrame(any data)
@@ -2343,7 +2344,15 @@ static void RefillPrimaryClip_ApplyFrame(any data)
 	int amount = pack.ReadCell();
 	delete pack;
 
-	RefillPrimaryClipFromWeapon(attacker, sourceWeapon, amount);
+	if (RefillPrimaryClipFromWeapon(attacker, sourceWeapon, amount))
+	{
+		EmitSoundToAll(
+			SOUND_CLIP_REFILL_CRIT,
+			attacker,
+			SNDCHAN_AUTO,
+			SNDLEVEL_NORMAL
+		);
+	}
 }
 
 static void RefillPrimaryClipNextFrame(int attacker, int sourceWeapon, int amount)
