@@ -20,6 +20,7 @@
 #include <sdkhooks>
 
 #include <tf2utils>
+#include <tf2attributes>
 #include <tf_econ_data>
 
 #include <tf_custom_attributes>
@@ -38,6 +39,7 @@
 #define TF_ITEM_DEFINDEX_GUNSLINGER 142
 
 #define ATTR_EXTRA_WEARABLE_MODEL_OVERRIDE "extra wearable model override"
+#define ATTR_KILLSTREAK_IDLEEFFECT "killstreak idleeffect"
 
 bool g_bIgnoreWeaponSwitch[MAXPLAYERS + 1];
 ConVar g_cvEdictReserve;
@@ -286,6 +288,23 @@ void OnWeaponSwitchPost(int client, int weapon) {
 	}
 }
 
+static void CopyKillstreakSheen(int weapon, int wearable) {
+	if (!IsValidEntity(weapon) || !IsValidEntity(wearable)) {
+		return;
+	}
+
+	int sheen = TF2Attrib_HookValueInt(0, ATTR_KILLSTREAK_IDLEEFFECT, weapon);
+	if (sheen <= 0) {
+		return;
+	}
+
+	TF2Attrib_SetByName(
+		wearable,
+		ATTR_KILLSTREAK_IDLEEFFECT,
+		float(sheen)
+	);
+}
+
 /**
  * Called on weapon switch.  Detaches any old viewmodel overrides and attaches replacements.
  */
@@ -322,6 +341,7 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 		int weaponvm = TF2_SpawnWearableViewmodel();
 		if (IsValidEntity(weaponvm)) {
 			SetEntityModel(weaponvm, vm);
+			CopyKillstreakSheen(weapon, weaponvm);
 			TF2Util_EquipPlayerWearable(client, weaponvm);
 			MarkValidatedAttachedEntityEx(weaponvm, client, weapon, "viewmodel_wearable_vm");
 			
@@ -341,6 +361,7 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 		int weaponwm = CanCreateOverrideWearable() ? TF2_SpawnWearable() : -1;
 		if (IsValidEntity(weaponwm)) {
 			SetEntityModel(weaponwm, wm);
+			CopyKillstreakSheen(weapon, weaponwm);
 			
 			TF2Util_EquipPlayerWearable(client, weaponwm);
 			MarkValidatedAttachedEntityEx(weaponwm, client, weapon, "worldmodel_wearable");
@@ -501,6 +522,7 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 			int weaponvm = TF2_SpawnWearableViewmodel();
 			if (IsValidEntity(weaponvm)) {
 				SetEntityModel(weaponvm, vm);
+				CopyKillstreakSheen(weapon, weaponvm);
 				TF2Util_EquipPlayerWearable(client, weaponvm);
 				MarkValidatedAttachedEntityEx(weaponvm, client, weapon, "fallback_weapon_viewmodel");
 				
