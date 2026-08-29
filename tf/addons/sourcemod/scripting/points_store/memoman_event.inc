@@ -2,7 +2,7 @@
 #define MEMOMAN_EVENT_STEAMID64 "76561199873606169"
 #define MEMOMAN_EVENT_REWARD_DELAY 1.0
 #define MEMOMAN_EVENT_ADVERT_INTERVAL 900.0
-#define MEMOMAN_EVENT_SOURCE_COUNT 7
+#define MEMOMAN_EVENT_SOURCE_COUNT 1
 #define MEMOMAN_EVENT_LEADERBOARD_LIMIT 10
 #define MEMOMAN_EVENT_LEADERBOARD_SOURCE_COUNT 8
 
@@ -15,46 +15,22 @@ enum struct MemomanRewardRequest
 
 static const char g_MemomanEventSourceIds[MEMOMAN_EVENT_SOURCE_COUNT][] =
 {
-    "custom_weapon_kill",
-    "loch_n_load_kill",
-    "loch_n_load_airshot",
-    "sentry_kill",
-    "sentry_level_3",
-    "uber_deployed",
-    "double_donk"
+    "custom_weapon_kill"
 };
 
 static const int g_MemomanEventSourceAmounts[MEMOMAN_EVENT_SOURCE_COUNT] =
 {
-    1,
-    1,
-    1,
-    1,
-    1,
-    1,
     1
 };
 
 static const char g_MemomanEventSourceReasons[MEMOMAN_EVENT_SOURCE_COUNT][] =
 {
-    "Kill with a custom weapon",
-    "Loch-n-Load kill",
-    "Loch-n-Load airshot kill",
-    "Sentry kill",
-    "Upgraded Sentry to Level 3",
-    "Deployed ÜberCharge",
-    "Episten"
+    "Kill with a custom weapon"
 };
 
 static const char g_MemomanEventSourceColumns[MEMOMAN_EVENT_SOURCE_COUNT][] =
 {
-    "custom_weapon_kills",
-    "loch_n_load_kills",
-    "loch_n_load_airshots",
-    "sentry_kills",
-    "sentries_upgraded_level_3",
-    "ubercharges_deployed",
-    "double_donks"
+    "custom_weapon_kills"
 };
 
 static const char g_MemomanEventLeaderboardSourceNames[MEMOMAN_EVENT_LEADERBOARD_SOURCE_COUNT][] =
@@ -648,22 +624,9 @@ public void SQL_OnMemomanEventCommandBalance(Database db, DBResultSet results, c
     int balance = (results != null && results.FetchRow()) ? results.FetchInt(0) : 0;
     g_MemomanEventBalance = balance;
 
-    char currencyLong[BP_CURRENCY_LONG_MAX];
-    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
-    CPrintToChat(client, "{magenta} --- Memoman Graverobbing Event ---");
     CPrintToChat(
         client,
-        "{blue}Memoman{default}'s remaining %s%s{default}: %d",
-        g_CurrencyColorTag,
-        currencyLong,
-        balance);
-    CPrintToChat(
-        client,
-        "Steal %s from {blue}Memoman{default}'s account through the following methods:",
-        currencyLong);
-    CPrintToChat(
-        client,
-        "Loch-n-Load kill, Loch-n-Load airshot kill, kills with custom weapons, sentry kills, upgrading a sentry to level 3, deploying ÜberCharges, and a {gold}Secret Method");
+        "Get kills with weapons from {gold}!cw{default} to steal some of {blue}Memoman{default}'s gems!");
 }
 
 public Action Command_MemomanEventLeaderboard(int client, int args)

@@ -19,22 +19,13 @@
 #include "include/client_validation.inc"
 
 #define REWARD_CHANCE_ALWAYS 1.0
-#define LOCH_N_LOAD_ITEM_DEFINITION 308
 #define LAST_DAMAGE_MAX_AGE 1.0
 #define MEMOMAN_SOURCE_CUSTOM_WEAPON_KILL "custom_weapon_kill"
-#define MEMOMAN_SOURCE_LOCH_N_LOAD_KILL "loch_n_load_kill"
-#define MEMOMAN_SOURCE_LOCH_N_LOAD_AIRSHOT "loch_n_load_airshot"
-#define MEMOMAN_SOURCE_SENTRY_KILL "sentry_kill"
-#define MEMOMAN_SOURCE_SENTRY_LEVEL_3 "sentry_level_3"
-#define MEMOMAN_SOURCE_UBER_DEPLOYED "uber_deployed"
-#define MEMOMAN_SOURCE_DOUBLE_DONK "double_donk"
 
 ConVar g_GameplayRewardDelay = null;
 int g_LastDamageAttackerUserId[MAXPLAYERS + 1];
 int g_LastDamageWeaponRef[MAXPLAYERS + 1];
-bool g_LastDamageFromSentry[MAXPLAYERS + 1];
 float g_LastDamageAt[MAXPLAYERS + 1];
-StringMap g_LevelThreeSentries = null;
 
 public Plugin myinfo =
 {
@@ -47,7 +38,6 @@ public Plugin myinfo =
 
 public void OnPluginStart()
 {
-	g_LevelThreeSentries = new StringMap();
 	g_GameplayRewardDelay = CreateConVar(
 		"sm_whaletracker_bonus_default_delay",
 		"3.0",
@@ -56,7 +46,6 @@ public void OnPluginStart()
 		true,
 		0.0);
 	HookEvent("player_death", Event_MemomanPlayerDeath, EventHookMode_Post);
-	HookEvent("player_upgradedobject", Event_MemomanPlayerUpgradedObject, EventHookMode_Post);
 
 	for (int client = 1; client <= MaxClients; client++)
 	{
@@ -67,20 +56,6 @@ public void OnPluginStart()
 		}
 	}
 	AutoExecConfig(true, "gameplay_rewards");
-}
-
-public void OnPluginEnd()
-{
-	delete g_LevelThreeSentries;
-	g_LevelThreeSentries = null;
-}
-
-public void OnMapStart()
-{
-	if (g_LevelThreeSentries != null)
-	{
-		g_LevelThreeSentries.Clear();
-	}
 }
 
 public void OnClientPutInServer(int client)
@@ -130,7 +105,6 @@ void ResetLastDamage(int victim)
 {
 	g_LastDamageAttackerUserId[victim] = 0;
 	g_LastDamageWeaponRef[victim] = INVALID_ENT_REFERENCE;
-	g_LastDamageFromSentry[victim] = false;
 	g_LastDamageAt[victim] = 0.0;
 }
 
@@ -151,18 +125,6 @@ int ResolveDamageWeapon(int weapon, int inflictor)
 		}
 	}
 	return -1;
-}
-
-bool IsSentryInflictor(int inflictor)
-{
-	if (inflictor <= MaxClients || !IsValidEntity(inflictor))
-	{
-		return false;
-	}
-
-	char classname[32];
-	GetEntityClassname(inflictor, classname, sizeof(classname));
-	return StrEqual(classname, "obj_sentrygun", false);
 }
 
 public Action GameplayRewards_OnTakeDamage(
@@ -192,15 +154,13 @@ public Action GameplayRewards_OnTakeDamage(
 	g_LastDamageWeaponRef[victim] = damageWeapon > MaxClients
 		? EntIndexToEntRef(damageWeapon)
 		: INVALID_ENT_REFERENCE;
-	g_LastDamageFromSentry[victim] = IsSentryInflictor(inflictor);
 	g_LastDamageAt[victim] = GetGameTime();
 	return Plugin_Continue;
 }
 
-bool GetRecentDamageWeapon(int attacker, int victim, int &weapon, bool &fromSentry)
+bool GetRecentDamageWeapon(int attacker, int victim, int &weapon)
 {
 	weapon = -1;
-	fromSentry = false;
 	if (!Client_IsHumanInGame(attacker)
 		|| !Client_IsHumanInGame(victim)
 		|| g_LastDamageAttackerUserId[victim] != GetClientUserId(attacker)
@@ -210,19 +170,7 @@ bool GetRecentDamageWeapon(int attacker, int victim, int &weapon, bool &fromSent
 	}
 
 	weapon = EntRefToEntIndex(g_LastDamageWeaponRef[victim]);
-	fromSentry = g_LastDamageFromSentry[victim];
-	return weapon > MaxClients || fromSentry;
-}
-
-int GetWeaponItemDefinition(int weapon)
-{
-	if (weapon <= MaxClients
-		|| !IsValidEntity(weapon)
-		|| !HasEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex"))
-	{
-		return -1;
-	}
-	return GetEntProp(weapon, Prop_Send, "m_iItemDefinitionIndex");
+	return weapon > MaxClients;
 }
 
 bool IsCustomWeapon(int weapon)
@@ -253,64 +201,10 @@ public void Event_MemomanPlayerDeath(Event event, const char[] name, bool dontBr
 	}
 
 	int damageWeapon;
-	bool fromSentry;
-	GetRecentDamageWeapon(attacker, victim, damageWeapon, fromSentry);
-
-	if (GetWeaponItemDefinition(damageWeapon) == LOCH_N_LOAD_ITEM_DEFINITION)
-	{
-		AwardMemomanReward(attacker, MEMOMAN_SOURCE_LOCH_N_LOAD_KILL);
-	}
-	if (IsCustomWeapon(damageWeapon))
+	if (GetRecentDamageWeapon(attacker, victim, damageWeapon) && IsCustomWeapon(damageWeapon))
 	{
 		AwardMemomanReward(attacker, MEMOMAN_SOURCE_CUSTOM_WEAPON_KILL);
 	}
-	if (fromSentry)
-	{
-		AwardMemomanReward(attacker, MEMOMAN_SOURCE_SENTRY_KILL);
-	}
-}
-
-public void Event_MemomanPlayerUpgradedObject(Event event, const char[] name, bool dontBroadcast)
-{
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	int entity = event.GetInt("index");
-	if (!Client_IsHumanInGame(client) || !IsSentryInflictor(entity))
-	{
-		return;
-	}
-
-	DataPack pack = new DataPack();
-	pack.WriteCell(GetClientUserId(client));
-	pack.WriteCell(EntIndexToEntRef(entity));
-	RequestFrame(Frame_CheckLevelThreeSentry, pack);
-}
-
-public void Frame_CheckLevelThreeSentry(any data)
-{
-	DataPack pack = view_as<DataPack>(data);
-	pack.Reset();
-	int client = GetClientOfUserId(pack.ReadCell());
-	int entityRef = pack.ReadCell();
-	delete pack;
-
-	int entity = EntRefToEntIndex(entityRef);
-	if (!Client_IsHumanInGame(client)
-		|| !IsSentryInflictor(entity)
-		|| GetEntProp(entity, Prop_Send, "m_iUpgradeLevel") < 3)
-	{
-		return;
-	}
-
-	char key[16];
-	IntToString(entityRef, key, sizeof(key));
-	int alreadyAwarded;
-	if (g_LevelThreeSentries.GetValue(key, alreadyAwarded))
-	{
-		return;
-	}
-
-	g_LevelThreeSentries.SetValue(key, 1);
-	AwardMemomanReward(client, MEMOMAN_SOURCE_SENTRY_LEVEL_3);
 }
 
 public void OnAirShot(int attacker, int victim, bool killed)
@@ -318,14 +212,6 @@ public void OnAirShot(int attacker, int victim, bool killed)
 	if (killed)
 	{
 		AwardGameplayReward(attacker, "airshot_kill", 0);
-
-		int damageWeapon;
-		bool fromSentry;
-		if (GetRecentDamageWeapon(attacker, victim, damageWeapon, fromSentry)
-			&& GetWeaponItemDefinition(damageWeapon) == LOCH_N_LOAD_ITEM_DEFINITION)
-		{
-			AwardMemomanReward(attacker, MEMOMAN_SOURCE_LOCH_N_LOAD_AIRSHOT);
-		}
 	}
 }
 
@@ -444,18 +330,11 @@ public void OnMeatshotMilestone(int client, int meatshotKillsThisLife)
 public void OnUberDeployed(int medic, int ubersThisLife)
 {
 	AwardGameplayReward(medic, "uber_deployed", 0);
-	AwardMemomanReward(medic, MEMOMAN_SOURCE_UBER_DEPLOYED);
 	if (ubersThisLife == 3)
 	{
 		AwardGameplayReward(medic, "ubers_life_3", 0);
 	}
 }
-
-public void OnDoubleDonk(int attacker, int victim)
-{
-	AwardMemomanReward(attacker, MEMOMAN_SOURCE_DOUBLE_DONK);
-}
-
 public void OnReflectKill(int attacker, int victim, bool directHit)
 {
 	AwardGameplayReward(attacker, "reflect", 0);
