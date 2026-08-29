@@ -25,14 +25,14 @@ static const char g_MemomanEventSourceIds[MEMOMAN_EVENT_SOURCE_COUNT][] =
 
 static const int g_MemomanEventSourceAmounts[MEMOMAN_EVENT_SOURCE_COUNT] =
 {
-    2,
-    2,
-    3,
     1,
-    2,
     1,
-    3,
-    2
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
 };
 
 static const char g_MemomanEventSourceReasons[MEMOMAN_EVENT_SOURCE_COUNT][] =
