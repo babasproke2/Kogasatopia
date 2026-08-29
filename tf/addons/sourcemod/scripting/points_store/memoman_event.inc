@@ -493,7 +493,7 @@ public void SQL_OnMemomanEventTransferred(Database db, DBResultSet results, cons
         g_ClientBonusPoints[recipient] += amount;
         CPrintToChat(
             recipient,
-            "%s {magenta}+%d{default} for {magenta}Memoman event: {default}kill with '%s'",
+            "%s {magenta}+%d{default} for {magenta}Memoman event: {default}kill with %s",
             g_CurrencyPrefix,
             amount,
             request.detailName);
