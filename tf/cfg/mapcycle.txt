@@ -6,7 +6,7 @@ workshop/koth_spillway_rc3a.ugc1962574007
 workshop/pl_harpyhills_b8.ugc3758709084
 workshop/koth_spire_b1.ugc454131066
 plr_timebomb_a2
-koth_tiftidlava3_a1
+koth_tiftidlava3_a1a
 balloon_race_v2b_fix
 cp_mojave
 koth_shorelight
