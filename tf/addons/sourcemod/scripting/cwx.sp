@@ -72,6 +72,11 @@ public Plugin myinfo = {
 // this is the maximum length of the per-weapon description printed by sm_c
 #define MAX_ITEM_DESCRIPTION_LENGTH 512
 
+#define CWX_CONFIG_PATH "configs/weapons.cfg"
+#define CWX_CONFIG_ROOT "WeaponReverts"
+#define CWX_CONFIG_ITEM_SECTION "CWX"
+#define CWX_CONFIG_SOUND_SECTION "SoundGroup"
+
 // this is the number of slots allocated to our thing
 #define NUM_ITEMS 7
 
@@ -435,14 +440,13 @@ void AppendItemDescriptionPart(char[] buffer, int maxlen, const char[] color, co
 }
 
 public void OnMapStart() {
-	LoadCustomItemConfig();
-	CwxSound_OnMapStart();
 	VMO_OnMapStart();
+	LoadCustomItemConfig();
 	PrecacheMenuResources();
 }
 
 public void OnMapEnd() {
-	CwxSound_OnMapEnd();
+	CwxSound_Clear();
 }
 
 public void OnClientPutInServer(int client) {

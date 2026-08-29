@@ -4,9 +4,6 @@
  * Weapons select a configured sound group with "replace sound".
  */
 #define CWX_ATTR_REPLACE_SOUND "replace sound"
-#define CWX_SOUND_REPLACEMENT_CONFIG "configs/weapons.cfg"
-#define CWX_SOUND_REPLACEMENT_ROOT "WeaponReverts"
-#define CWX_SOUND_REPLACEMENT_SECTION "SoundGroup"
 
 StringMap g_CwxSoundGroups;
 
@@ -22,6 +19,7 @@ enum struct CwxSoundGroup
 
 void CwxSound_OnPluginStart()
 {
+	RegServerCmd("sm_cwx_reload_sounds", CwxSound_CommandReload);
 	RegServerCmd("ca_sound_replace_reload", CwxSound_CommandReload);
 	AddNormalSoundHook(CwxSound_Hook);
 }
@@ -29,16 +27,6 @@ void CwxSound_OnPluginStart()
 void CwxSound_OnPluginEnd()
 {
 	RemoveNormalSoundHook(CwxSound_Hook);
-	CwxSound_Clear();
-}
-
-void CwxSound_OnMapStart()
-{
-	CwxSound_Reload();
-}
-
-void CwxSound_OnMapEnd()
-{
 	CwxSound_Clear();
 }
 
@@ -98,28 +86,30 @@ public Action CwxSound_Hook(
 
 void CwxSound_Reload()
 {
-	CwxSound_Clear();
-
 	char path[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, path, sizeof(path), CWX_SOUND_REPLACEMENT_CONFIG);
-
-	KeyValues config = new KeyValues(CWX_SOUND_REPLACEMENT_ROOT);
-	if (!config.ImportFromFile(path))
+	KeyValues config = CwxConfig_Open(path, sizeof(path));
+	if (config == null)
 	{
-		LogError("Sound replacement config not found: %s", path);
-		delete config;
+		CwxSound_Clear();
 		return;
 	}
-	if (!config.JumpToKey(CWX_SOUND_REPLACEMENT_SECTION, false))
+
+	CwxSound_LoadConfig(config, path);
+	delete config;
+}
+
+void CwxSound_LoadConfig(KeyValues config, const char[] path)
+{
+	CwxSound_Clear();
+	if (config == null || !config.JumpToKey(CWX_CONFIG_SOUND_SECTION, false))
 	{
-		LogError("Sound replacement section '%s' not found in: %s", CWX_SOUND_REPLACEMENT_SECTION, path);
-		delete config;
+		LogError("Sound replacement section '%s' not found in: %s", CWX_CONFIG_SOUND_SECTION, path);
 		return;
 	}
 
 	g_CwxSoundGroups = new StringMap();
 	CwxSound_LoadGroups(config);
-	delete config;
+	config.GoBack();
 }
 
 void CwxSound_LoadGroups(KeyValues config)
@@ -129,8 +119,8 @@ void CwxSound_LoadGroups(KeyValues config)
 		return;
 	}
 
-	do
-	{
+		do
+		{
 		CwxSoundGroup group;
 		group.replacements = new StringMap();
 
@@ -155,6 +145,7 @@ void CwxSound_LoadGroups(KeyValues config)
 
 		g_CwxSoundGroups.SetArray(groupName, group, sizeof(group));
 	} while (config.GotoNextKey());
+	config.GoBack();
 }
 
 void CwxSound_Clear()

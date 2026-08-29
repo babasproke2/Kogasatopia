@@ -66,24 +66,34 @@ enum struct CustomItemDefinition {
  */
 static StringMap g_CustomItems;
 
-#define CUSTOM_WEAPONS_CONFIG_PATH "configs/weapons.cfg"
-#define CUSTOM_WEAPONS_CONFIG_ROOT "WeaponReverts"
-#define CUSTOM_WEAPONS_CONFIG_SECTION "CWX"
+KeyValues CwxConfig_Open(char[] configPath, int configPathLen) {
+	BuildPath(Path_SM, configPath, configPathLen, CWX_CONFIG_PATH);
+
+	KeyValues config = new KeyValues(CWX_CONFIG_ROOT);
+	if (!config.ImportFromFile(configPath)) {
+		LogError("Failed to load custom weapons from %s", configPath);
+		delete config;
+		return null;
+	}
+	return config;
+}
 
 void LoadCustomItemConfig() {
-	KeyValues itemSchema = new KeyValues(CUSTOM_WEAPONS_CONFIG_SECTION);
-	KeyValues weaponsConfig = new KeyValues(CUSTOM_WEAPONS_CONFIG_ROOT);
+	KeyValues itemSchema = new KeyValues(CWX_CONFIG_ITEM_SECTION);
 
 	char schemaPath[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, schemaPath, sizeof(schemaPath), CUSTOM_WEAPONS_CONFIG_PATH);
+	KeyValues weaponsConfig = CwxConfig_Open(schemaPath, sizeof(schemaPath));
+	if (weaponsConfig != null) {
+		CwxSound_LoadConfig(weaponsConfig, schemaPath);
 
-	if (!weaponsConfig.ImportFromFile(schemaPath)) {
-		LogError("Failed to load custom weapons from %s", schemaPath);
-	} else if (!weaponsConfig.JumpToKey(CUSTOM_WEAPONS_CONFIG_SECTION, false)) {
-		LogError("No %s section found in %s", CUSTOM_WEAPONS_CONFIG_SECTION, schemaPath);
+		if (!weaponsConfig.JumpToKey(CWX_CONFIG_ITEM_SECTION, false)) {
+			LogError("No %s section found in %s", CWX_CONFIG_ITEM_SECTION, schemaPath);
+		} else {
+			itemSchema.Import(weaponsConfig);
+			weaponsConfig.GoBack();
+		}
 	} else {
-		itemSchema.Import(weaponsConfig);
-		weaponsConfig.GoBack();
+		CwxSound_Clear();
 	}
 	delete weaponsConfig;
 	
