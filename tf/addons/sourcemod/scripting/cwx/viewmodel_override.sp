@@ -11,22 +11,6 @@
  * - "clientmodel override" can be used in place of both if they share the same model, and will
  * take priority.
  */
-#pragma semicolon 1
-#pragma newdecls required
-
-#include <sourcemod>
-
-#include <sdktools>
-#include <sdkhooks>
-
-#include <tf2utils>
-#include <tf2attributes>
-#include <tf_econ_data>
-
-#include <tf_custom_attributes>
-#include <stocksoup/tf/econ>
-#include <stocksoup/tf/entity_prop_stocks>
-
 #define EF_NODRAW (1 << 5)
 #define EF_BONEMERGE (1 << 0)
 
@@ -64,7 +48,7 @@ enum ModelAvailability {
 
 StringMap g_ModelAvailabilityCache;
 
-public void OnPluginStart() {
+void VMO_OnPluginStart() {
 	g_cvEdictReserve = CreateConVar("sm_viewmodel_override_edict_reserve", "128",
 		"Minimum free edicts kept before spawning cosmetic override wearables. Set to 0 to disable.",
 		_, true, 0.0);
@@ -73,24 +57,24 @@ public void OnPluginStart() {
 	g_cvValidationRepair = CreateConVar("sm_viewmodel_override_validate_repair", "1",
 		"Re-assert m_bValidatedAttachedEntity if TF2 clears it after attachment.", _, true, 0.0, true, 1.0);
 
-	HookEvent("player_death", OnPlayerDeath);
-	HookEvent("post_inventory_application", OnInventoryAppliedPost);
-	HookEvent("player_sapped_object", OnObjectSappedPost);
+	HookEvent("player_death", VMO_OnPlayerDeath);
+	HookEvent("post_inventory_application", VMO_OnInventoryAppliedPost);
+	HookEvent("player_sapped_object", VMO_OnObjectSappedPost);
 
 	ResetModelAvailabilityCache();
 	for (int i = 1; i <= MaxClients; i++) {
 		if (IsClientInGame(i)) {
-			OnClientPutInServer(i);
+			VMO_OnClientPutInServer(i);
 		}
 	}
 }
 
-public void OnMapStart() {
+void VMO_OnMapStart() {
 	ResetModelAvailabilityCache();
 	g_bLoggedEdictReserve = false;
 }
 
-public void OnPluginEnd() {
+void VMO_OnPluginEnd() {
 	for (int i = 1; i <= MaxClients; i++) {
 		if (IsClientInGame(i)) {
 			DetachVMs(i);
@@ -98,32 +82,32 @@ public void OnPluginEnd() {
 	}
 }
 
-public void OnClientPutInServer(int client) {
+void VMO_OnClientPutInServer(int client) {
 	ResetClientModelRefs(client);
-	SDKHook(client, SDKHook_Spawn, OnPlayerSpawnPre);
-	SDKHook(client, SDKHook_SpawnPost, OnPlayerSpawnPost);
-	SDKHook(client, SDKHook_WeaponEquipPost, OnWeaponEquipPost);
-	SDKHook(client, SDKHook_WeaponSwitchPost, OnWeaponSwitchPost);
+	SDKHook(client, SDKHook_Spawn, VMO_OnPlayerSpawnPre);
+	SDKHook(client, SDKHook_SpawnPost, VMO_OnPlayerSpawnPost);
+	SDKHook(client, SDKHook_WeaponEquipPost, VMO_OnWeaponEquipPost);
+	SDKHook(client, SDKHook_WeaponSwitchPost, VMO_OnWeaponSwitchPost);
 }
 
-public void OnClientDisconnect(int client) {
+void VMO_OnClientDisconnect(int client) {
 	DetachVMs(client);
 	ResetClientModelRefs(client);
 }
 
-public void OnEntityCreated(int entity, const char[] className) {
+void VMO_OnEntityCreated(int entity, const char[] className) {
 	if (StrEqual(className, "tf_dropped_weapon")) {
-		SDKHook(entity, SDKHook_SpawnPost, OnDroppedWeaponSpawnPost);
+		SDKHook(entity, SDKHook_SpawnPost, VMO_OnDroppedWeaponSpawnPost);
 	} else if (StrContains(className, "tf_wearable", false) == 0
 			&& !StrEqual(className, "tf_wearable_vm")) {
-		SDKHook(entity, SDKHook_SpawnPost, OnWearableSpawnPost);
+		SDKHook(entity, SDKHook_SpawnPost, VMO_OnWearableSpawnPost);
 	}
 }
 
 /**
  * Hotfix to ensure any attached Sniper Rifle is rendered when coming out of being in scope.
  */
-public void TF2_OnConditionRemoved(int client, TFCond cond) {
+void VMO_OnConditionRemoved(int client, TFCond cond) {
 	int weaponvm = EntRefToEntIndex(g_iLastViewmodelRef[client]);
 	if (cond == TFCond_Slowed && TF2_GetPlayerClass(client) == TFClass_Sniper
 			&& weaponvm != INVALID_ENT_REFERENCE && IsValidEntity(weaponvm)) {
@@ -134,7 +118,7 @@ public void TF2_OnConditionRemoved(int client, TFCond cond) {
 /**
  * Sets the world model of a dropped weapon.
  */
-void OnDroppedWeaponSpawnPost(int weapon) {
+void VMO_OnDroppedWeaponSpawnPost(int weapon) {
 	char wm[PLATFORM_MAX_PATH];
 	if (TF2CustAttr_GetString(weapon, "clientmodel override", wm, sizeof(wm))
 			|| TF2CustAttr_GetString(weapon, "worldmodel override", wm, sizeof(wm))) {
@@ -151,7 +135,7 @@ void OnDroppedWeaponSpawnPost(int weapon) {
  * applying weapons by this time; however, they should implicitly invoke WeaponSwitchPost
  * (because of GiveNamedItem, etc.) so viewmodels should be correct.
  */
-void OnInventoryAppliedPost(Event event, const char[] name, bool dontBroadcast) {
+void VMO_OnInventoryAppliedPost(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (!IsValidViewmodelClient(client)) {
 		return;
@@ -255,18 +239,18 @@ Action Timer_ValidateClientWeaponModel(Handle timer, any userid) {
 	return Plugin_Stop;
 }
 
-Action OnPlayerSpawnPre(int client) {
+Action VMO_OnPlayerSpawnPre(int client) {
 	g_bIgnoreWeaponSwitch[client] = true;
 	return Plugin_Continue;
 }
 
-void OnPlayerSpawnPost(int client) {
+void VMO_OnPlayerSpawnPost(int client) {
 	g_bIgnoreWeaponSwitch[client] = false;
 	RequestFrame(Frame_UpdateClientWeaponModel, GetClientUserId(client));
 	ScheduleClientModelRefresh(client);
 }
 
-public void CWX_OnItemRuntimeStateReady(int client, int entity) {
+void VMO_OnItemRuntimeStateReady(int client, int entity) {
 	if (!IsValidViewmodelClient(client) || !IsValidEntity(entity)
 			|| TF2_GetClientActiveWeapon(client) != entity) {
 		return;
@@ -276,13 +260,13 @@ public void CWX_OnItemRuntimeStateReady(int client, int entity) {
 	ScheduleClientModelValidationRetries(client);
 }
 
-void OnWeaponEquipPost(int client, int weapon) {
+void VMO_OnWeaponEquipPost(int client, int weapon) {
 	// CWX applies custom attributes before EquipPlayerWeapon, so this is the
 	// authoritative lifecycle point for newly-created custom weapons.
 	QueueWeaponBoundModelUpdate(client, weapon);
 }
 
-void OnWeaponSwitchPost(int client, int weapon) {
+void VMO_OnWeaponSwitchPost(int client, int weapon) {
 	if (!g_bIgnoreWeaponSwitch[client]) {
 		QueueWeaponBoundModelUpdate(client, weapon);
 		ScheduleClientModelUpdate(client, 0.1);
@@ -538,7 +522,7 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 	}
 }
 
-void OnWearableSpawnPost(int wearable) {
+void VMO_OnWearableSpawnPost(int wearable) {
 	CreateTimer(0.1, Timer_DelayedWearableSpawnUpdate, EntIndexToEntRef(wearable), TIMER_FLAG_NO_MAPCHANGE);
 }
 
@@ -766,7 +750,7 @@ int GetEntityOwner(int entity) {
 /**
  * Destroys wearable worldmodels on death so ragdolls aren't holding them.
  */
-void OnPlayerDeath(Event event, const char[] name, bool dontBroadcast) {
+void VMO_OnPlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (client) {
 		DetachVMs(client);
@@ -776,7 +760,7 @@ void OnPlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 /**
  * Allows the use of custom models on sappers attached to buildings.
  */
-void OnObjectSappedPost(Event event, const char[] name, bool dontBroadcast) {
+void VMO_OnObjectSappedPost(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (!IsValidEntity(client)) {
 		return;

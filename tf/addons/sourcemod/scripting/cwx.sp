@@ -6,10 +6,13 @@
 
 #include <sourcemod>
 #include <clientprefs>
+#include <sdkhooks>
+#include <sdktools_sound>
 
 #include <tf2utils>
 #include <tf_econ_data>
 #include <tf2attributes>
+#include <tf2_stocks>
 
 #include <morecolors>
 #include <tf_custom_attributes>
@@ -51,11 +54,13 @@
 
 public Plugin myinfo = {
 	name = "[TF2] Custom Weapons X",
-	author = "nosoop, Hombre",
+	author = "nosoop, Hombre, tsuza, Mir",
 	description = "Allows server operators to design their own weapons.",
 	version = "X.0.10" ... VERSION_SUFFIX,
 	url = "https://github.com/nosoop/SM-TFCustomWeaponsX"
 }
+
+// 29/08/2026: Combined ca_replace_sound and viewmodel_override into cwx to reduce number of plugins + less concern about order conflicts
 
 // this is the maximum expected length of our UID; it is intentional that this is *not* shared
 // to dependent plugins, as we may change this at any time
@@ -171,6 +176,8 @@ void CWX_ApplyEngineOverrides(int weapon)
 #include "cwx/item_export.sp"
 #include "cwx/loadout_entries.sp"
 #include "cwx/loadout_radio_menu.sp"
+#include "cwx/sound_replacement.sp"
+#include "cwx/viewmodel_override.sp"
 
 int g_attrdef_AllowedInMedievalMode;
 
@@ -285,9 +292,14 @@ public void OnPluginStart() {
 			FetchLoadoutItems(i);
 		}
 	}
+
+	CwxSound_OnPluginStart();
+	VMO_OnPluginStart();
 }
 
 public void OnPluginEnd() {
+	VMO_OnPluginEnd();
+	CwxSound_OnPluginEnd();
 	Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
 	Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
 	delete g_hOnItemRuntimeStateReady;
@@ -298,6 +310,8 @@ void CWX_NotifyItemRuntimeStateReady(int client, int entity) {
 			|| !IsValidEntity(entity)) {
 		return;
 	}
+
+	VMO_OnItemRuntimeStateReady(client, entity);
 
 	Call_StartForward(g_hOnItemRuntimeStateReady);
 	Call_PushCell(client);
@@ -422,8 +436,29 @@ void AppendItemDescriptionPart(char[] buffer, int maxlen, const char[] color, co
 
 public void OnMapStart() {
 	LoadCustomItemConfig();
-	
+	CwxSound_OnMapStart();
+	VMO_OnMapStart();
 	PrecacheMenuResources();
+}
+
+public void OnMapEnd() {
+	CwxSound_OnMapEnd();
+}
+
+public void OnClientPutInServer(int client) {
+	VMO_OnClientPutInServer(client);
+}
+
+public void OnClientDisconnect(int client) {
+	VMO_OnClientDisconnect(client);
+}
+
+public void OnEntityCreated(int entity, const char[] className) {
+	VMO_OnEntityCreated(entity, className);
+}
+
+public void TF2_OnConditionRemoved(int client, TFCond condition) {
+	VMO_OnConditionRemoved(client, condition);
 }
 
 /**
