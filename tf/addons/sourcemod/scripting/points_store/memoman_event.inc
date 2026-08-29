@@ -5,6 +5,7 @@
 #define MEMOMAN_EVENT_SOURCE_COUNT 7
 #define MEMOMAN_EVENT_LEADERBOARD_LIMIT 10
 #define MEMOMAN_EVENT_LEADERBOARD_SOURCE_COUNT 8
+#define MEMOMAN_EVENT_LEADERBOARD_EPISTEN_SOURCE 7
 
 enum struct MemomanRewardRequest
 {
@@ -739,12 +740,25 @@ void MemomanEvent_BuildTopSources(DBResultSet results, char[] buffer, int maxlen
             StrCat(buffer, maxlen, ", ");
         }
 
-        Format(
-            sourceText,
-            sizeof(sourceText),
-            "%s %d",
-            g_MemomanEventLeaderboardSourceNames[topSources[position]],
-            topValues[position]);
+        if (topSources[position] == MEMOMAN_EVENT_LEADERBOARD_EPISTEN_SOURCE)
+        {
+            Format(
+                sourceText,
+                sizeof(sourceText),
+                "{magenta}%s %s%d{gold}",
+                g_MemomanEventLeaderboardSourceNames[topSources[position]],
+                g_CurrencyColorTag,
+                topValues[position]);
+        }
+        else
+        {
+            Format(
+                sourceText,
+                sizeof(sourceText),
+                "%s %d",
+                g_MemomanEventLeaderboardSourceNames[topSources[position]],
+                topValues[position]);
+        }
         StrCat(buffer, maxlen, sourceText);
     }
 }
