@@ -624,6 +624,14 @@ public void SQL_OnMemomanEventCommandBalance(Database db, DBResultSet results, c
     int balance = (results != null && results.FetchRow()) ? results.FetchInt(0) : 0;
     g_MemomanEventBalance = balance;
 
+    char currencyLong[BP_CURRENCY_LONG_MAX];
+    GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+    CPrintToChat(
+        client,
+        "{blue}Memoman{default}'s remaining %s%s{default}: %d",
+        g_CurrencyColorTag,
+        currencyLong,
+        balance);
     CPrintToChat(
         client,
         "Get kills with weapons from {gold}!cw{default} to steal some of {blue}Memoman{default}'s gems!");
