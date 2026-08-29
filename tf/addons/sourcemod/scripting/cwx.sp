@@ -111,6 +111,7 @@ ConVar sm_cwx_enable_loadout;
 ConVar sm_cwx_statistics;
 ConVar sm_cwx_statistics_database;
 ConVar sm_cwx_validate_debug;
+ConVar sm_cwx_validate_repair;
 ConVar sm_cwx_hide_reskin_only;
 
 ConVar mp_stalemate_meleeonly;
@@ -245,6 +246,9 @@ public void OnPluginStart() {
 			"Database config used for Custom Weapons X popularity statistics.");
 	sm_cwx_validate_debug = CreateConVar("sm_cwx_validate_debug", "0",
 			"Log CWX m_bValidatedAttachedEntity state after custom item creation and equip.",
+			_, true, 0.0, true, 1.0);
+	sm_cwx_validate_repair = CreateConVar("sm_cwx_validate_repair", "1",
+			"Re-assert m_bValidatedAttachedEntity if TF2 clears it after attachment.",
 			_, true, 0.0, true, 1.0);
 	sm_cwx_hide_reskin_only = CreateConVar("sm_cwx_hide_reskin_only", "1",
 			"Hide reskin-only weapons from sm_c descriptions.", _, true, 0.0, true, 1.0);

@@ -6,13 +6,14 @@
 #define CWX_VALIDATE_DELAY_LONG 0.5
 
 stock void CWX_MarkValidatedAttachedEntity(int entity, int client = 0,
-		const char[] context = "unknown", bool scheduleChecks = true) {
+		const char[] context = "unknown", bool scheduleChecks = true,
+		int sourceEntity = INVALID_ENT_REFERENCE) {
 	if (!IsValidEntity(entity)) {
 		return;
 	}
 
 	if (!HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity")) {
-		CWX_LogValidatedAttachedEntityState("missing_prop", entity, client, context,
+		CWX_LogValidatedAttachedEntityState("missing_prop", entity, client, sourceEntity, context,
 				-1, -1, false);
 		return;
 	}
@@ -20,15 +21,18 @@ stock void CWX_MarkValidatedAttachedEntity(int entity, int client = 0,
 	int before = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
 	SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
 	int after = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
-	CWX_LogValidatedAttachedEntityState("set", entity, client, context, before, after, false);
+	CWX_LogValidatedAttachedEntityState("set", entity, client, sourceEntity, context,
+		before, after, false);
 
-	if (scheduleChecks) {
-		CWX_QueueValidatedAttachedEntityCheck(entity, client, context, CWX_VALIDATE_DELAY_SHORT);
-		CWX_QueueValidatedAttachedEntityCheck(entity, client, context, CWX_VALIDATE_DELAY_LONG);
+	if (scheduleChecks && (CWX_ValidateDebugEnabled() || CWX_ValidationRepairEnabled())) {
+		CWX_QueueValidatedAttachedEntityCheck(entity, client, sourceEntity, context,
+			CWX_VALIDATE_DELAY_SHORT);
+		CWX_QueueValidatedAttachedEntityCheck(entity, client, sourceEntity, context,
+			CWX_VALIDATE_DELAY_LONG);
 	}
 }
 
-void CWX_QueueValidatedAttachedEntityCheck(int entity, int client,
+void CWX_QueueValidatedAttachedEntityCheck(int entity, int client, int sourceEntity,
 		const char[] context, float delay) {
 	if (!IsValidEntity(entity)) {
 		return;
@@ -37,6 +41,8 @@ void CWX_QueueValidatedAttachedEntityCheck(int entity, int client,
 	DataPack pack = new DataPack();
 	pack.WriteCell(EntIndexToEntRef(entity));
 	pack.WriteCell(CWX_IsValidClient(client) ? GetClientUserId(client) : 0);
+	pack.WriteCell(IsValidEntity(sourceEntity)
+		? EntIndexToEntRef(sourceEntity) : INVALID_ENT_REFERENCE);
 	pack.WriteString(context);
 	CreateTimer(delay, Timer_CWX_CheckValidatedAttachedEntity, pack, TIMER_FLAG_NO_MAPCHANGE);
 }
@@ -46,18 +52,25 @@ public Action Timer_CWX_CheckValidatedAttachedEntity(Handle timer, any data) {
 	pack.Reset();
 	int entityRef = pack.ReadCell();
 	int userid = pack.ReadCell();
+	int sourceRef = pack.ReadCell();
 	char context[64];
 	pack.ReadString(context, sizeof(context));
 	delete pack;
 
 	int entity = EntRefToEntIndex(entityRef);
 	int client = userid ? GetClientOfUserId(userid) : 0;
+	int sourceEntity = EntRefToEntIndex(sourceRef);
 	if (!IsValidEntity(entity)) {
+		if (CWX_ValidateDebugEnabled()) {
+			LogMessage("[CWX][Validate] phase=entity_gone context=%s ref=%d client=%d",
+				context, entityRef, client);
+		}
 		return Plugin_Stop;
 	}
 
 	if (!HasEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity")) {
 		CWX_LogValidatedAttachedEntityState("missing_prop_delayed", entity, client,
+				sourceEntity,
 				context, -1, -1, false);
 		return Plugin_Stop;
 	}
@@ -65,17 +78,17 @@ public Action Timer_CWX_CheckValidatedAttachedEntity(Handle timer, any data) {
 	int before = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
 	int after = before;
 	bool repaired = false;
-	if (!before) {
+	if (!before && CWX_ValidationRepairEnabled()) {
 		SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", true);
 		after = GetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity");
 		repaired = after != 0;
 	}
 
 	if (!before) {
-		CWX_LogValidatedAttachedEntityState("dropped", entity, client, context,
+		CWX_LogValidatedAttachedEntityState("dropped", entity, client, sourceEntity, context,
 				before, after, repaired);
 	} else if (CWX_ValidateDebugEnabled()) {
-		CWX_LogValidatedAttachedEntityState("retained", entity, client, context,
+		CWX_LogValidatedAttachedEntityState("retained", entity, client, sourceEntity, context,
 				before, after, false);
 	}
 	return Plugin_Stop;
@@ -85,38 +98,63 @@ bool CWX_ValidateDebugEnabled() {
 	return sm_cwx_validate_debug != null && sm_cwx_validate_debug.BoolValue;
 }
 
+bool CWX_ValidationRepairEnabled() {
+	return sm_cwx_validate_repair == null || sm_cwx_validate_repair.BoolValue;
+}
+
 void CWX_LogValidatedAttachedEntityState(const char[] phase, int entity, int client,
-		const char[] context, int before, int after, bool repaired) {
+		int sourceEntity, const char[] context, int before, int after, bool repaired) {
 	if (!CWX_ValidateDebugEnabled() && !StrEqual(phase, "dropped")) {
 		return;
 	}
 
-	char entityClass[64] = "invalid";
+	char entityClass[64];
 	char entityModel[PLATFORM_MAX_PATH];
-	int entityDef = -1;
-	int owner = 0;
-	if (IsValidEntity(entity)) {
-		GetEntityClassname(entity, entityClass, sizeof(entityClass));
-		if (HasEntProp(entity, Prop_Data, "m_ModelName")) {
-			GetEntPropString(entity, Prop_Data, "m_ModelName", entityModel,
-					sizeof(entityModel));
-		}
-		if (HasEntProp(entity, Prop_Send, "m_iItemDefinitionIndex")) {
-			entityDef = GetEntProp(entity, Prop_Send, "m_iItemDefinitionIndex");
-		}
-		if (HasEntProp(entity, Prop_Send, "m_hOwnerEntity")) {
-			owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
-		}
-	}
+	int entityDef;
+	int owner;
+	CWX_GetEntityDebugInfo(entity, entityClass, sizeof(entityClass), entityModel,
+		sizeof(entityModel), entityDef, owner);
+
+	char sourceClass[64];
+	char sourceModel[PLATFORM_MAX_PATH];
+	int sourceDef;
+	int sourceOwner;
+	CWX_GetEntityDebugInfo(sourceEntity, sourceClass, sizeof(sourceClass), sourceModel,
+		sizeof(sourceModel), sourceDef, sourceOwner);
 
 	char clientLabel[96];
 	CWX_FormatClientLabel(client, clientLabel, sizeof(clientLabel));
 	char ownerLabel[96];
 	CWX_FormatClientLabel(owner, ownerLabel, sizeof(ownerLabel));
+	char sourceOwnerLabel[96];
+	CWX_FormatClientLabel(sourceOwner, sourceOwnerLabel, sizeof(sourceOwnerLabel));
 
-	LogMessage("[CWX][Validate] phase=%s context=%s before=%d after=%d repaired=%d entity=%d class=%s def=%d owner=%s model=\"%s\" client=%s",
+	LogMessage("[CWX][Validate] phase=%s context=%s before=%d after=%d repaired=%d entity=%d class=%s def=%d owner=%s model=\"%s\" client=%s source=%d source_class=%s source_def=%d source_owner=%s source_model=\"%s\" free_edicts=%d",
 			phase, context, before, after, repaired ? 1 : 0, entity, entityClass,
-			entityDef, ownerLabel, entityModel, clientLabel);
+			entityDef, ownerLabel, entityModel, clientLabel, sourceEntity, sourceClass,
+			sourceDef, sourceOwnerLabel, sourceModel, GetMaxEntities() - GetEntityCount());
+}
+
+void CWX_GetEntityDebugInfo(int entity, char[] className, int classLen,
+		char[] model, int modelLen, int &defIndex, int &owner) {
+	strcopy(className, classLen, "invalid");
+	model[0] = '\0';
+	defIndex = -1;
+	owner = 0;
+	if (!IsValidEntity(entity)) {
+		return;
+	}
+
+	GetEntityClassname(entity, className, classLen);
+	if (HasEntProp(entity, Prop_Data, "m_ModelName")) {
+		GetEntPropString(entity, Prop_Data, "m_ModelName", model, modelLen);
+	}
+	if (HasEntProp(entity, Prop_Send, "m_iItemDefinitionIndex")) {
+		defIndex = GetEntProp(entity, Prop_Send, "m_iItemDefinitionIndex");
+	}
+	if (HasEntProp(entity, Prop_Send, "m_hOwnerEntity")) {
+		owner = GetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity");
+	}
 }
 
 bool CWX_IsValidClient(int client) {
