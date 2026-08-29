@@ -111,6 +111,19 @@ native bool PointsStore_SpendBonusPoints(int client, int points);
 native int PointsStore_StealBonusPoints(int victim, int recipient, int points, const char[] type = "api_steal");
 
 /**
+ * Awards a fixed Memoman event reward by debiting the event source account.
+ *
+ * Supported source IDs: custom_weapon_kill, loch_n_load_kill,
+ * loch_n_load_airshot, sentry_built, sentry_kill, sentry_level_3,
+ * and uber_deployed.
+ *
+ * @param client        Client receiving the reward.
+ * @param sourceId      Stable Memoman event source ID.
+ * @return              True when the delayed award was queued.
+ */
+native bool PointsStore_AwardMemomanEvent(int client, const char[] sourceId);
+
+/**
  * Returns whether a client owns a configured points-store shop item.
  *
  * This native only checks the in-memory client cache.
@@ -188,6 +201,7 @@ public void __pl_points_store_SetNTVOptional()
     MarkNativeAsOptional("PointsStore_RefundBonusPointsSteamId");
     MarkNativeAsOptional("PointsStore_SpendBonusPoints");
     MarkNativeAsOptional("PointsStore_StealBonusPoints");
+    MarkNativeAsOptional("PointsStore_AwardMemomanEvent");
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("PointsStore_GetPurchasePrice");
     MarkNativeAsOptional("PointsStore_GetPurchaseExpiresAt");

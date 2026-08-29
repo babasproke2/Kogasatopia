@@ -166,6 +166,8 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `PointsStore_RefundBonusPoints` - Refunds a dynamic amount to a connected client.
 - `PointsStore_RefundBonusPointsSteamId` - Refunds a dynamic amount to a SteamID64.
 - `PointsStore_SpendBonusPoints` - Spends a connected client's currency without chat or sound output.
+- `PointsStore_StealBonusPoints` - Transfers currency between two connected clients.
+- `PointsStore_AwardMemomanEvent` - Awards a fixed event reward by debiting Memoman's account.
 - `PointsStore_HasPurchase` - Returns whether a client owns a shop item.
 - `PointsStore_GetPurchasePrice` - Returns the price paid for a shop item.
 - `PointsStore_GetPurchaseExpiresAt` - Returns a shop item's expiry timestamp for a client.

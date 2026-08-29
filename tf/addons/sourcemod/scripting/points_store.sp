@@ -113,6 +113,7 @@ char g_PerMapName[BP_PER_MAP_SCOPE_MAX];
 #include "points_store/rewards.inc"
 #include "points_store/bonus_labels.inc"
 #include "points_store/dailies.inc"
+#include "points_store/memoman_event.inc"
 
 public Plugin myinfo =
 {
@@ -149,6 +150,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("PointsStore_RefundBonusPointsSteamId", Native_PointsStore_RefundBonusPointsSteamId);
     CreateNative("PointsStore_SpendBonusPoints", Native_PointsStore_SpendBonusPoints);
     CreateNative("PointsStore_StealBonusPoints", Native_PointsStore_StealBonusPoints);
+    CreateNative("PointsStore_AwardMemomanEvent", Native_PointsStore_AwardMemomanEvent);
     CreateNative("PointsStore_HasPurchase", Native_PointsStore_HasPurchase);
     CreateNative("PointsStore_GetPurchasePrice", Native_PointsStore_GetPurchasePrice);
     CreateNative("PointsStore_GetPurchaseExpiresAt", Native_PointsStore_GetPurchaseExpiresAt);
@@ -251,6 +253,7 @@ public void OnPluginStart()
     Lotteries_OnPluginStart();
     Bounties_OnPluginStart();
     Dailies_OnPluginStart();
+    MemomanEvent_OnPluginStart();
 
     LoadStoreItems();
     ConnectDatabase();
@@ -260,6 +263,7 @@ public void OnPluginEnd()
 {
     Lotteries_OnPluginEnd();
     Bounties_OnPluginEnd();
+    MemomanEvent_OnPluginEnd();
     delete g_IdempotentAwardForward;
 
     delete g_ItemKeys;
@@ -334,6 +338,7 @@ void ConnectDatabase()
     g_BountyDisconnectRefundPending = false;
     g_BountyAutomaticPlacementPending = false;
     g_ActiveBountyCount = 0;
+    MemomanEvent_OnDatabaseDisconnected();
     Lotteries_OnDatabaseDisconnected();
 
     char dbConfig[64];
@@ -635,6 +640,7 @@ void FinishSchemaReady()
     EnsureIdempotentAwardsSchema();
     EnsurePerMapAwardsSchema();
     EnsureBountySchema();
+    MemomanEvent_EnsureSchema();
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -4472,6 +4478,15 @@ public any Native_PointsStore_StealBonusPoints(Handle plugin, int numParams)
     }
 
     return StealBonusPointsWithContext(victim, recipient, points, type);
+}
+
+public any Native_PointsStore_AwardMemomanEvent(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    char sourceId[64];
+    GetNativeString(2, sourceId, sizeof(sourceId));
+    TrimString(sourceId);
+    return MemomanEvent_QueueReward(client, sourceId);
 }
 
 public any Native_PointsStore_HasPurchase(Handle plugin, int numParams)

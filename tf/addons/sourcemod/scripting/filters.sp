@@ -614,7 +614,8 @@ static void Filters_RegisterCommands()
     RegConsoleCmd("sm_randomparsee", Command_RandomParseeMessage, "Print a random archived Parsee message.");
     RegConsoleCmd("sm_randomparseemessage", Command_RandomParseeMessage, "Print a random archived Parsee message.");
     RegConsoleCmd("sm_memoman", Command_RandomMemomanMessage, "Print a random archived Memoman message.");
-    RegConsoleCmd("sm_memo", Command_RandomMemomanMessage, "Print a random archived Memoman message.");
+    // sm_memo is reserved for the Points Store Memoman event while it is active.
+    // RegConsoleCmd("sm_memo", Command_RandomMemomanMessage, "Print a random archived Memoman message.");
     RegConsoleCmd("sm_bruh", Command_RandomMemomanMessage, "Print a random archived Memoman message.");
     RegAdminCmd("sm_migrate", Command_PrenameMigrate, ADMFLAG_SLAY, "sm_migrate - Migrates legacy name rules to SteamID rules for connected clients");
 
