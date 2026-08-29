@@ -70,6 +70,7 @@
 #define ARCHIVED_MESSAGE_COOLDOWN_SECONDS 30
 #define ARCHIVED_MESSAGE_WHITELIST_COOLDOWN_SECONDS 15
 #define PARSEE_PURCHASE_COOLDOWN_SECONDS 5
+#define TIDYCHAT_VERSION "0.5"
 
 enum ArchivedSpeaker
 {
@@ -99,6 +100,8 @@ int g_AutoRedlistKills[MAXPLAYERS + 1];
 int g_AutoRedlistRapes[MAXPLAYERS + 1];
 bool g_AutoRedlistGotKills[MAXPLAYERS + 1];
 bool g_AutoRedlistGotRapes[MAXPLAYERS + 1];
+bool g_TidyChatSuppressNextTeamAlert[MAXPLAYERS + 1];
+float g_TidyChatSuppressTeamAlertsUntil = 0.0;
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
@@ -108,6 +111,8 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("Filters_GetSteamIdColorTag", Native_Filters_GetSteamIdColorTag);
     CreateNative("Filters_GetSteamIdChatName", Native_Filters_GetSteamIdChatName);
     CreateNative("Filters_GetLastRecordedSteamName", Native_Filters_GetLastRecordedSteamName);
+    CreateNative("FilterAlerts_MarkAutobalance", Native_FilterAlerts_MarkAutobalance);
+    CreateNative("FilterAlerts_SuppressTeamAlertWindow", Native_FilterAlerts_SuppressTeamAlertWindow);
     MarkNativeAsOptional("AdminsDB_GetClientWhitelistLevel");
     MarkNativeAsOptional("Hugs_GetRapesGiven");
     MarkNativeAsOptional("Hugs_AreStatsLoaded");
@@ -140,6 +145,11 @@ ConVar g_hFiltersTeamChat = null;
 ConVar g_hRedlistEnabled = null;
 ConVar g_hPChat = null;
 ConVar g_hMuteDeafenEnabled = null;
+ConVar g_hTidyChatEnabled = null;
+ConVar g_hTidyChatVoice = null;
+ConVar g_hTidyChatDisconnect = null;
+ConVar g_hTidyChatTeam = null;
+ConVar g_hTidyChatCvar = null;
 
 // Global arrays for word filtering
 char g_FilterWords[MAX_FILTERS][MAX_WORD_LENGTH];
@@ -513,6 +523,8 @@ public Plugin myinfo =
     url = "https://kogasa.tf"
 };
 
+// This plugin has merged with my tidychat fork, credit to pheadxdll for creating tidychat
+
 public void OnPluginStart()
 {
     LoadTranslations("common.phrases");
@@ -522,6 +534,7 @@ public void OnPluginStart()
     Filters_CreateConVars();
     Filters_RegisterCookies();
     Filters_RegisterCommands();
+    TidyChat_Initialize();
 
     RefreshHostAddress();
     Filters_SQLConnect();
@@ -582,6 +595,13 @@ static void Filters_CreateConVars()
         "If 1, chat filters are case-sensitive (exact casing must match)"
     );
 
+    CreateConVar("sm_tidychat_version", TIDYCHAT_VERSION, "Tidy Chat Version", FCVAR_SPONLY | FCVAR_REPLICATED | FCVAR_NOTIFY);
+    g_hTidyChatEnabled = CreateConVar("sm_tidychat_on", "1", "Enable Tidy Chat event cleanup.", _, true, 0.0, true, 1.0);
+    g_hTidyChatVoice = CreateConVar("sm_tidychat_voice", "1", "Suppress voice subtitle messages.", _, true, 0.0, true, 1.0);
+    g_hTidyChatDisconnect = CreateConVar("sm_tidychat_disconnect", "1", "Suppress stock disconnect messages.", _, true, 0.0, true, 1.0);
+    g_hTidyChatTeam = CreateConVar("sm_tidychat_team", "1", "Replace stock team join messages.", _, true, 0.0, true, 1.0);
+    g_hTidyChatCvar = CreateConVar("sm_tidychat_cvar", "1", "Suppress stock cvar messages.", _, true, 0.0, true, 1.0);
+
     HookConVarChange(g_sChatMode2, Filters_OnFilterModeChanged);
     HookConVarChange(g_hRedlistEnabled, Filters_OnRedlistChanged);
     HookConVarChange(g_hMuteDeafenEnabled, Filters_OnMuteDeafenChanged);
@@ -620,6 +640,191 @@ static void Filters_RegisterCommands()
     RegAdminCmd("sm_migrate", Command_PrenameMigrate, ADMFLAG_SLAY, "sm_migrate - Migrates legacy name rules to SteamID rules for connected clients");
 
     RegConsoleCmd("sm_websay", Command_WebSay, "Relay a web chat message to all players");
+}
+
+static void TidyChat_Initialize()
+{
+    HookEvent("player_disconnect", TidyChat_EventPlayerDisconnect, EventHookMode_Pre);
+    HookEvent("player_team", TidyChat_EventPlayerTeam, EventHookMode_Pre);
+    HookEvent("server_cvar", TidyChat_EventCvar, EventHookMode_Pre);
+    HookEvent("player_changename", TidyChat_EventPlayerChangeName, EventHookMode_Pre);
+
+    UserMsg sayText2 = GetUserMessageId("SayText2");
+    if (sayText2 != INVALID_MESSAGE_ID)
+    {
+        HookUserMessage(sayText2, TidyChat_UserMessageHook, true);
+    }
+
+    UserMsg voiceSubtitle = GetUserMessageId("VoiceSubtitle");
+    if (voiceSubtitle != INVALID_MESSAGE_ID)
+    {
+        HookUserMessage(voiceSubtitle, TidyChat_UserMessageVoiceSubtitle, true);
+    }
+}
+
+static void TidyChat_BuildTeamJoinText(int team, char[] buffer, int maxlen)
+{
+    switch (team)
+    {
+        case 1: strcopy(buffer, maxlen, "entered {lightsteelblue}Keine's Class");
+        case 2: strcopy(buffer, maxlen, "joined team {red}Fujiwara");
+        case 3: strcopy(buffer, maxlen, "joined team {blue}Houraisan");
+        case 4: strcopy(buffer, maxlen, "joined team {green}Konpaku");
+        case 5: strcopy(buffer, maxlen, "joined team {yellow}Kirisame");
+        default: buffer[0] = '\0';
+    }
+}
+
+static void TidyChat_PrintTeamJoinAlert(int client, int team)
+{
+    if (!Filters_IsRealClientInGame(client))
+    {
+        return;
+    }
+
+    char teamText[64];
+    TidyChat_BuildTeamJoinText(team, teamText, sizeof(teamText));
+    if (!teamText[0])
+    {
+        return;
+    }
+
+    char renderedName[256];
+    BuildRenderedClientName(client, renderedName, sizeof(renderedName));
+    if (!renderedName[0])
+    {
+        char clientName[MAX_NAME_LENGTH];
+        GetClientName(client, clientName, sizeof(clientName));
+        Format(renderedName, sizeof(renderedName), "{teamcolor}%s{default}", clientName);
+    }
+
+    CPrintToChatAllEx(client, "%s %s", renderedName, teamText);
+}
+
+public any Native_FilterAlerts_MarkAutobalance(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    if (client > 0 && client <= MaxClients)
+    {
+        g_TidyChatSuppressNextTeamAlert[client] = true;
+    }
+    return 1;
+}
+
+public any Native_FilterAlerts_SuppressTeamAlertWindow(Handle plugin, int numParams)
+{
+    float seconds = view_as<float>(GetNativeCell(1));
+    if (seconds <= 0.0)
+    {
+        return 0;
+    }
+
+    float until = GetGameTime() + seconds;
+    if (until > g_TidyChatSuppressTeamAlertsUntil)
+    {
+        g_TidyChatSuppressTeamAlertsUntil = until;
+    }
+    return 1;
+}
+
+public Action TidyChat_UserMessageHook(UserMsg msgId, BfRead message, const int[] players, int playersNum, bool reliable, bool init)
+{
+    message.ReadByte();
+    message.ReadByte();
+
+    char messageName[96];
+    char firstParameter[96];
+    message.ReadString(messageName, sizeof(messageName));
+    message.ReadString(firstParameter, sizeof(firstParameter));
+
+    if (GetClientCount(false) < 7
+        && (StrContains(messageName, "Name_Change", false) != -1
+            || StrContains(firstParameter, "Name_Change", false) != -1))
+    {
+        return Plugin_Handled;
+    }
+
+    return Plugin_Continue;
+}
+
+public Action TidyChat_EventPlayerDisconnect(Event event, const char[] name, bool dontBroadcast)
+{
+    int client = GetClientOfUserId(event.GetInt("userid"));
+    if (client > 0 && client <= MaxClients)
+    {
+        g_TidyChatSuppressNextTeamAlert[client] = false;
+    }
+
+    if (g_hTidyChatEnabled.BoolValue && g_hTidyChatDisconnect.BoolValue)
+    {
+        event.BroadcastDisabled = true;
+    }
+    return Plugin_Continue;
+}
+
+public Action TidyChat_EventPlayerChangeName(Event event, const char[] name, bool dontBroadcast)
+{
+    int client = GetClientOfUserId(event.GetInt("userid"));
+    if (client == 0 || IsFakeClient(client))
+    {
+        event.BroadcastDisabled = true;
+    }
+    return Plugin_Continue;
+}
+
+public Action TidyChat_EventPlayerTeam(Event event, const char[] name, bool dontBroadcast)
+{
+    if (!g_hTidyChatEnabled.BoolValue || !g_hTidyChatTeam.BoolValue || event.GetBool("silent"))
+    {
+        return Plugin_Continue;
+    }
+
+    if (g_TidyChatSuppressTeamAlertsUntil > 0.0)
+    {
+        if (GetGameTime() < g_TidyChatSuppressTeamAlertsUntil)
+        {
+            event.BroadcastDisabled = true;
+            return Plugin_Handled;
+        }
+        g_TidyChatSuppressTeamAlertsUntil = 0.0;
+    }
+
+    int client = GetClientOfUserId(event.GetInt("userid"));
+    if (!Filters_IsRealClientInGame(client))
+    {
+        event.BroadcastDisabled = true;
+        return Plugin_Handled;
+    }
+
+    if (g_TidyChatSuppressNextTeamAlert[client])
+    {
+        g_TidyChatSuppressNextTeamAlert[client] = false;
+        event.BroadcastDisabled = true;
+        return Plugin_Handled;
+    }
+
+    int team = event.GetInt("team");
+    event.BroadcastDisabled = true;
+    TidyChat_PrintTeamJoinAlert(client, team);
+    return Plugin_Handled;
+}
+
+public Action TidyChat_EventCvar(Event event, const char[] name, bool dontBroadcast)
+{
+    if (g_hTidyChatEnabled.BoolValue && g_hTidyChatCvar.BoolValue)
+    {
+        event.BroadcastDisabled = true;
+    }
+    return Plugin_Continue;
+}
+
+public Action TidyChat_UserMessageVoiceSubtitle(UserMsg msgId, BfRead message, const int[] players, int playersNum, bool reliable, bool init)
+{
+    if (g_hTidyChatEnabled.BoolValue && g_hTidyChatVoice.BoolValue)
+    {
+        return Plugin_Handled;
+    }
+    return Plugin_Continue;
 }
 
 static void Filters_StartTimers()
@@ -776,6 +981,11 @@ public void OnMapStart()
     // Stop it before recreating the poller so one server cannot relay each row twice.
     Filters_StopOutboxTimer();
     Filters_StartTimers();
+    g_TidyChatSuppressTeamAlertsUntil = 0.0;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        g_TidyChatSuppressNextTeamAlert[client] = false;
+    }
 
     char mapName[128];
     GetCurrentMap(mapName, sizeof(mapName));
@@ -4906,6 +5116,7 @@ public void OnClientPutInServer(int client)
 
 public void OnClientDisconnect(int client)
 {
+    g_TidyChatSuppressNextTeamAlert[client] = false;
     Filters_ResetArchivedMessageCooldowns(client);
     Filters_ClearClientState(client);
     Filters_ResetExternalStats(client);
