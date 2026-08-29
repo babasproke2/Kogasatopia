@@ -86,8 +86,7 @@ void VMO_OnClientPutInServer(int client) {
 	ResetClientModelRefs(client);
 	SDKHook(client, SDKHook_Spawn, VMO_OnPlayerSpawnPre);
 	SDKHook(client, SDKHook_SpawnPost, VMO_OnPlayerSpawnPost);
-	SDKHook(client, SDKHook_WeaponEquipPost, VMO_OnWeaponEquipPost);
-	SDKHook(client, SDKHook_WeaponSwitchPost, VMO_OnWeaponSwitchPost);
+	SDKHook(client, SDKHook_WeaponSwitchPost, CWX_OnWeaponSwitchPost);
 }
 
 void VMO_OnClientDisconnect(int client) {
@@ -258,12 +257,6 @@ void VMO_OnItemRuntimeStateReady(int client, int entity) {
 
 	QueueWeaponBoundModelUpdate(client, entity);
 	ScheduleClientModelValidationRetries(client);
-}
-
-void VMO_OnWeaponEquipPost(int client, int weapon) {
-	// CWX applies custom attributes before EquipPlayerWeapon, so this is the
-	// authoritative lifecycle point for newly-created custom weapons.
-	QueueWeaponBoundModelUpdate(client, weapon);
 }
 
 void VMO_OnWeaponSwitchPost(int client, int weapon) {

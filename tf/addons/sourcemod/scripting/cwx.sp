@@ -311,12 +311,16 @@ public void OnPluginEnd() {
 }
 
 void CWX_NotifyItemRuntimeStateReady(int client, int entity) {
-	if (g_hOnItemRuntimeStateReady == null || !IsClientInGame(client)
-			|| !IsValidEntity(entity)) {
+	if (!IsClientInGame(client) || !IsValidEntity(entity)) {
 		return;
 	}
 
 	VMO_OnItemRuntimeStateReady(client, entity);
+	CwxSound_OnItemRuntimeStateReady(client, entity);
+
+	if (g_hOnItemRuntimeStateReady == null) {
+		return;
+	}
 
 	Call_StartForward(g_hOnItemRuntimeStateReady);
 	Call_PushCell(client);
@@ -450,11 +454,18 @@ public void OnMapEnd() {
 }
 
 public void OnClientPutInServer(int client) {
+	CwxSound_ResetClient(client);
 	VMO_OnClientPutInServer(client);
 }
 
 public void OnClientDisconnect(int client) {
+	CwxSound_ResetClient(client);
 	VMO_OnClientDisconnect(client);
+}
+
+void CWX_OnWeaponSwitchPost(int client, int weapon) {
+	CwxSound_OnWeaponSwitchPost(client, weapon);
+	VMO_OnWeaponSwitchPost(client, weapon);
 }
 
 public void OnEntityCreated(int entity, const char[] className) {
@@ -761,6 +772,7 @@ void ApplyClientCustomLoadout(int client) {
 				"persisted_loadout");
 			CWX_MarkValidatedAttachedEntity(currentLoadoutItem, client,
 				"persisted_loadout");
+			CWX_NotifyItemRuntimeStateReady(client, currentLoadoutItem);
 		}
 	}
 	

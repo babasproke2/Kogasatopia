@@ -6,6 +6,8 @@
 #define CWX_ATTR_REPLACE_SOUND "replace sound"
 
 StringMap g_CwxSoundGroups;
+int g_iCwxSoundWeaponRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
+char g_sCwxSoundGroup[MAXPLAYERS + 1][64];
 
 enum struct CwxSoundGroup
 {
@@ -60,14 +62,19 @@ public Action CwxSound_Hook(
 		return Plugin_Continue;
 	}
 
-	char groupName[256];
-	if (!TF2CustAttr_GetString(weapon, CWX_ATTR_REPLACE_SOUND, groupName, sizeof(groupName)))
+	int weaponRef = EntIndexToEntRef(weapon);
+	if (g_iCwxSoundWeaponRef[entity] != weaponRef)
+	{
+		CwxSound_UpdateClientWeapon(entity, weapon);
+	}
+
+	if (!g_sCwxSoundGroup[entity][0])
 	{
 		return Plugin_Continue;
 	}
 
 	CwxSoundGroup group;
-	if (!g_CwxSoundGroups.GetArray(groupName, group, sizeof(group)))
+	if (!g_CwxSoundGroups.GetArray(g_sCwxSoundGroup[entity], group, sizeof(group)))
 	{
 		return Plugin_Continue;
 	}
@@ -82,6 +89,51 @@ public Action CwxSound_Hook(
 
 	EmitSoundToAll(replacement, entity, channel, level, flags, volume, pitch);
 	return Plugin_Stop;
+}
+
+void CwxSound_OnWeaponSwitchPost(int client, int weapon)
+{
+	CwxSound_UpdateClientWeapon(client, weapon);
+}
+
+void CwxSound_OnItemRuntimeStateReady(int client, int entity)
+{
+	if (CwxSound_IsValidClient(client)
+			&& GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon") == entity)
+	{
+		CwxSound_UpdateClientWeapon(client, entity);
+	}
+}
+
+void CwxSound_UpdateClientWeapon(int client, int weapon)
+{
+	CwxSound_ResetClient(client);
+	if (!CwxSound_IsValidClient(client) || !IsValidEntity(weapon))
+	{
+		return;
+	}
+
+	g_iCwxSoundWeaponRef[client] = EntIndexToEntRef(weapon);
+	TF2CustAttr_GetString(weapon, CWX_ATTR_REPLACE_SOUND,
+		g_sCwxSoundGroup[client], sizeof(g_sCwxSoundGroup[]));
+}
+
+void CwxSound_ResetClient(int client)
+{
+	if (client <= 0 || client > MaxClients)
+	{
+		return;
+	}
+	g_iCwxSoundWeaponRef[client] = INVALID_ENT_REFERENCE;
+	g_sCwxSoundGroup[client][0] = '\0';
+}
+
+void CwxSound_ResetClients()
+{
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		CwxSound_ResetClient(client);
+	}
 }
 
 void CwxSound_Reload()
@@ -150,6 +202,7 @@ void CwxSound_LoadGroups(KeyValues config)
 
 void CwxSound_Clear()
 {
+	CwxSound_ResetClients();
 	if (g_CwxSoundGroups == null)
 	{
 		return;

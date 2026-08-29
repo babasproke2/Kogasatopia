@@ -409,6 +409,7 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 		TF2_RemoveItemByLoadoutSlot(client, loadoutSlot);
 	}
 	TF2_EquipPlayerEconItem(client, itemEntity);
+	CWX_NotifyItemRuntimeStateReady(client, itemEntity);
 	return itemEntity;
 }
 
@@ -462,7 +463,6 @@ bool EnsureCustomItemRuntimeAttributes(int itemEntity,
 	if (restored) {
 		LogMessage("[CWX][RuntimeRepair] context=%s client=%N entity=%d uid=%s",
 			context, client, itemEntity, item.uid);
-		CWX_NotifyItemRuntimeStateReady(client, itemEntity);
 	}
 	return restored;
 }
