@@ -682,14 +682,25 @@ public Action Command_MemomanEventLeaderboard(int client, int args)
     pack.WriteCell(GetClientUserId(client));
     pack.WriteCell(g_MemomanEventGeneration);
 
+    char colorJoin[96];
+    strcopy(
+        colorJoin,
+        sizeof(colorJoin),
+        g_IsMySql
+            ? "BINARY nc.steamid = BINARY me.steamid64"
+            : "nc.steamid = me.steamid64");
+
     char query[768];
     Format(query, sizeof(query),
-        "SELECT steamid64, username, gems_gained, custom_weapon_kills, "
+        "SELECT me.steamid64, me.username, me.gems_gained, me.custom_weapon_kills, "
         ... "loch_n_load_kills, loch_n_load_airshots, sentries_built, "
-        ... "sentry_kills, sentries_upgraded_level_3, ubercharges_deployed, double_donks "
-        ... "FROM %s WHERE gems_gained > 0 "
-        ... "ORDER BY gems_gained DESC, steamid64 ASC LIMIT %d",
+        ... "sentry_kills, sentries_upgraded_level_3, ubercharges_deployed, double_donks, "
+        ... "COALESCE(nc.color, '') "
+        ... "FROM %s me LEFT JOIN filters_namecolors nc ON %s "
+        ... "WHERE me.gems_gained > 0 "
+        ... "ORDER BY me.gems_gained DESC, me.steamid64 ASC LIMIT %d",
         MEMOMAN_EVENT_TABLE,
+        colorJoin,
         MEMOMAN_EVENT_LEADERBOARD_LIMIT);
     g_Database.Query(SQL_OnMemomanEventLeaderboard, query, pack);
     return Plugin_Handled;
@@ -742,7 +753,7 @@ void MemomanEvent_BuildTopSources(DBResultSet results, char[] buffer, int maxlen
         Format(
             sourceText,
             sizeof(sourceText),
-            "{magenta}%s %s%d{gold}",
+            "{gold}%s %s%d{default}",
             g_MemomanEventLeaderboardSourceNames[topSources[position]],
             g_CurrencyColorTag,
             topValues[position]);
@@ -776,13 +787,35 @@ public void SQL_OnMemomanEventLeaderboard(Database db, DBResultSet results, cons
     {
         rank++;
 
+        char steamId[32];
         char storedName[128];
         char displayName[128];
+        char nameColor[32];
+        results.FetchString(0, steamId, sizeof(steamId));
         results.FetchString(1, storedName, sizeof(storedName));
+        results.FetchString(11, nameColor, sizeof(nameColor));
         StripMenuColorTags(storedName, displayName, sizeof(displayName));
         if (displayName[0] == '\0')
         {
-            results.FetchString(0, displayName, sizeof(displayName));
+            strcopy(displayName, sizeof(displayName), steamId);
+        }
+
+        if (GetFeatureStatus(FeatureType_Native, "Filters_GetSteamIdColorTag") == FeatureStatus_Available)
+        {
+            char liveColor[32];
+            if (Filters_GetSteamIdColorTag(steamId, liveColor, sizeof(liveColor)) && liveColor[0] != '\0')
+            {
+                strcopy(nameColor, sizeof(nameColor), liveColor);
+            }
+        }
+        TrimString(nameColor);
+        if (StrEqual(nameColor, "teamcolor", false) || nameColor[0] == '\0')
+        {
+            strcopy(nameColor, sizeof(nameColor), "default");
+        }
+        else
+        {
+            NormalizeLeaderboardColorTag(nameColor, sizeof(nameColor));
         }
 
         char topSources[320];
@@ -790,8 +823,9 @@ public void SQL_OnMemomanEventLeaderboard(Database db, DBResultSet results, cons
 
         CPrintToChat(
             client,
-            "%d. %s %s%d{default} - {gold}%s",
+            "%d. {%s}%s{default} %s%d{default} - %s",
             rank,
+            nameColor,
             displayName,
             g_CurrencyColorTag,
             results.FetchInt(2),
