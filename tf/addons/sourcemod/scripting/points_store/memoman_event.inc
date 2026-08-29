@@ -6,6 +6,7 @@
 #define MEMOMAN_EVENT_SOURCE_COUNT 1
 #define MEMOMAN_EVENT_LEADERBOARD_LIMIT 10
 #define MEMOMAN_EVENT_LEADERBOARD_SOURCE_COUNT 8
+#define MEMOMAN_EVENT_HEADER "{magenta} ----- Memoman Graverobbing Event -----"
 
 enum struct MemomanRewardRequest
 {
@@ -24,11 +25,6 @@ static const char g_MemomanEventSourceIds[MEMOMAN_EVENT_SOURCE_COUNT][] =
 static const int g_MemomanEventSourceAmounts[MEMOMAN_EVENT_SOURCE_COUNT] =
 {
     1
-};
-
-static const char g_MemomanEventSourceReasons[MEMOMAN_EVENT_SOURCE_COUNT][] =
-{
-    "Kill with a custom weapon"
 };
 
 static const char g_MemomanEventSourceColumns[MEMOMAN_EVENT_SOURCE_COUNT][] =
@@ -497,10 +493,10 @@ public void SQL_OnMemomanEventTransferred(Database db, DBResultSet results, cons
         g_ClientBonusPoints[recipient] += amount;
         CPrintToChat(
             recipient,
-            "%s{magenta}+%d{default} for {magenta}Memoman event: {gold}%s",
+            "%s {magenta}+%d{default} for {magenta}Memoman event: {default}kill with '%s'",
             g_CurrencyPrefix,
             amount,
-            g_MemomanEventSourceReasons[request.source]);
+            request.detailName);
         PlayBonusPointsSound(recipient, true);
     }
 
@@ -740,6 +736,7 @@ public void SQL_OnMemomanEventCommandBalance(Database db, DBResultSet results, c
 
     char currencyLong[BP_CURRENCY_LONG_MAX];
     GetCurrencyLongLabel(currencyLong, sizeof(currencyLong));
+    CPrintToChat(client, MEMOMAN_EVENT_HEADER);
     CPrintToChat(
         client,
         "{blue}Memoman{default}'s remaining %s%s{default}: %d",
@@ -865,7 +862,7 @@ public void SQL_OnMemomanEventLeaderboard(Database db, DBResultSet results, cons
         return;
     }
 
-    CPrintToChat(client, "{magenta} ----- Memoman Graverobbing Event -----");
+    CPrintToChat(client, MEMOMAN_EVENT_HEADER);
 
     int rank = 0;
     while (results != null && results.FetchRow())
