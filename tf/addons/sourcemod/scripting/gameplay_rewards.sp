@@ -29,6 +29,7 @@
 #define MEMOMAN_SOURCE_SENTRY_LEVEL_3 "sentry_level_3"
 #define MEMOMAN_SOURCE_UBER_DEPLOYED "uber_deployed"
 #define MEMOMAN_SOURCE_DOUBLE_DONK "double_donk"
+#define MEMOMAN_SENTRY_BUILD_COOLDOWN 60.0
 
 ConVar g_GameplayRewardDelay = null;
 int g_LastDamageAttackerUserId[MAXPLAYERS + 1];
@@ -36,6 +37,7 @@ int g_LastDamageWeaponRef[MAXPLAYERS + 1];
 bool g_LastDamageFromSentry[MAXPLAYERS + 1];
 float g_LastDamageAt[MAXPLAYERS + 1];
 StringMap g_LevelThreeSentries = null;
+float g_NextMemomanSentryBuildRewardAt[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
@@ -88,12 +90,14 @@ public void OnMapStart()
 public void OnClientPutInServer(int client)
 {
 	ResetLastDamage(client);
+	g_NextMemomanSentryBuildRewardAt[client] = 0.0;
 	SDKHook(client, SDKHook_OnTakeDamage, GameplayRewards_OnTakeDamage);
 }
 
 public void OnClientDisconnect(int client)
 {
 	ResetLastDamage(client);
+	g_NextMemomanSentryBuildRewardAt[client] = 0.0;
 }
 
 float GameplayRewardDelay()
@@ -118,13 +122,14 @@ void AwardGameplayReward(int client, const char[] type, int target, float delay 
 		delay >= 0.0 ? delay : GameplayRewardDelay());
 }
 
-void AwardMemomanReward(int client, const char[] sourceId)
+bool AwardMemomanReward(int client, const char[] sourceId)
 {
 	if (Client_IsHumanInGame(client)
 		&& GetFeatureStatus(FeatureType_Native, "PointsStore_AwardMemomanEvent") == FeatureStatus_Available)
 	{
-		PointsStore_AwardMemomanEvent(client, sourceId);
+		return PointsStore_AwardMemomanEvent(client, sourceId);
 	}
+	return false;
 }
 
 void ResetLastDamage(int victim)
@@ -280,7 +285,13 @@ public void Event_MemomanPlayerBuiltObject(Event event, const char[] name, bool 
 	{
 		return;
 	}
-	AwardMemomanReward(client, MEMOMAN_SOURCE_SENTRY_BUILT);
+
+	float now = GetEngineTime();
+	if (now >= g_NextMemomanSentryBuildRewardAt[client]
+		&& AwardMemomanReward(client, MEMOMAN_SOURCE_SENTRY_BUILT))
+	{
+		g_NextMemomanSentryBuildRewardAt[client] = now + MEMOMAN_SENTRY_BUILD_COOLDOWN;
+	}
 }
 
 public void Event_MemomanPlayerUpgradedObject(Event event, const char[] name, bool dontBroadcast)
