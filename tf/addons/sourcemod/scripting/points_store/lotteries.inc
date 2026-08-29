@@ -19,6 +19,7 @@
 #define LOTTO_EXTRA_WINNER_PERCENT 5
 #define LOTTO_WELFARE_POOL_PERCENT 5
 #define LOTTO_TICKET_WRITE_TIMEOUT 15.0
+#define LOTTO_TICKET_MUTATION_COOLDOWN 2.0
 #define LOTTO_MAP_CHANGE_DELAY 120.0
 
 ConVar g_CvarLotteryDisabled = null;
@@ -48,6 +49,7 @@ bool g_ClientLotteryHasTicket[MAXPLAYERS + 1];
 int g_ClientLotteryId[MAXPLAYERS + 1];
 int g_ClientLotteryTicketValue[MAXPLAYERS + 1];
 char g_ClientLotteryTicket[MAXPLAYERS + 1][LOTTO_TICKET_MAX];
+float g_NextLotteryTicketMutationAt[MAXPLAYERS + 1];
 
 Handle g_LotteryDrawTimer = null;
 Handle g_LotteryCallTimer = null;
@@ -105,6 +107,7 @@ void Lotteries_OnPluginStart()
     for (int client = 1; client <= MaxClients; client++)
     {
         ClearClientLotteryTicketCache(client);
+        g_NextLotteryTicketMutationAt[client] = 0.0;
     }
 
     g_CvarLotteryDisabled = CreateConVar("sm_points_store_lottery_disabled", "0", "Disable lottery ticket commands and lottery draws on this server.", _, true, 0.0, true, 1.0);
@@ -199,12 +202,14 @@ void Lotteries_OnMapStart()
 
 void Lotteries_OnClientAuthorized(int client)
 {
+    g_NextLotteryTicketMutationAt[client] = 0.0;
     LoadClientLotteryTicket(client);
 }
 
 void Lotteries_OnClientDisconnect(int client)
 {
     g_LotteryWaitingCustom[client] = false;
+    g_NextLotteryTicketMutationAt[client] = 0.0;
     ClearClientLotteryTicketCache(client);
 }
 
@@ -1138,6 +1143,29 @@ bool IsLotteryReadyForClient(int client, bool needTicketLoaded = true)
     return true;
 }
 
+bool CanStartLotteryTicketMutation(int client)
+{
+    float remaining = g_NextLotteryTicketMutationAt[client] - GetEngineTime();
+    if (remaining <= 0.0)
+    {
+        return true;
+    }
+
+    char colorTag[BP_CURRENCY_COLOR_MAX + 2];
+    GetCurrencyColorTag(colorTag, sizeof(colorTag));
+    CPrintToChat(
+        client,
+        "%s[Lottery]{default} Wait {gold}%d seconds{default} before buying, refunding, or changing a ticket.",
+        colorTag,
+        RoundToCeil(remaining));
+    return false;
+}
+
+void StartLotteryTicketMutationCooldown(int client)
+{
+    g_NextLotteryTicketMutationAt[client] = GetEngineTime() + LOTTO_TICKET_MUTATION_COOLDOWN;
+}
+
 public Action Command_Lottery(int client, int args)
 {
     if (!Client_IsHumanInGame(client))
@@ -1886,6 +1914,11 @@ void AttemptLotteryTicketPurchase(int client, int amount)
         return;
     }
 
+    if (!CanStartLotteryTicketMutation(client))
+    {
+        return;
+    }
+
     char ticket[LOTTO_TICKET_MAX];
     GenerateLotteryTicket(ticket, sizeof(ticket));
     if (ticket[0] == '\0')
@@ -1913,6 +1946,8 @@ void AttemptLotteryTicketPurchase(int client, int amount)
         CPrintToChat(client, "%s[Lottery]{default} You can't afford that ticket.", colorTag);
         return;
     }
+
+    StartLotteryTicketMutationCooldown(client);
 
     int createdAt = GetTime();
 
@@ -2002,6 +2037,11 @@ void AttemptLotteryTicketReplacement(int client, int amount)
         return;
     }
 
+    if (!CanStartLotteryTicketMutation(client))
+    {
+        return;
+    }
+
     char ticket[LOTTO_TICKET_MAX];
     GenerateLotteryTicket(ticket, sizeof(ticket));
     if (ticket[0] == '\0')
@@ -2039,6 +2079,7 @@ void AttemptLotteryTicketReplacement(int client, int amount)
     pack.WriteString(g_ClientLotteryTicket[client]);
     pack.WriteString(ticket);
     pack.WriteString(displayName);
+    StartLotteryTicketMutationCooldown(client);
     BeginLotteryTicketWrite(steamId);
 
     Transaction txn = new Transaction();
@@ -2283,6 +2324,11 @@ void RefundLotteryTicket(int client)
         return;
     }
 
+    if (!CanStartLotteryTicketMutation(client))
+    {
+        return;
+    }
+
     char escapedSteamId[65];
     char escapedTicket[(LOTTO_TICKET_MAX * 2) + 1];
     if (!EscapeSql(steamId, escapedSteamId, sizeof(escapedSteamId))
@@ -2302,6 +2348,7 @@ void RefundLotteryTicket(int client)
     pack.WriteString(steamId);
     pack.WriteString(g_ClientLotteryTicket[client]);
     pack.WriteString(displayName);
+    StartLotteryTicketMutationCooldown(client);
     BeginLotteryTicketWrite(steamId);
 
     char query[384];
