@@ -262,8 +262,7 @@ public void Event_MemomanPlayerDeath(Event event, const char[] name, bool dontBr
 	bool fromSentry;
 	GetRecentDamageWeapon(attacker, victim, damageWeapon, fromSentry);
 
-	if (event.GetInt("weapon_def_index", -1) == LOCH_N_LOAD_ITEM_DEFINITION
-		|| GetWeaponItemDefinition(damageWeapon) == LOCH_N_LOAD_ITEM_DEFINITION)
+	if (GetWeaponItemDefinition(damageWeapon) == LOCH_N_LOAD_ITEM_DEFINITION)
 	{
 		AwardMemomanReward(attacker, MEMOMAN_SOURCE_LOCH_N_LOAD_KILL);
 	}
