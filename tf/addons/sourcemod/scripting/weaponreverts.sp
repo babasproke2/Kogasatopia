@@ -442,6 +442,7 @@ public void OnPluginStart() {
 		HookEvent("player_builtobject", Event_PlayerBuiltObject);
 
 		HookEvent("player_death", Event_PlayerDeath, EventHookMode_Pre);
+		HookEvent("player_hurt", Event_PlayerHurt_DoubleDonk, EventHookMode_Post);
 		HookEvent("post_inventory_application", Event_Resupply, EventHookMode_Post);
 		HookEvent("player_spawn", OnPlayerSpawn);
 		HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);

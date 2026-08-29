@@ -28,6 +28,7 @@
 #define MEMOMAN_SOURCE_SENTRY_KILL "sentry_kill"
 #define MEMOMAN_SOURCE_SENTRY_LEVEL_3 "sentry_level_3"
 #define MEMOMAN_SOURCE_UBER_DEPLOYED "uber_deployed"
+#define MEMOMAN_SOURCE_DOUBLE_DONK "double_donk"
 
 ConVar g_GameplayRewardDelay = null;
 int g_LastDamageAttackerUserId[MAXPLAYERS + 1];
@@ -461,6 +462,11 @@ public void OnUberDeployed(int medic, int ubersThisLife)
 	{
 		AwardGameplayReward(medic, "ubers_life_3", 0);
 	}
+}
+
+public void OnDoubleDonk(int attacker, int victim)
+{
+	AwardMemomanReward(attacker, MEMOMAN_SOURCE_DOUBLE_DONK);
 }
 
 public void OnReflectKill(int attacker, int victim, bool directHit)

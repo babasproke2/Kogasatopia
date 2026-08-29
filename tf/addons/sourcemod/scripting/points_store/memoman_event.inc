@@ -2,7 +2,7 @@
 #define MEMOMAN_EVENT_STEAMID64 "76561199873606169"
 #define MEMOMAN_EVENT_REWARD_DELAY 1.0
 #define MEMOMAN_EVENT_ADVERT_INTERVAL 900.0
-#define MEMOMAN_EVENT_SOURCE_COUNT 7
+#define MEMOMAN_EVENT_SOURCE_COUNT 8
 
 enum struct MemomanRewardRequest
 {
@@ -19,7 +19,8 @@ static const char g_MemomanEventSourceIds[MEMOMAN_EVENT_SOURCE_COUNT][] =
     "sentry_built",
     "sentry_kill",
     "sentry_level_3",
-    "uber_deployed"
+    "uber_deployed",
+    "double_donk"
 };
 
 static const int g_MemomanEventSourceAmounts[MEMOMAN_EVENT_SOURCE_COUNT] =
@@ -30,7 +31,8 @@ static const int g_MemomanEventSourceAmounts[MEMOMAN_EVENT_SOURCE_COUNT] =
     1,
     2,
     1,
-    3
+    3,
+    2
 };
 
 static const char g_MemomanEventSourceReasons[MEMOMAN_EVENT_SOURCE_COUNT][] =
@@ -41,7 +43,8 @@ static const char g_MemomanEventSourceReasons[MEMOMAN_EVENT_SOURCE_COUNT][] =
     "Built a sentry",
     "Sentry kill",
     "Upgraded Sentry to Level 3",
-    "Deployed ÜberCharge"
+    "Deployed ÜberCharge",
+    "Episten"
 };
 
 static const char g_MemomanEventSourceColumns[MEMOMAN_EVENT_SOURCE_COUNT][] =
@@ -52,7 +55,8 @@ static const char g_MemomanEventSourceColumns[MEMOMAN_EVENT_SOURCE_COUNT][] =
     "sentries_built",
     "sentry_kills",
     "sentries_upgraded_level_3",
-    "ubercharges_deployed"
+    "ubercharges_deployed",
+    "double_donks"
 };
 
 ArrayList g_MemomanEventQueue = null;
@@ -115,6 +119,7 @@ void MemomanEvent_EnsureSchema()
             ... "sentry_kills INT NOT NULL DEFAULT 0, "
             ... "sentries_upgraded_level_3 INT NOT NULL DEFAULT 0, "
             ... "ubercharges_deployed INT NOT NULL DEFAULT 0, "
+            ... "double_donks INT NOT NULL DEFAULT 0, "
             ... "updated_at INT NOT NULL DEFAULT 0, "
             ... "PRIMARY KEY (steamid64), "
             ... "KEY idx_memoman_event_gems (gems_gained)"
@@ -135,6 +140,7 @@ void MemomanEvent_EnsureSchema()
             ... "sentry_kills INTEGER NOT NULL DEFAULT 0, "
             ... "sentries_upgraded_level_3 INTEGER NOT NULL DEFAULT 0, "
             ... "ubercharges_deployed INTEGER NOT NULL DEFAULT 0, "
+            ... "double_donks INTEGER NOT NULL DEFAULT 0, "
             ... "updated_at INTEGER NOT NULL DEFAULT 0)",
             MEMOMAN_EVENT_TABLE);
     }
@@ -151,6 +157,26 @@ public void SQL_OnMemomanEventSchemaReady(Database db, DBResultSet results, cons
     if (error[0] != '\0')
     {
         LogError("[points_store] Memoman event schema creation failed: %s", error);
+        return;
+    }
+
+    char query[256];
+    Format(query, sizeof(query),
+        "ALTER TABLE %s ADD COLUMN double_donks %s NOT NULL DEFAULT 0",
+        MEMOMAN_EVENT_TABLE,
+        g_IsMySql ? "INT" : "INTEGER");
+    g_Database.Query(SQL_OnMemomanEventDoubleDonksColumnReady, query, data);
+}
+
+public void SQL_OnMemomanEventDoubleDonksColumnReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (data != g_MemomanEventGeneration)
+    {
+        return;
+    }
+    if (error[0] != '\0' && !Db_IsDuplicateColumnError(error))
+    {
+        LogError("[points_store] Memoman event Double Donk schema update failed: %s", error);
         return;
     }
 
@@ -621,6 +647,6 @@ public void SQL_OnMemomanEventCommandBalance(Database db, DBResultSet results, c
         balance);
     CPrintToChat(
         client,
-        "Steal %s from {blue}Memoman{default}'s account through the following methods: Loch-n-Load kill, Loch-n-Load airshot kill, kills with custom weapons, building sentries, sentry kills, upgrading a sentry to level 3, deploying ÜberCharges",
+        "Steal %s from {blue}Memoman{default}'s account through the following methods: Loch-n-Load kill, Loch-n-Load airshot kill, kills with custom weapons, building sentries, sentry kills, upgrading a sentry to level 3, deploying ÜberCharges, and a {gold}Secret Method",
         currencyLong);
 }

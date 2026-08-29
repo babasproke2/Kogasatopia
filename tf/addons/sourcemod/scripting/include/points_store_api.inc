@@ -115,7 +115,7 @@ native int PointsStore_StealBonusPoints(int victim, int recipient, int points, c
  *
  * Supported source IDs: custom_weapon_kill, loch_n_load_kill,
  * loch_n_load_airshot, sentry_built, sentry_kill, sentry_level_3,
- * and uber_deployed.
+ * uber_deployed, and double_donk.
  *
  * @param client        Client receiving the reward.
  * @param sourceId      Stable Memoman event source ID.

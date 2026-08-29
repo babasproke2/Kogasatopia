@@ -40,6 +40,7 @@ forward void OnSandmanCleaverCombo(int attacker, int victim);
 forward void OnMeatshotKill(int attacker, int victim);
 forward void OnEnvironmentalKill(int attacker, int victim);
 forward void OnSandmanMoonshot(int attacker, int victim);
+forward void OnDoubleDonk(int attacker, int victim);
 
 public SharedPlugin __pl_weaponreverts = {
 	name = "weaponreverts",
