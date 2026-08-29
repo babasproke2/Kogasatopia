@@ -240,6 +240,8 @@ bool CreateItemFromSection(KeyValues config) {
 		item.customAttributes.Import(config);
 		config.GoBack();
 	}
+	CwxModels_PrecacheItemAssets(item.customAttributes);
+	CwxSound_ValidateItemConfig(item.uid, item.customAttributes);
 	
 	if (config.JumpToKey("localized_name")) {
 		item.localizedNames = new KeyValues("localized_name");
@@ -386,7 +388,7 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 	/*
 	 * Weapons are spawned a second time above.  Normally the runtime custom-attribute
 	 * storage survives, but make that an invariant before EquipPlayerWeapon fires so
-	 * consumers such as viewmodel_override always observe the final entity state.
+	 * the CWX model pipeline always observes the final entity state.
 	 */
 	EnsureCustomItemRuntimeAttributes(itemEntity, item, client, "equip");
 	

@@ -158,7 +158,10 @@ void CWX_GetEntityDebugInfo(int entity, char[] className, int classLen,
 }
 
 bool CWX_IsValidClient(int client) {
-	return client > 0 && client <= MaxClients && IsClientInGame(client);
+	return client > 0 && client <= MaxClients && IsClientInGame(client)
+			&& !IsClientSourceTV(client)
+			&& !IsClientReplay(client)
+			&& !GetEntProp(client, Prop_Send, "m_bIsCoaching");
 }
 
 void CWX_FormatClientLabel(int client, char[] buffer, int maxlen) {

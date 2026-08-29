@@ -182,8 +182,8 @@ void CWX_ApplyEngineOverrides(int weapon)
 #include "cwx/item_export.sp"
 #include "cwx/loadout_entries.sp"
 #include "cwx/loadout_radio_menu.sp"
-#include "cwx/sound_replacement.sp"
-#include "cwx/viewmodel_override.sp"
+#include "cwx/sound_overrides.sp"
+#include "cwx/model_overrides.sp"
 
 int g_attrdef_AllowedInMedievalMode;
 
@@ -231,7 +231,6 @@ public void OnPluginStart() {
 	
 	delete hGameConf;
 	
-	HookEvent("player_spawn", OnPlayerSpawnPost);
 	HookUserMessage(GetUserMessageId("PlayerLoadoutUpdated"), OnPlayerLoadoutUpdated,
 			.post = OnPlayerLoadoutUpdatedPost);
 	
@@ -303,11 +302,11 @@ public void OnPluginStart() {
 	}
 
 	CwxSound_OnPluginStart();
-	VMO_OnPluginStart();
+	CwxModels_OnPluginStart();
 }
 
 public void OnPluginEnd() {
-	VMO_OnPluginEnd();
+	CwxModels_OnPluginEnd();
 	CwxSound_OnPluginEnd();
 	Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
 	Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
@@ -319,7 +318,7 @@ void CWX_NotifyItemRuntimeStateReady(int client, int entity) {
 		return;
 	}
 
-	VMO_OnItemRuntimeStateReady(client, entity);
+	CwxModels_OnItemRuntimeStateReady(client, entity);
 	CwxSound_OnItemRuntimeStateReady(client, entity);
 
 	if (g_hOnItemRuntimeStateReady == null) {
@@ -448,7 +447,7 @@ void AppendItemDescriptionPart(char[] buffer, int maxlen, const char[] color, co
 }
 
 public void OnMapStart() {
-	VMO_OnMapStart();
+	CwxModels_OnMapStart();
 	LoadCustomItemConfig();
 	PrecacheMenuResources();
 }
@@ -459,25 +458,25 @@ public void OnMapEnd() {
 
 public void OnClientPutInServer(int client) {
 	CwxSound_ResetClient(client);
-	VMO_OnClientPutInServer(client);
+	CwxModels_OnClientPutInServer(client);
 }
 
 public void OnClientDisconnect(int client) {
 	CwxSound_ResetClient(client);
-	VMO_OnClientDisconnect(client);
+	CwxModels_OnClientDisconnect(client);
 }
 
 void CWX_OnWeaponSwitchPost(int client, int weapon) {
 	CwxSound_OnWeaponSwitchPost(client, weapon);
-	VMO_OnWeaponSwitchPost(client, weapon);
+	CwxModels_OnWeaponSwitchPost(client, weapon);
 }
 
 public void OnEntityCreated(int entity, const char[] className) {
-	VMO_OnEntityCreated(entity, className);
+	CwxModels_OnEntityCreated(entity, className);
 }
 
 public void TF2_OnConditionRemoved(int client, TFCond condition) {
-	VMO_OnConditionRemoved(client, condition);
+	CwxModels_OnConditionRemoved(client, condition);
 }
 
 /**
@@ -782,11 +781,6 @@ void ApplyClientCustomLoadout(int client) {
 	
 	// TODO: switch to the correct slot if we're not holding anything
 	// as is the case again, this happens on non-valid-for-class items
-}
-
-void OnPlayerSpawnPost(Event event, const char[] name, bool dontBroadcast) {
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	g_bForceReequipItems[client] = false;
 }
 
 /**

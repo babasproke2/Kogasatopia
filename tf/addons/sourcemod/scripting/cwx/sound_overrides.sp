@@ -22,7 +22,6 @@ enum struct CwxSoundGroup
 void CwxSound_OnPluginStart()
 {
 	RegServerCmd("sm_cwx_reload_sounds", CwxSound_CommandReload);
-	RegServerCmd("ca_sound_replace_reload", CwxSound_CommandReload);
 	AddNormalSoundHook(CwxSound_Hook);
 }
 
@@ -51,7 +50,7 @@ public Action CwxSound_Hook(
 	char soundEntry[PLATFORM_MAX_PATH],
 	int &seed)
 {
-	if (!CwxSound_IsValidClient(entity) || g_CwxSoundGroups == null)
+	if (!CWX_IsValidClient(entity) || g_CwxSoundGroups == null)
 	{
 		return Plugin_Continue;
 	}
@@ -98,7 +97,7 @@ void CwxSound_OnWeaponSwitchPost(int client, int weapon)
 
 void CwxSound_OnItemRuntimeStateReady(int client, int entity)
 {
-	if (CwxSound_IsValidClient(client)
+	if (CWX_IsValidClient(client)
 			&& GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon") == entity)
 	{
 		CwxSound_UpdateClientWeapon(client, entity);
@@ -108,7 +107,7 @@ void CwxSound_OnItemRuntimeStateReady(int client, int entity)
 void CwxSound_UpdateClientWeapon(int client, int weapon)
 {
 	CwxSound_ResetClient(client);
-	if (!CwxSound_IsValidClient(client) || !IsValidEntity(weapon))
+	if (!CWX_IsValidClient(client) || !IsValidEntity(weapon))
 	{
 		return;
 	}
@@ -162,6 +161,28 @@ void CwxSound_LoadConfig(KeyValues config, const char[] path)
 	g_CwxSoundGroups = new StringMap();
 	CwxSound_LoadGroups(config);
 	config.GoBack();
+}
+
+void CwxSound_ValidateItemConfig(const char[] itemUid, KeyValues attributes)
+{
+	if (attributes == null)
+	{
+		return;
+	}
+
+	char groupName[64];
+	attributes.GetString(CWX_ATTR_REPLACE_SOUND, groupName, sizeof(groupName));
+	if (!groupName[0])
+	{
+		return;
+	}
+
+	CwxSoundGroup group;
+	if (g_CwxSoundGroups == null
+			|| !g_CwxSoundGroups.GetArray(groupName, group, sizeof(group)))
+	{
+		LogError("Item uid '%s' references unknown sound group '%s'", itemUid, groupName);
+	}
 }
 
 void CwxSound_LoadGroups(KeyValues config)
@@ -223,14 +244,4 @@ void CwxSound_Clear()
 	delete groups;
 	delete g_CwxSoundGroups;
 	g_CwxSoundGroups = null;
-}
-
-bool CwxSound_IsValidClient(int client)
-{
-	return client > 0
-		&& client <= MaxClients
-		&& IsClientInGame(client)
-		&& !GetEntProp(client, Prop_Send, "m_bIsCoaching")
-		&& !IsClientSourceTV(client)
-		&& !IsClientReplay(client);
 }

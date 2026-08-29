@@ -27,7 +27,7 @@
 #define ATTR_CLASS_KILLSTREAK_IDLEEFFECT "killstreak_idleeffect"
 
 bool g_bIgnoreWeaponSwitch[MAXPLAYERS + 1];
-ConVar g_cvEdictReserve;
+ConVar sm_cwx_model_edict_reserve;
 bool g_bLoggedEdictReserve;
 
 int g_iLastViewmodelRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
@@ -46,28 +46,50 @@ enum ModelAvailability {
 
 StringMap g_ModelAvailabilityCache;
 
-void VMO_OnPluginStart() {
-	g_cvEdictReserve = CreateConVar("sm_viewmodel_override_edict_reserve", "128",
+void CwxModels_OnPluginStart() {
+	sm_cwx_model_edict_reserve = CreateConVar("sm_cwx_model_edict_reserve", "128",
 		"Minimum free edicts kept before spawning cosmetic override wearables. Set to 0 to disable.",
 		_, true, 0.0);
-	HookEvent("player_death", VMO_OnPlayerDeath);
-	HookEvent("post_inventory_application", VMO_OnInventoryAppliedPost);
-	HookEvent("player_sapped_object", VMO_OnObjectSappedPost);
+	HookEvent("player_death", CwxModels_OnPlayerDeath);
+	HookEvent("post_inventory_application", CwxModels_OnInventoryAppliedPost);
+	HookEvent("player_sapped_object", CwxModels_OnObjectSappedPost);
 
 	ResetModelAvailabilityCache();
 	for (int i = 1; i <= MaxClients; i++) {
 		if (IsClientInGame(i)) {
-			VMO_OnClientPutInServer(i);
+			CwxModels_OnClientPutInServer(i);
 		}
 	}
 }
 
-void VMO_OnMapStart() {
+void CwxModels_OnMapStart() {
 	ResetModelAvailabilityCache();
 	g_bLoggedEdictReserve = false;
 }
 
-void VMO_OnPluginEnd() {
+void CwxModels_PrecacheItemAssets(KeyValues attributes) {
+	if (attributes == null) {
+		return;
+	}
+
+	static const char modelAttributes[][] = {
+		"clientmodel override",
+		"viewmodel override",
+		"worldmodel override",
+		"arm model override",
+		ATTR_EXTRA_WEARABLE_MODEL_OVERRIDE
+	};
+
+	for (int i; i < sizeof(modelAttributes); i++) {
+		char model[PLATFORM_MAX_PATH];
+		attributes.GetString(modelAttributes[i], model, sizeof(model));
+		if (model[0] && FileExistsAndLog(model, true)) {
+			PrecacheModelAndLog(model);
+		}
+	}
+}
+
+void CwxModels_OnPluginEnd() {
 	for (int i = 1; i <= MaxClients; i++) {
 		if (IsClientInGame(i)) {
 			DetachVMs(i);
@@ -75,31 +97,28 @@ void VMO_OnPluginEnd() {
 	}
 }
 
-void VMO_OnClientPutInServer(int client) {
+void CwxModels_OnClientPutInServer(int client) {
 	ResetClientModelRefs(client);
-	SDKHook(client, SDKHook_Spawn, VMO_OnPlayerSpawnPre);
-	SDKHook(client, SDKHook_SpawnPost, VMO_OnPlayerSpawnPost);
+	SDKHook(client, SDKHook_Spawn, CwxModels_OnPlayerSpawnPre);
+	SDKHook(client, SDKHook_SpawnPost, CwxModels_OnPlayerSpawnPost);
 	SDKHook(client, SDKHook_WeaponSwitchPost, CWX_OnWeaponSwitchPost);
 }
 
-void VMO_OnClientDisconnect(int client) {
+void CwxModels_OnClientDisconnect(int client) {
 	DetachVMs(client);
 	ResetClientModelRefs(client);
 }
 
-void VMO_OnEntityCreated(int entity, const char[] className) {
+void CwxModels_OnEntityCreated(int entity, const char[] className) {
 	if (StrEqual(className, "tf_dropped_weapon")) {
-		SDKHook(entity, SDKHook_SpawnPost, VMO_OnDroppedWeaponSpawnPost);
-	} else if (StrContains(className, "tf_wearable", false) == 0
-			&& !StrEqual(className, "tf_wearable_vm")) {
-		SDKHook(entity, SDKHook_SpawnPost, VMO_OnWearableSpawnPost);
+		SDKHook(entity, SDKHook_SpawnPost, CwxModels_OnDroppedWeaponSpawnPost);
 	}
 }
 
 /**
  * Hotfix to ensure any attached Sniper Rifle is rendered when coming out of being in scope.
  */
-void VMO_OnConditionRemoved(int client, TFCond cond) {
+void CwxModels_OnConditionRemoved(int client, TFCond cond) {
 	int weaponvm = EntRefToEntIndex(g_iLastViewmodelRef[client]);
 	if (cond == TFCond_Slowed && TF2_GetPlayerClass(client) == TFClass_Sniper
 			&& weaponvm != INVALID_ENT_REFERENCE && IsValidEntity(weaponvm)) {
@@ -110,7 +129,7 @@ void VMO_OnConditionRemoved(int client, TFCond cond) {
 /**
  * Sets the world model of a dropped weapon.
  */
-void VMO_OnDroppedWeaponSpawnPost(int weapon) {
+void CwxModels_OnDroppedWeaponSpawnPost(int weapon) {
 	char wm[PLATFORM_MAX_PATH];
 	if (TF2CustAttr_GetString(weapon, "clientmodel override", wm, sizeof(wm))
 			|| TF2CustAttr_GetString(weapon, "worldmodel override", wm, sizeof(wm))) {
@@ -127,9 +146,9 @@ void VMO_OnDroppedWeaponSpawnPost(int weapon) {
  * applying weapons by this time; however, they should implicitly invoke WeaponSwitchPost
  * (because of GiveNamedItem, etc.) so viewmodels should be correct.
  */
-void VMO_OnInventoryAppliedPost(Event event, const char[] name, bool dontBroadcast) {
+void CwxModels_OnInventoryAppliedPost(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
-	if (!IsValidViewmodelClient(client)) {
+	if (!CWX_IsValidClient(client)) {
 		return;
 	}
 	UpdateClientWeaponModel(client);
@@ -144,7 +163,7 @@ void VMO_OnInventoryAppliedPost(Event event, const char[] name, bool dontBroadca
 
 Action Timer_DelayedUpdateClientWeaponModel(Handle timer, any userid) {
 	int client = GetClientOfUserId(userid);
-	if (IsValidViewmodelClient(client)
+	if (CWX_IsValidClient(client)
 			&& ClientWeaponModelNeedsRefresh(client)) {
 		UpdateClientWeaponModel(client);
 	}
@@ -153,7 +172,7 @@ Action Timer_DelayedUpdateClientWeaponModel(Handle timer, any userid) {
 
 void Frame_UpdateClientWeaponModel(any userid) {
 	int client = GetClientOfUserId(userid);
-	if (IsValidViewmodelClient(client)
+	if (CWX_IsValidClient(client)
 			&& ClientWeaponModelNeedsRefresh(client)) {
 		UpdateClientWeaponModel(client);
 	}
@@ -165,7 +184,7 @@ void Frame_UpdateClientWeaponModel(any userid) {
  * rebuilding models for whichever weapon happens to be active later.
  */
 void QueueWeaponBoundModelUpdate(int client, int weapon) {
-	if (!IsValidViewmodelClient(client) || !IsValidEntity(weapon)) {
+	if (!CWX_IsValidClient(client) || !IsValidEntity(weapon)) {
 		return;
 	}
 
@@ -184,7 +203,7 @@ void Frame_UpdateClientWeaponModelForWeapon(any data) {
 
 	int client = GetClientOfUserId(userid);
 	int weapon = EntRefToEntIndex(weaponRef);
-	if (!IsValidViewmodelClient(client) || !IsValidEntity(weapon)
+	if (!CWX_IsValidClient(client) || !IsValidEntity(weapon)
 			|| weapon != TF2_GetClientActiveWeapon(client)
 			|| !ClientWeaponModelNeedsRefresh(client)) {
 		return;
@@ -195,7 +214,7 @@ void Frame_UpdateClientWeaponModelForWeapon(any data) {
 }
 
 void ScheduleClientModelUpdate(int client, float delay) {
-	if (IsValidViewmodelClient(client)) {
+	if (CWX_IsValidClient(client)) {
 		CreateTimer(delay, Timer_DelayedUpdateClientWeaponModel, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
 	}
 }
@@ -207,7 +226,7 @@ void ScheduleClientModelUpdateRetries(int client) {
 }
 
 void ScheduleClientModelValidation(int client, float delay) {
-	if (IsValidViewmodelClient(client)) {
+	if (CWX_IsValidClient(client)) {
 		CreateTimer(delay, Timer_ValidateClientWeaponModel, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
 	}
 }
@@ -225,26 +244,37 @@ void ScheduleClientModelRefresh(int client) {
 
 Action Timer_ValidateClientWeaponModel(Handle timer, any userid) {
 	int client = GetClientOfUserId(userid);
-	if (IsValidViewmodelClient(client) && ClientWeaponModelNeedsRefresh(client)) {
+	if (CWX_IsValidClient(client) && ClientWeaponModelNeedsRefresh(client)) {
 		UpdateClientWeaponModel(client);
 	}
 	return Plugin_Stop;
 }
 
-Action VMO_OnPlayerSpawnPre(int client) {
+Action CwxModels_OnPlayerSpawnPre(int client) {
 	g_bIgnoreWeaponSwitch[client] = true;
 	return Plugin_Continue;
 }
 
-void VMO_OnPlayerSpawnPost(int client) {
+void CwxModels_OnPlayerSpawnPost(int client) {
+	g_bForceReequipItems[client] = false;
 	g_bIgnoreWeaponSwitch[client] = false;
 	RequestFrame(Frame_UpdateClientWeaponModel, GetClientUserId(client));
 	ScheduleClientModelRefresh(client);
 }
 
-void VMO_OnItemRuntimeStateReady(int client, int entity) {
-	if (!IsValidViewmodelClient(client) || !IsValidEntity(entity)
-			|| TF2_GetClientActiveWeapon(client) != entity) {
+void CwxModels_OnItemRuntimeStateReady(int client, int entity) {
+	if (!CWX_IsValidClient(client) || !IsValidEntity(entity)) {
+		return;
+	}
+	if (TF2Util_IsEntityWearable(entity)) {
+		char model[PLATFORM_MAX_PATH];
+		if (GetEntityClientModelOverride(entity, model, sizeof(model))) {
+			ApplyWearableModelOverride(entity, model);
+			ScheduleClientModelUpdate(client, 0.1);
+		}
+		return;
+	}
+	if (TF2_GetClientActiveWeapon(client) != entity) {
 		return;
 	}
 
@@ -252,7 +282,7 @@ void VMO_OnItemRuntimeStateReady(int client, int entity) {
 	ScheduleClientModelValidationRetries(client);
 }
 
-void VMO_OnWeaponSwitchPost(int client, int weapon) {
+void CwxModels_OnWeaponSwitchPost(int client, int weapon) {
 	if (!g_bIgnoreWeaponSwitch[client]) {
 		QueueWeaponBoundModelUpdate(client, weapon);
 		ScheduleClientModelUpdate(client, 0.1);
@@ -283,7 +313,7 @@ static void CopyKillstreakSheen(int weapon, int wearable) {
  * Called on weapon switch.  Detaches any old viewmodel overrides and attaches replacements.
  */
 void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERENCE) {
-	if (!IsValidViewmodelClient(client)) {
+	if (!CWX_IsValidClient(client)) {
 		ResetClientModelRefs(client);
 		return;
 	}
@@ -508,30 +538,6 @@ void UpdateClientWeaponModel(int client, int expectedWeapon = INVALID_ENT_REFERE
 	}
 }
 
-void VMO_OnWearableSpawnPost(int wearable) {
-	CreateTimer(0.1, Timer_DelayedWearableSpawnUpdate, EntIndexToEntRef(wearable), TIMER_FLAG_NO_MAPCHANGE);
-}
-
-Action Timer_DelayedWearableSpawnUpdate(Handle timer, any wearableRef) {
-	int wearable = EntRefToEntIndex(wearableRef);
-	if (!IsValidEntity(wearable) || !TF2Util_IsEntityWearable(wearable)) {
-		return Plugin_Stop;
-	}
-
-	char model[PLATFORM_MAX_PATH];
-	if (!GetEntityClientModelOverride(wearable, model, sizeof(model))) {
-		return Plugin_Stop;
-	}
-
-	ApplyWearableModelOverride(wearable, model);
-
-	int owner = GetEntityOwner(wearable);
-	if (IsValidViewmodelClient(owner)) {
-		ScheduleClientModelUpdate(owner, 0.1);
-	}
-	return Plugin_Stop;
-}
-
 void UpdateClientWearableModels(int client) {
 	int count = TF2Util_GetPlayerWearableCount(client);
 	for (int i = 0; i < count; i++) {
@@ -737,7 +743,7 @@ int GetEntityOwner(int entity) {
 /**
  * Destroys wearable worldmodels on death so ragdolls aren't holding them.
  */
-void VMO_OnPlayerDeath(Event event, const char[] name, bool dontBroadcast) {
+void CwxModels_OnPlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (client) {
 		DetachVMs(client);
@@ -747,7 +753,7 @@ void VMO_OnPlayerDeath(Event event, const char[] name, bool dontBroadcast) {
 /**
  * Allows the use of custom models on sappers attached to buildings.
  */
-void VMO_OnObjectSappedPost(Event event, const char[] name, bool dontBroadcast) {
+void CwxModels_OnObjectSappedPost(Event event, const char[] name, bool dontBroadcast) {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (!IsValidEntity(client)) {
 		return;
@@ -805,7 +811,7 @@ bool SetAttachedSapperModel(int sapper, const char[] worldmodel) {
  * Detaches any custom viewmodels on the client and displays the original viewmodel.
  */
 void DetachVMs(int client) {
-	if (!IsValidViewmodelClient(client)) {
+	if (!CWX_IsValidClient(client)) {
 		ResetClientModelRefs(client);
 		return;
 	}
@@ -870,10 +876,6 @@ int GetArmViewModel(int client, char[] buffer, int maxlen) {
 	return strcopy(buffer, maxlen, armModels[ view_as<int>(playerClass) ]);
 }
 
-bool IsValidViewmodelClient(int client) {
-	return client > 0 && client <= MaxClients && IsClientInGame(client);
-}
-
 void ResetClientModelRefs(int client) {
 	g_iLastViewmodelRef[client] = INVALID_ENT_REFERENCE;
 	g_iLastArmModelRef[client] = INVALID_ENT_REFERENCE;
@@ -914,11 +916,11 @@ stock int TF2_SpawnWearableViewmodel() {
 }
 
 bool CanCreateOverrideWearable() {
-	if (g_cvEdictReserve == null) {
+	if (sm_cwx_model_edict_reserve == null) {
 		return true;
 	}
 
-	int reserve = g_cvEdictReserve.IntValue;
+	int reserve = sm_cwx_model_edict_reserve.IntValue;
 	int freeEdicts = GetMaxEntities() - GetEntityCount();
 	if (reserve > 0 && freeEdicts <= reserve) {
 		if (!g_bLoggedEdictReserve) {
