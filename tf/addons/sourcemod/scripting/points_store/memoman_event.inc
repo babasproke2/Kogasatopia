@@ -1,4 +1,5 @@
 #define MEMOMAN_EVENT_TABLE "points_store_memoman_event"
+#define MEMOMAN_EVENT_REWARD_TABLE "points_store_memoman_event_rewards"
 #define MEMOMAN_EVENT_STEAMID64 "76561199873606169"
 #define MEMOMAN_EVENT_REWARD_DELAY 1.0
 #define MEMOMAN_EVENT_ADVERT_INTERVAL 900.0
@@ -10,6 +11,8 @@ enum struct MemomanRewardRequest
 {
     char steamId64[32];
     char username[MAX_NAME_LENGTH];
+    char detailId[64];
+    char detailName[128];
     int source;
 }
 
@@ -168,6 +171,61 @@ public void SQL_OnMemomanEventDoubleDonksColumnReady(Database db, DBResultSet re
         return;
     }
 
+    MemomanEvent_EnsureRewardSchema(data);
+}
+
+void MemomanEvent_EnsureRewardSchema(int generation)
+{
+    char query[2048];
+    if (g_IsMySql)
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, "
+            ... "steamid64 VARCHAR(32) NOT NULL, "
+            ... "username VARCHAR(128) NOT NULL DEFAULT '', "
+            ... "source_id VARCHAR(64) NOT NULL, "
+            ... "weapon_uid VARCHAR(64) NOT NULL DEFAULT '', "
+            ... "weapon_name VARCHAR(128) NOT NULL DEFAULT '', "
+            ... "gems_gained INT NOT NULL, "
+            ... "created_at INT NOT NULL, "
+            ... "PRIMARY KEY (id), "
+            ... "KEY idx_memoman_rewards_steamid64 (steamid64), "
+            ... "KEY idx_memoman_rewards_weapon_name (weapon_name), "
+            ... "KEY idx_memoman_rewards_created_at (created_at)"
+            ... ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+            MEMOMAN_EVENT_REWARD_TABLE);
+    }
+    else
+    {
+        Format(query, sizeof(query),
+            "CREATE TABLE IF NOT EXISTS %s ("
+            ... "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+            ... "steamid64 VARCHAR(32) NOT NULL, "
+            ... "username VARCHAR(128) NOT NULL DEFAULT '', "
+            ... "source_id VARCHAR(64) NOT NULL, "
+            ... "weapon_uid VARCHAR(64) NOT NULL DEFAULT '', "
+            ... "weapon_name VARCHAR(128) NOT NULL DEFAULT '', "
+            ... "gems_gained INTEGER NOT NULL, "
+            ... "created_at INTEGER NOT NULL)",
+            MEMOMAN_EVENT_REWARD_TABLE);
+    }
+
+    g_Database.Query(SQL_OnMemomanEventRewardSchemaReady, query, generation);
+}
+
+public void SQL_OnMemomanEventRewardSchemaReady(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (data != g_MemomanEventGeneration)
+    {
+        return;
+    }
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Memoman event reward schema creation failed: %s", error);
+        return;
+    }
+
     g_MemomanEventReady = true;
     MemomanEvent_LoadBalance();
 }
@@ -215,7 +273,11 @@ int MemomanEvent_FindSource(const char[] sourceId)
     return -1;
 }
 
-bool MemomanEvent_QueueReward(int client, const char[] sourceId)
+bool MemomanEvent_QueueReward(
+    int client,
+    const char[] sourceId,
+    const char[] detailId,
+    const char[] detailName)
 {
     int source = MemomanEvent_FindSource(sourceId);
     if (source < 0
@@ -234,11 +296,15 @@ bool MemomanEvent_QueueReward(int client, const char[] sourceId)
     }
 
     GetClientName(client, request.username, sizeof(request.username));
+    strcopy(request.detailId, sizeof(request.detailId), detailId);
+    strcopy(request.detailName, sizeof(request.detailName), detailName);
     request.source = source;
 
     DataPack pack = new DataPack();
     pack.WriteString(request.steamId64);
     pack.WriteString(request.username);
+    pack.WriteString(request.detailId);
+    pack.WriteString(request.detailName);
     pack.WriteCell(request.source);
     pack.WriteCell(g_MemomanEventGeneration);
     CreateTimer(
@@ -257,6 +323,8 @@ public Action Timer_QueueMemomanEventReward(Handle timer, any data)
     MemomanRewardRequest request;
     pack.ReadString(request.steamId64, sizeof(request.steamId64));
     pack.ReadString(request.username, sizeof(request.username));
+    pack.ReadString(request.detailId, sizeof(request.detailId));
+    pack.ReadString(request.detailName, sizeof(request.detailName));
     request.source = pack.ReadCell();
     int generation = pack.ReadCell();
 
@@ -275,6 +343,8 @@ DataPack MemomanEvent_CreateRequestPack(MemomanRewardRequest request)
     DataPack pack = new DataPack();
     pack.WriteString(request.steamId64);
     pack.WriteString(request.username);
+    pack.WriteString(request.detailId);
+    pack.WriteString(request.detailName);
     pack.WriteCell(request.source);
     pack.WriteCell(g_MemomanEventGeneration);
     return pack;
@@ -286,6 +356,8 @@ bool MemomanEvent_ReadRequestPack(any data, MemomanRewardRequest request)
     pack.Reset();
     pack.ReadString(request.steamId64, sizeof(request.steamId64));
     pack.ReadString(request.username, sizeof(request.username));
+    pack.ReadString(request.detailId, sizeof(request.detailId));
+    pack.ReadString(request.detailName, sizeof(request.detailName));
     request.source = pack.ReadCell();
     int generation = pack.ReadCell();
     delete pack;
@@ -441,12 +513,15 @@ public void SQL_OnMemomanEventTransferred(Database db, DBResultSet results, cons
     }
 
     MemomanEvent_UpdateLeaderboard(request);
+    MemomanEvent_RecordReward(request);
     LogPointsStoreEvent(
-        "event=memoman_reward|time=%d|source=%s|recipient_steamid64=%s|recipient_name=\"%s\"|amount=%d",
+        "event=memoman_reward|time=%d|source=%s|recipient_steamid64=%s|recipient_name=\"%s\"|weapon_uid=%s|weapon_name=\"%s\"|amount=%d",
         GetTime(),
         g_MemomanEventSourceIds[request.source],
         request.steamId64,
         request.username,
+        request.detailId,
+        request.detailName,
         amount);
 
     char query[256];
@@ -458,6 +533,45 @@ public void SQL_OnMemomanEventTransferred(Database db, DBResultSet results, cons
         SQL_OnMemomanEventPostTransferBalance,
         query,
         MemomanEvent_CreateRequestPack(request));
+}
+
+void MemomanEvent_RecordReward(MemomanRewardRequest request)
+{
+    int amount = g_MemomanEventSourceAmounts[request.source];
+    char escapedSteamId[65];
+    char escapedName[(MAX_NAME_LENGTH * 2) + 1];
+    char escapedDetailId[(sizeof(request.detailId) * 2) + 1];
+    char escapedDetailName[(sizeof(request.detailName) * 2) + 1];
+    if (!EscapeSql(request.steamId64, escapedSteamId, sizeof(escapedSteamId))
+        || !EscapeSql(request.username, escapedName, sizeof(escapedName))
+        || !EscapeSql(request.detailId, escapedDetailId, sizeof(escapedDetailId))
+        || !EscapeSql(request.detailName, escapedDetailName, sizeof(escapedDetailName)))
+    {
+        return;
+    }
+
+    char query[1536];
+    Format(query, sizeof(query),
+        "INSERT INTO %s "
+        ... "(steamid64, username, source_id, weapon_uid, weapon_name, gems_gained, created_at) "
+        ... "VALUES ('%s', '%s', '%s', '%s', '%s', %d, %d)",
+        MEMOMAN_EVENT_REWARD_TABLE,
+        escapedSteamId,
+        escapedName,
+        g_MemomanEventSourceIds[request.source],
+        escapedDetailId,
+        escapedDetailName,
+        amount,
+        GetTime());
+    g_Database.Query(SQL_OnMemomanEventRewardRecorded, query);
+}
+
+public void SQL_OnMemomanEventRewardRecorded(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Memoman event reward logging failed: %s", error);
+    }
 }
 
 void MemomanEvent_UpdateLeaderboard(MemomanRewardRequest request)

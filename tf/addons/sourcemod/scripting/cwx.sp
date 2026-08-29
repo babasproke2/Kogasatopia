@@ -189,6 +189,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int maxlen) {
 	CreateNative("CWX_GetItemList", Native_GetItemList);
 	CreateNative("CWX_IsItemUIDValid", Native_IsItemUIDValid);
 	CreateNative("CWX_GetItemUIDFromEntity", Native_GetItemUIDFromEntity);
+	CreateNative("CWX_GetItemDisplayName", Native_GetItemDisplayName);
 	CreateNative("CWX_GetItemExtData", Native_GetItemExtData);
 	CreateNative("CWX_GetItemLoadoutSlot", Native_GetItemLoadoutSlot);
 	
@@ -602,6 +603,20 @@ int Native_GetItemLoadoutSlot(Handle plugin, int argc) {
 		return -1;
 	}
 	return customItem.loadoutPosition[playerClass];
+}
+
+// bool CWX_GetItemDisplayName(const char[] uid, char[] buffer, int maxlen);
+int Native_GetItemDisplayName(Handle plugin, int argc) {
+	char uid[MAX_ITEM_IDENTIFIER_LENGTH];
+	GetNativeString(1, uid, sizeof(uid));
+
+	CustomItemDefinition customItem;
+	if (!GetCustomItemDefinition(uid, customItem) || !customItem.displayName[0]) {
+		return false;
+	}
+
+	SetNativeString(2, customItem.displayName, GetNativeCell(3), true);
+	return true;
 }
 
 // optional<KeyValues> CWX_GetItemExtData(const char[] uid, const char[] section);

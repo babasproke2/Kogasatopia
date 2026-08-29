@@ -91,12 +91,16 @@ void AwardGameplayReward(int client, const char[] type, int target, float delay 
 		delay >= 0.0 ? delay : GameplayRewardDelay());
 }
 
-bool AwardMemomanReward(int client, const char[] sourceId)
+bool AwardMemomanReward(
+	int client,
+	const char[] sourceId,
+	const char[] detailId = "",
+	const char[] detailName = "")
 {
 	if (Client_IsHumanInGame(client)
 		&& GetFeatureStatus(FeatureType_Native, "PointsStore_AwardMemomanEvent") == FeatureStatus_Available)
 	{
-		return PointsStore_AwardMemomanEvent(client, sourceId);
+		return PointsStore_AwardMemomanEvent(client, sourceId, detailId, detailName);
 	}
 	return false;
 }
@@ -173,8 +177,15 @@ bool GetRecentDamageWeapon(int attacker, int victim, int &weapon)
 	return weapon > MaxClients;
 }
 
-bool IsCustomWeapon(int weapon)
+bool GetCustomWeaponDetails(
+	int weapon,
+	char[] itemUid,
+	int itemUidLength,
+	char[] displayName,
+	int displayNameLength)
 {
+	itemUid[0] = '\0';
+	displayName[0] = '\0';
 	if (weapon <= MaxClients
 		|| !IsValidEntity(weapon)
 		|| GetFeatureStatus(FeatureType_Native, "CWX_GetItemUIDFromEntity") != FeatureStatus_Available)
@@ -182,8 +193,17 @@ bool IsCustomWeapon(int weapon)
 		return false;
 	}
 
-	char itemUid[64];
-	return CWX_GetItemUIDFromEntity(weapon, itemUid, sizeof(itemUid)) && itemUid[0] != '\0';
+	if (!CWX_GetItemUIDFromEntity(weapon, itemUid, itemUidLength) || itemUid[0] == '\0')
+	{
+		return false;
+	}
+
+	if (GetFeatureStatus(FeatureType_Native, "CWX_GetItemDisplayName") != FeatureStatus_Available
+		|| !CWX_GetItemDisplayName(itemUid, displayName, displayNameLength))
+	{
+		strcopy(displayName, displayNameLength, itemUid);
+	}
+	return true;
 }
 
 public void Event_MemomanPlayerDeath(Event event, const char[] name, bool dontBroadcast)
@@ -201,9 +221,21 @@ public void Event_MemomanPlayerDeath(Event event, const char[] name, bool dontBr
 	}
 
 	int damageWeapon;
-	if (GetRecentDamageWeapon(attacker, victim, damageWeapon) && IsCustomWeapon(damageWeapon))
+	char itemUid[64];
+	char displayName[128];
+	if (GetRecentDamageWeapon(attacker, victim, damageWeapon)
+		&& GetCustomWeaponDetails(
+			damageWeapon,
+			itemUid,
+			sizeof(itemUid),
+			displayName,
+			sizeof(displayName)))
 	{
-		AwardMemomanReward(attacker, MEMOMAN_SOURCE_CUSTOM_WEAPON_KILL);
+		AwardMemomanReward(
+			attacker,
+			MEMOMAN_SOURCE_CUSTOM_WEAPON_KILL,
+			itemUid,
+			displayName);
 	}
 }
 

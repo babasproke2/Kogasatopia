@@ -107,6 +107,7 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `CWX_GetItemList` - Returns custom item UIDs filtered by an optional callback.
 - `CWX_IsItemUIDValid` - Returns whether a custom item UID exists.
 - `CWX_GetItemUIDFromEntity` - Writes the custom item UID attached to an entity into a buffer.
+- `CWX_GetItemDisplayName` - Writes the configured display name for a custom item UID into a buffer.
 - `CWX_OnItemRuntimeStateReady` - Fires after CWX restores missing runtime state on a persisted custom item.
 - `CWX_GetItemLoadoutSlot` - Returns the TF2 loadout slot used by a custom item for a class.
 - `CWX_GetItemExtData` - Returns a copy of a custom item's extended KeyValues section.
@@ -167,7 +168,7 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `PointsStore_RefundBonusPointsSteamId` - Refunds a dynamic amount to a SteamID64.
 - `PointsStore_SpendBonusPoints` - Spends a connected client's currency without chat or sound output.
 - `PointsStore_StealBonusPoints` - Transfers currency between two connected clients.
-- `PointsStore_AwardMemomanEvent` - Awards a fixed event reward by debiting Memoman's account.
+- `PointsStore_AwardMemomanEvent` - Awards a fixed event reward by debiting Memoman's account, with optional detail ID/name fields for the reward ledger.
 - `PointsStore_HasPurchase` - Returns whether a client owns a shop item.
 - `PointsStore_GetPurchasePrice` - Returns the price paid for a shop item.
 - `PointsStore_GetPurchaseExpiresAt` - Returns a shop item's expiry timestamp for a client.

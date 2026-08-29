@@ -113,15 +113,19 @@ native int PointsStore_StealBonusPoints(int victim, int recipient, int points, c
 /**
  * Awards a fixed Memoman event reward by debiting the event source account.
  *
- * Supported source IDs: custom_weapon_kill, loch_n_load_kill,
- * loch_n_load_airshot, sentry_kill, sentry_level_3,
- * uber_deployed, and double_donk.
+ * Supported source ID: custom_weapon_kill.
  *
  * @param client        Client receiving the reward.
  * @param sourceId      Stable Memoman event source ID.
+ * @param detailId      Optional stable detail ID, such as a CWX item UID.
+ * @param detailName    Optional display name associated with the reward.
  * @return              True when the delayed award was queued.
  */
-native bool PointsStore_AwardMemomanEvent(int client, const char[] sourceId);
+native bool PointsStore_AwardMemomanEvent(
+    int client,
+    const char[] sourceId,
+    const char[] detailId = "",
+    const char[] detailName = "");
 
 /**
  * Returns whether a client owns a configured points-store shop item.

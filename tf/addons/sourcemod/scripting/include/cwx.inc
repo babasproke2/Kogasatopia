@@ -100,6 +100,13 @@ native bool CWX_IsItemUIDValid(const char[] uid);
 native bool CWX_GetItemUIDFromEntity(int entity, char[] buffer, int maxlen);
 
 /**
+ * Retrieves the configured display name for a custom item UID.
+ *
+ * @return    True when the UID exists and has a display name.
+ */
+native bool CWX_GetItemDisplayName(const char[] uid, char[] buffer, int maxlen);
+
+/**
  * Called after CWX restores missing runtime state on a persisted custom item.
  */
 forward void CWX_OnItemRuntimeStateReady(int client, int entity);
@@ -135,6 +142,7 @@ public void __pl_custom_weapons_x_SetNTVOptional() {
 	MarkNativeAsOptional("CWX_EquipPlayerItem");
 	MarkNativeAsOptional("CWX_IsItemUIDValid");
 	MarkNativeAsOptional("CWX_GetItemUIDFromEntity");
+	MarkNativeAsOptional("CWX_GetItemDisplayName");
 	MarkNativeAsOptional("CWX_GetItemExtData");
 }
 #endif

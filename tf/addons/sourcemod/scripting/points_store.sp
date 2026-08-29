@@ -4484,9 +4484,21 @@ public any Native_PointsStore_AwardMemomanEvent(Handle plugin, int numParams)
 {
     int client = GetNativeCell(1);
     char sourceId[64];
+    char detailId[64];
+    char detailName[128];
     GetNativeString(2, sourceId, sizeof(sourceId));
+    if (numParams >= 3)
+    {
+        GetNativeString(3, detailId, sizeof(detailId));
+    }
+    if (numParams >= 4)
+    {
+        GetNativeString(4, detailName, sizeof(detailName));
+    }
     TrimString(sourceId);
-    return MemomanEvent_QueueReward(client, sourceId);
+    TrimString(detailId);
+    TrimString(detailName);
+    return MemomanEvent_QueueReward(client, sourceId, detailId, detailName);
 }
 
 public any Native_PointsStore_HasPurchase(Handle plugin, int numParams)
