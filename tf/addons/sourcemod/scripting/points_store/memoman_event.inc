@@ -647,6 +647,9 @@ public void SQL_OnMemomanEventCommandBalance(Database db, DBResultSet results, c
         balance);
     CPrintToChat(
         client,
-        "Steal %s from {blue}Memoman{default}'s account through the following methods: Loch-n-Load kill, Loch-n-Load airshot kill, kills with custom weapons, building sentries, sentry kills, upgrading a sentry to level 3, deploying ÜberCharges, and a {gold}Secret Method",
+        "Steal %s from {blue}Memoman{default}'s account through the following methods:",
         currencyLong);
+    CPrintToChat(
+        client,
+        "Loch-n-Load kill, Loch-n-Load airshot kill, kills with custom weapons, building sentries, sentry kills, upgrading a sentry to level 3, deploying ÜberCharges, and a {gold}Secret Method");
 }
