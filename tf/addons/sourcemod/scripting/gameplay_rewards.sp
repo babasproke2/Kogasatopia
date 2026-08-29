@@ -24,12 +24,10 @@
 #define MEMOMAN_SOURCE_CUSTOM_WEAPON_KILL "custom_weapon_kill"
 #define MEMOMAN_SOURCE_LOCH_N_LOAD_KILL "loch_n_load_kill"
 #define MEMOMAN_SOURCE_LOCH_N_LOAD_AIRSHOT "loch_n_load_airshot"
-#define MEMOMAN_SOURCE_SENTRY_BUILT "sentry_built"
 #define MEMOMAN_SOURCE_SENTRY_KILL "sentry_kill"
 #define MEMOMAN_SOURCE_SENTRY_LEVEL_3 "sentry_level_3"
 #define MEMOMAN_SOURCE_UBER_DEPLOYED "uber_deployed"
 #define MEMOMAN_SOURCE_DOUBLE_DONK "double_donk"
-#define MEMOMAN_SENTRY_BUILD_COOLDOWN 60.0
 
 ConVar g_GameplayRewardDelay = null;
 int g_LastDamageAttackerUserId[MAXPLAYERS + 1];
@@ -37,7 +35,6 @@ int g_LastDamageWeaponRef[MAXPLAYERS + 1];
 bool g_LastDamageFromSentry[MAXPLAYERS + 1];
 float g_LastDamageAt[MAXPLAYERS + 1];
 StringMap g_LevelThreeSentries = null;
-float g_NextMemomanSentryBuildRewardAt[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
@@ -59,7 +56,6 @@ public void OnPluginStart()
 		true,
 		0.0);
 	HookEvent("player_death", Event_MemomanPlayerDeath, EventHookMode_Post);
-	HookEvent("player_builtobject", Event_MemomanPlayerBuiltObject, EventHookMode_Post);
 	HookEvent("player_upgradedobject", Event_MemomanPlayerUpgradedObject, EventHookMode_Post);
 
 	for (int client = 1; client <= MaxClients; client++)
@@ -90,14 +86,12 @@ public void OnMapStart()
 public void OnClientPutInServer(int client)
 {
 	ResetLastDamage(client);
-	g_NextMemomanSentryBuildRewardAt[client] = 0.0;
 	SDKHook(client, SDKHook_OnTakeDamage, GameplayRewards_OnTakeDamage);
 }
 
 public void OnClientDisconnect(int client)
 {
 	ResetLastDamage(client);
-	g_NextMemomanSentryBuildRewardAt[client] = 0.0;
 }
 
 float GameplayRewardDelay()
@@ -273,23 +267,6 @@ public void Event_MemomanPlayerDeath(Event event, const char[] name, bool dontBr
 	if (fromSentry)
 	{
 		AwardMemomanReward(attacker, MEMOMAN_SOURCE_SENTRY_KILL);
-	}
-}
-
-public void Event_MemomanPlayerBuiltObject(Event event, const char[] name, bool dontBroadcast)
-{
-	int client = GetClientOfUserId(event.GetInt("userid"));
-	int entity = event.GetInt("index");
-	if (!Client_IsHumanInGame(client) || !IsSentryInflictor(entity))
-	{
-		return;
-	}
-
-	float now = GetEngineTime();
-	if (now >= g_NextMemomanSentryBuildRewardAt[client]
-		&& AwardMemomanReward(client, MEMOMAN_SOURCE_SENTRY_BUILT))
-	{
-		g_NextMemomanSentryBuildRewardAt[client] = now + MEMOMAN_SENTRY_BUILD_COOLDOWN;
 	}
 }
 

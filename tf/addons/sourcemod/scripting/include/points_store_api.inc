@@ -114,7 +114,7 @@ native int PointsStore_StealBonusPoints(int victim, int recipient, int points, c
  * Awards a fixed Memoman event reward by debiting the event source account.
  *
  * Supported source IDs: custom_weapon_kill, loch_n_load_kill,
- * loch_n_load_airshot, sentry_built, sentry_kill, sentry_level_3,
+ * loch_n_load_airshot, sentry_kill, sentry_level_3,
  * uber_deployed, and double_donk.
  *
  * @param client        Client receiving the reward.

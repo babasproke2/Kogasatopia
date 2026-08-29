@@ -2,7 +2,7 @@
 #define MEMOMAN_EVENT_STEAMID64 "76561199873606169"
 #define MEMOMAN_EVENT_REWARD_DELAY 1.0
 #define MEMOMAN_EVENT_ADVERT_INTERVAL 900.0
-#define MEMOMAN_EVENT_SOURCE_COUNT 8
+#define MEMOMAN_EVENT_SOURCE_COUNT 7
 
 enum struct MemomanRewardRequest
 {
@@ -16,7 +16,6 @@ static const char g_MemomanEventSourceIds[MEMOMAN_EVENT_SOURCE_COUNT][] =
     "custom_weapon_kill",
     "loch_n_load_kill",
     "loch_n_load_airshot",
-    "sentry_built",
     "sentry_kill",
     "sentry_level_3",
     "uber_deployed",
@@ -31,7 +30,6 @@ static const int g_MemomanEventSourceAmounts[MEMOMAN_EVENT_SOURCE_COUNT] =
     1,
     1,
     1,
-    1,
     1
 };
 
@@ -40,7 +38,6 @@ static const char g_MemomanEventSourceReasons[MEMOMAN_EVENT_SOURCE_COUNT][] =
     "Kill with a custom weapon",
     "Loch-n-Load kill",
     "Loch-n-Load airshot kill",
-    "Built a sentry",
     "Sentry kill",
     "Upgraded Sentry to Level 3",
     "Deployed ÜberCharge",
@@ -52,7 +49,6 @@ static const char g_MemomanEventSourceColumns[MEMOMAN_EVENT_SOURCE_COUNT][] =
     "custom_weapon_kills",
     "loch_n_load_kills",
     "loch_n_load_airshots",
-    "sentries_built",
     "sentry_kills",
     "sentries_upgraded_level_3",
     "ubercharges_deployed",
@@ -651,5 +647,5 @@ public void SQL_OnMemomanEventCommandBalance(Database db, DBResultSet results, c
         currencyLong);
     CPrintToChat(
         client,
-        "Loch-n-Load kill, Loch-n-Load airshot kill, kills with custom weapons, building sentries, sentry kills, upgrading a sentry to level 3, deploying ÜberCharges, and a {gold}Secret Method");
+        "Loch-n-Load kill, Loch-n-Load airshot kill, kills with custom weapons, sentry kills, upgrading a sentry to level 3, deploying ÜberCharges, and a {gold}Secret Method");
 }
