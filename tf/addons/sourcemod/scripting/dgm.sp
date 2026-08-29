@@ -2496,6 +2496,9 @@ public void Event_RoundActive(Event event, const char[] name, bool dontBroadcast
     DGM_ResetCaptureIntervalStats(g_iRoundStartTimestamp);
 
     if (g_cvTimeOverride != null)    g_cvTimeOverride.RestoreDefault();
+    // Round end forces this true; modes without population management still need the configured state restored.
+    g_InternalOverride = DGM_AreRespawnTimesForcedOn();
+
     DGM_AdjustRespawnByPlayerCount(0);
     g_PointCaptures = 0;
     DGM_UpdateSetupState();
