@@ -3,6 +3,8 @@
 #define MEMOMAN_EVENT_REWARD_DELAY 1.0
 #define MEMOMAN_EVENT_ADVERT_INTERVAL 900.0
 #define MEMOMAN_EVENT_SOURCE_COUNT 7
+#define MEMOMAN_EVENT_LEADERBOARD_LIMIT 10
+#define MEMOMAN_EVENT_LEADERBOARD_SOURCE_COUNT 8
 
 enum struct MemomanRewardRequest
 {
@@ -55,6 +57,18 @@ static const char g_MemomanEventSourceColumns[MEMOMAN_EVENT_SOURCE_COUNT][] =
     "double_donks"
 };
 
+static const char g_MemomanEventLeaderboardSourceNames[MEMOMAN_EVENT_LEADERBOARD_SOURCE_COUNT][] =
+{
+    "Custom Weapon Kill",
+    "Loch-n-Load Kill",
+    "Loch-n-Load Airshot",
+    "Built a Sentry",
+    "Sentry Kill",
+    "Level 3 Sentry",
+    "ÜberCharge",
+    "Episten"
+};
+
 ArrayList g_MemomanEventQueue = null;
 Handle g_MemomanEventAdvertTimer = null;
 bool g_MemomanEventReady = false;
@@ -66,6 +80,8 @@ void MemomanEvent_OnPluginStart()
 {
     g_MemomanEventQueue = new ArrayList(sizeof(MemomanRewardRequest));
     RegConsoleCmd("sm_memo", Command_MemomanEvent, "Show the Memoman Graverobbing Event.");
+    RegConsoleCmd("sm_ml", Command_MemomanEventLeaderboard, "Show the Memoman event leaderboard.");
+    RegConsoleCmd("sm_memoleaderboard", Command_MemomanEventLeaderboard, "Show the Memoman event leaderboard.");
     g_MemomanEventAdvertTimer = CreateTimer(
         MEMOMAN_EVENT_ADVERT_INTERVAL,
         Timer_MemomanEventAdvert,
@@ -648,4 +664,141 @@ public void SQL_OnMemomanEventCommandBalance(Database db, DBResultSet results, c
     CPrintToChat(
         client,
         "Loch-n-Load kill, Loch-n-Load airshot kill, kills with custom weapons, sentry kills, upgrading a sentry to level 3, deploying ÜberCharges, and a {gold}Secret Method");
+}
+
+public Action Command_MemomanEventLeaderboard(int client, int args)
+{
+    if (!Client_IsHumanInGame(client))
+    {
+        return Plugin_Handled;
+    }
+    if (!g_MemomanEventReady || g_Database == null)
+    {
+        CPrintToChat(client, "%s The Memoman event is temporarily unavailable.", g_CurrencyPrefix);
+        return Plugin_Handled;
+    }
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(GetClientUserId(client));
+    pack.WriteCell(g_MemomanEventGeneration);
+
+    char query[768];
+    Format(query, sizeof(query),
+        "SELECT steamid64, username, gems_gained, custom_weapon_kills, "
+        ... "loch_n_load_kills, loch_n_load_airshots, sentries_built, "
+        ... "sentry_kills, sentries_upgraded_level_3, ubercharges_deployed, double_donks "
+        ... "FROM %s WHERE gems_gained > 0 "
+        ... "ORDER BY gems_gained DESC, steamid64 ASC LIMIT %d",
+        MEMOMAN_EVENT_TABLE,
+        MEMOMAN_EVENT_LEADERBOARD_LIMIT);
+    g_Database.Query(SQL_OnMemomanEventLeaderboard, query, pack);
+    return Plugin_Handled;
+}
+
+void MemomanEvent_BuildTopSources(DBResultSet results, char[] buffer, int maxlen)
+{
+    int topSources[3] = {-1, -1, -1};
+    int topValues[3];
+
+    for (int source = 0; source < MEMOMAN_EVENT_LEADERBOARD_SOURCE_COUNT; source++)
+    {
+        int value = results.FetchInt(3 + source);
+        if (value <= 0)
+        {
+            continue;
+        }
+
+        for (int position = 0; position < sizeof(topSources); position++)
+        {
+            if (topSources[position] != -1 && value <= topValues[position])
+            {
+                continue;
+            }
+
+            for (int shift = sizeof(topSources) - 1; shift > position; shift--)
+            {
+                topSources[shift] = topSources[shift - 1];
+                topValues[shift] = topValues[shift - 1];
+            }
+            topSources[position] = source;
+            topValues[position] = value;
+            break;
+        }
+    }
+
+    buffer[0] = '\0';
+    char sourceText[96];
+    for (int position = 0; position < sizeof(topSources); position++)
+    {
+        if (topSources[position] == -1)
+        {
+            continue;
+        }
+        if (buffer[0] != '\0')
+        {
+            StrCat(buffer, maxlen, ", ");
+        }
+
+        Format(
+            sourceText,
+            sizeof(sourceText),
+            "%s %d",
+            g_MemomanEventLeaderboardSourceNames[topSources[position]],
+            topValues[position]);
+        StrCat(buffer, maxlen, sourceText);
+    }
+}
+
+public void SQL_OnMemomanEventLeaderboard(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    int client = GetClientOfUserId(pack.ReadCell());
+    int generation = pack.ReadCell();
+    delete pack;
+
+    if (generation != g_MemomanEventGeneration || !Client_IsHumanInGame(client))
+    {
+        return;
+    }
+    if (error[0] != '\0')
+    {
+        LogError("[points_store] Memoman event leaderboard query failed: %s", error);
+        CPrintToChat(client, "%s Failed to load the Memoman event leaderboard.", g_CurrencyPrefix);
+        return;
+    }
+
+    CPrintToChat(client, "{magenta} ----- Memoman Graverobbing Event -----");
+
+    int rank = 0;
+    while (results != null && results.FetchRow())
+    {
+        rank++;
+
+        char storedName[128];
+        char displayName[128];
+        results.FetchString(1, storedName, sizeof(storedName));
+        StripMenuColorTags(storedName, displayName, sizeof(displayName));
+        if (displayName[0] == '\0')
+        {
+            results.FetchString(0, displayName, sizeof(displayName));
+        }
+
+        char topSources[320];
+        MemomanEvent_BuildTopSources(results, topSources, sizeof(topSources));
+
+        CPrintToChat(
+            client,
+            "%d. %s %s%d{default} - {gold}%s",
+            rank,
+            displayName,
+            g_CurrencyColorTag,
+            results.FetchInt(2),
+            topSources);
+    }
+
+    if (rank == 0)
+    {
+        CPrintToChat(client, "%s No Memoman event rewards have been recorded.", g_CurrencyPrefix);
+    }
 }
