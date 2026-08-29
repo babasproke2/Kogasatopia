@@ -4,7 +4,9 @@
  * Weapons select a configured sound group with "replace sound".
  */
 #define CWX_ATTR_REPLACE_SOUND "replace sound"
-#define CWX_SOUND_REPLACEMENT_CONFIG "configs/ca_replace_sound.cfg"
+#define CWX_SOUND_REPLACEMENT_CONFIG "configs/weapons.cfg"
+#define CWX_SOUND_REPLACEMENT_ROOT "WeaponReverts"
+#define CWX_SOUND_REPLACEMENT_SECTION "SoundGroup"
 
 StringMap g_CwxSoundGroups;
 
@@ -101,10 +103,16 @@ void CwxSound_Reload()
 	char path[PLATFORM_MAX_PATH];
 	BuildPath(Path_SM, path, sizeof(path), CWX_SOUND_REPLACEMENT_CONFIG);
 
-	KeyValues config = new KeyValues("SoundGroup");
+	KeyValues config = new KeyValues(CWX_SOUND_REPLACEMENT_ROOT);
 	if (!config.ImportFromFile(path))
 	{
 		LogError("Sound replacement config not found: %s", path);
+		delete config;
+		return;
+	}
+	if (!config.JumpToKey(CWX_SOUND_REPLACEMENT_SECTION, false))
+	{
+		LogError("Sound replacement section '%s' not found in: %s", CWX_SOUND_REPLACEMENT_SECTION, path);
 		delete config;
 		return;
 	}

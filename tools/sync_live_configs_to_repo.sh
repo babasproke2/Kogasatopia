@@ -19,7 +19,6 @@ export GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -i $HOME/.ssh/id_ed25519 -o Ident
 targets=(
     "addons/sourcemod/configs/announcers.cfg|tf/addons/sourcemod/configs/announcers.cfg|raw"
     "addons/sourcemod/configs/adverts.cfg|tf/addons/sourcemod/configs/adverts.cfg|raw"
-    "addons/sourcemod/configs/ca_replace_sound.cfg|tf/addons/sourcemod/configs/ca_replace_sound.cfg|raw"
     "addons/sourcemod/configs/changelog.cfg|tf/addons/sourcemod/configs/changelog.cfg|raw"
     "addons/sourcemod/configs/empty_server_maps.cfg|tf/addons/sourcemod/configs/empty_server_maps.cfg|raw"
     "addons/sourcemod/configs/empty_training_maps.cfg|tf/addons/sourcemod/configs/empty_training_maps.cfg|raw"
