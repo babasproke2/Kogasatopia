@@ -11,8 +11,7 @@
 #include <points_store_api>
 
 #undef REQUIRE_PLUGIN
-#include <cwx>
-#include <weaponreverts_api>
+#include <weapons>
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 
@@ -188,24 +187,24 @@ bool GetCustomWeaponDetails(
 	displayName[0] = '\0';
 	if (weapon <= MaxClients
 		|| !IsValidEntity(weapon)
-		|| GetFeatureStatus(FeatureType_Native, "CWX_GetItemUIDFromEntity") != FeatureStatus_Available)
+		|| GetFeatureStatus(FeatureType_Native, "Weapons_GetItemUIDFromEntity") != FeatureStatus_Available)
 	{
 		return false;
 	}
 
-	if (!CWX_GetItemUIDFromEntity(weapon, itemUid, itemUidLength) || itemUid[0] == '\0')
+	if (!Weapons_GetItemUIDFromEntity(weapon, itemUid, itemUidLength) || itemUid[0] == '\0')
 	{
 		return false;
 	}
 
-	if (GetFeatureStatus(FeatureType_Native, "CWX_IsItemReskinOnly") == FeatureStatus_Available
-		&& CWX_IsItemReskinOnly(itemUid))
+	if (GetFeatureStatus(FeatureType_Native, "Weapons_IsItemReskinOnly") == FeatureStatus_Available
+		&& Weapons_IsItemReskinOnly(itemUid))
 	{
 		return false;
 	}
 
-	if (GetFeatureStatus(FeatureType_Native, "CWX_GetItemDisplayName") != FeatureStatus_Available
-		|| !CWX_GetItemDisplayName(itemUid, displayName, displayNameLength))
+	if (GetFeatureStatus(FeatureType_Native, "Weapons_GetItemDisplayName") != FeatureStatus_Available
+		|| !Weapons_GetItemDisplayName(itemUid, displayName, displayNameLength))
 	{
 		strcopy(displayName, displayNameLength, itemUid);
 	}

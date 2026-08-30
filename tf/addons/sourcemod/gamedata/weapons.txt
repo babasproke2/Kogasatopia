@@ -4,6 +4,18 @@
 	{
 		"Signatures"
 		{
+			"CTFPlayer::GetLoadoutItem()"
+			{
+				"library"		"server"
+				"linux"			"@_ZN9CTFPlayer14GetLoadoutItemEiib"
+				"windows"		"\x55\x8B\xEC\x83\xEC\x10\x53\x56\x8B\xF1\x8B\x0D\x2A\x2A\x2A\x2A"
+			}
+			"CTFPlayer::ManageRegularWeapons()"
+			{
+				"library"		"server"
+				"linux"			"@_ZN9CTFPlayer20ManageRegularWeaponsEP19TFPlayerClassData_t"
+				"windows"		"\x55\x8B\xEC\x83\xEC\x6C\x57\x8B\xF9\xE8\x2A\x2A\x2A\x2A\x8D\x8F\x2A\x1A\x00\x00"
+			}
 			"CTFPlayer::ApplyPunchImpulseX"
 			{
 				"library" "server"
@@ -152,6 +164,42 @@
 
 		"Functions"
 		{
+			"CTFPlayer::GetLoadoutItem()"
+			{
+				"signature"		"CTFPlayer::GetLoadoutItem()"
+				"callconv"		"thiscall"
+				"return"		"int"
+				"this"			"entity"
+				"arguments"
+				{
+					"player_class"
+					{
+						"type"	"int"
+					}
+					"loadout_position"
+					{
+						"type"	"int"
+					}
+					"unknown_bool"
+					{
+						"type"	"bool"
+					}
+				}
+			}
+			"CTFPlayer::ManageRegularWeapons()"
+			{
+				"signature"		"CTFPlayer::ManageRegularWeapons()"
+				"callconv"		"thiscall"
+				"return"		"void"
+				"this"			"entity"
+				"arguments"
+				{
+					"class_data"
+					{
+						"type"	"int"
+					}
+				}
+			}
 			"CTFPlayer::TeamFortress_CalculateMaxSpeed"
 			{
 				"signature" "CTFPlayer::TeamFortress_CalculateMaxSpeed"

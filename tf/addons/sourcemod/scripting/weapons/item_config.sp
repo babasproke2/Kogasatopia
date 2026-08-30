@@ -65,11 +65,12 @@ enum struct CustomItemDefinition {
  * Holds a uid to CustomItemDefinition mapping.
  */
 static StringMap g_CustomItems;
+KeyValues g_WeaponsConfig;
 
-KeyValues CwxConfig_Open(char[] configPath, int configPathLen) {
-	BuildPath(Path_SM, configPath, configPathLen, CWX_CONFIG_PATH);
+KeyValues WeaponsConfig_Open(char[] configPath, int configPathLen) {
+	BuildPath(Path_SM, configPath, configPathLen, WEAPONS_CONFIG_PATH);
 
-	KeyValues config = new KeyValues(CWX_CONFIG_ROOT);
+	KeyValues config = new KeyValues(WEAPONS_CONFIG_ROOT);
 	if (!config.ImportFromFile(configPath)) {
 		LogError("Failed to load custom weapons from %s", configPath);
 		delete config;
@@ -78,24 +79,32 @@ KeyValues CwxConfig_Open(char[] configPath, int configPathLen) {
 	return config;
 }
 
-void LoadCustomItemConfig() {
-	KeyValues itemSchema = new KeyValues(CWX_CONFIG_ITEM_SECTION);
+void WeaponsConfig_Close() {
+	delete g_WeaponsConfig;
+	g_WeaponsConfig = null;
+}
+
+void LoadWeaponsConfig() {
+	KeyValues itemSchema = new KeyValues(WEAPONS_CONFIG_ITEM_SECTION);
 
 	char schemaPath[PLATFORM_MAX_PATH];
-	KeyValues weaponsConfig = CwxConfig_Open(schemaPath, sizeof(schemaPath));
+	KeyValues weaponsConfig = WeaponsConfig_Open(schemaPath, sizeof(schemaPath));
 	if (weaponsConfig != null) {
-		CwxSound_LoadConfig(weaponsConfig, schemaPath);
+		WeaponsSound_LoadConfig(weaponsConfig, schemaPath);
 
-		if (!weaponsConfig.JumpToKey(CWX_CONFIG_ITEM_SECTION, false)) {
-			LogError("No %s section found in %s", CWX_CONFIG_ITEM_SECTION, schemaPath);
+		if (!weaponsConfig.JumpToKey(WEAPONS_CONFIG_ITEM_SECTION, false)) {
+			LogError("No %s section found in %s", WEAPONS_CONFIG_ITEM_SECTION, schemaPath);
 		} else {
 			itemSchema.Import(weaponsConfig);
 			weaponsConfig.GoBack();
 		}
 	} else {
-		CwxSound_Clear();
+		WeaponsSound_Clear();
 	}
-	delete weaponsConfig;
+
+	WeaponsGameplay_SetConfig(weaponsConfig);
+	WeaponsConfig_Close();
+	g_WeaponsConfig = weaponsConfig;
 	
 	// clean up old items
 	if (g_CustomItems) {
@@ -240,8 +249,8 @@ bool CreateItemFromSection(KeyValues config) {
 		item.customAttributes.Import(config);
 		config.GoBack();
 	}
-	CwxModels_PrecacheItemAssets(item.customAttributes);
-	CwxSound_ValidateItemConfig(item.uid, item.customAttributes);
+	WeaponsModels_PrecacheItemAssets(item.customAttributes);
+	WeaponsSound_ValidateItemConfig(item.uid, item.customAttributes);
 	
 	if (config.JumpToKey("localized_name")) {
 		item.localizedNames = new KeyValues("localized_name");
@@ -331,14 +340,13 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 	ApplyCustomItemNativeAttributes(itemEntity, item);
 	
 	// add a stinky attribute that holds the item's uid
-	// this value is read with CWX_GetItemUIDFromEntity
+	// this value is read with Weapons_GetItemUIDFromEntity
 	TF2Attrib_SetFromStringValue(itemEntity, ATTRIB_NAME_CUSTOM_UID, item.uid);
 	
 	// apply attributes for Custom Attributes
 	if (item.customAttributes) {
 		TF2CustAttr_UseKeyValues(itemEntity, item.customAttributes);
 	}
-	CWX_ApplyEngineOverrides(itemEntity);
 	
 	// HACK: the stock builder and sapper needs additional fixups
 	// https://github.com/ValveSoftware/source-sdk-2013/blob/0565403b153dfcde602f6f58d8f4d13483696a13/src/game/server/tf/tf_player.cpp#L4306-L4315
@@ -382,13 +390,13 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 		 * aware of, but we'll burn that bridge when we cross it.
 		 */
 		DispatchSpawn(itemEntity);
-		CWX_MarkValidatedAttachedEntity(itemEntity, client, "custom_weapon_second_spawn", false);
+		Weapons_MarkValidatedAttachedEntity(itemEntity, client, "custom_weapon_second_spawn", false);
 	}
 
 	/*
 	 * Weapons are spawned a second time above.  Normally the runtime custom-attribute
 	 * storage survives, but make that an invariant before EquipPlayerWeapon fires so
-	 * the CWX model pipeline always observes the final entity state.
+	 * the Weapons model pipeline always observes the final entity state.
 	 */
 	EnsureCustomItemRuntimeAttributes(itemEntity, item, client, "equip");
 	
@@ -411,7 +419,7 @@ int EquipCustomItem(int client, const CustomItemDefinition item) {
 		TF2_RemoveItemByLoadoutSlot(client, loadoutSlot);
 	}
 	TF2_EquipPlayerEconItem(client, itemEntity);
-	CWX_NotifyItemRuntimeStateReady(client, itemEntity);
+	Weapons_NotifyItemRuntimeStateReady(client, itemEntity);
 	return itemEntity;
 }
 
@@ -460,10 +468,8 @@ bool EnsureCustomItemRuntimeAttributes(int itemEntity,
 		delete currentAttributes;
 	}
 
-	CWX_ApplyEngineOverrides(itemEntity);
-
 	if (restored) {
-		LogMessage("[CWX][RuntimeRepair] context=%s client=%N entity=%d uid=%s",
+		LogMessage("[Weapons][RuntimeRepair] context=%s client=%N entity=%d uid=%s",
 			context, client, itemEntity, item.uid);
 	}
 	return restored;

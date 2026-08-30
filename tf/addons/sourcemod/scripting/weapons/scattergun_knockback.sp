@@ -173,6 +173,11 @@ static void ScattergunKnockback_ApplyFrame(any data)
 	int expectedTick = pack.ReadCell();
 	delete pack;
 
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return;
+	}
+
 	if (victimSlot < 1 || victimSlot > MaxClients
 		|| attackerSlot < 1 || attackerSlot > MaxClients
 		|| g_iScattergunPendingTick[victimSlot][attackerSlot] != expectedTick)
@@ -188,10 +193,10 @@ static void ScattergunKnockback_ApplyFrame(any data)
 	int attacker = GetClientOfUserId(attackerUserId);
 	int weapon = EntRefToEntIndex(weaponRef);
 	if (victim != victimSlot || attacker != attackerSlot
-		|| !WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker)
+		|| !Weapons_IsClientInGame(victim) || !Weapons_IsClientInGame(attacker)
 		|| !IsPlayerAlive(victim) || !IsPlayerAlive(attacker)
 		|| victim == attacker || GetClientTeam(victim) == GetClientTeam(attacker)
-		|| !WR_IsValidWeaponEntity(weapon)
+		|| !Weapons_IsValidWeaponEntity(weapon)
 		|| TF2CustAttr_GetInt(weapon, ATTR_SCATTERGUN_HAS_KNOCKBACK, 0) == 0)
 	{
 		return;
@@ -204,9 +209,9 @@ void ScattergunKnockback_OnDamage(
 	int victim, int attacker, int weapon, float damage, int damageType)
 {
 	if (damage <= 0.0 || (damageType & DMG_BUCKSHOT) == 0
-		|| !WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker)
+		|| !Weapons_IsClientInGame(victim) || !Weapons_IsClientInGame(attacker)
 		|| victim == attacker || GetClientTeam(victim) == GetClientTeam(attacker)
-		|| !WR_IsValidWeaponEntity(weapon)
+		|| !Weapons_IsValidWeaponEntity(weapon)
 		|| TF2CustAttr_GetInt(weapon, ATTR_SCATTERGUN_HAS_KNOCKBACK, 0) == 0)
 	{
 		return;

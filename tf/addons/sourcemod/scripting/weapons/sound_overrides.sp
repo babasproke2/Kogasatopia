@@ -1,0 +1,247 @@
+/**
+ * Custom-attribute sound replacement, originally authored by Mir.
+ *
+ * Weapons select a configured sound group with "replace sound".
+ */
+#define Weapons_ATTR_REPLACE_SOUND "replace sound"
+
+StringMap g_WeaponsSoundGroups;
+int g_iWeaponsSoundWeaponRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
+char g_sWeaponsSoundGroup[MAXPLAYERS + 1][64];
+
+enum struct WeaponsSoundGroup
+{
+	StringMap replacements;
+
+	void Destroy()
+	{
+		delete this.replacements;
+	}
+}
+
+void WeaponsSound_OnPluginStart()
+{
+	RegServerCmd("sm_weapons_reload_sounds", WeaponsSound_CommandReload);
+	AddNormalSoundHook(WeaponsSound_Hook);
+}
+
+void WeaponsSound_OnPluginEnd()
+{
+	RemoveNormalSoundHook(WeaponsSound_Hook);
+	WeaponsSound_Clear();
+}
+
+public Action WeaponsSound_CommandReload(int args)
+{
+	WeaponsSound_Reload();
+	return Plugin_Handled;
+}
+
+public Action WeaponsSound_Hook(
+	int clients[MAXPLAYERS],
+	int &numClients,
+	char oldSound[PLATFORM_MAX_PATH],
+	int &entity,
+	int &channel,
+	float &volume,
+	int &level,
+	int &pitch,
+	int &flags,
+	char soundEntry[PLATFORM_MAX_PATH],
+	int &seed)
+{
+	if (!Weapons_IsValidClient(entity) || g_WeaponsSoundGroups == null)
+	{
+		return Plugin_Continue;
+	}
+
+	int weapon = GetEntPropEnt(entity, Prop_Send, "m_hActiveWeapon");
+	if (!IsValidEntity(weapon))
+	{
+		return Plugin_Continue;
+	}
+
+	int weaponRef = EntIndexToEntRef(weapon);
+	if (g_iWeaponsSoundWeaponRef[entity] != weaponRef)
+	{
+		WeaponsSound_UpdateClientWeapon(entity, weapon);
+	}
+
+	if (!g_sWeaponsSoundGroup[entity][0])
+	{
+		return Plugin_Continue;
+	}
+
+	WeaponsSoundGroup group;
+	if (!g_WeaponsSoundGroups.GetArray(g_sWeaponsSoundGroup[entity], group, sizeof(group)))
+	{
+		return Plugin_Continue;
+	}
+
+	char replacement[PLATFORM_MAX_PATH];
+	if (!group.replacements.GetString(oldSound, replacement, sizeof(replacement))
+			|| replacement[0] == '\0'
+			|| !PrecacheSound(replacement, true))
+	{
+		return Plugin_Continue;
+	}
+
+	EmitSoundToAll(replacement, entity, channel, level, flags, volume, pitch);
+	return Plugin_Stop;
+}
+
+void WeaponsSound_OnWeaponSwitchPost(int client, int weapon)
+{
+	WeaponsSound_UpdateClientWeapon(client, weapon);
+}
+
+void WeaponsSound_OnItemRuntimeStateReady(int client, int entity)
+{
+	if (Weapons_IsValidClient(client)
+			&& GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon") == entity)
+	{
+		WeaponsSound_UpdateClientWeapon(client, entity);
+	}
+}
+
+void WeaponsSound_UpdateClientWeapon(int client, int weapon)
+{
+	WeaponsSound_ResetClient(client);
+	if (!Weapons_IsValidClient(client) || !IsValidEntity(weapon))
+	{
+		return;
+	}
+
+	g_iWeaponsSoundWeaponRef[client] = EntIndexToEntRef(weapon);
+	TF2CustAttr_GetString(weapon, Weapons_ATTR_REPLACE_SOUND,
+		g_sWeaponsSoundGroup[client], sizeof(g_sWeaponsSoundGroup[]));
+}
+
+void WeaponsSound_ResetClient(int client)
+{
+	if (client <= 0 || client > MaxClients)
+	{
+		return;
+	}
+	g_iWeaponsSoundWeaponRef[client] = INVALID_ENT_REFERENCE;
+	g_sWeaponsSoundGroup[client][0] = '\0';
+}
+
+void WeaponsSound_ResetClients()
+{
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		WeaponsSound_ResetClient(client);
+	}
+}
+
+void WeaponsSound_Reload()
+{
+	char path[PLATFORM_MAX_PATH];
+	KeyValues config = WeaponsConfig_Open(path, sizeof(path));
+	if (config == null)
+	{
+		WeaponsSound_Clear();
+		return;
+	}
+
+	WeaponsSound_LoadConfig(config, path);
+	delete config;
+}
+
+void WeaponsSound_LoadConfig(KeyValues config, const char[] path)
+{
+	WeaponsSound_Clear();
+	if (config == null || !config.JumpToKey(WEAPONS_CONFIG_SOUND_SECTION, false))
+	{
+		LogError("Sound replacement section '%s' not found in: %s", WEAPONS_CONFIG_SOUND_SECTION, path);
+		return;
+	}
+
+	g_WeaponsSoundGroups = new StringMap();
+	WeaponsSound_LoadGroups(config);
+	config.GoBack();
+}
+
+void WeaponsSound_ValidateItemConfig(const char[] itemUid, KeyValues attributes)
+{
+	if (attributes == null)
+	{
+		return;
+	}
+
+	char groupName[64];
+	attributes.GetString(Weapons_ATTR_REPLACE_SOUND, groupName, sizeof(groupName));
+	if (!groupName[0])
+	{
+		return;
+	}
+
+	WeaponsSoundGroup group;
+	if (g_WeaponsSoundGroups == null
+			|| !g_WeaponsSoundGroups.GetArray(groupName, group, sizeof(group)))
+	{
+		LogError("Item uid '%s' references unknown sound group '%s'", itemUid, groupName);
+	}
+}
+
+void WeaponsSound_LoadGroups(KeyValues config)
+{
+	if (config == null || g_WeaponsSoundGroups == null || !config.GotoFirstSubKey(false))
+	{
+		return;
+	}
+
+		do
+		{
+		WeaponsSoundGroup group;
+		group.replacements = new StringMap();
+
+		char groupName[256];
+		config.GetSectionName(groupName, sizeof(groupName));
+		if (config.GotoFirstSubKey(false))
+		{
+			do
+			{
+				char oldSound[PLATFORM_MAX_PATH];
+				char replacement[PLATFORM_MAX_PATH];
+				config.GetSectionName(oldSound, sizeof(oldSound));
+				config.GetString(NULL_STRING, replacement, sizeof(replacement));
+				if (replacement[0] == '\0' || !PrecacheSound(replacement, true))
+				{
+					continue;
+				}
+				group.replacements.SetString(oldSound, replacement);
+			} while (config.GotoNextKey(false));
+			config.GoBack();
+		}
+
+		g_WeaponsSoundGroups.SetArray(groupName, group, sizeof(group));
+	} while (config.GotoNextKey());
+	config.GoBack();
+}
+
+void WeaponsSound_Clear()
+{
+	WeaponsSound_ResetClients();
+	if (g_WeaponsSoundGroups == null)
+	{
+		return;
+	}
+
+	StringMapSnapshot groups = g_WeaponsSoundGroups.Snapshot();
+	char groupName[256];
+	for (int i = 0; i < groups.Length; i++)
+	{
+		groups.GetKey(i, groupName, sizeof(groupName));
+		WeaponsSoundGroup group;
+		if (g_WeaponsSoundGroups.GetArray(groupName, group, sizeof(group)))
+		{
+			group.Destroy();
+		}
+	}
+
+	delete groups;
+	delete g_WeaponsSoundGroups;
+	g_WeaponsSoundGroups = null;
+}

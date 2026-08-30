@@ -12,7 +12,7 @@ Overrides are stored with entity references, so recycled entity indexes do not i
 The circular pattern uses TF2's native 15-pellet fixed-spread path and retains its small random jitter.
 
 The wide-horizontal pattern assigns 20 deterministic directions in two rows of 10 at 150% of the
-weapon's stock horizontal spread without changing TF2's fixed-spread table. CWX and WeaponReverts
+weapon's stock horizontal spread without changing TF2's fixed-spread table. Weapons
 enable it with the custom attribute
 `"wide horizontal bullet spread" "1"`; it takes priority over the circular pattern.
 
@@ -35,7 +35,7 @@ TF2Weapon_SetPunchAngle(weapon, true, 4, true);  // Consistent 4-degree recoil.
 TF2Weapon_SetPunchAngle(weapon, false, 0, false); // Restore stock recoil.
 ```
 
-CWX and WeaponReverts derive `enabled` from whether `"punch angle mod"` exists, so
+Weapons derive `enabled` from whether `"punch angle mod"` exists, so
 `"punch angle mod" "0"` is distinct from an item with no such custom attribute.
 
 ## Building

@@ -3,7 +3,7 @@
  */
 
 /**
- * Exports the currently active weapon to an item config file in CWX schema format.
+ * Exports the currently active weapon to an item config file in Weapons schema format.
  */
 Action ExportActiveWeapon(int client, int argc) {
 	// TODO we should allow loadout slot selection
@@ -86,8 +86,17 @@ Action ExportActiveWeapon(int client, int argc) {
 	
 	exportedWeapon.Rewind();
 	
+	char directory[PLATFORM_MAX_PATH];
+	BuildPath(Path_SM, directory, sizeof(directory), "configs/weapons");
+	if (!DirExists(directory) && !CreateDirectory(directory, 511))
+	{
+		ReplyToCommand(client, "Unable to create export directory: %s", directory);
+		delete exportedWeapon;
+		return Plugin_Handled;
+	}
+
 	char filePath[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, filePath, sizeof(filePath), "configs/cwx/%s.cfg", uuid_rendered);
+	BuildPath(Path_SM, filePath, sizeof(filePath), "configs/weapons/%s.cfg", uuid_rendered);
 	
 	exportedWeapon.ExportToFile(filePath);
 	

@@ -1,33 +1,3 @@
-#pragma semicolon 1
-#pragma newdecls required
-
-#include <sourcemod>
-
-#include <sdktools>
-#include <sdkhooks>
-
-#include <tf2>
-#include <tf2_stocks>
-#include <tf2utils>
-#include <tf2attributes>
-#include <tf2items>
-
-#include <tf_ontakedamage>
-
-#include <tf_custom_attributes>
-#include <sourcescramble>
-#include <dhooks>
-#include <addplayerhealth>
-
-#undef REQUIRE_EXTENSIONS
-#include <scattergun_pellets>
-#include <tf2_spread_patterns>
-#define REQUIRE_EXTENSIONS
-
-#include "include/steam_identity.inc"
-#include "include/item_indexes.inc"
-#include "include/tf2_classes.inc"
-
 #define FLS_STREAK_TARGET	   2
 #define FLS_STREAK_WINDOW	   4.0
 #define AMBASSADOR_ITEMDEF 61
@@ -117,8 +87,6 @@
 #define WEAPON_SLOT_PRIMARY 0
 #define WEAPON_SLOT_LAST 5
 
-#define WEAPON_REVERTS_CONFIG_PATH "configs/weapons.cfg"
-#define WEAPON_REVERTS_ITEM_CLASSES_SECTION "WeaponRevertsItemClasses"
 #define FLAME_SHOTGUN_FULL_PELLET_THRESHOLD 6
 
 tf2_player tf2_players[MAXPLAYERS + 1];
@@ -178,11 +146,9 @@ int g_iPendingFullPelletWeaponRef[MAXPLAYERS + 1][MAXPLAYERS + 1];
 float g_fPendingFullPelletBurnDuration[MAXPLAYERS + 1][MAXPLAYERS + 1];
 int g_iPendingFullPelletTick[MAXPLAYERS + 1][MAXPLAYERS + 1];
 
-#include <weaponreverts>
-#include "weaponreverts/gameplay_events.sp"
-#include "weaponreverts/scattergun_knockback.sp"
+#include <weapons_helpers>
  
-ConVar g_sEnabled;
+ConVar g_hGameplayEnabled;
 ConVar g_hPomsonDamageMult;
 ConVar g_hBisonDamageMult;
 ConVar g_hScattergunPelletsDebug;
@@ -191,7 +157,7 @@ ConVar g_hFallingStompAllWeapons;
 ConVar g_hSandmanBaseDuration;
 ConVar g_hSandmanMaxStunFlightTime;
 ConVar g_hSandmanFallbackBaseDuration;
-KeyValues g_hWeaponRevertsConfig = null;
+KeyValues g_hWeaponsGameplayConfig = null;
 bool g_bPluginEnding = false;
 MemoryPatch patch_RevertCozyCamper_FlinchNerf;
 MemoryPatch patch_AllowRandomCritOverride;
@@ -213,17 +179,48 @@ DynamicHook dhook_CTFStunBall_ApplyBallImpactEffectOnVictim;
 Handle g_SDKCalcIsAttackCriticalHelper = null;
 bool g_bCalculatingRandomCritOverride = false;
 
-static bool WeaponReverts_IsEnabled()
+bool WeaponsGameplay_IsEnabled()
 {
-	return !g_bPluginEnding && g_sEnabled != null && GetConVarBool(g_sEnabled);
+	return !g_bPluginEnding && g_hGameplayEnabled != null && GetConVarBool(g_hGameplayEnabled);
 }
 
-static bool WeaponReverts_IsEntityIndex(int entity)
+static void WeaponsGameplay_SetPatchEnabled(MemoryPatch patch, bool enabled)
+{
+	if (patch == null)
+	{
+		return;
+	}
+
+	if (enabled)
+	{
+		patch.Enable();
+	}
+	else
+	{
+		patch.Disable();
+	}
+}
+
+static void WeaponsGameplay_SetPatchesEnabled(bool enabled)
+{
+	WeaponsGameplay_SetPatchEnabled(patch_RevertCozyCamper_FlinchNerf, enabled);
+	WeaponsGameplay_SetPatchEnabled(patch_AllowRandomCritOverride, enabled);
+	WeaponsGameplay_SetPatchEnabled(patch_Wrangler_CustomShieldRepair, enabled);
+	WeaponsGameplay_SetPatchEnabled(patch_Wrangler_CustomShieldShellRefill, enabled);
+	WeaponsGameplay_SetPatchEnabled(patch_Wrangler_CustomShieldRocketRefill, enabled);
+	WeaponsGameplay_SetPatchEnabled(patch_Wrangler_CustomShieldDamageTaken, enabled);
+	WeaponsGameplay_SetPatchEnabled(patch_Wrangler_RescueRanger_CustomShieldRepair, enabled);
+}
+
+#include "gameplay_events.sp"
+#include "scattergun_knockback.sp"
+
+static bool WeaponsGameplay_IsEntityIndex(int entity)
 {
 	return entity > 0 && entity < GetMaxEntities();
 }
 
-static void WeaponReverts_ApplyEngineOverrides(int weapon)
+void Weapons_ApplyEngineOverrides(int weapon)
 {
 	if (!IsValidWeaponEntity(weapon))
 	{
@@ -278,14 +275,14 @@ static void WeaponReverts_ApplyEngineOverrides(int weapon)
 
 }
 
-static bool WeaponReverts_HasHeadshotFeature(int weapon)
+static bool WeaponsGameplay_HasHeadshotFeature(int weapon)
 {
 	return TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED, 0) != 0
 		|| TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED, 0) != 0
 		|| TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) != 0;
 }
 
-static bool WeaponReverts_IsHeadshotZoomed(int weapon)
+static bool WeaponsGameplay_IsHeadshotZoomed(int weapon)
 {
 	if (!IsValidWeaponEntity(weapon))
 	{
@@ -293,7 +290,7 @@ static bool WeaponReverts_IsHeadshotZoomed(int weapon)
 	}
 
 	int client = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
-	if (!WR_IsValidPlayerIndex(client) || !IsClientInGame(client) || !IsPlayerAlive(client))
+	if (!Weapons_IsValidPlayerIndex(client) || !IsClientInGame(client) || !IsPlayerAlive(client))
 	{
 		return false;
 	}
@@ -305,7 +302,7 @@ static bool WeaponReverts_IsHeadshotZoomed(int weapon)
 		&& EntRefToEntIndex(tf2_players[client].huntingRevolverWeaponRef) == weapon;
 }
 
-static bool WeaponReverts_CanHeadshotNow(int weapon)
+static bool WeaponsGameplay_CanHeadshotNow(int weapon)
 {
 	if (TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED, 0) != 0)
 	{
@@ -314,7 +311,7 @@ static bool WeaponReverts_CanHeadshotNow(int weapon)
 
 	if (TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED, 0) != 0)
 	{
-		if (!WeaponReverts_IsHeadshotZoomed(weapon))
+		if (!WeaponsGameplay_IsHeadshotZoomed(weapon))
 		{
 			return false;
 		}
@@ -333,40 +330,29 @@ static bool WeaponReverts_CanHeadshotNow(int weapon)
 		&& TF2Spread_IsAmbassadorAccuracyRecovered(weapon);
 }
 
-static void WeaponReverts_DeleteConfigs()
+static void WeaponsGameplay_DeleteConfigs()
 {
-	if (g_hWeaponRevertsConfig != null)
+	if (g_hWeaponsGameplayConfig != null)
 	{
-		delete g_hWeaponRevertsConfig;
-		g_hWeaponRevertsConfig = null;
+		delete g_hWeaponsGameplayConfig;
+		g_hWeaponsGameplayConfig = null;
 	}
 
 }
 
-public Plugin myinfo =
-{
-	name = "WeaponReverts",
-	author = "Hombre, Huutti, Utsuho",
-	description = "Weapon changes plugin with custom attribute code such as recoil jumping",
-	version = "6.0",
-	url = "https://kogasa.tf"
-};
-
 // Addplayerhealth was made by chdata, I'm not able to find it online anymore so I'll rehost it in this repo
 // Thank you Huutti/Castaway, Chaosxk, Drixevel and others for several pieces of code
 
-public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int errlen)
+void WeaponsGameplay_RegisterNatives()
 {
-	RegPluginLibrary("weaponreverts");
 	MarkNativeAsOptional("TF2Util_GetPlayerFromSharedAddress");
-	CreateNative("WeaponReverts_GetWeaponInfo", Native_GetWeaponInfo);
-	CreateNative("WeaponReverts_CanClassUseWeapon", Native_CanClassUseWeapon);
-	return APLRes_Success;
+	CreateNative("Weapons_GetWeaponInfo", Native_GetWeaponInfo);
+	CreateNative("Weapons_CanClassUseWeapon", Native_CanClassUseWeapon);
 }
 
 stock void ResetClientArrays(int client)
 {
-	if (!WR_IsValidPlayerIndex(client)) return;
+	if (!Weapons_IsValidPlayerIndex(client)) return;
 	BlastJumpJarate_ClearPending(client);
 	HuntingRevolver_ResetClient(client);
 	FullPelletIgnite_ClearClient(client);
@@ -397,26 +383,25 @@ stock void ResetClientArrays(int client)
 	ScattergunKnockback_ResetClient(client);
 }
 
-public void OnPluginStart() {
+void WeaponsGameplay_OnPluginStart(GameData conf) {
 	g_bPluginEnding = false;
-	WeaponRevertsEvents_Init();
+	WeaponsGameplayEvents_Init();
 	PreCacheWeaponSounds();
-	g_sEnabled = CreateConVar("reverts_enabled", "1", "Enable/Disable the plugin");
-	g_sEnabled.AddChangeHook(WeaponReverts_OnEnabledChanged);
-	g_hPomsonDamageMult = CreateConVar("reverts_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
-	g_hBisonDamageMult = CreateConVar("reverts_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
-	g_hScattergunPelletsDebug = CreateConVar("reverts_scattergun_pellets_debug", "0", "Log tracked shotgun/scattergun pellet forward diagnostics.");
-	g_hMeatshotDebug = CreateConVar("meatshot_debug", "0", "Print a client debug message after a valid meatshot kill.", FCVAR_NONE, true, 0.0, true, 1.0);
-	g_hFallingStompAllWeapons = CreateConVar("reverts_falling_stomp_all_weapons", "1", "Enable boots falling stomp on all player weapons.", FCVAR_NONE, true, 0.0, true, 1.0);
-	g_hSandmanMaxStunFlightTime = CreateConVar("reverts_sandman_max_stun_flight_time", "1.5", "Flight time at which the reverted Sandman reaches maximum stun duration.", FCVAR_NONE, true, 0.1);
-	g_hSandmanFallbackBaseDuration = CreateConVar("reverts_sandman_fallback_base_duration", "2.0", "Fallback maximum Sandman stun duration when tf_scout_stunball_base_duration is unavailable.", FCVAR_NONE, true, 0.1);
+	g_hGameplayEnabled = CreateConVar("sm_weapons_gameplay_enabled", "1",
+		"Enable gameplay changes while keeping custom weapon loadouts, models, and sounds active.");
+	g_hGameplayEnabled.AddChangeHook(WeaponsGameplay_OnEnabledChanged);
+	g_hPomsonDamageMult = CreateConVar("sm_weapons_pomson_damage_mult", "0.50", "Damage multiplier for the Pomson 6000", FCVAR_NONE, true, 0.1, true, 2.0);
+	g_hBisonDamageMult = CreateConVar("sm_weapons_bison_damage_mult", "0.8", "Damage multiplier for the Righteous Bison", FCVAR_NONE, true, 0.1, true, 2.0);
+	g_hScattergunPelletsDebug = CreateConVar("sm_weapons_scattergun_pellets_debug", "0", "Log tracked shotgun/scattergun pellet forward diagnostics.");
+	g_hMeatshotDebug = CreateConVar("sm_weapons_meatshot_debug", "0", "Print a client debug message after a valid meatshot kill.", FCVAR_NONE, true, 0.0, true, 1.0);
+	g_hFallingStompAllWeapons = CreateConVar("sm_weapons_falling_stomp_all_weapons", "1", "Enable boots falling stomp on all player weapons.", FCVAR_NONE, true, 0.0, true, 1.0);
+	g_hSandmanMaxStunFlightTime = CreateConVar("sm_weapons_sandman_max_stun_flight_time", "1.5", "Flight time at which the reverted Sandman reaches maximum stun duration.", FCVAR_NONE, true, 0.1);
+	g_hSandmanFallbackBaseDuration = CreateConVar("sm_weapons_sandman_fallback_base_duration", "2.0", "Fallback maximum Sandman stun duration when tf_scout_stunball_base_duration is unavailable.", FCVAR_NONE, true, 0.1);
 	g_hSandmanBaseDuration = FindConVar("tf_scout_stunball_base_duration");
-	LoadWeaponRevertsConfig();
 	RegAdminCmd("sm_scatterpellets_status", Command_ScatterPelletsStatus, ADMFLAG_GENERIC, "Print scattergun pellet integration status.");
-	RegAdminCmd("sm_weaponreverts_reload", Command_ReloadWeaponRevertsConfig, ADMFLAG_CONFIG, "Reload weapon revert definitions from configs/weapons.cfg.");
-	RegAdminCmd("sm_weaponreverts_refresh", Command_ReloadWeaponRevertsConfig, ADMFLAG_CONFIG, "Refresh weapon revert definitions from configs/weapons.cfg.");
-	if (WeaponReverts_IsEnabled()) {
-		g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
+	RegAdminCmd("sm_weapons_reload", Command_ReloadWeaponsConfig, ADMFLAG_CONFIG, "Reload weapon definitions from configs/weapons.cfg.");
+	RegAdminCmd("sm_weapons_refresh", Command_ReloadWeaponsConfig, ADMFLAG_CONFIG, "Refresh weapon definitions from configs/weapons.cfg.");
+	g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
 	// This is used to ignore clients without the m_iAmmo netprop
 
 		for (int i = 1; i <= MaxClients; i++)
@@ -431,9 +416,10 @@ public void OnPluginStart() {
 				// Ensure all damage/trace hooks are installed for clients that are already in-game
 				SDKHook(i, SDKHook_OnTakeDamage, OnTakeDamage);
 				SDKHook(i, SDKHook_WeaponSwitch, OnWeaponSwitch);
+				SDKHook(i, SDKHook_WeaponSwitchPost, Weapons_OnWeaponSwitchPost);
 				SDKHook(i, SDKHook_TraceAttack, OnTraceAttack);
 				SDKHook(i, SDKHook_OnTakeDamageAlive, OnTakeDamageAlive);
-				SDKHook(i, SDKHook_OnTakeDamageAlivePost, WeaponReverts_OnTakeDamageAlivePost);
+				SDKHook(i, SDKHook_OnTakeDamageAlivePost, WeaponsGameplay_OnTakeDamageAlivePost);
 				SDKHook(i, SDKHook_PostThinkPost, HuntingRevolver_OnPostThinkPost);
 			}
 		}
@@ -448,9 +434,6 @@ public void OnPluginStart() {
 		HookEvent("player_changeclass", Event_PlayerChangeClass, EventHookMode_Post);
 		HookEvent("player_team", Event_PlayerTeam, EventHookMode_Post);
 
-		GameData conf;
-		conf = new GameData("weaponreverts");
-		if (conf == null) SetFailState("Failed to load weaponreverts.txt conf!");
 		GameData overrideConf = new GameData("weapon_overrides.games");
 		if (overrideConf == null) SetFailState("Failed to load weapon_overrides.games.txt conf!");
 
@@ -531,7 +514,7 @@ public void OnPluginStart() {
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Post, ApplyBiteEffects_Post);
 		dhook_CTFPlayerShared_StunPlayer.Enable(Hook_Pre, SandmanPreJI_StunPlayer_Pre);
 		dhook_IsFixedWeaponSpreadEnabled.Enable(Hook_Pre, IsFixedWeaponSpreadEnabled_Pre);
-		WeaponReverts_HookExistingCriticalShotWeapons();
+		WeaponsGameplay_HookExistingCriticalShotWeapons();
 
 		// Create the patches
 		patch_RevertCozyCamper_FlinchNerf = MemoryPatch.CreateFromConf(conf, "CTFPlayer::ApplyPunchImpulseX_FakeFullyChargedCondition");
@@ -550,21 +533,13 @@ public void OnPluginStart() {
 		if (!ValidateAndNullCheck(patch_Wrangler_CustomShieldDamageTaken)) SetFailState("Failed to create patch_Wrangler_CustomShieldDamageTaken");
 		if (!ValidateAndNullCheck(patch_Wrangler_RescueRanger_CustomShieldRepair)) SetFailState("Failed to create patch_Wrangler_RescueRanger_CustomShieldRepair");
 
-		patch_RevertCozyCamper_FlinchNerf.Enable();
-		patch_AllowRandomCritOverride.Enable();
-		patch_Wrangler_CustomShieldRepair.Enable();
-		patch_Wrangler_CustomShieldShellRefill.Enable();
-		patch_Wrangler_CustomShieldRocketRefill.Enable();
-		patch_Wrangler_CustomShieldDamageTaken.Enable();
-		patch_Wrangler_RescueRanger_CustomShieldRepair.Enable();
-
 		StoreToAddress(patch_Wrangler_CustomShieldRepair.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
 		StoreToAddress(patch_Wrangler_CustomShieldShellRefill.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
 		StoreToAddress(patch_Wrangler_CustomShieldRocketRefill.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
 		StoreToAddress(patch_Wrangler_CustomShieldDamageTaken.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
 		StoreToAddress(patch_Wrangler_RescueRanger_CustomShieldRepair.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
+		WeaponsGameplay_SetPatchesEnabled(WeaponsGameplay_IsEnabled());
 		delete overrideConf;
-		delete conf;
 
 		for (int i = 1; i <= MaxClients; i++)
 		{
@@ -573,7 +548,6 @@ public void OnPluginStart() {
 				Harvester_SyncHealTimer(i);
 			}
 		}
-	}
 }
 
 public void PreCacheWeaponSounds() {
@@ -611,19 +585,18 @@ static void Ambassador102_CacheCritParticle()
 	}
 }
 
-public void OnMapStart() {
+void WeaponsGameplay_OnMapStart() {
 	FullPelletIgnite_ClearAll();
 	for (int client = 1; client <= MaxClients; client++)
 	{
 		BlastJumpJarate_ClearPending(client);
 	}
-	LoadWeaponRevertsConfig();
 	Escampette_RecalculateAllSpeeds();
 	PreCacheWeaponSounds();
 	Ambassador102_CacheCritParticle();
 }
 
-public void OnMapEnd()
+void WeaponsGameplay_OnMapEnd()
 {
 	FullPelletIgnite_ClearAll();
 	for (int client = 1; client <= MaxClients; client++)
@@ -634,11 +607,11 @@ public void OnMapEnd()
 	}
 }
 
-public void OnPluginEnd()
+void WeaponsGameplay_OnPluginEnd()
 {
 	g_bPluginEnding = true;
 	Escampette_RecalculateAllSpeeds();
-	WeaponRevertsEvents_Shutdown();
+	WeaponsGameplayEvents_Shutdown();
 	for (int i = 1; i <= MaxClients; i++)
 	{
 		ResetClientArrays(i);
@@ -650,33 +623,34 @@ public void OnPluginEnd()
 	DestroyPatch(patch_Wrangler_CustomShieldRocketRefill); patch_Wrangler_CustomShieldRocketRefill = null;
 	DestroyPatch(patch_Wrangler_CustomShieldDamageTaken); patch_Wrangler_CustomShieldDamageTaken = null;
 	DestroyPatch(patch_Wrangler_RescueRanger_CustomShieldRepair); patch_Wrangler_RescueRanger_CustomShieldRepair = null;
-	WeaponReverts_DeleteConfigs();
+	WeaponsGameplay_DeleteConfigs();
 }
 
 // I added functions like these while I was worried about memory safety... I assume they're redundant
 
-public void OnClientPutInServer(int client)
+void WeaponsGameplay_OnClientPutInServer(int client)
 {
-	if (IsClientInGame(client) && WeaponReverts_IsEnabled())
+	if (IsClientInGame(client))
 	{
 		SDKHook(client, SDKHook_OnTakeDamage, OnTakeDamage);
 		SDKHook(client, SDKHook_WeaponSwitch, OnWeaponSwitch);
+		SDKHook(client, SDKHook_WeaponSwitchPost, Weapons_OnWeaponSwitchPost);
 		SDKHook(client, SDKHook_TraceAttack, OnTraceAttack);
 		SDKHook(client, SDKHook_OnTakeDamageAlive, OnTakeDamageAlive);
-		SDKHook(client, SDKHook_OnTakeDamageAlivePost, WeaponReverts_OnTakeDamageAlivePost);
+		SDKHook(client, SDKHook_OnTakeDamageAlivePost, WeaponsGameplay_OnTakeDamageAlivePost);
 		SDKHook(client, SDKHook_PostThinkPost, HuntingRevolver_OnPostThinkPost);
 		ResetClientArrays(client);
 	}
 }
 
 // Potentially important for memory safety
-public void OnClientDisconnect(int client)
+void WeaponsGameplay_OnClientDisconnect(int client)
 {
 	ResetClientArrays(client);
 }
 
-public void OnEntityCreated(int entity, const char[] class) {
-	if (!WeaponReverts_IsEntityIndex(entity) || !WeaponReverts_IsEnabled()) return;
+void WeaponsGameplay_OnEntityCreated(int entity, const char[] class) {
+	if (!WeaponsGameplay_IsEntityIndex(entity) || !WeaponsGameplay_IsEnabled()) return;
 
 	if (entity > 0 && entity < MAX_TRACKED_ENTITIES)
 	{
@@ -709,7 +683,7 @@ public void OnEntityCreated(int entity, const char[] class) {
 		dhook_CObjectCartDispenser_DispenseMetal.HookEntity(Hook_Pre, entity, CartDispenseMetal);
 	}
 
-	WeaponReverts_HookCriticalShotEntity(entity, class);
+	WeaponsGameplay_HookCriticalShotEntity(entity, class);
 }
 
 public void OnEntityDestroyed(int entity)
@@ -723,6 +697,11 @@ public void OnEntityDestroyed(int entity)
 
 public void OnGameFrame()
 {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return;
+	}
+
 	static int frame;
 
 	frame++;
@@ -746,12 +725,12 @@ public void OnGameFrame()
 
 static bool Accuracy_IsValidClient(int client)
 {
-	return WR_IsClientInGame(client);
+	return Weapons_IsClientInGame(client);
 }
 
 static bool IsValidWeaponEntity(int weapon)
 {
-	return WR_IsValidWeaponEntity(weapon);
+	return Weapons_IsValidWeaponEntity(weapon);
 }
 
 static bool IsAmbassadorHeadshotWeapon(int weapon)
@@ -768,17 +747,17 @@ static bool Ambassador102_IsEnabledWeapon(int weapon)
 	return IsAmbassadorHeadshotWeapon(weapon) && TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_102, 0) != 0;
 }
 
-static bool WeaponReverts_IsCriticalShotHookClass(const char[] classname)
+static bool WeaponsGameplay_IsCriticalShotHookClass(const char[] classname)
 {
 	return StrEqual(classname, "tf_weapon_pistol") || StrEqual(classname, "tf_weapon_revolver");
 }
 
-static void WeaponReverts_HookCriticalShotEntity(int weapon, const char[] classname)
+static void WeaponsGameplay_HookCriticalShotEntity(int weapon, const char[] classname)
 {
 	if (dhook_CTFWeaponBase_CanFireCriticalShot == null
-		|| !WeaponReverts_IsEntityIndex(weapon)
+		|| !WeaponsGameplay_IsEntityIndex(weapon)
 		|| !IsValidEntity(weapon)
-		|| !WeaponReverts_IsCriticalShotHookClass(classname))
+		|| !WeaponsGameplay_IsCriticalShotHookClass(classname))
 	{
 		return;
 	}
@@ -786,7 +765,7 @@ static void WeaponReverts_HookCriticalShotEntity(int weapon, const char[] classn
 	dhook_CTFWeaponBase_CanFireCriticalShot.HookEntity(Hook_Post, weapon, CanFireCriticalShot_Post);
 }
 
-static void WeaponReverts_HookExistingCriticalShotWeapons()
+static void WeaponsGameplay_HookExistingCriticalShotWeapons()
 {
 	char classname[64];
 	int maxEntities = GetMaxEntities();
@@ -796,7 +775,7 @@ static void WeaponReverts_HookExistingCriticalShotWeapons()
 			continue;
 
 		GetEntityClassname(weapon, classname, sizeof(classname));
-		WeaponReverts_HookCriticalShotEntity(weapon, classname);
+		WeaponsGameplay_HookCriticalShotEntity(weapon, classname);
 	}
 }
 
@@ -805,7 +784,7 @@ static Action Ambassador102_OnHeadshotDamage(int victim, int attacker, int weapo
 	if (damagecustom != TF_CUSTOM_HEADSHOT || !Ambassador102_IsEnabledWeapon(weapon))
 		return Plugin_Continue;
 
-	if (!WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker))
+	if (!Weapons_IsClientInGame(victim) || !Weapons_IsClientInGame(attacker))
 		return Plugin_Continue;
 
 	if ((damagetype & DMG_ACID) != DMG_ACID)
@@ -950,7 +929,8 @@ static bool Accuracy_IsValidFlameShotgun(int weapon)
 
 static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float &damage, int &damagetype)
 {
-	if (!IsValidEntity(entity) || attacker <= 0 || attacker > MaxClients || !IsClientInGame(attacker))
+	if (!WeaponsGameplay_IsEnabled()
+		|| !IsValidEntity(entity) || attacker <= 0 || attacker > MaxClients || !IsClientInGame(attacker))
 		return Plugin_Continue;
 
 	int weapon = GetEntPropEnt(attacker, Prop_Data, "m_hActiveWeapon");
@@ -1007,6 +987,11 @@ static Action OnBuildingDamaged(int entity, int &attacker, int &inflictor, float
 
 public void Event_PlayerBuiltObject(Event event, const char[] name, bool dontBroadcast)
 {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return;
+	}
+
 	int ent = event.GetInt("index");
 	HookBuildingEntity(ent);
 }
@@ -1160,7 +1145,7 @@ static void ScatterPellets_Debug(const char[] format, any ...)
 
 public Action Command_ScatterPelletsStatus(int client, int args)
 {
-	ReplyToCommand(client, "[WeaponReverts] scattergun_pellets extension: %s", LibraryExists("scattergun_pellets") ? "available" : "unavailable");
+	ReplyToCommand(client, "[Weapons] scattergun_pellets extension: %s", LibraryExists("scattergun_pellets") ? "available" : "unavailable");
 
 	if (Accuracy_IsValidClient(client))
 	{
@@ -1171,7 +1156,7 @@ public Action Command_ScatterPelletsStatus(int client, int args)
 		{
 			GetEntityClassname(weapon, classname, sizeof(classname));
 		}
-		ReplyToCommand(client, "[WeaponReverts] active weapon: ent=%d class=%s", weapon, classname);
+		ReplyToCommand(client, "[Weapons] active weapon: ent=%d class=%s", weapon, classname);
 	}
 
 	return Plugin_Handled;
@@ -1181,9 +1166,9 @@ public void TF2Shotgun_OnPelletShot(int attacker, int victim, int pellets, int t
 {
 	ScatterPellets_Debug("pellet shot: attacker=%d victim=%d pellets=%d total=%d kill=%d", attacker, victim, pellets, total, kill ? 1 : 0);
 
-	if (!WeaponReverts_IsEnabled())
+	if (!WeaponsGameplay_IsEnabled())
 	{
-		ScatterPellets_Debug("ignored: reverts_enabled is 0");
+		ScatterPellets_Debug("ignored: sm_weapons_gameplay_enabled is 0");
 		return;
 	}
 
@@ -1252,6 +1237,11 @@ static int Accuracy_GetClassSubtractionValue(int client)
 
 public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return Plugin_Continue;
+	}
+
 	int userId = event.GetInt("userid");
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
@@ -1337,8 +1327,8 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 
 static bool Escampette_IsEquipped(int client)
 {
-	if (!WeaponReverts_IsEnabled()
-		|| !WR_IsClientInGame(client)
+	if (!WeaponsGameplay_IsEnabled()
+		|| !Weapons_IsClientInGame(client)
 		|| !IsPlayerAlive(client)
 		|| TF2_GetPlayerClass(client) != TFClass_Spy)
 	{
@@ -1360,7 +1350,7 @@ static bool Escampette_HasSpeedBonus(int client)
 static void Escampette_RecalculateSpeed(int client)
 {
 	if (g_SDKTeamFortressSetSpeed != null
-		&& WR_IsClientInGame(client)
+		&& Weapons_IsClientInGame(client)
 		&& IsPlayerAlive(client))
 	{
 		SDKCall(g_SDKTeamFortressSetSpeed, client);
@@ -1382,14 +1372,37 @@ static void Escampette_FrameRecalculateSpeed(any userId)
 
 static void Escampette_QueueSpeedRecalculation(int client)
 {
-	if (WR_IsValidPlayerIndex(client))
+	if (Weapons_IsValidPlayerIndex(client))
 	{
 		RequestFrame(Escampette_FrameRecalculateSpeed, GetClientUserId(client));
 	}
 }
 
-public void WeaponReverts_OnEnabledChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+public void WeaponsGameplay_OnEnabledChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
+	bool enabled = WeaponsGameplay_IsEnabled();
+	WeaponsGameplay_SetPatchesEnabled(enabled);
+
+	for (int client = 1; client <= MaxClients; client++)
+	{
+		if (!IsClientInGame(client))
+		{
+			continue;
+		}
+
+		ResetClientArrays(client);
+		if (enabled)
+		{
+			Harvester_SyncHealTimer(client);
+		}
+	}
+
+	if (enabled)
+	{
+		HookAllBuildings();
+		WeaponsGameplay_HookExistingCriticalShotWeapons();
+	}
+
 	Escampette_RecalculateAllSpeeds();
 }
 
@@ -1413,6 +1426,11 @@ static void Escampette_OnDamageTaken(int victim, int attacker, float damage, con
 
 public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return Plugin_Continue;
+	}
+
 	int userId = event.GetInt("userid");
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
@@ -1445,6 +1463,11 @@ public Action Event_Resupply(Event event, const char[] name, bool dontBroadcast)
 
 public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return Plugin_Continue;
+	}
+
 	int userId = event.GetInt("userid");
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
@@ -1466,6 +1489,11 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 
 public void Event_PlayerChangeClass(Event event, const char[] name, bool dontBroadcast)
 {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return;
+	}
+
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (client > 0)
 	{
@@ -1477,6 +1505,11 @@ public void Event_PlayerChangeClass(Event event, const char[] name, bool dontBro
 
 public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return;
+	}
+
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (client > 0)
 	{
@@ -1488,6 +1521,11 @@ public void Event_PlayerTeam(Event event, const char[] name, bool dontBroadcast)
 
 #define FSOLID_USE_TRIGGER_BOUNDS 0x80
 void OnEnergyRingSpawnPost(int entity) {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return;
+	}
+
 	// Pomson & Bison hitboxes
 	float maxs[3] = { 2.0, 2.0, 10.0 };
 	float mins[3] = { -2.0, -2.0, -10.0 };
@@ -1500,6 +1538,11 @@ void OnEnergyRingSpawnPost(int entity) {
 }
 
 Action OnEnergyRingTouch(int entity, int other) {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return Plugin_Continue;
+	}
+
 	// Pomson & Bison light up friendly Huntsman arrows
 	if (other >= 1 && other <= MaxClients) {
 		int weapon = GetEntPropEnt(other, Prop_Send, "m_hActiveWeapon");
@@ -1523,7 +1566,8 @@ Action OnEnergyRingTouch(int entity, int other) {
 }
 
 public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname, bool &result) {
-	if (!IsClientInGame(client) || weapon <= MaxClients || !IsValidEntity(weapon))
+	if (!WeaponsGameplay_IsEnabled()
+		|| !IsClientInGame(client) || weapon <= MaxClients || !IsValidEntity(weapon))
 		return Plugin_Continue;
 
 	// The SDKCall re-enters this forward through SourceMod's crit hook.
@@ -1564,6 +1608,11 @@ public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname
 
 public MRESReturn IsFixedWeaponSpreadEnabled_Pre(DHookReturn returnValue, DHookParam parameters)
 {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return MRES_Ignored;
+	}
+
 	int weapon = parameters.Get(1);
 	if (!IsValidWeaponEntity(weapon))
 	{
@@ -1594,7 +1643,7 @@ public Action Timer_HealTimer(Handle timer, any userId)
 	{
 		return Plugin_Stop;
 	}
-	if (!WeaponReverts_IsEnabled())
+	if (!WeaponsGameplay_IsEnabled())
 	{
 		tf2_players[client].harvesterHealTimer = null;
 		return Plugin_Stop;
@@ -1644,7 +1693,7 @@ public Action Timer_ShockCharge(Handle timer, any userId)
 	{
 		return Plugin_Stop;
 	}
-	if (!WeaponReverts_IsEnabled())
+	if (!WeaponsGameplay_IsEnabled())
 	{
 		tf2_players[client].shockChargeTimer = null;
 		return Plugin_Stop;
@@ -1709,7 +1758,7 @@ static bool TryApplyHolsterReload(int weapon)
 
 static void BlastJumpJarate_ClearPending(int client)
 {
-	if (!WR_IsValidPlayerIndex(client))
+	if (!Weapons_IsValidPlayerIndex(client))
 		return;
 
 	g_iBlastJumpJaratePendingWeapon[client] = INVALID_ENT_REFERENCE;
@@ -1718,8 +1767,8 @@ static void BlastJumpJarate_ClearPending(int client)
 
 static void BlastJumpJarate_OnDeploy(int client, int weapon)
 {
-	if (!WR_IsClientInGame(client)
-		|| !WR_IsValidWeaponEntity(weapon))
+	if (!Weapons_IsClientInGame(client)
+		|| !Weapons_IsValidWeaponEntity(weapon))
 	{
 		return;
 	}
@@ -1740,7 +1789,7 @@ static void BlastJumpJarate_OnDeploy(int client, int weapon)
 
 public Action OnWeaponSwitch(int client, int weapon)
 {
-	if (!WeaponReverts_IsEnabled())
+	if (!WeaponsGameplay_IsEnabled())
 	{
 		return Plugin_Continue;
 	}
@@ -1808,7 +1857,7 @@ public Action OnPlayerRunCmd(
 	int &randomSeed,
 	int mouse[2])
 {
-	if (!WeaponReverts_IsEnabled() || !WR_IsClientInGame(client) || !IsPlayerAlive(client))
+	if (!WeaponsGameplay_IsEnabled() || !Weapons_IsClientInGame(client) || !IsPlayerAlive(client))
 	{
 		return Plugin_Continue;
 	}
@@ -1858,8 +1907,8 @@ public Action OnPlayerRunCmd(
 
 public void HuntingRevolver_OnPostThinkPost(int client)
 {
-	if (!WeaponReverts_IsEnabled()
-		|| !WR_IsClientInGame(client)
+	if (!WeaponsGameplay_IsEnabled()
+		|| !Weapons_IsClientInGame(client)
 		|| !IsPlayerAlive(client)
 		|| !tf2_players[client].huntingRevolverZoomed
 		|| GetEntProp(client, Prop_Send, "m_bJumping") == 0)
@@ -1902,7 +1951,7 @@ static void HuntingRevolver_RecognizeWeapon(int client, int weapon)
 
 static void HuntingRevolver_RecalculateSpeed(int client)
 {
-	if (g_SDKTeamFortressSetSpeed == null || !WR_IsValidPlayerIndex(client) || !IsClientInGame(client))
+	if (g_SDKTeamFortressSetSpeed == null || !Weapons_IsValidPlayerIndex(client) || !IsClientInGame(client))
 	{
 		return;
 	}
@@ -1912,7 +1961,7 @@ static void HuntingRevolver_RecalculateSpeed(int client)
 
 static void HuntingRevolver_SetFOV(int client, int fov)
 {
-	if (g_SDKSetFOV == null || !WR_IsValidPlayerIndex(client) || !IsClientInGame(client))
+	if (g_SDKSetFOV == null || !Weapons_IsValidPlayerIndex(client) || !IsClientInGame(client))
 	{
 		return;
 	}
@@ -1932,7 +1981,7 @@ static void HuntingRevolver_SetZoom(int client, bool enabled)
 
 static void HuntingRevolver_ResetClient(int client, int knownWeapon = -1)
 {
-	if (!WR_IsValidPlayerIndex(client))
+	if (!Weapons_IsValidPlayerIndex(client))
 	{
 		return;
 	}
@@ -1963,7 +2012,7 @@ static bool Harvester_IsEligibleClient(int client)
 
 static void Harvester_ClearState(int client)
 {
-	if (!WR_IsValidPlayerIndex(client))
+	if (!Weapons_IsValidPlayerIndex(client))
 	{
 		return;
 	}
@@ -2028,7 +2077,7 @@ static void Harvester_OnAfterburnDamage(int client)
 
 static void Harvester_StartHealTimer(int client)
 {
-	if (!Harvester_IsEligibleClient(client) || !IsPlayerAlive(client) || !WeaponReverts_IsEnabled()
+	if (!Harvester_IsEligibleClient(client) || !IsPlayerAlive(client) || !WeaponsGameplay_IsEnabled()
 		|| tf2_players[client].harvesterHealTimer != null)
 	{
 		return;
@@ -2043,7 +2092,7 @@ static void Harvester_StartHealTimer(int client)
 
 static void Harvester_StopHealTimer(int client)
 {
-	if (!WR_IsValidPlayerIndex(client))
+	if (!Weapons_IsValidPlayerIndex(client))
 	{
 		return;
 	}
@@ -2057,7 +2106,7 @@ static void Harvester_StopHealTimer(int client)
 
 static void Harvester_ShowHealHint(int client)
 {
-	if (!Harvester_IsEligibleClient(client) || !WeaponReverts_IsEnabled())
+	if (!Harvester_IsEligibleClient(client) || !WeaponsGameplay_IsEnabled())
 	{
 		return;
 	}
@@ -2099,7 +2148,7 @@ static void Harvester_ClearHealHint(int client)
 
 static void Harvester_StopHintTimer(int client)
 {
-	if (!WR_IsValidPlayerIndex(client))
+	if (!Weapons_IsValidPlayerIndex(client))
 	{
 		return;
 	}
@@ -2119,7 +2168,7 @@ static void Harvester_SyncHealTimer(int client)
 		Harvester_ClearState(client);
 		return;
 	}
-	if (!IsPlayerAlive(client) || !WeaponReverts_IsEnabled())
+	if (!IsPlayerAlive(client) || !WeaponsGameplay_IsEnabled())
 	{
 		Harvester_StopHealTimer(client);
 		return;
@@ -2152,7 +2201,7 @@ public void Harvester_FrameSyncHealTimer(any userId)
 
 static void ShockCharge_StartTimer(int client)
 {
-	if (!IsClientInGame(client) || !WeaponReverts_IsEnabled() || tf2_players[client].shockCharge >= 30
+	if (!IsClientInGame(client) || !WeaponsGameplay_IsEnabled() || tf2_players[client].shockCharge >= 30
 		|| tf2_players[client].shockChargeTimer != null)
 	{
 		return;
@@ -2167,7 +2216,7 @@ static void ShockCharge_StartTimer(int client)
 
 static void ShockCharge_StopTimer(int client)
 {
-	if (!WR_IsValidPlayerIndex(client) || tf2_players[client].shockChargeTimer == null)
+	if (!Weapons_IsValidPlayerIndex(client) || tf2_players[client].shockChargeTimer == null)
 	{
 		return;
 	}
@@ -2234,7 +2283,7 @@ public void Harvester_ConsumeRevengeCrit(any userId)
 
 static void SecondaryDamageRefill_Reset(int client)
 {
-	if (!WR_IsValidPlayerIndex(client))
+	if (!Weapons_IsValidPlayerIndex(client))
 		return;
 
 	tf2_players[client].secondaryDamageProgress = 0.0;
@@ -2368,15 +2417,15 @@ static void ReloadOnKill_OnKill(int weapon)
 
 static bool RefillPrimaryClipFromWeapon(int attacker, int sourceWeapon, int amount)
 {
-	if (!WR_IsClientInGame(attacker)
-		|| !WR_IsValidWeaponEntity(sourceWeapon)
+	if (!Weapons_IsClientInGame(attacker)
+		|| !Weapons_IsValidWeaponEntity(sourceWeapon)
 		|| amount <= 0)
 	{
 		return false;
 	}
 
 	int primary = GetPlayerWeaponSlot(attacker, WEAPON_SLOT_PRIMARY);
-	if (!WR_IsClipWeaponEntity(primary))
+	if (!Weapons_IsClipWeaponEntity(primary))
 		return false;
 
 	return ReloadWeaponClip(primary, amount);
@@ -2413,7 +2462,7 @@ static void RefillPrimaryClipNextFrame(int attacker, int sourceWeapon, int amoun
 
 static void RefillPrimaryClipOnKill(int attacker, int weapon)
 {
-	if (!WR_IsClientInGame(attacker) || !WR_IsValidWeaponEntity(weapon))
+	if (!Weapons_IsClientInGame(attacker) || !Weapons_IsValidWeaponEntity(weapon))
 		return;
 
 	int amount = TF2CustAttr_GetInt(weapon, ATTR_REFILL_PRIMARY_CLIP_ON_KILL, 0);
@@ -2430,9 +2479,9 @@ static void RefillPrimaryClipOnKill(int attacker, int weapon)
 
 static void RefillPrimaryClipOnCrit(int attacker, int victim, int weapon, float damage, int damageType)
 {
-	if (!WR_IsClientInGame(attacker)
-		|| !WR_IsClientInGame(victim)
-		|| !WR_IsValidWeaponEntity(weapon)
+	if (!Weapons_IsClientInGame(attacker)
+		|| !Weapons_IsClientInGame(victim)
+		|| !Weapons_IsValidWeaponEntity(weapon)
 		|| attacker == victim
 		|| damage <= 0.0
 		|| GetClientTeam(attacker) <= 1
@@ -2492,7 +2541,7 @@ static int GetDamageSourceWeapon(int attacker, int weapon, int inflictor)
 
 static void FullPelletIgnite_ClearPair(int attacker, int victim)
 {
-	if (!WR_IsValidPlayerIndex(attacker) || !WR_IsValidPlayerIndex(victim))
+	if (!Weapons_IsValidPlayerIndex(attacker) || !Weapons_IsValidPlayerIndex(victim))
 	{
 		return;
 	}
@@ -2505,7 +2554,7 @@ static void FullPelletIgnite_ClearPair(int attacker, int victim)
 
 static void FullPelletIgnite_ClearClient(int client)
 {
-	if (!WR_IsValidPlayerIndex(client))
+	if (!Weapons_IsValidPlayerIndex(client))
 	{
 		return;
 	}
@@ -2536,7 +2585,7 @@ static void FullPelletIgnite_TryMark(int attacker, int victim, int weapon)
 	}
 
 	FullPelletIgnite_ClearPair(attacker, victim);
-	if (!WeaponReverts_IsEnabled()
+	if (!WeaponsGameplay_IsEnabled()
 		|| !IsPlayerAlive(victim)
 		|| GetClientTeam(attacker) <= 1
 		|| GetClientTeam(victim) <= 1
@@ -2562,7 +2611,7 @@ static void FullPelletIgnite_TryMark(int attacker, int victim, int weapon)
 
 static void FullPelletIgnite_TryConsumePost(int victim, int attacker, int weapon, int inflictor)
 {
-	if (!WR_IsValidPlayerIndex(attacker) || !WR_IsValidPlayerIndex(victim)
+	if (!Weapons_IsValidPlayerIndex(attacker) || !Weapons_IsValidPlayerIndex(victim)
 		|| !g_bPendingFullPelletIgnite[attacker][victim])
 	{
 		return;
@@ -2594,7 +2643,7 @@ static int GetProjectileOwner(int projectile)
 	if (HasEntProp(projectile, Prop_Send, "m_hThrower"))
 	{
 		int owner = GetEntPropEnt(projectile, Prop_Send, "m_hThrower");
-		if (WR_IsClientInGame(owner))
+		if (Weapons_IsClientInGame(owner))
 		{
 			return owner;
 		}
@@ -2603,7 +2652,7 @@ static int GetProjectileOwner(int projectile)
 	if (HasEntProp(projectile, Prop_Send, "m_hOwnerEntity"))
 	{
 		int owner = GetEntPropEnt(projectile, Prop_Send, "m_hOwnerEntity");
-		if (WR_IsClientInGame(owner))
+		if (Weapons_IsClientInGame(owner))
 		{
 			return owner;
 		}
@@ -2650,7 +2699,8 @@ static bool SandmanPreJI_IsStunBall(int entity)
 
 public void SandmanPreJI_OnStunBallSpawnPost(int entity)
 {
-	if (entity <= 0 || entity >= MAX_TRACKED_ENTITIES || !IsValidEntity(entity))
+	if (!WeaponsGameplay_IsEnabled()
+		|| entity <= 0 || entity >= MAX_TRACKED_ENTITIES || !IsValidEntity(entity))
 		return;
 
 	int owner = GetProjectileOwner(entity);
@@ -2691,7 +2741,7 @@ static bool SandmanPreJI_IsEnabledForDamage(int attacker, int weapon, int inflic
 
 static Action SandmanPreJI_OnBaseballDamage(int victim, int attacker, int weapon, int inflictor, float &damage)
 {
-	if (!WR_IsClientInGame(victim) || !WR_IsClientInGame(attacker) || victim == attacker)
+	if (!Weapons_IsClientInGame(victim) || !Weapons_IsClientInGame(attacker) || victim == attacker)
 		return Plugin_Continue;
 
 	if (!SandmanPreJI_IsEnabledForDamage(attacker, weapon, inflictor))
@@ -2703,8 +2753,13 @@ static Action SandmanPreJI_OnBaseballDamage(int victim, int attacker, int weapon
 
 public MRESReturn SandmanPreJI_ApplyBallImpactEffectOnVictim_Pre(int entity, DHookParam parameters)
 {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return MRES_Ignored;
+	}
+
 	int victim = parameters.Get(1);
-	if (!WR_IsClientInGame(victim) || !SandmanPreJI_IsEnabledProjectile(entity))
+	if (!Weapons_IsClientInGame(victim) || !SandmanPreJI_IsEnabledProjectile(entity))
 	{
 		return MRES_Ignored;
 	}
@@ -2720,7 +2775,7 @@ static int SandmanPreJI_FindPendingStunVictim()
 	int victim = 0;
 	for (int i = 1; i <= MaxClients; i++)
 	{
-		if (!WR_IsClientInGame(i) || g_iSandmanStunFrame[i] != frame)
+		if (!Weapons_IsClientInGame(i) || g_iSandmanStunFrame[i] != frame)
 		{
 			continue;
 		}
@@ -2739,7 +2794,7 @@ static int SandmanPreJI_GetStunVictim(Address sharedAddress)
 	if (GetFeatureStatus(FeatureType_Native, "TF2Util_GetPlayerFromSharedAddress") == FeatureStatus_Available)
 	{
 		int victim = TF2Util_GetPlayerFromSharedAddress(sharedAddress);
-		if (WR_IsClientInGame(victim))
+		if (Weapons_IsClientInGame(victim))
 		{
 			return victim;
 		}
@@ -2750,8 +2805,13 @@ static int SandmanPreJI_GetStunVictim(Address sharedAddress)
 
 public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam parameters)
 {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return MRES_Ignored;
+	}
+
 	int victim = SandmanPreJI_GetStunVictim(sharedAddress);
-	if (!WR_IsClientInGame(victim) || g_iSandmanStunFrame[victim] != GetGameTickCount())
+	if (!Weapons_IsClientInGame(victim) || g_iSandmanStunFrame[victim] != GetGameTickCount())
 	{
 		return MRES_Ignored;
 	}
@@ -2787,7 +2847,7 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 		stunFlags = TF_STUNFLAGS_BIGBONK;
 
 		int attacker = GetEntPropEnt(inflictor, Prop_Send, "m_hOwnerEntity");
-		if (WR_IsClientInGame(attacker) && !IsFakeClient(attacker) && !IsFakeClient(victim)
+		if (Weapons_IsClientInGame(attacker) && !IsFakeClient(attacker) && !IsFakeClient(victim)
 			&& attacker != victim && GetClientTeam(attacker) != GetClientTeam(victim))
 		{
 			FireSandmanMoonshot(attacker, victim);
@@ -2803,13 +2863,13 @@ public MRESReturn SandmanPreJI_StunPlayer_Pre(Address sharedAddress, DHookParam 
 
 static bool HasTakeMinicritsProjectileAirborne(int client)
 {
-	if (!WR_IsClientInGame(client))
+	if (!Weapons_IsClientInGame(client))
 		return false;
 
 	for (int slot = 0; slot <= WEAPON_SLOT_LAST; slot++)
 	{
 		int weapon = GetPlayerWeaponSlot(client, slot);
-		if (!WR_IsValidWeaponEntity(weapon))
+		if (!Weapons_IsValidWeaponEntity(weapon))
 			continue;
 
 		if (TF2CustAttr_GetInt(weapon, ATTR_TAKE_MINICRITS_PROJECTILE_AIRBORNE, 0) != 0)
@@ -2832,9 +2892,9 @@ public Action TF2_OnTakeDamage(
 	int damageCustom,
 	CritType &critType)
 {
-	if (!WeaponReverts_IsEnabled()
-		|| !WR_IsClientInGame(victim)
-		|| !WR_IsClientInGame(attacker)
+	if (!WeaponsGameplay_IsEnabled()
+		|| !Weapons_IsClientInGame(victim)
+		|| !Weapons_IsClientInGame(attacker)
 		|| attacker == victim
 		|| damage <= 0.0
 		|| GetClientTeam(victim) <= 1
@@ -2868,7 +2928,12 @@ public Action TF2_OnTakeDamage(
 
 public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &damage, int &damagetype, int &weapon, float damageForce[3], float damagePosition[3], int damagecustom)
 {
-	if (client < 1 || client > MaxClients || !IsClientInGame(client)) return Plugin_Continue;
+	if (!WeaponsGameplay_IsEnabled()
+		|| client < 1 || client > MaxClients || !IsClientInGame(client))
+	{
+		return Plugin_Continue;
+	}
+
 	bool damageChanged = false;
 	if (inflictor > MaxClients && IsValidEntity(inflictor) && (damagetype & DMG_BULLET))
 	{
@@ -3075,7 +3140,8 @@ bool IsWorldInflictedDeath(Event event)
 
 public Action OnTraceAttack(int victim, int &attacker, int &inflictor, float &damage, int &damagetype, int &ammotype, int hitbox, int hitgroup)
 {
-    if (!Accuracy_IsValidClient(attacker) || !IsPlayerAlive(attacker))
+    if (!WeaponsGameplay_IsEnabled()
+		|| !Accuracy_IsValidClient(attacker) || !IsPlayerAlive(attacker))
         return Plugin_Continue;
 
 	if (damagetype & DMG_BULLET)
@@ -3085,7 +3151,7 @@ public Action OnTraceAttack(int victim, int &attacker, int &inflictor, float &da
 		{
 			if (TF2CustAttr_GetInt(weapon, ATTR_HEADSHOTS_ENABLED_WHILE_ZOOMED, 0) != 0)
 			{
-				if (WeaponReverts_CanHeadshotNow(weapon))
+				if (WeaponsGameplay_CanHeadshotNow(weapon))
 				{
 					damagetype |= DMG_USE_HITLOCATIONS;
 				}
@@ -3096,7 +3162,7 @@ public Action OnTraceAttack(int victim, int &attacker, int &inflictor, float &da
 				return Plugin_Changed;
 			}
 
-			if (WeaponReverts_CanHeadshotNow(weapon))
+			if (WeaponsGameplay_CanHeadshotNow(weapon))
 			{
 				damagetype |= DMG_USE_HITLOCATIONS;
 				return Plugin_Changed;
@@ -3137,7 +3203,11 @@ public Action OnTakeDamageAlive(
 	int& weapon, float damage_force[3], float damage_position[3], int damage_custom
 ) {
 
-	if (!Accuracy_IsValidClient(attacker) || weapon < 1) return Plugin_Continue;
+	if (!WeaponsGameplay_IsEnabled()
+		|| !Accuracy_IsValidClient(attacker) || weapon < 1)
+	{
+		return Plugin_Continue;
+	}
 	bool validWeapon = (weapon > MaxClients && IsValidEntity(weapon));
 	Action ambassador102Action = Ambassador102_OnHeadshotDamage(victim, attacker, weapon, damage, damage_type, damage_custom);
 	if (ambassador102Action != Plugin_Continue)
@@ -3210,16 +3280,16 @@ public Action OnTakeDamageAlive(
 	return Plugin_Continue;
 }
 
-static float WeaponReverts_GetAfterburnRateOnHit(int weapon)
+static float WeaponsGameplay_GetAfterburnRateOnHit(int weapon)
 {
 	return SDKCall(g_SDKGetAfterburnRateOnHit, weapon);
 }
 
 // Set DamageType Ignite compatibility based on nosoop's SM-TFAttributeSupport:
 // https://github.com/nosoop/SM-TFAttributeSupport
-static void WeaponReverts_ApplyDamageTypeIgniteDuration(int weapon, int victim, int attacker)
+static void WeaponsGameplay_ApplyDamageTypeIgniteDuration(int weapon, int victim, int attacker)
 {
-	if (WeaponReverts_GetAfterburnRateOnHit(weapon) > 0.0
+	if (WeaponsGameplay_GetAfterburnRateOnHit(weapon) > 0.0
 		|| !TF2_IsPlayerInCondition(victim, TFCond_OnFire))
 	{
 		return;
@@ -3238,17 +3308,17 @@ static void WeaponReverts_ApplyDamageTypeIgniteDuration(int weapon, int victim, 
 	}
 }
 
-public void WeaponReverts_OnTakeDamageAlivePost(
+public void WeaponsGameplay_OnTakeDamageAlivePost(
 	int victim, int attacker, int inflictor, float damage, int damageType,
 	int weapon, const float damageForce[3], const float damagePosition[3], int damageCustom)
 {
-	if (!WeaponReverts_IsEnabled() || !WR_IsClientInGame(victim))
+	if (!WeaponsGameplay_IsEnabled() || !Weapons_IsClientInGame(victim))
 	{
 		return;
 	}
 
 	Escampette_OnDamageTaken(victim, attacker, damage, damagePosition);
-	if (!WR_IsClientInGame(attacker))
+	if (!Weapons_IsClientInGame(attacker))
 	{
 		return;
 	}
@@ -3264,10 +3334,15 @@ public void WeaponReverts_OnTakeDamageAlivePost(
 		return;
 	}
 
-	WeaponReverts_ApplyDamageTypeIgniteDuration(weapon, victim, attacker);
+	WeaponsGameplay_ApplyDamageTypeIgniteDuration(weapon, victim, attacker);
 }
 
 MRESReturn CalculateMaxSpeed(int client, DHookReturn returnValue) {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return MRES_Ignored;
+	}
+
 	if (
 		client >= 1 &&
 		client <= MaxClients &&
@@ -3324,6 +3399,11 @@ MRESReturn CalculateMaxSpeed(int client, DHookReturn returnValue) {
 }
 
 MRESReturn ApplyBiteEffects_Pre(int entity, DHookParam parameters) {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return MRES_Ignored;
+	}
+
 	int client = parameters.Get(1);
 	if (
 		client >= 1 &&
@@ -3335,6 +3415,11 @@ MRESReturn ApplyBiteEffects_Pre(int entity, DHookParam parameters) {
 }
 
 MRESReturn ApplyBiteEffects_Post(int entity, DHookParam parameters) {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return MRES_Ignored;
+	}
+
 	int lunchbox_type = TF2Attrib_HookValueInt(0, "set_weapon_mode", entity);
 	int client = parameters.Get(1);
 	if (
@@ -3355,6 +3440,11 @@ MRESReturn ApplyBiteEffects_Post(int entity, DHookParam parameters) {
 }
 
 MRESReturn CartDispenseMetal(int entity, DHookReturn returnValue, DHookParam parameters) {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return MRES_Ignored;
+	}
+
 	int client = parameters.Get(1);
 	if (
 		client > 0 &&
@@ -3376,7 +3466,8 @@ MRESReturn CartDispenseMetal(int entity, DHookReturn returnValue, DHookParam par
 
 public MRESReturn CanFireCriticalShot_Post(int weapon, DHookReturn hReturn, DHookParam parameters)
 {
-    if (weapon <= MaxClients || !IsValidEntity(weapon))
+    if (!WeaponsGameplay_IsEnabled()
+		|| weapon <= MaxClients || !IsValidEntity(weapon))
         return MRES_Ignored;
 
     int client = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
@@ -3390,7 +3481,7 @@ public MRESReturn CanFireCriticalShot_Post(int weapon, DHookReturn hReturn, DHoo
 		return MRES_Override;
 	}
 
-	if (!WeaponReverts_HasHeadshotFeature(weapon))
+	if (!WeaponsGameplay_HasHeadshotFeature(weapon))
 		return MRES_Ignored;
 
 	if (!isHeadshot)
@@ -3404,13 +3495,18 @@ public MRESReturn CanFireCriticalShot_Post(int weapon, DHookReturn hReturn, DHoo
 		return MRES_Ignored;
 	}
 
-	hReturn.Value = WeaponReverts_CanHeadshotNow(weapon);
+	hReturn.Value = WeaponsGameplay_CanHeadshotNow(weapon);
 	return MRES_Override;
 }
 
 // Gas passer buff is a candidate for removal, it's uninspired and could be more creative
 public void TF2_OnConditionAdded(int client, TFCond condition)
 {
+	if (!WeaponsGameplay_IsEnabled())
+	{
+		return;
+	}
+
 	if (condition == TFCond_BlastJumping)
 	{
 		bool withinDeployWindow = g_flBlastJumpJaratePendingUntil[client] > 0.0
@@ -3419,7 +3515,7 @@ public void TF2_OnConditionAdded(int client, TFCond condition)
 		BlastJumpJarate_ClearPending(client);
 
 		if (withinDeployWindow
-			&& WR_IsValidWeaponEntity(weapon)
+			&& Weapons_IsValidWeaponEntity(weapon)
 			&& GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon") == weapon)
 		{
 			float duration = TF2CustAttr_GetFloat(weapon, ATTR_BLAST_JUMP_JARATE, 0.0);
@@ -3465,7 +3561,7 @@ public void TF2_OnConditionAdded(int client, TFCond condition)
 	}
 }
 
-public void TF2_OnConditionRemoved(int client, TFCond condition)
+void WeaponsGameplay_OnConditionRemoved(int client, TFCond condition)
 {
 	if (condition == TFCond_Cloaked)
 	{
@@ -3473,39 +3569,19 @@ public void TF2_OnConditionRemoved(int client, TFCond condition)
 	}
 }
 
-static KeyValues WeaponReverts_LoadConfigFile(KeyValues current, const char[] rootName, const char[] configPath)
+void WeaponsGameplay_SetConfig(KeyValues config)
 {
-	if (current != null)
-	{
-		delete current;
-		current = null;
-	}
+	WeaponsGameplay_DeleteConfigs();
+	if (config == null)
+		return;
 
-	KeyValues kv = new KeyValues(rootName);
-
-	char path[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, path, sizeof(path), configPath);
-
-	if (!kv.ImportFromFile(path))
-	{
-		LogError("[weaponreverts] Failed to load %s", path);
-	}
-
-	return kv;
+	g_hWeaponsGameplayConfig = new KeyValues(WEAPONS_CONFIG_ROOT);
+	g_hWeaponsGameplayConfig.Import(config);
 }
 
-static void LoadWeaponRevertsConfig()
+public Action Command_ReloadWeaponsConfig(int client, int args)
 {
-	g_hWeaponRevertsConfig = WeaponReverts_LoadConfigFile(
-		g_hWeaponRevertsConfig,
-		"WeaponReverts",
-		WEAPON_REVERTS_CONFIG_PATH
-	);
-}
-
-public Action Command_ReloadWeaponRevertsConfig(int client, int args)
-{
-	LoadWeaponRevertsConfig();
+	LoadWeaponsConfig();
 	int regenerated = 0;
 	for (int target = 1; target <= MaxClients; target++)
 	{
@@ -3522,12 +3598,12 @@ public Action Command_ReloadWeaponRevertsConfig(int client, int args)
 		}
 	}
 	ReplyToCommand(client,
-		"[WeaponReverts] Reloaded configs/weapons.cfg and refreshed %d active loadouts.",
+		"[Weapons] Reloaded configs/weapons.cfg and refreshed %d active loadouts.",
 		regenerated);
 	return Plugin_Handled;
 }
 
-static bool WeaponReverts_ItemKeyContainsIndex(const char[] itemKey, int index)
+static bool WeaponsGameplay_ItemKeyContainsIndex(const char[] itemKey, int index)
 {
 	int indexes[32];
 	int count = ItemIndexes_Parse(itemKey, indexes, sizeof(indexes));
@@ -3542,31 +3618,31 @@ static bool WeaponReverts_ItemKeyContainsIndex(const char[] itemKey, int index)
 	return false;
 }
 
-static bool WeaponReverts_JumpToConfiguredWeapon(int index)
+static bool WeaponsGameplay_JumpToConfiguredWeapon(int index)
 {
-	if (g_hWeaponRevertsConfig == null)
+	if (g_hWeaponsGameplayConfig == null)
 		return false;
 
-	g_hWeaponRevertsConfig.Rewind();
-	if (!g_hWeaponRevertsConfig.GotoFirstSubKey(true))
+	g_hWeaponsGameplayConfig.Rewind();
+	if (!g_hWeaponsGameplayConfig.GotoFirstSubKey(true))
 		return false;
 
 	do
 	{
 		char itemKey[64];
-		g_hWeaponRevertsConfig.GetSectionName(itemKey, sizeof(itemKey));
-		if (WeaponReverts_ItemKeyContainsIndex(itemKey, index))
+		g_hWeaponsGameplayConfig.GetSectionName(itemKey, sizeof(itemKey));
+		if (WeaponsGameplay_ItemKeyContainsIndex(itemKey, index))
 		{
 			return true;
 		}
 	}
-	while (g_hWeaponRevertsConfig.GotoNextKey(true));
+	while (g_hWeaponsGameplayConfig.GotoNextKey(true));
 
-	g_hWeaponRevertsConfig.Rewind();
+	g_hWeaponsGameplayConfig.Rewind();
 	return false;
 }
 
-static bool WeaponReverts_CurrentSectionContainsItemIndex(KeyValues kv, int index)
+static bool WeaponsGameplay_CurrentSectionContainsItemIndex(KeyValues kv, int index)
 {
 	if (kv == null)
 		return false;
@@ -3578,7 +3654,7 @@ static bool WeaponReverts_CurrentSectionContainsItemIndex(KeyValues kv, int inde
 		{
 			char itemKey[64];
 			kv.GetSectionName(itemKey, sizeof(itemKey));
-			if (WeaponReverts_ItemKeyContainsIndex(itemKey, index))
+			if (WeaponsGameplay_ItemKeyContainsIndex(itemKey, index))
 			{
 				found = true;
 				break;
@@ -3592,12 +3668,12 @@ static bool WeaponReverts_CurrentSectionContainsItemIndex(KeyValues kv, int inde
 	return found;
 }
 
-static bool WeaponReverts_IsAllowedForClient(int client)
+static bool WeaponsGameplay_IsAllowedForClient(int client)
 {
-	if (g_hWeaponRevertsConfig == null || !WR_IsClientInGame(client))
+	if (g_hWeaponsGameplayConfig == null || !Weapons_IsClientInGame(client))
 		return true;
 
-	if (!g_hWeaponRevertsConfig.JumpToKey("classes", false))
+	if (!g_hWeaponsGameplayConfig.JumpToKey("classes", false))
 		return true;
 
 	char classKey[16];
@@ -3607,93 +3683,93 @@ static bool WeaponReverts_IsAllowedForClient(int client)
 	if (classKey[0] != '\0')
 	{
 		char value[8];
-		g_hWeaponRevertsConfig.GetString(classKey, value, sizeof(value));
+		g_hWeaponsGameplayConfig.GetString(classKey, value, sizeof(value));
 		allowed = (value[0] != '\0' && StringToInt(value) != 0);
 	}
 
-	g_hWeaponRevertsConfig.GoBack();
+	g_hWeaponsGameplayConfig.GoBack();
 	return allowed;
 }
 
-static void WeaponReverts_GetWeaponClasses(int index, char[] buffer, int maxlen)
+static void WeaponsGameplay_GetWeaponClasses(int index, char[] buffer, int maxlen)
 {
 	buffer[0] = '\0';
 
-	if (g_hWeaponRevertsConfig == null)
+	if (g_hWeaponsGameplayConfig == null)
 		return;
 
-	g_hWeaponRevertsConfig.Rewind();
-	if (!g_hWeaponRevertsConfig.JumpToKey(WEAPON_REVERTS_ITEM_CLASSES_SECTION, false))
+	g_hWeaponsGameplayConfig.Rewind();
+	if (!g_hWeaponsGameplayConfig.JumpToKey(WEAPONS_ITEM_CLASSES_SECTION, false))
 		return;
 
-	if (!g_hWeaponRevertsConfig.GotoFirstSubKey(true))
+	if (!g_hWeaponsGameplayConfig.GotoFirstSubKey(true))
 	{
-		g_hWeaponRevertsConfig.Rewind();
+		g_hWeaponsGameplayConfig.Rewind();
 		return;
 	}
 
 	do
 	{
 		char className[32];
-		g_hWeaponRevertsConfig.GetSectionName(className, sizeof(className));
+		g_hWeaponsGameplayConfig.GetSectionName(className, sizeof(className));
 
-		if (WeaponReverts_CurrentSectionContainsItemIndex(g_hWeaponRevertsConfig, index))
+		if (WeaponsGameplay_CurrentSectionContainsItemIndex(g_hWeaponsGameplayConfig, index))
 		{
 			if (buffer[0] != '\0')
 				StrCat(buffer, maxlen, ",");
 			StrCat(buffer, maxlen, className);
 		}
 	}
-	while (g_hWeaponRevertsConfig.GotoNextKey(true));
+	while (g_hWeaponsGameplayConfig.GotoNextKey(true));
 
-	g_hWeaponRevertsConfig.Rewind();
+	g_hWeaponsGameplayConfig.Rewind();
 }
 
-static bool WeaponReverts_ClassCanUseWeapon(const char[] className, int index)
+static bool WeaponsGameplay_ClassCanUseWeapon(const char[] className, int index)
 {
-	if (g_hWeaponRevertsConfig == null)
+	if (g_hWeaponsGameplayConfig == null)
 		return false;
 
-	g_hWeaponRevertsConfig.Rewind();
-	if (!g_hWeaponRevertsConfig.JumpToKey(WEAPON_REVERTS_ITEM_CLASSES_SECTION, false))
+	g_hWeaponsGameplayConfig.Rewind();
+	if (!g_hWeaponsGameplayConfig.JumpToKey(WEAPONS_ITEM_CLASSES_SECTION, false))
 		return false;
 
-	if (!g_hWeaponRevertsConfig.JumpToKey(className, false))
+	if (!g_hWeaponsGameplayConfig.JumpToKey(className, false))
 	{
-		g_hWeaponRevertsConfig.Rewind();
+		g_hWeaponsGameplayConfig.Rewind();
 		return false;
 	}
 
-	bool found = WeaponReverts_CurrentSectionContainsItemIndex(g_hWeaponRevertsConfig, index);
-	g_hWeaponRevertsConfig.Rewind();
+	bool found = WeaponsGameplay_CurrentSectionContainsItemIndex(g_hWeaponsGameplayConfig, index);
+	g_hWeaponsGameplayConfig.Rewind();
 	return found;
 }
 
-static bool WeaponReverts_GetConfiguredInfo(int index, char[] weaponName, int weaponNameLen, char[] positive, int positiveLen, char[] neutral, int neutralLen, char[] negative, int negativeLen, char[] type, int typeLen, char[] classes, int classesLen)
+bool WeaponsGameplay_GetConfiguredInfo(int index, char[] weaponName, int weaponNameLen, char[] positive, int positiveLen, char[] neutral, int neutralLen, char[] negative, int negativeLen, char[] type, int typeLen, char[] classes, int classesLen)
 {
-	if (g_hWeaponRevertsConfig == null)
+	if (g_hWeaponsGameplayConfig == null)
 		return false;
 
-	if (!WeaponReverts_JumpToConfiguredWeapon(index))
+	if (!WeaponsGameplay_JumpToConfiguredWeapon(index))
 		return false;
 
-	g_hWeaponRevertsConfig.GetString("name", weaponName, weaponNameLen, "Unknown Weapon");
+	g_hWeaponsGameplayConfig.GetString("name", weaponName, weaponNameLen, "Unknown Weapon");
 	positive[0] = '\0';
 	neutral[0] = '\0';
 	negative[0] = '\0';
 	strcopy(type, typeLen, "buff");
 
-	if (g_hWeaponRevertsConfig.JumpToKey("description", false))
+	if (g_hWeaponsGameplayConfig.JumpToKey("description", false))
 	{
-		g_hWeaponRevertsConfig.GetString("positive", positive, positiveLen, "");
-		g_hWeaponRevertsConfig.GetString("neutral", neutral, neutralLen, "");
-		g_hWeaponRevertsConfig.GetString("negative", negative, negativeLen, "");
-		g_hWeaponRevertsConfig.GetString("type", type, typeLen, "buff");
-		g_hWeaponRevertsConfig.GoBack();
+		g_hWeaponsGameplayConfig.GetString("positive", positive, positiveLen, "");
+		g_hWeaponsGameplayConfig.GetString("neutral", neutral, neutralLen, "");
+		g_hWeaponsGameplayConfig.GetString("negative", negative, negativeLen, "");
+		g_hWeaponsGameplayConfig.GetString("type", type, typeLen, "buff");
+		g_hWeaponsGameplayConfig.GoBack();
 	}
 
-	g_hWeaponRevertsConfig.Rewind();
-	WeaponReverts_GetWeaponClasses(index, classes, classesLen);
+	g_hWeaponsGameplayConfig.Rewind();
+	WeaponsGameplay_GetWeaponClasses(index, classes, classesLen);
 	return true;
 }
 
@@ -3707,7 +3783,7 @@ public int Native_GetWeaponInfo(Handle plugin, int numParams)
 	char negative[256];
 	char type[32];
 	char classes[128];
-	bool found = WeaponReverts_GetConfiguredInfo(index, weaponName, sizeof(weaponName), positive, sizeof(positive), neutral, sizeof(neutral), negative, sizeof(negative), type, sizeof(type), classes, sizeof(classes));
+	bool found = WeaponsGameplay_GetConfiguredInfo(index, weaponName, sizeof(weaponName), positive, sizeof(positive), neutral, sizeof(neutral), negative, sizeof(negative), type, sizeof(type), classes, sizeof(classes));
 
 	SetNativeString(2, found ? weaponName : "", GetNativeCell(3), true);
 	SetNativeString(4, found ? positive : "", GetNativeCell(5), true);
@@ -3731,22 +3807,22 @@ public int Native_CanClassUseWeapon(Handle plugin, int numParams)
 {
 	char className[32];
 	GetNativeString(1, className, sizeof(className));
-	return WeaponReverts_ClassCanUseWeapon(className, GetNativeCell(2));
+	return WeaponsGameplay_ClassCanUseWeapon(className, GetNativeCell(2));
 }
 
-static void WeaponReverts_ApplyAttributeSection(int entity, const char[] sectionName, bool customAttributes)
+static void WeaponsGameplay_ApplyAttributeSection(int entity, const char[] sectionName, bool customAttributes)
 {
-	if (!g_hWeaponRevertsConfig.JumpToKey(sectionName, false))
+	if (!g_hWeaponsGameplayConfig.JumpToKey(sectionName, false))
 		return;
 
-	if (g_hWeaponRevertsConfig.GotoFirstSubKey(false))
+	if (g_hWeaponsGameplayConfig.GotoFirstSubKey(false))
 	{
 		do
 		{
 			char attr[128];
 			char value[128];
-			g_hWeaponRevertsConfig.GetSectionName(attr, sizeof(attr));
-			g_hWeaponRevertsConfig.GetString(NULL_STRING, value, sizeof(value));
+			g_hWeaponsGameplayConfig.GetSectionName(attr, sizeof(attr));
+			g_hWeaponsGameplayConfig.GetString(NULL_STRING, value, sizeof(value));
 
 			if (attr[0] != '\0' && value[0] != '\0')
 			{
@@ -3760,50 +3836,50 @@ static void WeaponReverts_ApplyAttributeSection(int entity, const char[] section
 				}
 			}
 		}
-		while (g_hWeaponRevertsConfig.GotoNextKey(false));
+		while (g_hWeaponsGameplayConfig.GotoNextKey(false));
 
-		g_hWeaponRevertsConfig.GoBack();
+		g_hWeaponsGameplayConfig.GoBack();
 	}
 
-	g_hWeaponRevertsConfig.GoBack();
+	g_hWeaponsGameplayConfig.GoBack();
 }
 
-static void WeaponReverts_ApplyGameAttributeSection(int entity)
+static void WeaponsGameplay_ApplyGameAttributeSection(int entity)
 {
-	WeaponReverts_ApplyAttributeSection(entity, "attributes_game", false);
+	WeaponsGameplay_ApplyAttributeSection(entity, "attributes_game", false);
 }
 
-static void WeaponReverts_ApplyCustomAttributeSection(int entity)
+static void WeaponsGameplay_ApplyCustomAttributeSection(int entity)
 {
-	WeaponReverts_ApplyAttributeSection(entity, "attributes_custom", true);
+	WeaponsGameplay_ApplyAttributeSection(entity, "attributes_custom", true);
 }
 
-static void WeaponReverts_ApplyConfiguredAttributes(int client, int index, int entity)
+static void WeaponsGameplay_ApplyConfiguredAttributes(int client, int index, int entity)
 {
-	if (g_hWeaponRevertsConfig == null || !WR_IsClientInGame(client) || !WR_IsValidWeaponEntity(entity))
+	if (g_hWeaponsGameplayConfig == null || !Weapons_IsClientInGame(client) || !Weapons_IsValidWeaponEntity(entity))
 		return;
 
-	if (!WeaponReverts_JumpToConfiguredWeapon(index))
+	if (!WeaponsGameplay_JumpToConfiguredWeapon(index))
 		return;
 
-	if (WeaponReverts_IsAllowedForClient(client))
+	if (WeaponsGameplay_IsAllowedForClient(client))
 	{
-		WeaponReverts_ApplyGameAttributeSection(entity);
-		WeaponReverts_ApplyCustomAttributeSection(entity);
-		WeaponReverts_ApplyEngineOverrides(entity);
+		WeaponsGameplay_ApplyGameAttributeSection(entity);
+		WeaponsGameplay_ApplyCustomAttributeSection(entity);
+		Weapons_NotifyItemRuntimeStateReady(client, entity);
 	}
 
-	g_hWeaponRevertsConfig.Rewind();
+	g_hWeaponsGameplayConfig.Rewind();
 }
 
-static float WeaponReverts_GetPrimaryClipBonusFromLoadout(int client)
+static float WeaponsGameplay_GetPrimaryClipBonusFromLoadout(int client)
 {
 	float bestBonus = 0.0;
 
 	for (int slot = 0; slot <= WEAPON_SLOT_LAST; slot++)
 	{
 		int weapon = GetPlayerWeaponSlot(client, slot);
-		if (!WR_IsValidWeaponEntity(weapon))
+		if (!Weapons_IsValidWeaponEntity(weapon))
 			continue;
 
 		float bonus = TF2CustAttr_GetFloat(weapon, ATTR_PRIMARY_CLIP_SIZE_BONUS, 0.0);
@@ -3816,39 +3892,39 @@ static float WeaponReverts_GetPrimaryClipBonusFromLoadout(int client)
 	return bestBonus;
 }
 
-static void WeaponReverts_ApplyPrimaryClipBonusFromLoadout(int client)
+static void WeaponsGameplay_ApplyPrimaryClipBonusFromLoadout(int client)
 {
-	if (!WR_IsClientInGame(client))
+	if (!Weapons_IsClientInGame(client))
 		return;
 
 	int primary = GetPlayerWeaponSlot(client, WEAPON_SLOT_PRIMARY);
-	if (!WR_IsValidWeaponEntity(primary))
+	if (!Weapons_IsValidWeaponEntity(primary))
 		return;
 
-	float bonus = WeaponReverts_GetPrimaryClipBonusFromLoadout(client);
+	float bonus = WeaponsGameplay_GetPrimaryClipBonusFromLoadout(client);
 	if (bonus <= 0.0)
 		return;
 
 	TF2Attrib_SetByName(primary, ATTR_CLIP_SIZE_BONUS, bonus);
 }
 
-public void WeaponReverts_FrameApplyPrimaryClipBonus(any userId)
+public void WeaponsGameplay_FrameApplyPrimaryClipBonus(any userId)
 {
 	int client = GetClientOfUserId(userId);
-	WeaponReverts_ApplyPrimaryClipBonusFromLoadout(client);
+	WeaponsGameplay_ApplyPrimaryClipBonusFromLoadout(client);
 }
 
-static void WeaponReverts_QueuePrimaryClipBonusRefresh(int client)
+static void WeaponsGameplay_QueuePrimaryClipBonusRefresh(int client)
 {
-	if (!WR_IsClientInGame(client))
+	if (!Weapons_IsClientInGame(client))
 		return;
 
-	RequestFrame(WeaponReverts_FrameApplyPrimaryClipBonus, GetClientUserId(client));
+	RequestFrame(WeaponsGameplay_FrameApplyPrimaryClipBonus, GetClientUserId(client));
 }
 
 public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemDefinitionIndex, int itemLevel, int itemQuality, int entityIndex)
 {
-	if (WeaponReverts_IsEnabled()) {
+	if (WeaponsGameplay_IsEnabled()) {
 		ShockCharge_StopTimer(client);
 		tf2_players[client].shockCharge = 30;
 		TF2Attrib_SetByName(entityIndex, "crit mod disabled hidden", 0.00);
@@ -3874,7 +3950,7 @@ public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemD
 		int oldMax = GetWeaponMaxClip(entityIndex);
 		int oldClip = GetClip(entityIndex);
 
-		WeaponReverts_ApplyConfiguredAttributes(client, itemDefinitionIndex, entityIndex);
+		WeaponsGameplay_ApplyConfiguredAttributes(client, itemDefinitionIndex, entityIndex);
 
 		int newMax = GetWeaponMaxClip(entityIndex);
 		if (oldMax > 0 && oldClip == oldMax && newMax > oldMax)
@@ -3882,7 +3958,7 @@ public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemD
 			SetClip_Weapon(entityIndex, newMax);
 		}
 
-		WeaponReverts_QueuePrimaryClipBonusRefresh(client);
+		WeaponsGameplay_QueuePrimaryClipBonusRefresh(client);
 	}
 
 	return 0;

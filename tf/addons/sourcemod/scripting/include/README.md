@@ -98,19 +98,22 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `CustomHats_ResolveTag` - Resolves a custom hat tag key into display text.
 - `CustomHats_FindTagSource` - Finds the custom hat tag key that produced a display tag.
 
-## cwx.inc
-- `CWX_SetPlayerLoadoutItem` - Stores a custom item UID in a player's class loadout slot.
-- `CWX_RemovePlayerLoadoutItem` - Removes a custom item UID from a player's class loadout slot.
-- `CWX_GetPlayerLoadoutItem` - Reads a custom item UID from a player's class loadout slot.
-- `CWX_EquipPlayerItem` - Equips a custom item UID on a player.
-- `CWX_CanPlayerAccessItem` - Returns whether a player can use a custom item UID.
-- `CWX_GetItemList` - Returns custom item UIDs filtered by an optional callback.
-- `CWX_IsItemUIDValid` - Returns whether a custom item UID exists.
-- `CWX_GetItemUIDFromEntity` - Writes the custom item UID attached to an entity into a buffer.
-- `CWX_GetItemDisplayName` - Writes the configured display name for a custom item UID into a buffer.
-- `CWX_OnItemRuntimeStateReady` - Fires after CWX restores missing runtime state on a persisted custom item.
-- `CWX_GetItemLoadoutSlot` - Returns the TF2 loadout slot used by a custom item for a class.
-- `CWX_GetItemExtData` - Returns a copy of a custom item's extended KeyValues section.
+## weapons.inc
+- `Weapons_SetPlayerLoadoutItem` - Stores a custom item UID in a player's class loadout slot.
+- `Weapons_RemovePlayerLoadoutItem` - Removes a custom item UID from a player's class loadout slot.
+- `Weapons_GetPlayerLoadoutItem` - Reads a custom item UID from a player's class loadout slot.
+- `Weapons_EquipPlayerItem` - Equips a custom item UID on a player.
+- `Weapons_CanPlayerAccessItem` - Returns whether a player can use a custom item UID.
+- `Weapons_GetItemList` - Returns custom item UIDs filtered by an optional callback.
+- `Weapons_IsItemUIDValid` - Returns whether a custom item UID exists.
+- `Weapons_GetItemUIDFromEntity` - Writes the custom item UID attached to an entity into a buffer.
+- `Weapons_GetItemDisplayName` - Writes the configured display name for a custom item UID into a buffer.
+- `Weapons_IsItemReskinOnly` - Returns whether a custom item is configured as a reskin-only entry.
+- `Weapons_OnItemRuntimeStateReady` - Fires after the unified runtime restores a persisted custom item.
+- `Weapons_GetItemLoadoutSlot` - Returns the TF2 loadout slot used by a custom item for a class.
+- `Weapons_GetItemExtData` - Returns a copy of a custom item's extended KeyValues section.
+- `Weapons_GetWeaponInfo` - Writes configured display data for a TF2 item definition.
+- `Weapons_CanClassUseWeapon` - Returns whether a class can use an item definition from weapons.cfg.
 
 ## dgm_api.inc
 - `DGM_GetGameMode` - Writes the current display gamemode into a buffer.
@@ -228,9 +231,12 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `TF2SetupUber_GetLastNew` - Returns the last charge value after custom adjustment.
 - `TF2SetupUber_GetLastStockDelta` - Returns the last stock charge delta.
 
-## weaponreverts_api.inc
-- `WeaponReverts_GetWeaponInfo` - Writes configured weapon revert display data for an item index.
-- `WeaponReverts_CanClassUseWeapon` - Returns whether a class can use an item index from weapons.cfg.
+## Weapon gameplay forwards
+- `OnAmbassadorHeadshotKill` - Fires when a configured Ambassador-style headshot kills a client.
+- `OnSandmanCleaverCombo` - Fires when a configured Sandman/Cleaver combo kills a client.
+- `OnMeatshotKill` - Fires when a full-pellet qualifying attack kills a client.
+- `OnEnvironmentalKill` - Fires when tracked enemy damage leads to a world death.
+- `OnSandmanMoonshot` - Fires when a configured Sandman moonshot occurs.
 - `OnDoubleDonk` - Fires when TF2 reports a Loose Cannon Double Donk.
 
 ## whaletracker_api.inc

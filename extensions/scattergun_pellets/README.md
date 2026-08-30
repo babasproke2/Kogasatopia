@@ -2,7 +2,7 @@
 
 SourceMod native extension for stock Linux TF2 servers. It counts deduplicated pellets from `tf_weapon_scattergun` and weapon classes containing `tf_weapon_shotgun`, then exposes completed shot events to SourcePawn.
 
-This package also includes the current `weaponreverts.sp` integration. The integration awards the `meatshot_kill` bonus through `PointsStore_ApplyBonusPoints` when the extension reports a full pellet kill, and uses full non-kill shotgun hits for the flame shotgun custom attribute.
+This package also includes the current `weapons.sp` integration. The plugin emits the `OnMeatshotKill` gameplay forward when the extension reports a full pellet kill and uses full non-kill shotgun hits for the flame shotgun custom attribute.
 
 ## Repository Layout
 
@@ -15,16 +15,16 @@ tf/addons/sourcemod/extensions/
 
 tf/addons/sourcemod/gamedata/
   scattergun_pellets.games.txt
-  weaponreverts.txt
+  weapons.txt
 
 tf/addons/sourcemod/scripting/
-  weaponreverts.sp
-  points_store.sp
+  weapons.sp
+  gameplay_rewards.sp
 
 tf/addons/sourcemod/scripting/include/
   scattergun_pellets.inc
-  points_store_api.inc
-  weaponreverts.inc
+  weapons.inc
+  weapons_helpers.inc
 ```
 
 ## Server Install
@@ -75,50 +75,49 @@ pellets >= total
 
 `total` is the actual pellet count registered for the weapon. The extension falls back to the stock shotgun count of 10 when no count is registered. `kill` is true when the shot produced the `player_death` event. Non-kill shots are emitted on the next game frame so the extension does not fire both a non-kill and kill event for the same shot.
 
-## weaponreverts Integration
+## Weapons Integration
 
-`weaponreverts.sp` includes:
+`weapons.sp` includes:
 
 ```sourcepawn
 #include <scattergun_pellets>
-#include <points_store_api>
 ```
 
-After applying item attributes, WeaponReverts evaluates TF2's `mult_bullets_per_shot` hook and registers the result through `TF2Scatter_SetWeaponPelletCount`. This makes full-hit checks account for custom 15- and 20-pellet weapons while preserving stock 10-pellet behavior.
+After applying item attributes, Weapons evaluates TF2's `mult_bullets_per_shot` hook and registers the result through `TF2Scatter_SetWeaponPelletCount`. This makes full-hit checks account for custom 15- and 20-pellet weapons while preserving stock 10-pellet behavior.
 
-When the extension fires `TF2Shotgun_OnPelletShot` with `kill=true`, the plugin checks for a full pellet kill and calls:
+When the extension fires `TF2Shotgun_OnPelletShot` with `kill=true`, the plugin checks for a full pellet kill and fires:
 
 ```sourcepawn
-PointsStore_ApplyBonusPoints(attacker, 1, true, true, 1.0, "meatshot_kill");
+OnMeatshotKill(attacker, victim);
 ```
 
-The points store plugin is responsible for awarding points and printing any chat output.
+`gameplay_rewards.sp` consumes that forward and applies the configured Points Store reward.
 
-The custom WeaponReverts attribute `"ignite on full pellet hit" "5"` uses `TF2Scatter_IsCurrentShotFull` in the pre-damage hook. WeaponReverts preserves bullet damage flags, suppresses the stock physics force, and defers `TF2Util_IgnitePlayer` until the corresponding post-damage hook so Dead Ringer afterburn immunity resolves first.
+The custom Weapons attribute `"ignite on full pellet hit" "5"` uses `TF2Scatter_IsCurrentShotFull` in the pre-damage hook. Weapons preserves bullet damage flags and defers `TF2Util_IgnitePlayer` until the corresponding post-damage hook so Dead Ringer afterburn immunity resolves first.
 
 Useful debug commands and cvars:
 
 ```text
 sm_scatterpellets_status
-reverts_scattergun_pellets_debug 1
+sm_weapons_scattergun_pellets_debug 1
 ```
 
 ## Compiling SourcePawn
 
-Compile `weaponreverts.sp` with SourceMod's `spcomp` from the scripting directory:
+Compile `weapons.sp` with SourceMod's `spcomp` from the scripting directory:
 
 ```bash
 cd tf/addons/sourcemod/scripting
-./spcomp weaponreverts.sp -i include
+./spcomp weapons.sp -i include
 ```
 
 Then install the compiled plugin:
 
 ```text
-tf/addons/sourcemod/plugins/weaponreverts.smx
+tf/addons/sourcemod/plugins/weapons.smx
 ```
 
-`weaponreverts.sp` still depends on the same external includes/extensions it already used on the server, such as SDKHooks, TF2Items, TF2Attributes, SourceScramble, DHooks, custom attributes, and addplayerhealth.
+`weapons.sp` depends on SDKHooks, TF2Items, TF2Attributes, SourceScramble, DHooks, custom attributes, and addplayerhealth.
 
 ## Compiling The Extension
 

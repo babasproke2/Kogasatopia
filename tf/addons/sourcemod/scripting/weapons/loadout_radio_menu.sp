@@ -17,7 +17,7 @@ static int g_iPlayerClassInMenu[MAXPLAYERS + 1];
 static int g_iPlayerSlotInMenu[MAXPLAYERS + 1];
 
 /**
- * Localized player class names, in TFClassType order.  Used in CWX's translation file.
+ * Localized player class names, in TFClassType order.  Used in Weapons' translation file.
  */
 static char g_LocalizedPlayerClass[][] = {
 	"TF_Class_Name_Undefined",
@@ -85,7 +85,7 @@ Action DisplayItems(int client, int argc) {
 
 /**
  * Command listener callback to display items to a player.
- * This is a compatibility shim; this only displays the CWX menu if CW3 isn't running.
+ * This is a compatibility shim; this only displays the custom weapons menu if CW3 isn't running.
  */
 Action DisplayItemsCompat(int client, const char[] command, int argc) {
 	// allow CW3 to display if it's loaded in
@@ -93,12 +93,12 @@ Action DisplayItemsCompat(int client, const char[] command, int argc) {
 		return Plugin_Continue;
 	}
 	
-	if (!CheckCommandAccess(client, "sm_cwx", 0)) {
+	if (!CheckCommandAccess(client, "sm_weapons", 0)) {
 		ReplyToCommand(client, "[SM] %t.", "No Access");
 		return Plugin_Stop;
 	}
 	
-	// otherwise show the menu for CWX
+	// Otherwise show the unified custom weapons menu.
 	DisplayItems(client, argc);
 	return Plugin_Stop;
 }
@@ -199,7 +199,7 @@ static void PrintShopPurchaseRequired(int client) {
 	}
 
 	CPrintToChat(client,
-		"{gold}[cwx]{default} This requires a {gold}!shop{default} purchase; use %s!shop{default}",
+		"{gold}[Weapons]{default} This requires a {gold}!shop{default} purchase; use %s!shop{default}",
 		currencyColor);
 }
 
@@ -218,9 +218,9 @@ static int OnLoadoutSlotMenuEvent(Menu menu, MenuAction action, int param1, int 
 			SetGlobalTransTarget(client);
 			
 			char buffer[192];
-			FormatEx(buffer, sizeof(buffer), "Custom Weapons X");
+			FormatEx(buffer, sizeof(buffer), "custom weapons");
 			
-			if (!sm_cwx_enable_loadout.BoolValue) {
+			if (!sm_weapons_enable_loadout.BoolValue) {
 				Format(buffer, sizeof(buffer), "%s\n%t", buffer, "CustomItemsUnavailable");
 			}
 			
@@ -339,7 +339,7 @@ static int OnEquipMenuEvent(Menu menu, MenuAction action, int param1, int param2
 					char description[MAX_ITEM_DESCRIPTION_LENGTH * 3];
 					if (GetCustomItemDefinition(uid, item)
 							&& FormatItemDescription(item, description, sizeof(description))) {
-						CPrintToChat(client, "{gold}[CWX]{default} %s", description);
+						CPrintToChat(client, "{gold}[Weapons]{default} %s", description);
 					}
 				}
 			} else {

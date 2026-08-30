@@ -1,5 +1,5 @@
 /**
- * [TF2] Custom Weapons X
+ * Unified TF2 weapon configuration, custom loadout, model, sound, and gameplay behavior.
  */
 #pragma semicolon 1
 #pragma newdecls required
@@ -7,16 +7,22 @@
 #include <sourcemod>
 #include <clientprefs>
 #include <sdkhooks>
+#include <sdktools>
 #include <sdktools_sound>
 
+#include <tf2>
 #include <tf2utils>
 #include <tf_econ_data>
 #include <tf2attributes>
+#include <tf2items>
 #include <tf2_stocks>
 
+#include <tf_ontakedamage>
 #include <morecolors>
 #include <tf_custom_attributes>
+#include <sourcescramble>
 #include <dhooks>
+#include <addplayerhealth>
 #include <stocksoup/convars>
 #include <stocksoup/handles>
 #include <stocksoup/math>
@@ -38,11 +44,13 @@
 #define REQUIRE_PLUGIN
 #include <plugin_statistics>
 
-#define CWX_INCLUDE_SHAREDDEFS_ONLY
-#include <cwx>
+#define WEAPONS_INCLUDE_SHAREDDEFS_ONLY
+#include <weapons>
 
 #include "include/database.inc"
 #include "include/steam_identity.inc"
+#include "include/item_indexes.inc"
+#include "include/client_validation.inc"
 #include "include/tf2_classes.inc"
 
 #tryinclude <autoversioning/version>
@@ -53,14 +61,15 @@
 #endif
 
 public Plugin myinfo = {
-	name = "[TF2] Custom Weapons X",
-	author = "nosoop, Hombre, tsuza, Mir",
-	description = "Allows server operators to design their own weapons.",
-	version = "X.0.10" ... VERSION_SUFFIX,
-	url = "https://github.com/nosoop/SM-TFCustomWeaponsX"
+	name = "Weapons",
+	author = "nosoop, Hombre, tsuza, Mir, Huutti, Utsuho",
+	description = "Unified custom weapons, weapon behavior, models, sounds, and loadouts.",
+	version = "7.0" ... VERSION_SUFFIX,
+	url = "https://kogasa.tf"
 }
 
 // 29/08/2026: Combined ca_replace_sound and viewmodel_override into cwx to reduce number of plugins + less concern about order conflicts
+// 30/08/2026: Combined CWX and WeaponReverts so one plugin owns each weapon's complete runtime state.
 
 // this is the maximum expected length of our UID; it is intentional that this is *not* shared
 // to dependent plugins, as we may change this at any time
@@ -72,10 +81,11 @@ public Plugin myinfo = {
 // this is the maximum length of the per-weapon description printed by sm_c
 #define MAX_ITEM_DESCRIPTION_LENGTH 512
 
-#define CWX_CONFIG_PATH "configs/weapons.cfg"
-#define CWX_CONFIG_ROOT "WeaponReverts"
-#define CWX_CONFIG_ITEM_SECTION "CWX"
-#define CWX_CONFIG_SOUND_SECTION "SoundGroup"
+#define WEAPONS_CONFIG_PATH "configs/weapons.cfg"
+#define WEAPONS_CONFIG_ROOT "Weapons"
+#define WEAPONS_ITEM_CLASSES_SECTION "ItemClasses"
+#define WEAPONS_CONFIG_ITEM_SECTION "CustomWeapons"
+#define WEAPONS_CONFIG_SOUND_SECTION "SoundGroups"
 
 // this is the number of slots allocated to our thing
 #define NUM_ITEMS 7
@@ -84,15 +94,9 @@ public Plugin myinfo = {
 // otherwise it'll warn on array-based enumstruct
 #define NUM_PLAYER_CLASSES 10
 
-#define CWX_STATS_DB_CONFIG_DEFAULT "default"
-#define CWX_STATS_STATE_TABLE "cwx_weapon_popularity"
-#define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
-#define ATTR_WIDE_HORIZONTAL_BULLET_SPREAD "wide horizontal bullet spread"
-#define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
-#define ATTR_PUNCH_ANGLE_IS_CONSISTENT "punch angle is consistent"
-#define ATTR_PUNCH_ANGLE_MOD "punch angle mod"
-#define ATTR_HUNTING_REVOLVER "hunting revolver attributes"
-#define TF_AMMO_PRIMARY_INDEX 1
+#define WEAPONS_STATS_DB_CONFIG_DEFAULT "default"
+// Preserve the historical table name so existing popularity data remains continuous.
+#define WEAPONS_STATS_STATE_TABLE "cwx_weapon_popularity"
 
 // we're recycling the following attribute to ensure that the item UID persists across dropped
 // weapons - it's kinda icky and if anyone else happened to get the same idea it'd be bad, but
@@ -107,83 +111,31 @@ Cookie g_ItemPersistCookies[NUM_PLAYER_CLASSES][NUM_ITEMS];
 
 bool g_bForceReequipItems[MAXPLAYERS + 1];
 
-ConVar sm_cwx_enable_loadout;
-ConVar sm_cwx_statistics;
-ConVar sm_cwx_statistics_database;
-ConVar sm_cwx_validate_debug;
-ConVar sm_cwx_validate_repair;
-ConVar sm_cwx_hide_reskin_only;
+ConVar sm_weapons_enable_loadout;
+ConVar sm_weapons_statistics;
+ConVar sm_weapons_statistics_database;
+ConVar sm_weapons_validate_debug;
+ConVar sm_weapons_validate_repair;
+ConVar sm_weapons_hide_reskin_only;
 
 ConVar mp_stalemate_meleeonly;
 
-Database g_CwxStatsDb = null;
-bool g_CwxStatsDbReady = false;
-bool g_CwxStatsIsMySql = false;
-Handle g_hCwxStatsDbReconnectTimer = null;
+Database g_WeaponsStatsDb = null;
+bool g_WeaponsStatsDbReady = false;
+bool g_WeaponsStatsIsMySql = false;
+Handle g_hWeaponsStatsDbReconnectTimer = null;
 Handle g_hOnItemRuntimeStateReady = null;
 
-void CWX_ApplyEngineOverrides(int weapon)
-{
-	if (!IsValidEntity(weapon))
-	{
-		return;
-	}
-
-	if (TF2CustAttr_GetInt(weapon, ATTR_HUNTING_REVOLVER, 0) != 0)
-	{
-		SetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType", TF_AMMO_PRIMARY_INDEX);
-	}
-
-	if (GetFeatureStatus(FeatureType_Native, "TF2Spread_SetPattern") == FeatureStatus_Available)
-	{
-		TF2SpreadPattern pattern = TF2Spread_Default;
-		if (TF2CustAttr_GetInt(weapon, ATTR_WIDE_HORIZONTAL_BULLET_SPREAD, 0) != 0)
-		{
-			pattern = TF2Spread_WideHorizontal20;
-		}
-		else if (TF2CustAttr_GetInt(weapon, ATTR_CIRCULAR_BULLET_SPREAD, 0) != 0)
-		{
-			pattern = TF2Spread_Circular15;
-		}
-		TF2Spread_SetPattern(weapon, pattern);
-	}
-
-	if (GetFeatureStatus(FeatureType_Native, "TF2Scatter_SetWeaponPelletCount") == FeatureStatus_Available)
-	{
-		float pelletCount = TF2Attrib_HookValueFloat(10.0, "mult_bullets_per_shot", weapon);
-		int pelletsFired = RoundToNearest(pelletCount);
-		if (pelletsFired < 1)
-		{
-			pelletsFired = 1;
-		}
-		TF2Scatter_SetWeaponPelletCount(weapon, pelletsFired);
-	}
-
-	if (GetFeatureStatus(FeatureType_Native, "TF2Spread_SetAmbassadorAccuracy") == FeatureStatus_Available)
-	{
-		bool enabled = TF2CustAttr_GetInt(weapon, ATTR_AMBASSADOR_ACCURACY_RECOVERY, 0) != 0;
-		TF2Spread_SetAmbassadorAccuracy(weapon, enabled);
-	}
-
-	if (GetFeatureStatus(FeatureType_Native, "TF2Weapon_SetPunchAngle") == FeatureStatus_Available)
-	{
-		char amountValue[16];
-		TF2CustAttr_GetString(weapon, ATTR_PUNCH_ANGLE_MOD, amountValue, sizeof(amountValue));
-		bool enabled = amountValue[0] != '\0';
-		int amount = enabled ? StringToInt(amountValue) : 0;
-		bool consistent = TF2CustAttr_GetInt(weapon, ATTR_PUNCH_ANGLE_IS_CONSISTENT, 0) != 0;
-		TF2Weapon_SetPunchAngle(weapon, enabled, amount, consistent);
-	}
-
-}
-
-#include "cwx/item_config.sp"
-#include "cwx/item_entity.sp"
-#include "cwx/item_export.sp"
-#include "cwx/loadout_entries.sp"
-#include "cwx/loadout_radio_menu.sp"
-#include "cwx/sound_overrides.sp"
-#include "cwx/model_overrides.sp"
+#include "weapons/item_config.sp"
+#include "weapons/item_entity.sp"
+#include "weapons/item_export.sp"
+#include "weapons/loadout_entries.sp"
+#include "weapons/loadout_radio_menu.sp"
+#include "weapons/sound_overrides.sp"
+#include "weapons/model_overrides.sp"
+#include "weapons/gameplay.sp"
+#include "weapons/commands.sp"
+#include "weapons/equip_commands.sp"
 
 int g_attrdef_AllowedInMedievalMode;
 
@@ -192,32 +144,33 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int maxlen) {
 	MarkNativeAsOptional("DGM_NormalizeMapName");
 	MarkNativeAsOptional("DGM_GetGameModeKey");
 
-	RegPluginLibrary("cwx");
-	
-	CreateNative("CWX_SetPlayerLoadoutItem", Native_SetPlayerLoadoutItem);
-	CreateNative("CWX_RemovePlayerLoadoutItem", Native_RemovePlayerLoadoutItem);
-	CreateNative("CWX_GetPlayerLoadoutItem", Native_GetPlayerLoadoutItem);
-	CreateNative("CWX_EquipPlayerItem", Native_EquipPlayerItem);
-	CreateNative("CWX_CanPlayerAccessItem", Native_CanPlayerAccessItem);
-	CreateNative("CWX_GetItemList", Native_GetItemList);
-	CreateNative("CWX_IsItemUIDValid", Native_IsItemUIDValid);
-	CreateNative("CWX_GetItemUIDFromEntity", Native_GetItemUIDFromEntity);
-	CreateNative("CWX_GetItemDisplayName", Native_GetItemDisplayName);
-	CreateNative("CWX_IsItemReskinOnly", Native_IsItemReskinOnly);
-	CreateNative("CWX_GetItemExtData", Native_GetItemExtData);
-	CreateNative("CWX_GetItemLoadoutSlot", Native_GetItemLoadoutSlot);
+	RegPluginLibrary("weapons");
+	WeaponsGameplay_RegisterNatives();
+
+	CreateNative("Weapons_SetPlayerLoadoutItem", Native_SetPlayerLoadoutItem);
+	CreateNative("Weapons_RemovePlayerLoadoutItem", Native_RemovePlayerLoadoutItem);
+	CreateNative("Weapons_GetPlayerLoadoutItem", Native_GetPlayerLoadoutItem);
+	CreateNative("Weapons_EquipPlayerItem", Native_EquipPlayerItem);
+	CreateNative("Weapons_CanPlayerAccessItem", Native_CanPlayerAccessItem);
+	CreateNative("Weapons_GetItemList", Native_GetItemList);
+	CreateNative("Weapons_IsItemUIDValid", Native_IsItemUIDValid);
+	CreateNative("Weapons_GetItemUIDFromEntity", Native_GetItemUIDFromEntity);
+	CreateNative("Weapons_GetItemDisplayName", Native_GetItemDisplayName);
+	CreateNative("Weapons_IsItemReskinOnly", Native_IsItemReskinOnly);
+	CreateNative("Weapons_GetItemExtData", Native_GetItemExtData);
+	CreateNative("Weapons_GetItemLoadoutSlot", Native_GetItemLoadoutSlot);
 	
 	return APLRes_Success;
 }
 
 public void OnPluginStart() {
-	LoadTranslations("cwx.phrases");
+	LoadTranslations("weapons.phrases");
 	LoadTranslations("common.phrases");
 	LoadTranslations("core.phrases");
 	
-	Handle hGameConf = LoadGameConfigFile("tf2.custom_weapons_x");
+	GameData hGameConf = new GameData("weapons");
 	if (!hGameConf) {
-		SetFailState("Failed to load gamedata (tf2.custom_weapons_x).");
+		SetFailState("Failed to load gamedata (weapons.txt).");
 	}
 	
 	Handle dtGetLoadoutItem = DHookCreateFromConf(hGameConf, "CTFPlayer::GetLoadoutItem()");
@@ -230,45 +183,44 @@ public void OnPluginStart() {
 	DHookEnableDetour(dtManageRegularWeapons, false, OnManageRegularWeaponsPre);
 	DHookEnableDetour(dtManageRegularWeapons, true, OnManageRegularWeaponsPost);
 	
+	WeaponsGameplay_OnPluginStart(hGameConf);
 	delete hGameConf;
 	
 	HookUserMessage(GetUserMessageId("PlayerLoadoutUpdated"), OnPlayerLoadoutUpdated,
 			.post = OnPlayerLoadoutUpdatedPost);
 	
-	CreateVersionConVar("cwx_version", "Custom Weapons X version.");
+	CreateVersionConVar("sm_weapons_version", "Unified weapons plugin version.");
 	
-	sm_cwx_enable_loadout = CreateConVar("sm_cwx_enable_loadout", "1",
+	sm_weapons_enable_loadout = CreateConVar("sm_weapons_enable_loadout", "1",
 			"Allows players to receive custom items they have selected.");
-	sm_cwx_statistics = CreateConVar("sm_cwx_statistics", "1",
-			"Record Custom Weapons X equip/unequip popularity statistics.", _, true, 0.0, true, 1.0);
-	sm_cwx_statistics_database = CreateConVar("sm_cwx_statistics_database",
-			CWX_STATS_DB_CONFIG_DEFAULT,
-			"Database config used for Custom Weapons X popularity statistics.");
-	sm_cwx_validate_debug = CreateConVar("sm_cwx_validate_debug", "0",
-			"Log CWX m_bValidatedAttachedEntity state after custom item creation and equip.",
+	sm_weapons_statistics = CreateConVar("sm_weapons_statistics", "1",
+			"Record custom weapons equip/unequip popularity statistics.", _, true, 0.0, true, 1.0);
+	sm_weapons_statistics_database = CreateConVar("sm_weapons_statistics_database",
+			WEAPONS_STATS_DB_CONFIG_DEFAULT,
+			"Database config used for custom weapon popularity statistics.");
+	sm_weapons_validate_debug = CreateConVar("sm_weapons_validate_debug", "0",
+			"Log m_bValidatedAttachedEntity state after custom item creation and equip.",
 			_, true, 0.0, true, 1.0);
-	sm_cwx_validate_repair = CreateConVar("sm_cwx_validate_repair", "1",
+	sm_weapons_validate_repair = CreateConVar("sm_weapons_validate_repair", "1",
 			"Re-assert m_bValidatedAttachedEntity if TF2 clears it after attachment.",
 			_, true, 0.0, true, 1.0);
-	sm_cwx_hide_reskin_only = CreateConVar("sm_cwx_hide_reskin_only", "1",
+	sm_weapons_hide_reskin_only = CreateConVar("sm_weapons_hide_reskin_only", "1",
 			"Hide reskin-only weapons from sm_c descriptions.", _, true, 0.0, true, 1.0);
-	sm_cwx_statistics.AddChangeHook(OnCwxStatisticsEnabledChanged);
-	sm_cwx_statistics_database.AddChangeHook(OnCwxStatisticsDatabaseChanged);
-	ConnectCwxStatisticsDatabase();
-	g_hOnItemRuntimeStateReady = CreateGlobalForward("CWX_OnItemRuntimeStateReady",
+	sm_weapons_statistics.AddChangeHook(OnWeaponsStatisticsEnabledChanged);
+	sm_weapons_statistics_database.AddChangeHook(OnWeaponsStatisticsDatabaseChanged);
+	ConnectWeaponsStatisticsDatabase();
+	g_hOnItemRuntimeStateReady = CreateGlobalForward("Weapons_OnItemRuntimeStateReady",
 		ET_Ignore, Param_Cell, Param_Cell);
 	
-	RegAdminCmd("sm_cwx_export", ExportActiveWeapon, ADMFLAG_ROOT);
+	RegAdminCmd("sm_weapons_export", ExportActiveWeapon, ADMFLAG_ROOT);
 	
 	// player commands
-	RegAdminCmd("sm_cwx", DisplayItems, 0);
 	RegAdminCmd("sm_cw", DisplayItems, 0);
 	RegAdminCmd("sm_items", DisplayItems, 0);
 	RegAdminCmd("sm_weapons", DisplayItems, 0);
 	RegAdminCmd("sm_weapon", DisplayItems, 0);
 	RegAdminCmd("sm_custom", DisplayItems, 0);
 	RegAdminCmd("sm_customweapons", DisplayItems, 0);
-	RegAdminCmd("sm_cwc", DisplayItems, 0);
 	RegAdminCmd("sm_weps", DisplayItems, 0);
 	RegAdminCmd("sm_equip", DisplayItems, 0);
 	RegAdminCmd("sm_c", DisplayItemDescriptions, 0);
@@ -285,7 +237,7 @@ public void OnPluginStart() {
 		for (int i; i < NUM_ITEMS; i++) {
 			FormatEx(cookieName, sizeof(cookieName), "cwx_loadout_%d_%d", c, i);
 			FormatEx(cookieDesc, sizeof(cookieDesc),
-					"CWX loadout entry for class %d in slot %d", c, i);
+					"Weapons loadout entry for class %d in slot %d", c, i);
 			g_ItemPersistCookies[c][i] = new Cookie(cookieName, cookieDesc,
 					CookieAccess_Private);
 		}
@@ -302,25 +254,31 @@ public void OnPluginStart() {
 		}
 	}
 
-	CwxSound_OnPluginStart();
-	CwxModels_OnPluginStart();
+	WeaponsSound_OnPluginStart();
+	WeaponsModels_OnPluginStart();
+	LoadWeaponsConfig();
+	WeaponsCommands_OnPluginStart();
+	WeaponsEquipCommands_OnPluginStart();
 }
 
 public void OnPluginEnd() {
-	CwxModels_OnPluginEnd();
-	CwxSound_OnPluginEnd();
-	Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
-	Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
+	WeaponsGameplay_OnPluginEnd();
+	WeaponsModels_OnPluginEnd();
+	WeaponsSound_OnPluginEnd();
+	Db_CancelTimer(g_hWeaponsStatsDbReconnectTimer);
+	Db_Close(g_WeaponsStatsDb, g_WeaponsStatsDbReady);
 	delete g_hOnItemRuntimeStateReady;
+	WeaponsConfig_Close();
 }
 
-void CWX_NotifyItemRuntimeStateReady(int client, int entity) {
+void Weapons_NotifyItemRuntimeStateReady(int client, int entity) {
 	if (!IsClientInGame(client) || !IsValidEntity(entity)) {
 		return;
 	}
 
-	CwxModels_OnItemRuntimeStateReady(client, entity);
-	CwxSound_OnItemRuntimeStateReady(client, entity);
+	Weapons_ApplyEngineOverrides(entity);
+	WeaponsModels_OnItemRuntimeStateReady(client, entity);
+	WeaponsSound_OnItemRuntimeStateReady(client, entity);
 
 	if (g_hOnItemRuntimeStateReady == null) {
 		return;
@@ -382,7 +340,7 @@ Action DisplayItemDescriptions(int client, int argc) {
 			continue;
 		}
 
-		if (sm_cwx_hide_reskin_only.BoolValue && item.reskinOnly) {
+		if (sm_weapons_hide_reskin_only.BoolValue && item.reskinOnly) {
 			continue;
 		}
 
@@ -403,7 +361,7 @@ Action DisplayItemDescriptions(int client, int argc) {
 		if (hasDescription) {
 			CPrintToChat(client, "%s", description);
 		} else {
-			CPrintToChat(client, "{gold}[CWX]{default} This weapon has no set description.");
+			CPrintToChat(client, "{gold}[Weapons]{default} This weapon has no set description.");
 		}
 	}
 
@@ -448,36 +406,42 @@ void AppendItemDescriptionPart(char[] buffer, int maxlen, const char[] color, co
 }
 
 public void OnMapStart() {
-	CwxModels_OnMapStart();
-	LoadCustomItemConfig();
+	WeaponsModels_OnMapStart();
+	LoadWeaponsConfig();
 	PrecacheMenuResources();
+	WeaponsGameplay_OnMapStart();
 }
 
 public void OnMapEnd() {
-	CwxSound_Clear();
+	WeaponsSound_Clear();
+	WeaponsGameplay_OnMapEnd();
 }
 
 public void OnClientPutInServer(int client) {
-	CwxSound_ResetClient(client);
-	CwxModels_OnClientPutInServer(client);
+	WeaponsSound_ResetClient(client);
+	WeaponsModels_OnClientPutInServer(client);
+	WeaponsGameplay_OnClientPutInServer(client);
 }
 
 public void OnClientDisconnect(int client) {
-	CwxSound_ResetClient(client);
-	CwxModels_OnClientDisconnect(client);
+	WeaponsSound_ResetClient(client);
+	WeaponsModels_OnClientDisconnect(client);
+	WeaponsGameplay_OnClientDisconnect(client);
 }
 
-void CWX_OnWeaponSwitchPost(int client, int weapon) {
-	CwxSound_OnWeaponSwitchPost(client, weapon);
-	CwxModels_OnWeaponSwitchPost(client, weapon);
+void Weapons_OnWeaponSwitchPost(int client, int weapon) {
+	WeaponsSound_OnWeaponSwitchPost(client, weapon);
+	WeaponsModels_OnWeaponSwitchPost(client, weapon);
 }
 
 public void OnEntityCreated(int entity, const char[] className) {
-	CwxModels_OnEntityCreated(entity, className);
+	WeaponsModels_OnEntityCreated(entity, className);
+	WeaponsGameplay_OnEntityCreated(entity, className);
 }
 
 public void TF2_OnConditionRemoved(int client, TFCond condition) {
-	CwxModels_OnConditionRemoved(client, condition);
+	WeaponsModels_OnConditionRemoved(client, condition);
+	WeaponsGameplay_OnConditionRemoved(client, condition);
 }
 
 /**
@@ -518,7 +482,7 @@ public void OnClientCookiesCached(int client) {
 		}
 	}
 	g_bRetrievedLoadout[client] = true;
-	CwxStats_MirrorClientSavedLoadout(client);
+	WeaponsStats_MirrorClientSavedLoadout(client);
 
 	/*
 	 * Clientprefs can finish after the first PlayerLoadoutUpdated message.  In that
@@ -545,7 +509,7 @@ void Frame_ApplyRetrievedLoadout(any userid) {
 	ApplyClientCustomLoadout(client);
 }
 
-// int CWX_EquipPlayerItem(int client, const char[] uid);
+// int Weapons_EquipPlayerItem(int client, const char[] uid);
 int Native_EquipPlayerItem(Handle plugin, int argc) {
 	int client = GetNativeCell(1);
 	
@@ -561,7 +525,7 @@ int Native_EquipPlayerItem(Handle plugin, int argc) {
 	return IsValidEntity(itemEntity)? EntIndexToEntRef(itemEntity) : INVALID_ENT_REFERENCE;
 }
 
-// bool CWX_CanPlayerAccessItem(int client, const char[] uid);
+// bool Weapons_CanPlayerAccessItem(int client, const char[] uid);
 int Native_CanPlayerAccessItem(Handle plugin, int argc) {
 	int client = GetNativeCell(1);
 	
@@ -575,7 +539,7 @@ int Native_CanPlayerAccessItem(Handle plugin, int argc) {
 	return CanPlayerAccessItem(client, item);
 }
 
-// ArrayList CWX_GetItemList(CWXItemFilterCriteria func = INVALID_FUNCTION, any data = 0);
+// ArrayList Weapons_GetItemList(WeaponsItemFilterCriteria func = INVALID_FUNCTION, any data = 0);
 int Native_GetItemList(Handle plugin, int argc) {
 	Function func = GetNativeFunction(1);
 	any data = GetNativeCell(2);
@@ -607,7 +571,7 @@ int Native_GetItemList(Handle plugin, int argc) {
 	return MoveHandle(itemList, plugin);
 }
 
-// bool CWX_IsItemUIDValid(const char[] uid);
+// bool Weapons_IsItemUIDValid(const char[] uid);
 int Native_IsItemUIDValid(Handle plugin, int argc) {
 	char itemuid[MAX_ITEM_IDENTIFIER_LENGTH];
 	GetNativeString(1, itemuid, sizeof(itemuid));
@@ -616,7 +580,7 @@ int Native_IsItemUIDValid(Handle plugin, int argc) {
 	return GetCustomItemDefinition(itemuid, item);
 }
 
-// bool CWX_GetItemUIDFromEntity(int entity, char[] buffer, int maxlen);
+// bool Weapons_GetItemUIDFromEntity(int entity, char[] buffer, int maxlen);
 int Native_GetItemUIDFromEntity(Handle plugin, int argc) {
 	int entity = GetNativeCell(1);
 	
@@ -646,7 +610,7 @@ int Native_GetItemUIDFromEntity(Handle plugin, int argc) {
 	return true;
 }
 
-// int CWX_GetItemLoadoutSlot(const char[] uid, TFClassType playerClass);
+// int Weapons_GetItemLoadoutSlot(const char[] uid, TFClassType playerClass);
 int Native_GetItemLoadoutSlot(Handle plugin, int argc) {
 	char uid[MAX_ITEM_IDENTIFIER_LENGTH];
 	GetNativeString(1, uid, sizeof(uid));
@@ -659,7 +623,7 @@ int Native_GetItemLoadoutSlot(Handle plugin, int argc) {
 	return customItem.loadoutPosition[playerClass];
 }
 
-// bool CWX_GetItemDisplayName(const char[] uid, char[] buffer, int maxlen);
+// bool Weapons_GetItemDisplayName(const char[] uid, char[] buffer, int maxlen);
 int Native_GetItemDisplayName(Handle plugin, int argc) {
 	char uid[MAX_ITEM_IDENTIFIER_LENGTH];
 	GetNativeString(1, uid, sizeof(uid));
@@ -673,7 +637,7 @@ int Native_GetItemDisplayName(Handle plugin, int argc) {
 	return true;
 }
 
-// bool CWX_IsItemReskinOnly(const char[] uid);
+// bool Weapons_IsItemReskinOnly(const char[] uid);
 int Native_IsItemReskinOnly(Handle plugin, int argc) {
 	char uid[MAX_ITEM_IDENTIFIER_LENGTH];
 	GetNativeString(1, uid, sizeof(uid));
@@ -682,7 +646,7 @@ int Native_IsItemReskinOnly(Handle plugin, int argc) {
 	return GetCustomItemDefinition(uid, customItem) && customItem.reskinOnly;
 }
 
-// optional<KeyValues> CWX_GetItemExtData(const char[] uid, const char[] section);
+// optional<KeyValues> Weapons_GetItemExtData(const char[] uid, const char[] section);
 int Native_GetItemExtData(Handle plugin, int argc) {
 	char uid[MAX_ITEM_IDENTIFIER_LENGTH];
 	char sectionName[64];
@@ -735,7 +699,7 @@ void OnPlayerLoadoutUpdatedPost(UserMsg msg_id, bool sent) {
  * clientprefs load completes too late for that update.
  */
 void ApplyClientCustomLoadout(int client) {
-	if (!sm_cwx_enable_loadout.BoolValue || client <= 0 || client > MaxClients
+	if (!sm_weapons_enable_loadout.BoolValue || client <= 0 || client > MaxClients
 			|| !IsClientInGame(client)) {
 		return;
 	}
@@ -772,7 +736,7 @@ void ApplyClientCustomLoadout(int client) {
 			}
 			
 			int entity = EquipCustomItem(client, item);
-			CWX_MarkValidatedAttachedEntity(entity, client, "loadout_apply");
+			Weapons_MarkValidatedAttachedEntity(entity, client, "loadout_apply");
 			
 			g_CurrentLoadout[client][playerClass][i].entity = EntIndexToEntRef(entity);
 		} else {
@@ -783,9 +747,9 @@ void ApplyClientCustomLoadout(int client) {
 			 */
 			EnsureCustomItemRuntimeAttributes(currentLoadoutItem, item, client,
 				"persisted_loadout");
-			CWX_MarkValidatedAttachedEntity(currentLoadoutItem, client,
+			Weapons_MarkValidatedAttachedEntity(currentLoadoutItem, client,
 				"persisted_loadout");
-			CWX_NotifyItemRuntimeStateReady(client, currentLoadoutItem);
+			Weapons_NotifyItemRuntimeStateReady(client, currentLoadoutItem);
 		}
 	}
 	
@@ -808,7 +772,7 @@ void ApplyClientCustomLoadout(int client) {
  * avoid returning a nullptr.
  */
 MRESReturn OnGetLoadoutItemPost(int client, Handle hReturn, Handle hParams) {
-	if (!sm_cwx_enable_loadout.BoolValue) {
+	if (!sm_weapons_enable_loadout.BoolValue) {
 		return MRES_Ignored;
 	}
 	
@@ -931,7 +895,7 @@ MRESReturn OnManageRegularWeaponsPost(int client, Handle hParams) {
 		
 		SetEntProp(storedItem, Prop_Send, "m_iItemDefinitionIndex", item.defindex);
 		SetEntPropString(storedItem, Prop_Data, "m_iClassname", realClassName);
-		CWX_MarkValidatedAttachedEntity(storedItem, client, "manage_regular_weapons");
+		Weapons_MarkValidatedAttachedEntity(storedItem, client, "manage_regular_weapons");
 	}
 	return MRES_Ignored;
 }
@@ -993,7 +957,7 @@ bool FilterBaseItems(int itemdef, any __) {
 	return TF2Econ_IsItemInBaseSet(itemdef);
 }
 
-// bool CWX_SetPlayerLoadoutItem(int client, TFClassType playerClass, const char[] uid, int flags = 0);
+// bool Weapons_SetPlayerLoadoutItem(int client, TFClassType playerClass, const char[] uid, int flags = 0);
 int Native_SetPlayerLoadoutItem(Handle plugin, int argc) {
 	int client = GetNativeCell(1);
 	int playerClass = GetNativeCell(2);
@@ -1034,9 +998,9 @@ bool SetClientCustomLoadoutItem(int client, int playerClass, const char[] itemui
 
 			if (changed) {
 				if (previousUid[0]) {
-					CwxStats_RecordUnequip(client, playerClass, itemSlot, previousUid);
+					WeaponsStats_RecordUnequip(client, playerClass, itemSlot, previousUid);
 				}
-				CwxStats_RecordEquip(client, playerClass, itemSlot, itemuid, item);
+				WeaponsStats_RecordEquip(client, playerClass, itemSlot, itemuid, item);
 			}
 		} else {
 			// item being set temporarily; set as overload
@@ -1054,7 +1018,7 @@ bool SetClientCustomLoadoutItem(int client, int playerClass, const char[] itemui
 	return true;
 }
 
-// void CWX_RemovePlayerLoadoutItem(int client, TFClassType playerClass, int itemSlot, int flags = 0);
+// void Weapons_RemovePlayerLoadoutItem(int client, TFClassType playerClass, int itemSlot, int flags = 0);
 int Native_RemovePlayerLoadoutItem(Handle plugin, int argc) {
 	int client = GetNativeCell(1);
 	int playerClass = GetNativeCell(2);
@@ -1078,7 +1042,7 @@ void UnsetClientCustomLoadoutItem(int client, int playerClass, int itemSlot, int
 		g_ItemPersistCookies[playerClass][itemSlot].Set(client, "");
 
 		if (previousUid[0]) {
-			CwxStats_RecordUnequip(client, playerClass, itemSlot, previousUid);
+			WeaponsStats_RecordUnequip(client, playerClass, itemSlot, previousUid);
 		}
 	} else {
 		g_CurrentLoadout[client][playerClass][itemSlot].SetOverloadItemUID("");
@@ -1089,92 +1053,92 @@ void UnsetClientCustomLoadoutItem(int client, int playerClass, int itemSlot, int
 	}
 }
 
-void OnCwxStatisticsEnabledChanged(ConVar convar, const char[] oldValue, const char[] newValue) {
+void OnWeaponsStatisticsEnabledChanged(ConVar convar, const char[] oldValue, const char[] newValue) {
 	if (StringToInt(newValue)) {
-		ConnectCwxStatisticsDatabase();
+		ConnectWeaponsStatisticsDatabase();
 	} else {
-		Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
-		Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
+		Db_CancelTimer(g_hWeaponsStatsDbReconnectTimer);
+		Db_Close(g_WeaponsStatsDb, g_WeaponsStatsDbReady);
 	}
 }
 
-void OnCwxStatisticsDatabaseChanged(ConVar convar, const char[] oldValue, const char[] newValue) {
-	ConnectCwxStatisticsDatabase();
+void OnWeaponsStatisticsDatabaseChanged(ConVar convar, const char[] oldValue, const char[] newValue) {
+	ConnectWeaponsStatisticsDatabase();
 }
 
-bool CwxStats_IsEnabled() {
-	return sm_cwx_statistics == null || sm_cwx_statistics.BoolValue;
+bool WeaponsStats_IsEnabled() {
+	return sm_weapons_statistics == null || sm_weapons_statistics.BoolValue;
 }
 
-bool CwxStats_CanWriteState() {
-	return CwxStats_IsEnabled() && Db_IsReady(g_CwxStatsDb, g_CwxStatsDbReady);
+bool WeaponsStats_CanWriteState() {
+	return WeaponsStats_IsEnabled() && Db_IsReady(g_WeaponsStatsDb, g_WeaponsStatsDbReady);
 }
 
-void ConnectCwxStatisticsDatabase() {
-	Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
-	Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
+void ConnectWeaponsStatisticsDatabase() {
+	Db_CancelTimer(g_hWeaponsStatsDbReconnectTimer);
+	Db_Close(g_WeaponsStatsDb, g_WeaponsStatsDbReady);
 
-	if (!CwxStats_IsEnabled()) {
+	if (!WeaponsStats_IsEnabled()) {
 		return;
 	}
 
 	char dbConfig[64];
-	sm_cwx_statistics_database.GetString(dbConfig, sizeof(dbConfig));
+	sm_weapons_statistics_database.GetString(dbConfig, sizeof(dbConfig));
 	TrimString(dbConfig);
 	if (!dbConfig[0]) {
-		strcopy(dbConfig, sizeof(dbConfig), CWX_STATS_DB_CONFIG_DEFAULT);
+		strcopy(dbConfig, sizeof(dbConfig), WEAPONS_STATS_DB_CONFIG_DEFAULT);
 	}
 
-	if (!Db_CheckConfigOrLog("cwx", dbConfig)) {
+	if (!Db_CheckConfigOrLog("weapons", dbConfig)) {
 		return;
 	}
 
-	SQL_TConnect(CwxStats_OnDatabaseConnected, dbConfig);
+	SQL_TConnect(WeaponsStats_OnDatabaseConnected, dbConfig);
 }
 
-public void CwxStats_OnDatabaseConnected(Handle owner, Handle hndl, const char[] error, any data) {
+public void WeaponsStats_OnDatabaseConnected(Handle owner, Handle hndl, const char[] error, any data) {
 	if (hndl == null) {
-		LogError("[CWX] Statistics database connection failed: %s",
+		LogError("[Weapons] Statistics database connection failed: %s",
 				error[0] ? error : "unknown error");
-		ScheduleCwxStatsDatabaseReconnect();
+		ScheduleWeaponsStatsDatabaseReconnect();
 		return;
 	}
 
-	Db_Close(g_CwxStatsDb, g_CwxStatsDbReady);
-	g_CwxStatsDb = view_as<Database>(hndl);
+	Db_Close(g_WeaponsStatsDb, g_WeaponsStatsDbReady);
+	g_WeaponsStatsDb = view_as<Database>(hndl);
 
 	char driverIdent[32];
-	DBDriver driver = g_CwxStatsDb.Driver;
+	DBDriver driver = g_WeaponsStatsDb.Driver;
 	driver.GetIdentifier(driverIdent, sizeof(driverIdent));
-	g_CwxStatsIsMySql = StrEqual(driverIdent, "mysql", false);
-	if (g_CwxStatsIsMySql && !g_CwxStatsDb.SetCharset("utf8mb4")) {
-		LogError("[CWX] Failed to set statistics database charset to utf8mb4.");
+	g_WeaponsStatsIsMySql = StrEqual(driverIdent, "mysql", false);
+	if (g_WeaponsStatsIsMySql && !g_WeaponsStatsDb.SetCharset("utf8mb4")) {
+		LogError("[Weapons] Failed to set statistics database charset to utf8mb4.");
 	}
 
-	EnsureCwxStatsSchema();
+	EnsureWeaponsStatsSchema();
 }
 
-void ScheduleCwxStatsDatabaseReconnect(float delay = DB_RECONNECT_DELAY) {
-	g_CwxStatsDbReady = false;
-	if (g_hCwxStatsDbReconnectTimer == null) {
-		g_hCwxStatsDbReconnectTimer = CreateTimer(delay, Timer_ReconnectCwxStatsDatabase,
+void ScheduleWeaponsStatsDatabaseReconnect(float delay = DB_RECONNECT_DELAY) {
+	g_WeaponsStatsDbReady = false;
+	if (g_hWeaponsStatsDbReconnectTimer == null) {
+		g_hWeaponsStatsDbReconnectTimer = CreateTimer(delay, Timer_ReconnectWeaponsStatsDatabase,
 				_, TIMER_FLAG_NO_MAPCHANGE);
 	}
 }
 
-public Action Timer_ReconnectCwxStatsDatabase(Handle timer, any data) {
-	g_hCwxStatsDbReconnectTimer = null;
-	ConnectCwxStatisticsDatabase();
+public Action Timer_ReconnectWeaponsStatsDatabase(Handle timer, any data) {
+	g_hWeaponsStatsDbReconnectTimer = null;
+	ConnectWeaponsStatisticsDatabase();
 	return Plugin_Stop;
 }
 
-void EnsureCwxStatsSchema() {
-	if (g_CwxStatsDb == null) {
+void EnsureWeaponsStatsSchema() {
+	if (g_WeaponsStatsDb == null) {
 		return;
 	}
 
 	char query[2048];
-	if (g_CwxStatsIsMySql) {
+	if (g_WeaponsStatsIsMySql) {
 		Format(query, sizeof(query),
 			"CREATE TABLE IF NOT EXISTS %s ("
 			... "steamid64 VARCHAR(32) NOT NULL, "
@@ -1196,7 +1160,7 @@ void EnsureCwxStatsSchema() {
 			... "KEY idx_cwx_weapon_unique (weapon_uid, steamid64), "
 			... "KEY idx_cwx_class_weapon (class_name, weapon_uid)) "
 			... "ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
-			CWX_STATS_STATE_TABLE);
+			WEAPONS_STATS_STATE_TABLE);
 	} else {
 		Format(query, sizeof(query),
 			"CREATE TABLE IF NOT EXISTS %s ("
@@ -1215,51 +1179,51 @@ void EnsureCwxStatsSchema() {
 			... "unequip_count INTEGER NOT NULL DEFAULT 0, "
 			... "updated_at INTEGER NOT NULL DEFAULT 0, "
 			... "PRIMARY KEY (steamid64, class_index, loadout_slot, weapon_uid))",
-			CWX_STATS_STATE_TABLE);
+			WEAPONS_STATS_STATE_TABLE);
 	}
 
-	g_CwxStatsDb.Query(CwxStats_OnSchemaReady, query);
+	g_WeaponsStatsDb.Query(WeaponsStats_OnSchemaReady, query);
 }
 
-public void CwxStats_OnSchemaReady(Database db, DBResultSet results, const char[] error, any data) {
+public void WeaponsStats_OnSchemaReady(Database db, DBResultSet results, const char[] error, any data) {
 	if (error[0]) {
-		LogError("[CWX] Failed to create statistics schema: %s", error);
+		LogError("[Weapons] Failed to create statistics schema: %s", error);
 		if (Db_IsTransientError(error)) {
-			ScheduleCwxStatsDatabaseReconnect();
+			ScheduleWeaponsStatsDatabaseReconnect();
 		}
 		return;
 	}
 
-	g_CwxStatsDbReady = true;
-	Db_CancelTimer(g_hCwxStatsDbReconnectTimer);
-	if (!g_CwxStatsIsMySql) {
-		g_CwxStatsDb.Query(CwxStats_OnQueryComplete,
+	g_WeaponsStatsDbReady = true;
+	Db_CancelTimer(g_hWeaponsStatsDbReconnectTimer);
+	if (!g_WeaponsStatsIsMySql) {
+		g_WeaponsStatsDb.Query(WeaponsStats_OnQueryComplete,
 				"CREATE INDEX IF NOT EXISTS idx_cwx_weapon_equipped "
 				... "ON cwx_weapon_popularity (weapon_uid, equipped)");
-		g_CwxStatsDb.Query(CwxStats_OnQueryComplete,
+		g_WeaponsStatsDb.Query(WeaponsStats_OnQueryComplete,
 				"CREATE INDEX IF NOT EXISTS idx_cwx_weapon_unique "
 				... "ON cwx_weapon_popularity (weapon_uid, steamid64)");
-		g_CwxStatsDb.Query(CwxStats_OnQueryComplete,
+		g_WeaponsStatsDb.Query(WeaponsStats_OnQueryComplete,
 				"CREATE INDEX IF NOT EXISTS idx_cwx_class_weapon "
 				... "ON cwx_weapon_popularity (class_name, weapon_uid)");
 	}
-	CwxStats_MirrorLoadedClients();
+	WeaponsStats_MirrorLoadedClients();
 }
 
-public void CwxStats_OnQueryComplete(Database db, DBResultSet results, const char[] error, any data) {
+public void WeaponsStats_OnQueryComplete(Database db, DBResultSet results, const char[] error, any data) {
 	if (!error[0]) {
 		return;
 	}
 
-	LogError("[CWX] Statistics query failed: %s", error);
+	LogError("[Weapons] Statistics query failed: %s", error);
 	if (Db_IsTransientError(error)) {
-		ScheduleCwxStatsDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
+		ScheduleWeaponsStatsDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
 	}
 }
 
-void CwxStats_RecordEquip(int client, int playerClass, int itemSlot, const char[] itemUid,
+void WeaponsStats_RecordEquip(int client, int playerClass, int itemSlot, const char[] itemUid,
 		const CustomItemDefinition item) {
-	if (!CwxStats_IsEnabled()) {
+	if (!WeaponsStats_IsEnabled()) {
 		return;
 	}
 
@@ -1269,53 +1233,53 @@ void CwxStats_RecordEquip(int client, int playerClass, int itemSlot, const char[
 	} else {
 		strcopy(weaponName, sizeof(weaponName), itemUid);
 	}
-	CwxStats_LogTransition("cwx_weapon_equip", client, playerClass, itemSlot, itemUid, weaponName);
+	WeaponsStats_LogTransition("weapon_equip", client, playerClass, itemSlot, itemUid, weaponName);
 
 	char steamId64[KOGASA_STEAMID_MAX], playerName[MAX_NAME_LENGTH];
-	if (!CwxStats_GetClientStateIdentity(client, steamId64, sizeof(steamId64),
+	if (!WeaponsStats_GetClientStateIdentity(client, steamId64, sizeof(steamId64),
 			playerName, sizeof(playerName))) {
 		return;
 	}
 
-	CwxStats_ClearSlotState(steamId64, playerClass, itemSlot, true);
-	CwxStats_UpsertEquipState(steamId64, playerName, playerClass, itemSlot, itemUid,
+	WeaponsStats_ClearSlotState(steamId64, playerClass, itemSlot, true);
+	WeaponsStats_UpsertEquipState(steamId64, playerName, playerClass, itemSlot, itemUid,
 			weaponName, true);
 }
 
-void CwxStats_RecordUnequip(int client, int playerClass, int itemSlot, const char[] itemUid) {
-	if (!CwxStats_IsEnabled()) {
+void WeaponsStats_RecordUnequip(int client, int playerClass, int itemSlot, const char[] itemUid) {
+	if (!WeaponsStats_IsEnabled()) {
 		return;
 	}
 
 	char weaponName[MAX_ITEM_NAME_LENGTH];
-	CwxStats_GetWeaponName(itemUid, weaponName, sizeof(weaponName));
-	CwxStats_LogTransition("cwx_weapon_unequip", client, playerClass, itemSlot, itemUid,
+	WeaponsStats_GetWeaponName(itemUid, weaponName, sizeof(weaponName));
+	WeaponsStats_LogTransition("weapon_unequip", client, playerClass, itemSlot, itemUid,
 			weaponName);
 
 	char steamId64[KOGASA_STEAMID_MAX], playerName[MAX_NAME_LENGTH];
-	if (!CwxStats_GetClientStateIdentity(client, steamId64, sizeof(steamId64),
+	if (!WeaponsStats_GetClientStateIdentity(client, steamId64, sizeof(steamId64),
 			playerName, sizeof(playerName))) {
 		return;
 	}
 
-	CwxStats_ClearSlotState(steamId64, playerClass, itemSlot, true);
+	WeaponsStats_ClearSlotState(steamId64, playerClass, itemSlot, true);
 }
 
-void CwxStats_MirrorLoadedClients() {
+void WeaponsStats_MirrorLoadedClients() {
 	for (int client = 1; client <= MaxClients; client++) {
 		if (IsClientConnected(client) && g_bRetrievedLoadout[client]) {
-			CwxStats_MirrorClientSavedLoadout(client);
+			WeaponsStats_MirrorClientSavedLoadout(client);
 		}
 	}
 }
 
-void CwxStats_MirrorClientSavedLoadout(int client) {
-	if (!CwxStats_CanWriteState()) {
+void WeaponsStats_MirrorClientSavedLoadout(int client) {
+	if (!WeaponsStats_CanWriteState()) {
 		return;
 	}
 
 	char steamId64[KOGASA_STEAMID_MAX], playerName[MAX_NAME_LENGTH];
-	if (!CwxStats_GetClientStateIdentity(client, steamId64, sizeof(steamId64),
+	if (!WeaponsStats_GetClientStateIdentity(client, steamId64, sizeof(steamId64),
 			playerName, sizeof(playerName))) {
 		return;
 	}
@@ -1329,16 +1293,16 @@ void CwxStats_MirrorClientSavedLoadout(int client) {
 			}
 
 			char weaponName[MAX_ITEM_NAME_LENGTH];
-			CwxStats_GetWeaponName(itemUid, weaponName, sizeof(weaponName));
-			CwxStats_UpsertEquipState(steamId64, playerName, playerClass, itemSlot,
+			WeaponsStats_GetWeaponName(itemUid, weaponName, sizeof(weaponName));
+			WeaponsStats_UpsertEquipState(steamId64, playerName, playerClass, itemSlot,
 					itemUid, weaponName, false);
 		}
 	}
 }
 
-bool CwxStats_GetClientStateIdentity(int client, char[] steamId64, int steamLen,
+bool WeaponsStats_GetClientStateIdentity(int client, char[] steamId64, int steamLen,
 		char[] playerName, int nameLen) {
-	if (!CwxStats_CanWriteState()) {
+	if (!WeaponsStats_CanWriteState()) {
 		return false;
 	}
 
@@ -1352,7 +1316,7 @@ bool CwxStats_GetClientStateIdentity(int client, char[] steamId64, int steamLen,
 	return true;
 }
 
-void CwxStats_LogTransition(const char[] eventName, int client, int playerClass, int itemSlot,
+void WeaponsStats_LogTransition(const char[] eventName, int client, int playerClass, int itemSlot,
 		const char[] itemUid, const char[] weaponName) {
 	char steamId64[KOGASA_STEAMID_MAX] = "unknown";
 	char playerName[MAX_NAME_LENGTH] = "unknown";
@@ -1365,16 +1329,16 @@ void CwxStats_LogTransition(const char[] eventName, int client, int playerClass,
 		Kogasa_GetClientSteamId64(client, steamId64, sizeof(steamId64), true);
 		GetClientName(client, playerName, sizeof(playerName));
 	}
-	CwxStats_GetClassName(playerClass, className, sizeof(className));
+	WeaponsStats_GetClassName(playerClass, className, sizeof(className));
 	strcopy(safeEvent, sizeof(safeEvent), eventName);
 	strcopy(safeUid, sizeof(safeUid), itemUid);
 	strcopy(safeWeaponName, sizeof(safeWeaponName), weaponName);
-	CwxStats_SanitizeField(steamId64, sizeof(steamId64));
-	CwxStats_SanitizeField(playerName, sizeof(playerName));
-	CwxStats_SanitizeField(className, sizeof(className));
-	CwxStats_SanitizeField(safeEvent, sizeof(safeEvent));
-	CwxStats_SanitizeField(safeUid, sizeof(safeUid));
-	CwxStats_SanitizeField(safeWeaponName, sizeof(safeWeaponName));
+	WeaponsStats_SanitizeField(steamId64, sizeof(steamId64));
+	WeaponsStats_SanitizeField(playerName, sizeof(playerName));
+	WeaponsStats_SanitizeField(className, sizeof(className));
+	WeaponsStats_SanitizeField(safeEvent, sizeof(safeEvent));
+	WeaponsStats_SanitizeField(safeUid, sizeof(safeUid));
+	WeaponsStats_SanitizeField(safeWeaponName, sizeof(safeWeaponName));
 
 	int userid = (client > 0 && client <= MaxClients && IsClientConnected(client))
 			? GetClientUserId(client) : 0;
@@ -1394,14 +1358,14 @@ void CwxStats_LogTransition(const char[] eventName, int client, int playerClass,
 	PluginStats_Record(safeEvent, message);
 }
 
-void CwxStats_ClearSlotState(const char[] steamId64, int playerClass, int itemSlot,
+void WeaponsStats_ClearSlotState(const char[] steamId64, int playerClass, int itemSlot,
 		bool incrementUnequipCount) {
-	if (!CwxStats_CanWriteState()) {
+	if (!WeaponsStats_CanWriteState()) {
 		return;
 	}
 
 	char escapedSteam[64];
-	Db_Escape(g_CwxStatsDb, steamId64, escapedSteam, sizeof(escapedSteam), "cwx");
+	Db_Escape(g_WeaponsStatsDb, steamId64, escapedSteam, sizeof(escapedSteam), "weapons");
 
 	int now = GetTime();
 	char query[1024];
@@ -1412,7 +1376,7 @@ void CwxStats_ClearSlotState(const char[] steamId64, int playerClass, int itemSl
 			... "unequip_count = unequip_count + CASE WHEN equipped != 0 THEN 1 ELSE 0 END, "
 			... "updated_at = %d "
 			... "WHERE steamid64 = '%s' AND class_index = %d AND loadout_slot = %d AND equipped != 0",
-			CWX_STATS_STATE_TABLE,
+			WEAPONS_STATS_STATE_TABLE,
 			now,
 			now,
 			escapedSteam,
@@ -1422,36 +1386,36 @@ void CwxStats_ClearSlotState(const char[] steamId64, int playerClass, int itemSl
 		Format(query, sizeof(query),
 			"UPDATE %s SET equipped = 0, updated_at = %d "
 			... "WHERE steamid64 = '%s' AND class_index = %d AND loadout_slot = %d AND equipped != 0",
-			CWX_STATS_STATE_TABLE,
+			WEAPONS_STATS_STATE_TABLE,
 			now,
 			escapedSteam,
 			playerClass,
 			itemSlot);
 	}
-	g_CwxStatsDb.Query(CwxStats_OnQueryComplete, query);
+	g_WeaponsStatsDb.Query(WeaponsStats_OnQueryComplete, query);
 }
 
-void CwxStats_UpsertEquipState(const char[] steamId64, const char[] playerName,
+void WeaponsStats_UpsertEquipState(const char[] steamId64, const char[] playerName,
 		int playerClass, int itemSlot, const char[] itemUid, const char[] weaponName,
 		bool incrementEquipCount) {
-	if (!CwxStats_CanWriteState()) {
+	if (!WeaponsStats_CanWriteState()) {
 		return;
 	}
 
 	char className[16];
-	CwxStats_GetClassName(playerClass, className, sizeof(className));
+	WeaponsStats_GetClassName(playerClass, className, sizeof(className));
 
 	char escapedSteam[64], escapedName[256], escapedClass[64], escapedUid[128], escapedWeapon[256];
-	Db_Escape(g_CwxStatsDb, steamId64, escapedSteam, sizeof(escapedSteam), "cwx");
-	Db_Escape(g_CwxStatsDb, playerName, escapedName, sizeof(escapedName), "cwx");
-	Db_Escape(g_CwxStatsDb, className, escapedClass, sizeof(escapedClass), "cwx");
-	Db_Escape(g_CwxStatsDb, itemUid, escapedUid, sizeof(escapedUid), "cwx");
-	Db_Escape(g_CwxStatsDb, weaponName, escapedWeapon, sizeof(escapedWeapon), "cwx");
+	Db_Escape(g_WeaponsStatsDb, steamId64, escapedSteam, sizeof(escapedSteam), "weapons");
+	Db_Escape(g_WeaponsStatsDb, playerName, escapedName, sizeof(escapedName), "weapons");
+	Db_Escape(g_WeaponsStatsDb, className, escapedClass, sizeof(escapedClass), "weapons");
+	Db_Escape(g_WeaponsStatsDb, itemUid, escapedUid, sizeof(escapedUid), "weapons");
+	Db_Escape(g_WeaponsStatsDb, weaponName, escapedWeapon, sizeof(escapedWeapon), "weapons");
 
 	int now = GetTime();
 	int updateIncrement = incrementEquipCount ? 1 : 0;
 	char query[2048];
-	if (g_CwxStatsIsMySql) {
+	if (g_WeaponsStatsIsMySql) {
 		Format(query, sizeof(query),
 			"INSERT INTO %s (steamid64, player_name, class_index, class_name, loadout_slot, "
 			... "weapon_uid, weapon_name, equipped, first_equipped_at, last_equipped_at, "
@@ -1461,7 +1425,7 @@ void CwxStats_UpsertEquipState(const char[] steamId64, const char[] playerName,
 			... "class_name = VALUES(class_name), weapon_name = VALUES(weapon_name), "
 			... "equipped = 1, last_equipped_at = VALUES(last_equipped_at), "
 			... "equip_count = equip_count + %d, updated_at = VALUES(updated_at)",
-			CWX_STATS_STATE_TABLE,
+			WEAPONS_STATS_STATE_TABLE,
 			escapedSteam,
 			escapedName,
 			playerClass,
@@ -1484,7 +1448,7 @@ void CwxStats_UpsertEquipState(const char[] steamId64, const char[] playerName,
 			... "weapon_name = excluded.weapon_name, equipped = 1, "
 			... "last_equipped_at = excluded.last_equipped_at, "
 			... "equip_count = %s.equip_count + %d, updated_at = excluded.updated_at",
-			CWX_STATS_STATE_TABLE,
+			WEAPONS_STATS_STATE_TABLE,
 			escapedSteam,
 			escapedName,
 			playerClass,
@@ -1495,13 +1459,13 @@ void CwxStats_UpsertEquipState(const char[] steamId64, const char[] playerName,
 			now,
 			now,
 			now,
-			CWX_STATS_STATE_TABLE,
+			WEAPONS_STATS_STATE_TABLE,
 			updateIncrement);
 	}
-	g_CwxStatsDb.Query(CwxStats_OnQueryComplete, query);
+	g_WeaponsStatsDb.Query(WeaponsStats_OnQueryComplete, query);
 }
 
-void CwxStats_GetWeaponName(const char[] itemUid, char[] buffer, int maxlen) {
+void WeaponsStats_GetWeaponName(const char[] itemUid, char[] buffer, int maxlen) {
 	CustomItemDefinition item;
 	if (GetCustomItemDefinition(itemUid, item) && item.displayName[0]) {
 		strcopy(buffer, maxlen, item.displayName);
@@ -1510,11 +1474,11 @@ void CwxStats_GetWeaponName(const char[] itemUid, char[] buffer, int maxlen) {
 	strcopy(buffer, maxlen, itemUid);
 }
 
-void CwxStats_GetClassName(int playerClass, char[] buffer, int maxlen) {
+void WeaponsStats_GetClassName(int playerClass, char[] buffer, int maxlen) {
 	TF2Classes_GetKey(view_as<TFClassType>(playerClass), buffer, maxlen, "unknown");
 }
 
-void CwxStats_SanitizeField(char[] value, int maxlen) {
+void WeaponsStats_SanitizeField(char[] value, int maxlen) {
 	ReplaceString(value, maxlen, "|", "/", false);
 	ReplaceString(value, maxlen, "\r", " ", false);
 	ReplaceString(value, maxlen, "\n", " ", false);
@@ -1523,7 +1487,7 @@ void CwxStats_SanitizeField(char[] value, int maxlen) {
 	TrimString(value);
 }
 
-// bool CWX_GetPlayerLoadoutItem(int client, TFClassType playerClass, int itemSlot, char[] uid, int uidLen, int flags = 0);
+// bool Weapons_GetPlayerLoadoutItem(int client, TFClassType playerClass, int itemSlot, char[] uid, int uidLen, int flags = 0);
 int Native_GetPlayerLoadoutItem(Handle plugin, int argc) {
 	int client = GetNativeCell(1);
 	int playerClass = GetNativeCell(2);
@@ -1554,7 +1518,7 @@ void OnClientCustomLoadoutItemModified(int client, int modifiedClass) {
 		return;
 	}
 	
-	if (!sm_cwx_enable_loadout.BoolValue) {
+	if (!sm_weapons_enable_loadout.BoolValue) {
 		// do nothing if user selections are disabled
 		return;
 	}
@@ -1686,7 +1650,7 @@ static bool IsPlayerAllowedToRespawnOnLoadoutChange(int client) {
  * Returns whether or not the custom item is currently allowed.  This is specifically for
  * instances where the item may be temporarily restricted (Medieval, melee-only Sudden Death).
  * 
- * sm_cwx_enable_loadout is checked earlier, during OnPlayerLoadoutUpdatedPost and
+ * sm_weapons_enable_loadout is checked earlier, during OnPlayerLoadoutUpdatedPost and
  * OnGetLoadoutItemPost.
  */
 static bool IsCustomItemAllowed(int client, const CustomItemDefinition item) {

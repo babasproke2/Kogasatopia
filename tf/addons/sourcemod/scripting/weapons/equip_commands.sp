@@ -1,32 +1,13 @@
-/**
- * Custom Weapons X - Equip Commands
- * 
- * A few admin commands to apply items for testing purposes.  These have been moved from the
- * original plugin to use the shared plugin API instead.
- */
-#pragma semicolon 1
-#pragma newdecls required
-
-#include <sourcemod>
-
-#include <tf2_stocks>
-
-#include <cwx>
-
-public Plugin myinfo = {
-	name = "[TF2] Custom Weapons X - Equip Commands",
-	author = "nosoop",
-	description = "Provides admin-level commands to force equip defined items.",
-	version = "1.1.0",
-	url = "https://github.com/nosoop/SM-TFCustomWeaponsX"
+void WeaponsEquipCommands_OnPluginStart() {
+	RegAdminCmd("sm_weapons_equip", EquipItemCmd, ADMFLAG_ROOT);
+	RegAdminCmd("sm_weapons_equip_target", EquipItemCmdTarget, ADMFLAG_ROOT);
+	RegAdminCmd("sm_weapons_set_loadout", PersistItemCmd, ADMFLAG_ROOT);
 }
 
-#define MAX_ITEM_IDENTIFIER_LENGTH 64
-
-public void OnPluginStart() {
-	RegAdminCmd("sm_cwx_equip", EquipItemCmd, ADMFLAG_ROOT);
-	RegAdminCmd("sm_cwx_equip_target", EquipItemCmdTarget, ADMFLAG_ROOT);
-	RegAdminCmd("sm_cwx_set_loadout", PersistItemCmd, ADMFLAG_ROOT);
+static bool WeaponsEquip_EquipItem(int client, const char[] itemuid) {
+	CustomItemDefinition item;
+	return GetCustomItemDefinition(itemuid, item)
+		&& IsValidEntity(EquipCustomItem(client, item));
 }
 
 /**
@@ -46,9 +27,10 @@ Action EquipItemCmd(int client, int argc) {
 	StripQuotes(itemuid);
 	TrimString(itemuid);
 	
-	if (!CWX_IsItemUIDValid(itemuid)) {
+	CustomItemDefinition item;
+	if (!GetCustomItemDefinition(itemuid, item)) {
 		ReplyToCommand(client, "Unknown custom item uid %s", itemuid);
-	} else if (!IsValidEntity(CWX_EquipPlayerItem(client, itemuid))) {
+	} else if (!WeaponsEquip_EquipItem(client, itemuid)) {
 		ReplyToCommand(client, "Failed to equip custom item uid %s", itemuid);
 	}
 	return Plugin_Handled;
@@ -69,9 +51,10 @@ Action PersistItemCmd(int client, int argc) {
 	StripQuotes(itemuid);
 	TrimString(itemuid);
 	
-	if (!CWX_IsItemUIDValid(itemuid)) {
+	CustomItemDefinition item;
+	if (!GetCustomItemDefinition(itemuid, item)) {
 		ReplyToCommand(client, "Unknown custom item uid %s", itemuid);
-	} else if (!CWX_SetPlayerLoadoutItem(client, TF2_GetPlayerClass(client), itemuid)) {
+	} else if (!SetClientCustomLoadoutItem(client, TF2_GetPlayerClass(client), itemuid, 0)) {
 		ReplyToCommand(client, "Failed to set custom item uid %s", itemuid);
 	}
 	
@@ -95,7 +78,8 @@ Action EquipItemCmdTarget(int client, int argc) {
 	StripQuotes(itemuid);
 	TrimString(itemuid);
 	
-	if (!CWX_IsItemUIDValid(itemuid)) {
+	CustomItemDefinition item;
+	if (!GetCustomItemDefinition(itemuid, item)) {
 		ReplyToCommand(client, "Unknown custom item uid %s", itemuid);
 		return Plugin_Handled;
 	}
@@ -114,7 +98,7 @@ Action EquipItemCmdTarget(int client, int argc) {
 	
 	for (int i; i < nTargetsOrFailureReason; i++) {
 		int target = targets[i];
-		if (!IsValidEntity(CWX_EquipPlayerItem(target, itemuid))) {
+		if (!WeaponsEquip_EquipItem(target, itemuid)) {
 			ReplyToCommand(client, "Failed to equip custom item uid %s on %N", itemuid, target);
 		}
 	}
