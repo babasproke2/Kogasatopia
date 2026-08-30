@@ -2229,7 +2229,7 @@ public Action OnClientSayCommand(int client, const char[] command, const char[] 
     BuildChatContext(client, sArgs, context);
 
     char publicBody[256];
-    bool hasPrivateOriginal = Filters_FindGoodnightStopperReplacement(sArgs, publicBody, sizeof(publicBody));
+    bool hasPrivateOriginal = Filters_FindGoodnightStopperReplacement(client, sArgs, publicBody, sizeof(publicBody));
     if (!hasPrivateOriginal)
     {
         strcopy(publicBody, sizeof(publicBody), sArgs);
@@ -3001,7 +3001,7 @@ bool TryHandleTeamChat(int client, const char[] command, const char[] sArgs, con
     BuildChatDisplayName(client, displayName, sizeof(displayName));
 
     char publicBody[256];
-    bool hasPrivateOriginal = Filters_FindGoodnightStopperReplacement(sArgs, publicBody, sizeof(publicBody));
+    bool hasPrivateOriginal = Filters_FindGoodnightStopperReplacement(client, sArgs, publicBody, sizeof(publicBody));
     if (!hasPrivateOriginal)
     {
         strcopy(publicBody, sizeof(publicBody), sArgs);
@@ -4571,9 +4571,14 @@ static bool Filters_ContainsWholeTrigger(const char[] message, const char[] trig
     return false;
 }
 
-static bool Filters_FindGoodnightStopperReplacement(const char[] message, char[] replacement, int maxlen)
+static bool Filters_FindGoodnightStopperReplacement(int client, const char[] message, char[] replacement, int maxlen)
 {
     replacement[0] = '\0';
+    if (Filters_GetAdminsDbLevel(client) > 0)
+    {
+        return false;
+    }
+
     for (int i = 0; i < g_GoodnightStopperCount; i++)
     {
         if (!Filters_ContainsWholeTrigger(message, g_GoodnightStopperWords[i]))
