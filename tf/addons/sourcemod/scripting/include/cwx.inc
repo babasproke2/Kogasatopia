@@ -107,6 +107,13 @@ native bool CWX_GetItemUIDFromEntity(int entity, char[] buffer, int maxlen);
 native bool CWX_GetItemDisplayName(const char[] uid, char[] buffer, int maxlen);
 
 /**
+ * Checks whether a custom item is configured as a reskin-only item.
+ *
+ * @return    True when the UID exists and has `reskin_only` enabled.
+ */
+native bool CWX_IsItemReskinOnly(const char[] uid);
+
+/**
  * Called after CWX restores missing runtime state on a persisted custom item.
  */
 forward void CWX_OnItemRuntimeStateReady(int client, int entity);
@@ -143,6 +150,7 @@ public void __pl_custom_weapons_x_SetNTVOptional() {
 	MarkNativeAsOptional("CWX_IsItemUIDValid");
 	MarkNativeAsOptional("CWX_GetItemUIDFromEntity");
 	MarkNativeAsOptional("CWX_GetItemDisplayName");
+	MarkNativeAsOptional("CWX_IsItemReskinOnly");
 	MarkNativeAsOptional("CWX_GetItemExtData");
 }
 #endif

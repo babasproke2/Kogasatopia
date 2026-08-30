@@ -203,6 +203,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int maxlen) {
 	CreateNative("CWX_IsItemUIDValid", Native_IsItemUIDValid);
 	CreateNative("CWX_GetItemUIDFromEntity", Native_GetItemUIDFromEntity);
 	CreateNative("CWX_GetItemDisplayName", Native_GetItemDisplayName);
+	CreateNative("CWX_IsItemReskinOnly", Native_IsItemReskinOnly);
 	CreateNative("CWX_GetItemExtData", Native_GetItemExtData);
 	CreateNative("CWX_GetItemLoadoutSlot", Native_GetItemLoadoutSlot);
 	
@@ -670,6 +671,15 @@ int Native_GetItemDisplayName(Handle plugin, int argc) {
 
 	SetNativeString(2, customItem.displayName, GetNativeCell(3), true);
 	return true;
+}
+
+// bool CWX_IsItemReskinOnly(const char[] uid);
+int Native_IsItemReskinOnly(Handle plugin, int argc) {
+	char uid[MAX_ITEM_IDENTIFIER_LENGTH];
+	GetNativeString(1, uid, sizeof(uid));
+
+	CustomItemDefinition customItem;
+	return GetCustomItemDefinition(uid, customItem) && customItem.reskinOnly;
 }
 
 // optional<KeyValues> CWX_GetItemExtData(const char[] uid, const char[] section);

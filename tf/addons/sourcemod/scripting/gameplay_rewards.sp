@@ -198,6 +198,12 @@ bool GetCustomWeaponDetails(
 		return false;
 	}
 
+	if (GetFeatureStatus(FeatureType_Native, "CWX_IsItemReskinOnly") == FeatureStatus_Available
+		&& CWX_IsItemReskinOnly(itemUid))
+	{
+		return false;
+	}
+
 	if (GetFeatureStatus(FeatureType_Native, "CWX_GetItemDisplayName") != FeatureStatus_Available
 		|| !CWX_GetItemDisplayName(itemUid, displayName, displayNameLength))
 	{
