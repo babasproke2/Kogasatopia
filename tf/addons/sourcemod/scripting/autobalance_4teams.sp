@@ -28,6 +28,7 @@
 native int FilterAlerts_MarkAutobalance(int client);
 
 #define CHECK_INTERVAL      3.0
+#define MAP_START_DELAY     30.0
 #define TEAM_RED            2
 #define TEAM_BLUE           3
 #define TEAM_GREEN          4
@@ -143,13 +144,9 @@ public void OnPluginStart()
 public void OnMapStart()
 {
     ClearAllTeamSwapRequests();
-    if (g_hAutoBalanceTimer != INVALID_HANDLE)
-    {
-        KillTimer(g_hAutoBalanceTimer);
-        g_hAutoBalanceTimer = INVALID_HANDLE;
-    }
-
-    g_hAutoBalanceTimer = CreateTimer(CHECK_INTERVAL, Timer_Autobalance, _, TIMER_REPEAT);
+    StopAutobalanceTimer();
+    g_fImbalanceDetectedAt = 0.0;
+    g_hAutoBalanceTimer = CreateTimer(MAP_START_DELAY, Timer_StartAutobalance);
 
     if (g_hMapImmunity != null)
     {
@@ -160,6 +157,8 @@ public void OnMapStart()
 public void OnMapEnd()
 {
     ClearAllTeamSwapRequests();
+    StopAutobalanceTimer();
+    g_fImbalanceDetectedAt = 0.0;
 }
 
 public void OnClientDisconnect(int client)
@@ -173,11 +172,7 @@ public void OnPluginEnd()
     DuelDetection_Shutdown();
     ClearAllTeamSwapRequests();
 
-    if (g_hAutoBalanceTimer != INVALID_HANDLE)
-    {
-        KillTimer(g_hAutoBalanceTimer);
-        g_hAutoBalanceTimer = INVALID_HANDLE;
-    }
+    StopAutobalanceTimer();
 
     Db_CancelTimer(g_hImmunityDbReconnectTimer);
     g_bImmunityDbReady = false;
@@ -668,6 +663,17 @@ static void BuildTeamSwapDisplayName(int client, char[] buffer, int maxlen)
 // Main balance timer
 // ---------------------------------------------------------------------------
 
+public Action Timer_StartAutobalance(Handle timer)
+{
+    if (timer != g_hAutoBalanceTimer)
+    {
+        return Plugin_Stop;
+    }
+
+    g_hAutoBalanceTimer = CreateTimer(CHECK_INTERVAL, Timer_Autobalance, _, TIMER_REPEAT);
+    return Plugin_Stop;
+}
+
 public Action Timer_Autobalance(Handle timer)
 {
     if (ShouldSuppressAutobalanceForGamemode())
@@ -1004,6 +1010,17 @@ public Action Timer_Autobalance(Handle timer)
     CPrintToChatEx(pick, pick, "{lightgreen}[Server]{default} You've been autobalanced to %s{default}!", teamColorName);
 
     return Plugin_Continue;
+}
+
+static void StopAutobalanceTimer()
+{
+    if (g_hAutoBalanceTimer == INVALID_HANDLE)
+    {
+        return;
+    }
+
+    KillTimer(g_hAutoBalanceTimer);
+    g_hAutoBalanceTimer = INVALID_HANDLE;
 }
 
 // ---------------------------------------------------------------------------
