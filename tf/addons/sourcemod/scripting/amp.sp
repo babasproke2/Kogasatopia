@@ -13,7 +13,9 @@
 #include <tf2attributes>
 
 #include <morecolors>
+#undef REQUIRE_PLUGIN
 #include <tf_custom_attributes>
+#define REQUIRE_PLUGIN
 #include <conch_no_speed>
 
 #include "include/client_validation.inc"

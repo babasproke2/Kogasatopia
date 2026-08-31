@@ -10,7 +10,9 @@
 #include <tf2attributes>
 
 #include <morecolors>
+#undef REQUIRE_PLUGIN
 #include <tf_custom_attributes>
+#define REQUIRE_PLUGIN
 
 #include "include/client_validation.inc"
 
@@ -634,7 +636,7 @@ public Action OnPadTouch(int iPad, int iToucher)
 			{
 				SetEntProp(iPad, Prop_Send, "m_iTimesUsed", GetEntProp(iPad, Prop_Send, "m_iTimesUsed") + 1);
 				
-				*/if (!(GetEntProp(iPad, Prop_Send, "m_iTimesUsed") % 6)) //Add +2 points every 6 uses
+				/*if (!(GetEntProp(iPad, Prop_Send, "m_iTimesUsed") % 6)) //Add +2 points every 6 uses
 				{
 					Event event = CreateEvent("player_escort_score", true);	//Using player_teleported unfortunately does not work.
 					if (event != null)

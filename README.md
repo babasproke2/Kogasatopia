@@ -2,7 +2,7 @@
 The repository for everyone's favorite TF2 server. Visit Kogasatopia's website here: [kogasa.tf](https://kogasa.tf)
 
 These plugins are very specific and are shared for the sake of letting anyone look at them. The major plugins are as follows:
-- weapons.sp for custom loadouts, weapon attributes, models, sounds, descriptions and nerf reverts; it incorporates nosoop's Custom Weapons X
+- weapons.sp for custom loadouts, weapon attributes, models, sounds, descriptions and nerf reverts; it incorporates nosoop's Custom Weapons X and SM-TFCustAttr
 - mapsdb, a plugin that handles per-gamemode setting configurations, map popularity statistics and once-only server configs for better load times between maps
 - dgm.sp for instant respawn configuration and gamemode tweaks
 - saysounds.sp as an implementation of the saysounds concept with many features

@@ -270,10 +270,6 @@ StringMapSnapshot GetCustomItemList() {
 	return g_CustomItems.Snapshot();
 }
 
-bool CustomItemsLoaded() {
-	return g_CustomItems != null;
-}
-
 /**
  * Builds the loadout position array for the item, so the plugin knows which weapons can be
  * rendered in loadout menus and which loadout slot they will be stored in within the database.

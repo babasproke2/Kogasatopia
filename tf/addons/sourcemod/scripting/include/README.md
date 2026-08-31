@@ -115,6 +115,12 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `Weapons_GetWeaponInfo` - Writes configured display data for a TF2 item definition.
 - `Weapons_CanClassUseWeapon` - Returns whether a class can use an item definition from weapons.cfg.
 
+## tf_custom_attributes.inc
+
+The compatibility `TF2CustAttr_*` API is provided by `weapons.smx`. The include
+points SourceMod dependency resolution at `weapons.smx`; there is no standalone
+`tf_custom_attributes.smx`.
+
 ## dgm_api.inc
 - `DGM_GetGameMode` - Writes the current display gamemode into a buffer.
 - `DGM_RealPlayerCount` - Counts real human players on the server.

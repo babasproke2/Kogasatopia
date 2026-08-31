@@ -5,7 +5,9 @@
 #include <sdkhooks>
 #include <sdktools>
 #include <tf2_stocks>
+#undef REQUIRE_PLUGIN
 #include <tf_custom_attributes>
+#define REQUIRE_PLUGIN
 
 #define PLUGIN_VERSION "4.0.0"
 

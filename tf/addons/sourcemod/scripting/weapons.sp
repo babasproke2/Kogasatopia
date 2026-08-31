@@ -19,7 +19,6 @@
 
 #include <tf_ontakedamage>
 #include <morecolors>
-#include <tf_custom_attributes>
 #include <sourcescramble>
 #include <dhooks>
 #include <addplayerhealth>
@@ -64,12 +63,13 @@ public Plugin myinfo = {
 	name = "Weapons",
 	author = "nosoop, Hombre, tsuza, Mir, Huutti, Utsuho",
 	description = "Unified custom weapons, weapon behavior, models, sounds, and loadouts.",
-	version = "7.0" ... VERSION_SUFFIX,
+	version = "7.1" ... VERSION_SUFFIX,
 	url = "https://kogasa.tf"
 }
 
 // 29/08/2026: Combined ca_replace_sound and viewmodel_override into cwx to reduce number of plugins + less concern about order conflicts
 // 30/08/2026: Combined CWX and WeaponReverts so one plugin owns each weapon's complete runtime state.
+// 30/08/2026: Embedded SM-TFCustAttr so custom attributes share the same item lifecycle.
 
 // this is the maximum expected length of our UID; it is intentional that this is *not* shared
 // to dependent plugins, as we may change this at any time
@@ -126,6 +126,7 @@ bool g_WeaponsStatsIsMySql = false;
 Handle g_hWeaponsStatsDbReconnectTimer = null;
 Handle g_hOnItemRuntimeStateReady = null;
 
+#include "weapons/custom_attributes.sp"
 #include "weapons/item_config.sp"
 #include "weapons/item_entity.sp"
 #include "weapons/item_export.sp"
@@ -140,6 +141,7 @@ Handle g_hOnItemRuntimeStateReady = null;
 int g_attrdef_AllowedInMedievalMode;
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int maxlen) {
+	WeaponsCustomAttributes_RegisterNatives();
 	MarkNativeAsOptional("DGM_CurrentNormalizedMap");
 	MarkNativeAsOptional("DGM_NormalizeMapName");
 	MarkNativeAsOptional("DGM_GetGameModeKey");
@@ -164,6 +166,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int maxlen) {
 }
 
 public void OnPluginStart() {
+	WeaponsCustomAttributes_OnPluginStart();
 	LoadTranslations("weapons.phrases");
 	LoadTranslations("common.phrases");
 	LoadTranslations("core.phrases");
@@ -269,6 +272,7 @@ public void OnPluginEnd() {
 	Db_Close(g_WeaponsStatsDb, g_WeaponsStatsDbReady);
 	delete g_hOnItemRuntimeStateReady;
 	WeaponsConfig_Close();
+	WeaponsCustomAttributes_OnPluginEnd();
 }
 
 void Weapons_NotifyItemRuntimeStateReady(int client, int entity) {
@@ -295,23 +299,6 @@ public void OnAllPluginsLoaded() {
 	
 	g_attrdef_AllowedInMedievalMode =
 			TF2Econ_TranslateAttributeNameToDefinitionIndex("allowed in medieval mode");
-}
-
-public void OnLibraryAdded(const char[] name) {
-	if (!StrEqual(name, "tf2custattr") || !CustomItemsLoaded()) {
-		return;
-	}
-
-	/*
-	 * Reloading the custom-attribute provider removes its entity storage.
-	 * Rehydrate active persisted items as soon as the provider returns.
-	 */
-	for (int client = 1; client <= MaxClients; client++) {
-		if (IsClientInGame(client) && IsPlayerAlive(client)
-				&& g_bRetrievedLoadout[client]) {
-			RequestFrame(Frame_ApplyRetrievedLoadout, GetClientUserId(client));
-		}
-	}
 }
 
 Action DisplayItemDescriptions(int client, int argc) {
@@ -406,6 +393,7 @@ void AppendItemDescriptionPart(char[] buffer, int maxlen, const char[] color, co
 }
 
 public void OnMapStart() {
+	WeaponsCustomAttributes_OnMapStart();
 	WeaponsModels_OnMapStart();
 	LoadWeaponsConfig();
 	PrecacheMenuResources();
@@ -415,6 +403,7 @@ public void OnMapStart() {
 public void OnMapEnd() {
 	WeaponsSound_Clear();
 	WeaponsGameplay_OnMapEnd();
+	WeaponsCustomAttributes_OnMapEnd();
 }
 
 public void OnClientPutInServer(int client) {
@@ -435,6 +424,7 @@ void Weapons_OnWeaponSwitchPost(int client, int weapon) {
 }
 
 public void OnEntityCreated(int entity, const char[] className) {
+	WeaponsCustomAttributes_OnEntityCreated(entity);
 	WeaponsModels_OnEntityCreated(entity, className);
 	WeaponsGameplay_OnEntityCreated(entity, className);
 }

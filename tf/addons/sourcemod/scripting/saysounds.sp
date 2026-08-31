@@ -7,7 +7,9 @@
 
 #include <sdktools_sound>
 
+#undef REQUIRE_PLUGIN
 #include <tf_custom_attributes>
+#define REQUIRE_PLUGIN
 
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
