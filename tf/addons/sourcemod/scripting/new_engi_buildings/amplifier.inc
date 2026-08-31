@@ -1,3 +1,8 @@
+#if defined _new_engi_buildings_amplifier_included
+	#endinput
+#endif
+#define _new_engi_buildings_amplifier_included
+
 #pragma semicolon 1
 #pragma newdecls required
 
@@ -18,7 +23,7 @@
 #define REQUIRE_PLUGIN
 #include <conch_no_speed>
 
-#include "include/client_validation.inc"
+#include <client_validation>
 
 #define MAX_AMPLIFIER_CLIENTS (MAXPLAYERS + 1)
 #define MAX_AMPLIFIER_ENTITIES 2048
@@ -28,7 +33,7 @@
 #define MP MAX_AMPLIFIER_CLIENTS
 #define ME MAX_AMPLIFIER_ENTITIES
 
-#define PLUGIN_VERSION "2.5"
+#define AMPLIFIER_PLUGIN_VERSION "2.5"
 
 // Models and Sounds
 #define AmplifierModel "models/buildables/amplifier_test/amplifier"
@@ -103,7 +108,7 @@ TFCond DefaultCondition = TFCond_RuneHaste; // Formerly TFCond_Buffed
 
 // Forward
 Handle fwdOnAmplify;
-Handle g_hPadCookie;
+Handle g_hEngiPadsCookie;
 
 // Native Control
 bool NativeControl;
@@ -195,14 +200,7 @@ static void ResetPlayerState(int client, bool resetPreferences = true)
     }
 }
 
-public Plugin myinfo = {
-    name = "The Amplifier (Unified)",
-    author = "RainBolt Dash (plugin); Jumento M.D. (idea & model); Naris and FlaminSarge (helpers); Bad Hombre (new fork)",
-    description = "Adds The Amplifier for Dispenser and/or Sentry",
-    version = PLUGIN_VERSION,
-};
-
-public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
+void Amplifier_RegisterNatives()
 {
 	CreateNative("ControlAmplifier", Native_ControlAmplifier);
 	CreateNative("SetAmplifierDisp", Native_SetAmplifierDisp);
@@ -212,12 +210,11 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 	CreateNative("Amplifier_WouldReplaceBuilding", Native_WouldReplaceBuilding);
 	fwdOnAmplify = CreateGlobalForward("OnAmplify", ET_Hook, Param_Cell, Param_Cell, Param_Cell);
 	RegPluginLibrary("Amplifier");
-	return APLRes_Success;
 }
 
-public void OnPluginStart()
+void Amplifier_OnPluginStart()
 {
-	CreateConVar("amplifier_version", PLUGIN_VERSION, "The Amplifier Version", FCVAR_REPLICATED|FCVAR_NOTIFY);
+	CreateConVar("amplifier_version", AMPLIFIER_PLUGIN_VERSION, "The Amplifier Version", FCVAR_REPLICATED|FCVAR_NOTIFY);
 	cvarEffectLength = CreateConVar("amplifier_effect_length", "3.0", "Length in seconds for the Amplifier condition to last", FCVAR_PLUGIN);
 	cvarDistance = CreateConVar("amplifier_distance", "400.0", "Distance the amplifier works.", FCVAR_PLUGIN);
 	cvarMetalMax = CreateConVar("amplifier_max", "200.0", "Maximum amount of metal an amplifier can hold.", FCVAR_PLUGIN);
@@ -228,11 +225,7 @@ public void OnPluginStart()
 	SetConVarBounds(cvarEnableExplosion, ConVarBound_Upper, false);
 	cvarEnableZap = CreateConVar("amplifier_zap", "0.0", "Should Amplifier pulses harm the enemy team? 0 to disable, >0 for damage.", FCVAR_PLUGIN, true, 0.0, true, 50.0);
 
-	HookEvent("player_builtobject", Event_Build);
-	HookEventEx("player_carryobject", Event_ObjectCarried);
 	HookEventEx("player_dropobject", Event_ObjectDropped);
-	HookEvent("object_destroyed", Event_ObjectDestroyed);
-	HookEvent("player_death", event_player_death);
 
 	RegConsoleCmd("sm_amplifier", CallPanel, "Select engineer's building type");
 	RegConsoleCmd("sm_a", CallPanel, "Select engineer's building type");
@@ -243,7 +236,7 @@ public void OnPluginStart()
 	RegConsoleCmd("sm_ph", PadHelpPanel, "Show info about Jump/Speed Pads");
 	RegConsoleCmd("sm_killsentries", Command_KillSentries, "Destroy all sentry guns");
 
-	g_hPadCookie = FindClientCookie("engipads_toggle");
+	g_hEngiPadsCookie = FindClientCookie("engipads_toggle");
 
 	AutoExecConfig(true, "amplifier");
 
@@ -256,12 +249,12 @@ public void OnPluginStart()
 		ResetPlayerState(i);
 		if (IsClientInGame(i))
 		{
-			OnClientPostAdminCheck(i);
+			Amplifier_OnClientPostAdminCheck(i);
 		}
 	}
 }
 
-public void OnPluginEnd()
+void Amplifier_OnPluginEnd()
 {
 	if (g_hAmplifierTimer != INVALID_HANDLE)
 	{
@@ -283,7 +276,7 @@ public void OnPluginEnd()
 	ConvertAllAmplifiersToBuildings();
 }
 
-public void OnConfigsExecuted()
+void Amplifier_OnConfigsExecuted()
 {
 	if (g_hAmplifierTimer == INVALID_HANDLE)
 	{
@@ -291,7 +284,7 @@ public void OnConfigsExecuted()
 	}
 }
 
-public void OnMapStart()
+void Amplifier_OnMapStart()
 {
 	AddToDownload();
 	PrecacheSound(AMPLIFIER_SOUND, true);
@@ -303,7 +296,7 @@ public void OnMapStart()
 	PrecacheGeneric("particles/powerups.pcf", true);
 }
 
-public void OnMapEnd()
+void Amplifier_OnMapEnd()
 {
 	for (int ent = 1; ent < GetTrackedEntityLimit(); ent++)
 	{
@@ -313,7 +306,7 @@ public void OnMapEnd()
 	g_hAmplifierTimer = INVALID_HANDLE;
 }
 
-public void OnClientPostAdminCheck(int client)
+void Amplifier_OnClientPostAdminCheck(int client)
 {
 	if (!Client_IsInGame(client) || IsFakeClient(client))
 	{
@@ -328,7 +321,7 @@ public void OnClientPostAdminCheck(int client)
 	}
 }
 
-public void OnClientCookiesCached(int client)
+void Amplifier_OnClientCookiesCached(int client)
 {
 	if (!Client_IsInGame(client) || IsFakeClient(client))
 	{
@@ -338,7 +331,7 @@ public void OnClientCookiesCached(int client)
 	LoadClientPreferences(client);
 }
 
-public void OnClientDisconnect(int client)
+void Amplifier_OnClientDisconnect(int client)
 {
 	ResetPlayerState(client);
 }
@@ -640,7 +633,7 @@ void ShowAmplifierMenu(int client)
 	AddMenuItem(menu, "disp", szItem);
 
 	// I've added Engipads to this nice menu
-	bool usePadSpeed = GetClientCookieBool(client, g_hPadCookie);
+	bool usePadSpeed = GetClientCookieBool(client, g_hEngiPadsCookie);
 
 	Format(szItem, sizeof(szItem), "Teleporters: %s", usePadSpeed ? "[✓] Speed/Jump" : "[  ] Normal");
 	AddMenuItem(menu, "tele", szItem);
@@ -748,9 +741,9 @@ public int MenuHandler_Amplifier(Handle menu, MenuAction action, int param1, int
 		}
 		else if (StrEqual(info, "tele"))
 		{
-			bool usePadSpeed = GetClientCookieBool(param1, g_hPadCookie);
+			bool usePadSpeed = GetClientCookieBool(param1, g_hEngiPadsCookie);
 			usePadSpeed = !usePadSpeed; // toggle it
-			SetClientCookieBool(param1, g_hPadCookie, usePadSpeed);
+			SetClientCookieBool(param1, g_hEngiPadsCookie, usePadSpeed);
 
 			PrintToChat(param1, "[Kogasa] Teleporter mode set to: %s", usePadSpeed ? "Speed/Jump" : "Normal");
 			ShowAmplifierMenu(param1);

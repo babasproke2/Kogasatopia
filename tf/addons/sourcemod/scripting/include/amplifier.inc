@@ -19,7 +19,7 @@ native bool Amplifier_WouldReplaceBuilding(int client, int objectType);
 public SharedPlugin __pl_amplifier =
 {
 	name = "Amplifier",
-	file = "amp.smx",
+	file = "new_engi_buildings.smx",
 #if defined REQUIRE_PLUGIN
 	required = 1,
 #else

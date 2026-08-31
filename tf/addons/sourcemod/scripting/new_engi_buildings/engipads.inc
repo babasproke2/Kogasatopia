@@ -1,3 +1,8 @@
+#if defined _new_engi_buildings_engipads_included
+	#endinput
+#endif
+#define _new_engi_buildings_engipads_included
+
 #pragma semicolon 1
 #pragma newdecls required
 
@@ -14,13 +19,13 @@
 #include <tf_custom_attributes>
 #define REQUIRE_PLUGIN
 
-#include "include/client_validation.inc"
+#include <client_validation>
 
 //Define version number in a needlessly complex way
 #define MAJOR	"1"
 #define MINOR	"1"
 #define PATCH	"0"
-#define PLUGIN_VERSION	MAJOR..."."...MINOR..."."...PATCH
+#define ENGIPADS_PLUGIN_VERSION	MAJOR..."."...MINOR..."."...PATCH
 #define ATTRIBUTE_WEAPON_SLOT 3 // Build PDA
 #define ATTRIBUTE_BUILD_SPEED "engineer teleporter build rate multiplier"
 #define ATTRIBUTE_BUILD_SPEED_FACTOR 3.0
@@ -106,15 +111,6 @@ static Handle g_hPadTimerAnnounce;
 ConVar cvarPads[VersionNumber + 1];
 
 
-public Plugin myinfo =
-{
-	name 			= "[TF2] Engineer Pads",
-	author 			= "Starblaster 64, attribute and other new features made by Hombre",
-	description 	= "Custom Teleporter building replacements.",
-	version 		= PLUGIN_VERSION,
-	url 			= "https://forums.alliedmods.net/showthread.php?t=304025"
-};
-
 //Initialise gamedata to be used for getting/setting Teleporter pairs.
 void InitGamedata()
 {
@@ -135,7 +131,7 @@ void InitGamedata()
 	CloseHandle(hGameConf);
 }
 
-public void OnPluginStart()
+void EngiPads_OnPluginStart()
 {
 	InitGamedata();
 	
@@ -147,7 +143,7 @@ public void OnPluginStart()
 	
 	AddCommandListener(EurekaTeleport, "eureka_teleport");
 	
-	cvarPads[VersionNumber] = CreateConVar("pads_version", PLUGIN_VERSION, "EngiPads version number. Don't touch this!", FCVAR_NOTIFY|FCVAR_DONTRECORD|FCVAR_CHEAT);
+	cvarPads[VersionNumber] = CreateConVar("pads_version", ENGIPADS_PLUGIN_VERSION, "EngiPads version number. Don't touch this!", FCVAR_NOTIFY|FCVAR_DONTRECORD|FCVAR_CHEAT);
 	cvarPads[PadsEnabled] = CreateConVar("pads_enabled", "1", "Enables/Disables the plugin. (2 - BoostPads only, 3 - JumpPads only)", FCVAR_NOTIFY, true, 0.0, true, 3.0);
 	cvarPads[PadsAnnounce] = CreateConVar("pads_announce", "347.0", "Interval between chat announcements about the plugin. 0.0 to disable.", FCVAR_NOTIFY, true, 0.0);
 	
@@ -181,14 +177,10 @@ cvarPads[BoostBlockAiming] = CreateConVar("pads_boost_block_aiming", "1", "Set t
 	cvarPads[PadsEnabled].AddChangeHook(CvarChange);
 	cvarPads[PadsAnnounce].AddChangeHook(CvarChange);
 	
-	HookEvent("player_death", PlayerDeath, EventHookMode_Post);
 	HookEvent("player_hurt", PlayerHurt, EventHookMode_Post);
 	
-	HookEvent("player_builtobject", ObjectBuilt, EventHookMode_Post);
 	HookEvent("player_sapped_object", ObjectSapped, EventHookMode_Post);
-	HookEvent("player_carryobject", ObjectDestroyed, EventHookMode_Post);
 	
-	HookEvent("object_destroyed", ObjectDestroyed, EventHookMode_Post);
 	HookEvent("object_removed", ObjectDestroyed, EventHookMode_Post);
 	
 	HookEvent("object_deflected", ObjectDeflected, EventHookMode_Post);
@@ -197,22 +189,22 @@ cvarPads[BoostBlockAiming] = CreateConVar("pads_boost_block_aiming", "1", "Set t
 	
 	for (int i = 1; i <= MaxClients; i++)
 	{
-		OnClientPostAdminCheck(i);
+		EngiPads_OnClientPostAdminCheck(i);
 	}
 }
 
-public void OnPluginEnd()
+void EngiPads_OnPluginEnd()
 {
 	ConvertAllPadsToTeleporters(); //Convert all Pads back to teleporters if the plugin is unloaded.
 }
 
-public void OnConfigsExecuted()
+void EngiPads_OnConfigsExecuted()
 {
 	/* Version checker taken from VSH */
 	static char szOldVersion[12];
 	cvarPads[VersionNumber].GetString(szOldVersion, sizeof(szOldVersion));
-	if (!StrEqual(szOldVersion, PLUGIN_VERSION))
-		cvarPads[VersionNumber].SetString(PLUGIN_VERSION, false, true);
+	if (!StrEqual(szOldVersion, ENGIPADS_PLUGIN_VERSION))
+		cvarPads[VersionNumber].SetString(ENGIPADS_PLUGIN_VERSION, false, true);
 	
 	if (cvarPads[PadsEnabled].IntValue > EngiPads_Disabled && cvarPads[PadsAnnounce].FloatValue > 0.0)
 	{
@@ -224,8 +216,8 @@ public void CvarChange(ConVar cvar, const char[] szOldValue, const char[] szNewV
 {
 	if (cvar == cvarPads[VersionNumber])
 	{
-		if (!StrEqual(szNewValue, PLUGIN_VERSION))
-			cvarPads[VersionNumber].SetString(PLUGIN_VERSION);	//If config version number does not match plugin, plugin will override it.
+		if (!StrEqual(szNewValue, ENGIPADS_PLUGIN_VERSION))
+			cvarPads[VersionNumber].SetString(ENGIPADS_PLUGIN_VERSION);	//If config version number does not match plugin, plugin will override it.
 	}
 	else if (cvar == cvarPads[PadsEnabled])
 	{
@@ -256,7 +248,7 @@ public Action Timer_PadsAnnounce(Handle hTimer)
 	return Plugin_Stop;
 }
 
-public void OnMapStart()
+void EngiPads_OnMapStart()
 {
 	g_hPadTimerAnnounce = INVALID_HANDLE;
 	
@@ -273,12 +265,12 @@ public void OnMapStart()
 	PrecacheParticleSystem("powerup_icon_agility_blue");
 }
 
-public void OnMapEnd()
+void EngiPads_OnMapEnd()
 {
 	ClearTimer(g_hPadTimerAnnounce);
 }
 
-public void OnClientPostAdminCheck(int iClient)
+void EngiPads_OnClientPostAdminCheck(int iClient)
 {
 	//Reset players' global vars on connect/disconnect/death/pluginstart
 	Pad_SetConds(iClient, PadCond_None);
@@ -286,16 +278,16 @@ public void OnClientPostAdminCheck(int iClient)
 	g_flPlayerBoostEndTime[iClient] = 0.0;
 }
 
-public void OnClientDisconnect(int iClient)
+void EngiPads_OnClientDisconnect(int iClient)
 {
-	OnClientPostAdminCheck(iClient);
+	EngiPads_OnClientPostAdminCheck(iClient);
 }
 
 public void PlayerDeath(Event event, const char[] name, bool dontBroadcast)
 {
 	int iClient = GetClientOfUserId(event.GetInt("userid"));
 	if (Client_IsInGame(iClient))
-		OnClientPostAdminCheck(iClient);
+		EngiPads_OnClientPostAdminCheck(iClient);
 }
 
 public void PlayerHurt(Event event, const char[] name, bool dontBroadcast)
