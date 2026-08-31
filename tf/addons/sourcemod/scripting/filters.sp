@@ -145,6 +145,7 @@ ConVar g_hFiltersTeamChat = null;
 ConVar g_hRedlistEnabled = null;
 ConVar g_hPChat = null;
 ConVar g_hMuteDeafenEnabled = null;
+ConVar g_hMemomanEnabled = null;
 ConVar g_hTidyChatEnabled = null;
 ConVar g_hTidyChatVoice = null;
 ConVar g_hTidyChatDisconnect = null;
@@ -589,6 +590,16 @@ static void Filters_CreateConVars()
         true,
         1.0
     );
+    g_hMemomanEnabled = CreateConVar(
+        "sm_filters_memoman",
+        "0",
+        "Enable Memoman archived messages and the Memoman event.",
+        _,
+        true,
+        0.0,
+        true,
+        1.0
+    );
     g_hFiltersCaseSensitive = CreateConVar(
         "filters_case_sensitive",
         "1",
@@ -605,6 +616,7 @@ static void Filters_CreateConVars()
     HookConVarChange(g_sChatMode2, Filters_OnFilterModeChanged);
     HookConVarChange(g_hRedlistEnabled, Filters_OnRedlistChanged);
     HookConVarChange(g_hMuteDeafenEnabled, Filters_OnMuteDeafenChanged);
+    HookConVarChange(g_hMemomanEnabled, Filters_OnMemomanChanged);
 }
 
 static void Filters_RegisterCookies()
@@ -1266,12 +1278,18 @@ public Action Command_RandomParseeMessage(int client, int args)
 
 public Action Command_RandomMemomanMessage(int client, int args)
 {
+    if (!g_hMemomanEnabled.BoolValue)
+    {
+        return Plugin_Handled;
+    }
+
     return Filters_CommandRandomArchivedMessage(client, ArchivedSpeaker_Memoman);
 }
 
 static void Filters_ScheduleArchivedMessageTriggers(int client, const char[] message)
 {
-    if (StrContains(message, "memo", false) != -1)
+    if (g_hMemomanEnabled.BoolValue
+        && StrContains(message, "memo", false) != -1)
     {
         Filters_ScheduleArchivedMessageTrigger(client, ArchivedSpeaker_Memoman);
     }
@@ -1295,6 +1313,12 @@ public Action Timer_ArchivedMessageTrigger(Handle timer, DataPack pack)
     pack.Reset();
     int client = GetClientOfUserId(pack.ReadCell());
     ArchivedSpeaker speaker = pack.ReadCell();
+    if (speaker == ArchivedSpeaker_Memoman
+        && !g_hMemomanEnabled.BoolValue)
+    {
+        return Plugin_Stop;
+    }
+
     if (client > 0 && IsClientInGame(client))
     {
         Filters_CommandRandomArchivedMessage(client, speaker);
@@ -1391,6 +1415,12 @@ static void Filters_QueryRandomArchivedMessage(ArchivedSpeaker speaker)
 public void Filters_RandomArchivedMessageCallback(Database db, DBResultSet results, const char[] error, any data)
 {
     ArchivedSpeaker speaker = view_as<ArchivedSpeaker>(data);
+    if (speaker == ArchivedSpeaker_Memoman
+        && !g_hMemomanEnabled.BoolValue)
+    {
+        return;
+    }
+
     if (error[0] != '\0')
     {
         LogError("[Filters] Failed to load a random archived message: %s", error);
@@ -5111,6 +5141,15 @@ public void Filters_OnRedlistChanged(ConVar convar, const char[] oldValue, const
 public void Filters_OnMuteDeafenChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
     Filters_RefreshMuteDeafenState();
+}
+
+public void Filters_OnMemomanChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    if (StringToInt(oldValue) != 0 && StringToInt(newValue) == 0)
+    {
+        CPrintToChatAll(
+            "{blue}Memoman{default}: BRU H\n{gold}[Server]{default} Memoman has been disabled!");
+    }
 }
 
 public void OnClientPutInServer(int client)

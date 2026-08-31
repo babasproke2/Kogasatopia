@@ -51,6 +51,12 @@ bool g_MemomanEventBusy = false;
 int g_MemomanEventGeneration = 0;
 int g_MemomanEventBalance = 0;
 
+static bool MemomanEvent_IsEnabled()
+{
+    ConVar enabled = FindConVar("sm_filters_memoman");
+    return enabled != null && enabled.BoolValue;
+}
+
 void MemomanEvent_OnPluginStart()
 {
     g_MemomanEventQueue = new ArrayList(sizeof(MemomanRewardRequest));
@@ -277,6 +283,7 @@ bool MemomanEvent_QueueReward(
 {
     int source = MemomanEvent_FindSource(sourceId);
     if (source < 0
+        || !MemomanEvent_IsEnabled()
         || !g_MemomanEventReady
         || !AreBonusPointsReady(client)
         || g_Database == null)
@@ -325,6 +332,7 @@ public Action Timer_QueueMemomanEventReward(Handle timer, any data)
     int generation = pack.ReadCell();
 
     if (generation == g_MemomanEventGeneration
+        && MemomanEvent_IsEnabled()
         && g_MemomanEventReady
         && g_MemomanEventQueue != null)
     {
@@ -362,6 +370,15 @@ bool MemomanEvent_ReadRequestPack(any data, MemomanRewardRequest request)
 
 void MemomanEvent_ProcessNext()
 {
+    if (!MemomanEvent_IsEnabled())
+    {
+        if (g_MemomanEventQueue != null)
+        {
+            g_MemomanEventQueue.Clear();
+        }
+        return;
+    }
+
     if (g_MemomanEventBusy
         || !g_MemomanEventReady
         || g_Database == null
@@ -410,6 +427,11 @@ public void SQL_OnMemomanEventRecipientReady(Database db, DBResultSet results, c
     MemomanRewardRequest request;
     if (!MemomanEvent_ReadRequestPack(data, request))
     {
+        return;
+    }
+    if (!MemomanEvent_IsEnabled())
+    {
+        MemomanEvent_FinishRequest();
         return;
     }
     if (error[0] != '\0')
@@ -678,7 +700,9 @@ void MemomanEvent_FinishRequest()
 
 public Action Timer_MemomanEventAdvert(Handle timer, any data)
 {
-    if (g_MemomanEventReady && g_MemomanEventBalance > 0)
+    if (MemomanEvent_IsEnabled()
+        && g_MemomanEventReady
+        && g_MemomanEventBalance > 0)
     {
         CPrintToChatAll(
             "%s There's a {blue}Memoman Graverobbing Event{default}, use {gold}!memo{default} to learn more!",
@@ -690,6 +714,10 @@ public Action Timer_MemomanEventAdvert(Handle timer, any data)
 public Action Command_MemomanEvent(int client, int args)
 {
     if (!Client_IsHumanInGame(client))
+    {
+        return Plugin_Handled;
+    }
+    if (!MemomanEvent_IsEnabled())
     {
         return Plugin_Handled;
     }
@@ -720,7 +748,9 @@ public void SQL_OnMemomanEventCommandBalance(Database db, DBResultSet results, c
     int generation = pack.ReadCell();
     delete pack;
 
-    if (generation != g_MemomanEventGeneration || !Client_IsHumanInGame(client))
+    if (generation != g_MemomanEventGeneration
+        || !Client_IsHumanInGame(client)
+        || !MemomanEvent_IsEnabled())
     {
         return;
     }
