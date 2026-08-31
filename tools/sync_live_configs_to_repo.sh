@@ -51,8 +51,7 @@ targets=(
     "cfg/mapsdb/server_once.cfg|tf/cfg/mapsdb/server_once.cfg|scrub_rcon"
     "cfg/mapsdb/tc.cfg|tf/cfg/mapsdb/tc.cfg|scrub_rcon"
     "cfg/server_testing.cfg|tf/cfg/server_testing.cfg|scrub_rcon"
-    "cfg/sourcemod/amplifier.cfg|tf/cfg/sourcemod/amplifier.cfg|scrub_rcon"
-    "cfg/sourcemod/engipads.cfg|tf/cfg/sourcemod/engipads.cfg|scrub_rcon"
+    "cfg/sourcemod/new_engi_buildings.cfg|tf/cfg/sourcemod/new_engi_buildings.cfg|scrub_rcon"
     "cfg/sourcemod/nerfhalloweengimmicks.cfg|tf/cfg/sourcemod/nerfhalloweengimmicks.cfg|scrub_rcon"
 )
 

@@ -32,6 +32,7 @@ public void OnPluginStart()
 	// EngiPads owns the shared teleporter-mode cookie used by the Amplifier menu.
 	EngiPads_OnPluginStart();
 	Amplifier_OnPluginStart();
+	AutoExecConfig(true, "new_engi_buildings");
 
 	HookEvent("player_death", NewEngiBuildings_PlayerDeath, EventHookMode_Post);
 	HookEvent("player_builtobject", NewEngiBuildings_ObjectBuilt, EventHookMode_Post);

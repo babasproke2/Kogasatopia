@@ -166,7 +166,6 @@ cvarPads[BoostBlockAiming] = CreateConVar("pads_boost_block_aiming", "1", "Set t
 	cvarPads[BotsCanBuild] = CreateConVar("pads_bots_can_build", "0", "If enabled, Bots will build Boost Pads instead of Teleporters.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 	cvarPads[BlockEureka] = CreateConVar("pads_block_eureka", "1", "Toggle blocking Eureka Effect from teleporting to Pads that are Exits.", FCVAR_NOTIFY, true, 0.0, true, 1.0);
 
-	AutoExecConfig(true, "engipads");
 	LoadTranslations("engipads.phrases");
 	
 	//Cookies

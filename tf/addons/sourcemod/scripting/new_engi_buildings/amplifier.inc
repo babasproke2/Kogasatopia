@@ -238,8 +238,6 @@ void Amplifier_OnPluginStart()
 
 	g_hEngiPadsCookie = FindClientCookie("engipads_toggle");
 
-	AutoExecConfig(true, "amplifier");
-
 	// Cookies
 	g_hCookieDisp = RegClientCookie("amplifier_dispenser", "Dispenser Amplifier preference", CookieAccess_Public);
 	g_hCookieSentry = RegClientCookie("amplifier_sentry", "Sentry Amplifier preference", CookieAccess_Public);
