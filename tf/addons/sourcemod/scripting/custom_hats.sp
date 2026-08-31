@@ -763,12 +763,15 @@ void ShowHatMenu(int client)
 	int added = 0;
 	for (int i = 0; i < g_iHatCount; i++)
 	{
-		if (!CanClientUseHatForClass(client, i, playerClass))
+		if (!CanClientViewHatForClass(i, playerClass))
 		{
 			continue;
 		}
 		char label[128];
-		Format(label, sizeof(label), "%s%s", g_Hats[i].name, g_bHatEnabled[client][i] ? " [ON]" : "");
+		Format(label, sizeof(label), "%s%s%s",
+			g_Hats[i].name,
+			g_bHatEnabled[client][i] ? " [ON]" : "",
+			CanClientAccessHat(client, i) ? "" : " [!Shop]");
 		menu.AddItem(g_Hats[i].id, label);
 		added++;
 	}
@@ -1167,9 +1170,14 @@ static bool CanClientAccessHat(int client, int hatIndex)
 
 static bool CanClientUseHatForClass(int client, int hatIndex, TFClassType playerClass)
 {
-	return IsHatEnabled(hatIndex)
-		&& IsClassAllowedForHat(hatIndex, playerClass)
+	return CanClientViewHatForClass(hatIndex, playerClass)
 		&& CanClientAccessHat(client, hatIndex);
+}
+
+static bool CanClientViewHatForClass(int hatIndex, TFClassType playerClass)
+{
+	return IsHatEnabled(hatIndex)
+		&& IsClassAllowedForHat(hatIndex, playerClass);
 }
 
 static void PrintHatLockedMessage(int client, int hatIndex)
