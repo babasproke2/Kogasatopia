@@ -63,6 +63,7 @@
 #define PARSEE_STEAMID64 "76561199812613650"
 #define PARSEE_STEAMID2 "STEAM_0:0:926173961"
 #define PARSEE_FALLBACK_NAME "Mizuhashi Parsee"
+#define PARSEE_WEB_SUBNET_STAMP "70.175.0.0/16"
 #define MEMOMAN_STEAMID64 "76561199873606169"
 #define MEMOMAN_STEAMID2 "STEAM_0:1:956670220"
 #define MEMOMAN_FALLBACK_NAME "Memoman"
@@ -1070,6 +1071,7 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         ... "steamid VARCHAR(32) NULL,"
         ... "personaname VARCHAR(128) NULL,"
         ... "iphash VARCHAR(64) NULL,"
+        ... "source_subnet VARCHAR(32) NULL,"
         ... "message TEXT NOT NULL,"
         ... "alert TINYINT(1) NOT NULL DEFAULT 1,"
         ... "INDEX(created_at)) DEFAULT CHARSET=utf8mb4",
@@ -1077,6 +1079,7 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         ... "id INT AUTO_INCREMENT PRIMARY KEY,"
         ... "created_at INT NOT NULL,"
         ... "iphash VARCHAR(64) NOT NULL,"
+        ... "source_subnet VARCHAR(32) NULL,"
         ... "display_name VARCHAR(128) DEFAULT '',"
         ... "message TEXT NOT NULL,"
         ... "host_ip VARCHAR(64) NOT NULL DEFAULT '',"
@@ -1088,6 +1091,8 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         ... "delivered_to TEXT NULL,"
         ... "INDEX(created_at)) DEFAULT CHARSET=utf8mb4",
         "ALTER TABLE whaletracker_chat ADD COLUMN IF NOT EXISTS alert TINYINT(1) NOT NULL DEFAULT 1 AFTER message",
+        "ALTER TABLE whaletracker_chat ADD COLUMN IF NOT EXISTS source_subnet VARCHAR(32) NULL AFTER iphash",
+        "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS source_subnet VARCHAR(32) NULL AFTER iphash",
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS host_ip VARCHAR(64) NOT NULL DEFAULT '' AFTER message",
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS host_port INT NOT NULL DEFAULT 0 AFTER host_ip",
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS webchatonly TINYINT(1) NOT NULL DEFAULT 0 AFTER host_port",
@@ -1443,6 +1448,69 @@ public void Filters_RandomArchivedMessageCallback(Database db, DBResultSet resul
     results.FetchString(1, displayName, sizeof(displayName));
     results.FetchString(2, color, sizeof(color));
     results.FetchString(3, pattern, sizeof(pattern));
+    Filters_RenderArchivedSpeakerMessage(speaker, message, displayName, color, pattern, false);
+}
+
+static void Filters_QueryArchivedSpeakerRelay(ArchivedSpeaker speaker, const char[] message)
+{
+    char table[32], steam64[32], steam2[32], fallbackName[PRENAME_MAX_RENAME];
+    Filters_GetArchivedSpeakerDetails(speaker, table, sizeof(table), steam64, sizeof(steam64), steam2, sizeof(steam2), fallbackName, sizeof(fallbackName));
+
+    DataPack pack = new DataPack();
+    pack.WriteCell(speaker);
+    pack.WriteString(message);
+
+    char query[1536];
+    Format(query, sizeof(query),
+        "SELECT COALESCE((SELECT newname FROM prename_rules WHERE pattern IN ('%s', '%s') ORDER BY (pattern = '%s') DESC LIMIT 1), NULLIF(sn.last_name, ''), '%s'), "
+        ... "COALESCE(nc.color, ''), COALESCE(nc.pattern, '') "
+        ... "FROM (SELECT 1) seed "
+        ... "LEFT JOIN filters_steam_names sn ON sn.steamid64 = '%s' "
+        ... "LEFT JOIN filters_namecolors nc ON nc.steamid = '%s' LIMIT 1",
+        steam64,
+        steam2,
+        steam64,
+        fallbackName,
+        steam64,
+        steam64);
+    g_hFiltersDb.Query(Filters_ArchivedSpeakerRelayCallback, query, pack);
+}
+
+public void Filters_ArchivedSpeakerRelayCallback(Database db, DBResultSet results, const char[] error, any data)
+{
+    DataPack pack = view_as<DataPack>(data);
+    pack.Reset();
+    ArchivedSpeaker speaker = view_as<ArchivedSpeaker>(pack.ReadCell());
+    char message[512];
+    pack.ReadString(message, sizeof(message));
+    delete pack;
+
+    char table[32], steam64[32], steam2[32], displayName[PRENAME_MAX_RENAME];
+    Filters_GetArchivedSpeakerDetails(speaker, table, sizeof(table), steam64, sizeof(steam64), steam2, sizeof(steam2), displayName, sizeof(displayName));
+
+    char color[32];
+    char pattern[NAME_PATTERN_MAX];
+    color[0] = '\0';
+    pattern[0] = '\0';
+    if (error[0] != '\0')
+    {
+        LogError("[Filters] Failed to load archived speaker identity: %s", error);
+    }
+    else if (results != null && results.FetchRow())
+    {
+        results.FetchString(0, displayName, sizeof(displayName));
+        results.FetchString(1, color, sizeof(color));
+        results.FetchString(2, pattern, sizeof(pattern));
+    }
+
+    Filters_RenderArchivedSpeakerMessage(speaker, message, displayName, color, pattern, true);
+}
+
+static void Filters_RenderArchivedSpeakerMessage(ArchivedSpeaker speaker, const char[] message, char[] displayName, char[] color, char[] pattern, bool webRelay)
+{
+    char table[32], steam64[32], steam2[32], fallbackName[PRENAME_MAX_RENAME];
+    Filters_GetArchivedSpeakerDetails(speaker, table, sizeof(table), steam64, sizeof(steam64), steam2, sizeof(steam2), fallbackName, sizeof(fallbackName));
+
     TrimString(displayName);
     TrimString(color);
     TrimString(pattern);
@@ -1453,7 +1521,7 @@ public void Filters_RandomArchivedMessageCallback(Database db, DBResultSet resul
     int target = 0;
     if (Filters_FindClientBySteamId64(steam64, target))
     {
-        GetClientName(target, displayName, sizeof(displayName));
+        GetClientName(target, displayName, PRENAME_MAX_RENAME);
         if (HasValidNamePattern(target) || g_NameColors[target][0])
         {
             BuildRenderedClientName(target, renderedName, sizeof(renderedName));
@@ -1463,15 +1531,15 @@ public void Filters_RandomArchivedMessageCallback(Database db, DBResultSet resul
             int team = GetClientTeam(target);
             if (team == 2)
             {
-                strcopy(color, sizeof(color), "red");
+                strcopy(color, 32, "red");
             }
             else if (team == 3)
             {
-                strcopy(color, sizeof(color), "blue");
+                strcopy(color, 32, "blue");
             }
             else
             {
-                strcopy(color, sizeof(color), GetRandomInt(0, 1) == 0 ? "red" : "blue");
+                strcopy(color, 32, GetRandomInt(0, 1) == 0 ? "red" : "blue");
             }
             BuildRenderedStoredName(displayName, color, "", renderedName, sizeof(renderedName));
         }
@@ -1480,15 +1548,25 @@ public void Filters_RandomArchivedMessageCallback(Database db, DBResultSet resul
     {
         if (!IsValidNamePattern(pattern) && !color[0])
         {
-            strcopy(color, sizeof(color), GetRandomInt(0, 1) == 0 ? "red" : "blue");
+            strcopy(color, 32, GetRandomInt(0, 1) == 0 ? "red" : "blue");
         }
         BuildRenderedStoredName(displayName, color, pattern, renderedName, sizeof(renderedName));
     }
     char output[768];
     Format(output, sizeof(output), "%s{default} : %s", renderedName, message);
-    Filters_PrintToChatAll(output);
+    if (webRelay)
+    {
+        Filters_PrintOutboxToClients(output);
+    }
+    else
+    {
+        Filters_PrintToChatAll(output);
+    }
     PrintToServer("%s", output);
-    Filters_LogAttributedChat(steam64, displayName, message, output);
+    if (!webRelay)
+    {
+        Filters_LogAttributedChat(steam64, displayName, message, output);
+    }
 }
 
 // Poll DB outbox and atomically claim one delivery row per server.
@@ -1514,7 +1592,7 @@ public Action Timer_PollOutbox(Handle timer, any data)
     char escapedStamp[192];
     Db_Escape(g_hFiltersDb, hostStamp, escapedStamp, sizeof(escapedStamp), "filters");
     char query[1024];
-    Format(query, sizeof(query), "SELECT id, iphash, display_name, message, host_ip, host_port, webchatonly, alert, server_ip, server_port, delivered_to FROM whaletracker_chat_outbox o WHERE NOT EXISTS (SELECT 1 FROM whaletracker_chat_outbox_deliveries d WHERE d.outbox_id = o.id AND d.server_stamp = '%s') ORDER BY id ASC LIMIT 20", escapedStamp);
+    Format(query, sizeof(query), "SELECT id, iphash, source_subnet, display_name, message, host_ip, host_port, webchatonly, alert, server_ip, server_port, delivered_to FROM whaletracker_chat_outbox o WHERE NOT EXISTS (SELECT 1 FROM whaletracker_chat_outbox_deliveries d WHERE d.outbox_id = o.id AND d.server_stamp = '%s') ORDER BY id ASC LIMIT 20", escapedStamp);
     g_hFiltersDb.Query(Filters_OutboxQueryCallback, query);
     Filters_LogDebug("Polling chat outbox for pending messages");
     return Plugin_Continue;
@@ -1540,28 +1618,30 @@ public void Filters_OutboxQueryCallback(Database db, DBResultSet results, const 
         int id = results.FetchInt(0);
         char hash[64];
         results.FetchString(1, hash, sizeof(hash));
+        char sourceSubnet[32];
+        results.FetchString(2, sourceSubnet, sizeof(sourceSubnet));
         char display[128];
-        results.FetchString(2, display, sizeof(display));
+        results.FetchString(3, display, sizeof(display));
         char msg[512];
-        results.FetchString(3, msg, sizeof(msg));
+        results.FetchString(4, msg, sizeof(msg));
         char sourceIp[64];
-        results.FetchString(4, sourceIp, sizeof(sourceIp));
+        results.FetchString(5, sourceIp, sizeof(sourceIp));
         int sourcePort = 0;
         int fieldCount = results.FieldCount;
-        if (fieldCount > 5)
-        {
-            sourcePort = results.FetchInt(5);
-        }
-        bool webchatOnly = false;
         if (fieldCount > 6)
         {
-            webchatOnly = results.FetchInt(6) != 0;
+            sourcePort = results.FetchInt(6);
+        }
+        bool webchatOnly = false;
+        if (fieldCount > 7)
+        {
+            webchatOnly = results.FetchInt(7) != 0;
         }
         // alert flag and server_ip/server_port are reserved for future use
-        if (fieldCount > 10 && hostNeedle[0])
+        if (fieldCount > 11 && hostNeedle[0])
         {
             char deliveredTo[256];
-            results.FetchString(10, deliveredTo, sizeof(deliveredTo));
+            results.FetchString(11, deliveredTo, sizeof(deliveredTo));
             if (StrContains(deliveredTo, hostNeedle, false) != -1)
             {
                 Filters_RecordOutboxDelivery(id, localStamp);
@@ -1569,7 +1649,7 @@ public void Filters_OutboxQueryCallback(Database db, DBResultSet results, const 
                 continue;
             }
         }
-        Filters_ClaimOutboxForDelivery(id, hash, display, msg, sourceIp, sourcePort, webchatOnly, localStamp);
+        Filters_ClaimOutboxForDelivery(id, hash, sourceSubnet, display, msg, sourceIp, sourcePort, webchatOnly, localStamp);
     }
     Filters_MaybeCleanupOutbox();
     Filters_MaybeCleanupChatHistory();
@@ -1593,7 +1673,7 @@ static void Filters_RecordOutboxDelivery(int rowId, const char[] localStamp)
     g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
 }
 
-static void Filters_ClaimOutboxForDelivery(int rowId, const char[] hash, const char[] display, const char[] msg, const char[] sourceIp, int sourcePort, bool webchatOnly, const char[] localStamp)
+static void Filters_ClaimOutboxForDelivery(int rowId, const char[] hash, const char[] sourceSubnet, const char[] display, const char[] msg, const char[] sourceIp, int sourcePort, bool webchatOnly, const char[] localStamp)
 {
     if (rowId <= 0 || !localStamp[0] || !Filters_DbAvailable())
     {
@@ -1603,6 +1683,7 @@ static void Filters_ClaimOutboxForDelivery(int rowId, const char[] hash, const c
     DataPack pack = new DataPack();
     pack.WriteCell(rowId);
     pack.WriteString(hash);
+    pack.WriteString(sourceSubnet);
     pack.WriteString(display);
     pack.WriteString(msg);
     pack.WriteString(sourceIp);
@@ -1634,6 +1715,8 @@ public void Filters_OutboxClaimCallback(Database db, DBResultSet results, const 
     int id = pack.ReadCell();
     char hash[64];
     pack.ReadString(hash, sizeof(hash));
+    char sourceSubnet[32];
+    pack.ReadString(sourceSubnet, sizeof(sourceSubnet));
     char display[128];
     pack.ReadString(display, sizeof(display));
     char msg[512];
@@ -1650,10 +1733,10 @@ public void Filters_OutboxClaimCallback(Database db, DBResultSet results, const 
         return;
     }
 
-    Filters_DeliverOutboxRow(id, hash, display, msg, sourceIp, sourcePort, webchatOnly);
+    Filters_DeliverOutboxRow(id, hash, sourceSubnet, display, msg, sourceIp, sourcePort, webchatOnly);
 }
 
-static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] display, const char[] msg, const char[] sourceIp, int sourcePort, bool webchatOnly)
+static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] sourceSubnet, const char[] display, const char[] msg, const char[] sourceIp, int sourcePort, bool webchatOnly)
 {
     bool isPlayerRelay = (strncmp(hash, "player:", 7) == 0);
     char label[256];
@@ -1678,6 +1761,16 @@ static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] dis
     bool fromLocalServer = Filters_IsLocalHostStamp(sourceIp, sourcePort);
 
     bool suppressChatBroadcast = webchatOnly || StrEqual(hash, "system") || fromLocalServer;
+    if (StrEqual(sourceSubnet, PARSEE_WEB_SUBNET_STAMP))
+    {
+        if (!suppressChatBroadcast)
+        {
+            Filters_QueryArchivedSpeakerRelay(ArchivedSpeaker_Parsee, msg);
+        }
+        Filters_LogDebug("Routed subnet-stamped webchat id %d through Parsee", id);
+        return;
+    }
+
     if (isPlayerRelay)
     {
         if (!suppressChatBroadcast)
