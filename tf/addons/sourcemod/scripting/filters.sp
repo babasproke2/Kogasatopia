@@ -138,6 +138,7 @@ char g_NamePatterns[MAXPLAYERS + 1][NAME_PATTERN_MAX];
 Handle g_sEnabled = INVALID_HANDLE;
 Handle g_sChatMode2 = INVALID_HANDLE;
 ConVar g_hChatDebug = null;
+ConVar g_hWebchatParsee = null;
 ConVar g_hFiltersCaseSensitive = null;
 ConVar g_hFiltersEnabled = null;
 ConVar g_hBlacklistMinLen = null;
@@ -575,6 +576,16 @@ static void Filters_CreateConVars()
     g_sChatMode2 = CreateConVar("filtermode", "0", "0=off, 1=quarantine with mutual whitelist/blacklist visibility, 2=quarantine with whitelist monitoring only");
     g_hChatDebug = CreateConVar("filters_chat_debug", "0", "Enable verbose debug logging for chat relay");
     g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Show frontend chat to all clients; blacklist level 3 clients still receive it when disabled");
+    g_hWebchatParsee = CreateConVar(
+        "sm_filters_webchat_parsee",
+        "0",
+        "If 1, render all webchat messages as Parsee in-game without changing frontend chat.",
+        _,
+        true,
+        0.0,
+        true,
+        1.0
+    );
     g_hFiltersEnabled = CreateConVar("filters", "0", "If 0, blacklist word matching is disabled.");
     g_hRedlistEnabled = CreateConVar("redlist", "0", "Enable/Disable redlist features.", _, true, 0.0, true, 1.0);
     g_hBlacklistMinLen = CreateConVar("filters_blacklist_minlen", "8", "Minimum message length to check blacklist words.");
@@ -1761,13 +1772,17 @@ static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] sou
     bool fromLocalServer = Filters_IsLocalHostStamp(sourceIp, sourcePort);
 
     bool suppressChatBroadcast = webchatOnly || StrEqual(hash, "system") || fromLocalServer;
-    if (StrEqual(sourceSubnet, PARSEE_WEB_SUBNET_STAMP))
+    bool isWebchatRelay = !isPlayerRelay && !StrEqual(hash, "system") && display[0];
+    bool forceParseeRelay = g_hWebchatParsee != null
+        && g_hWebchatParsee.BoolValue
+        && isWebchatRelay;
+    if (forceParseeRelay || StrEqual(sourceSubnet, PARSEE_WEB_SUBNET_STAMP))
     {
         if (!suppressChatBroadcast)
         {
             Filters_QueryArchivedSpeakerRelay(ArchivedSpeaker_Parsee, msg);
         }
-        Filters_LogDebug("Routed subnet-stamped webchat id %d through Parsee", id);
+        Filters_LogDebug("Routed webchat id %d through Parsee (forced=%d, subnet=%s)", id, forceParseeRelay ? 1 : 0, sourceSubnet);
         return;
     }
 
