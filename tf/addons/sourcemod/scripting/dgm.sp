@@ -6,6 +6,7 @@
 #include <sdktools>
 #include <sdkhooks>
 #include <sdktools_gamerules>
+#include <dhooks>
 
 #include <tf2>
 #include <tf2_stocks>
@@ -45,6 +46,7 @@ ConVar g_cvRedTime;
 ConVar g_cvBluTime;
 ConVar g_cvAutoAddTime;
 ConVar g_cvSetupUberMultiplier;
+ConVar g_cvSetupConstructionMultiplier;
 ConVar g_cvNoEngineerSetupReduction;
 ConVar g_cvTimeOverride;
 ConVar g_cvRespawnTime;
@@ -72,6 +74,7 @@ Handle g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
 Handle g_hRespawnTimers[MAXPLAYERS + 1];
 Handle g_hRespawnReminderTimers[MAXPLAYERS + 1];
 bool g_bSetupActive = false;
+bool g_bSetupConstructionMultiplierActive = false;
 bool g_bGameRulesReady = false;
 bool g_bNoEngineerSetupReduced = false;
 bool g_bSetupUberUnavailableLogged = false;
@@ -85,6 +88,7 @@ int g_iCaptureIntervalSeconds[DGM_MAX_CAPTURE_INTERVALS];
 int g_iCaptureRoundElapsedSeconds[DGM_MAX_CAPTURE_INTERVALS];
 int g_iCaptureTeam[DGM_MAX_CAPTURE_INTERVALS];
 int g_iCapturePoint[DGM_MAX_CAPTURE_INTERVALS];
+DynamicDetour g_hConstructionMultiplierDetour = null;
 
 public Plugin myinfo = {
     name = "Gamemode Detector",
@@ -1558,6 +1562,10 @@ void DGM_SetSetupActive(bool setupActive)
         g_iSetupFalseChecks = 0;
     }
 
+    // Waiting-for-players shares DGM's setup handling, but this engine override
+    // applies only during an actual setup round.
+    g_bSetupConstructionMultiplierActive = setupActive && DGM_IsRealSetupActive();
+
     if (g_bSetupActive == setupActive)
     {
         return;
@@ -1607,6 +1615,54 @@ void DGM_SetSetupActive(bool setupActive)
             g_hSetupStateTimer = INVALID_HANDLE;
         }
     }
+}
+
+void DGM_InitializeConstructionMultiplierDetour()
+{
+    GameData gameData = new GameData("dgm");
+    if (gameData == null)
+    {
+        SetFailState("Failed to load dgm gamedata.");
+    }
+
+    g_hConstructionMultiplierDetour = DynamicDetour.FromConf(
+        gameData,
+        "CBaseObject::GetConstructionMultiplier"
+    );
+    delete gameData;
+
+    if (g_hConstructionMultiplierDetour == null)
+    {
+        SetFailState("Failed to create CBaseObject::GetConstructionMultiplier detour.");
+    }
+
+    if (!g_hConstructionMultiplierDetour.Enable(
+        Hook_Pre,
+        DGM_GetConstructionMultiplierPre
+    ))
+    {
+        SetFailState("Failed to enable CBaseObject::GetConstructionMultiplier detour.");
+    }
+}
+
+public MRESReturn DGM_GetConstructionMultiplierPre(
+    int building,
+    DHookReturn hReturn)
+{
+    if (!g_bSetupConstructionMultiplierActive
+        || g_cvSetupConstructionMultiplier == null)
+    {
+        return MRES_Ignored;
+    }
+
+    float multiplier = g_cvSetupConstructionMultiplier.FloatValue;
+    if (multiplier == 0.0 || multiplier == 1.0)
+    {
+        return MRES_Ignored;
+    }
+
+    hReturn.Value = multiplier;
+    return MRES_Supercede;
 }
 
 void DGM_UpdateSetupState()
@@ -1875,6 +1931,16 @@ public void OnPluginStart()
     // Auto add time to king of the hill timers?
     g_cvAutoAddTime = CreateConVar("sm_autoaddtime", "300", "Automatically extend koth times? > 0 for the time in seconds");
     g_cvSetupUberMultiplier = CreateConVar("sm_tf2_setup_uber_multiplier", "12.0", "Setup-time Medigun UberCharge multiplier. Stock TF2 is 3.0.", _, true, 0.0, true, 64.0);
+    g_cvSetupConstructionMultiplier = CreateConVar(
+        "dgm_setup_construction_multiplier",
+        "5.0",
+        "Construction multiplier during setup. 0.0 or 1.0 disables the override.",
+        _,
+        true,
+        0.0,
+        true,
+        64.0
+    );
     // Always respawn red team on control point capture in asymmetrical gamemodes?
     g_cvAsymCapRespawn = CreateConVar("respawn_red_on_cap", "0", "Override respawn times", _, true, 0.0, true, 1.0);
     // Change the setup time to this in asymmetrical gamemodes
@@ -1911,11 +1977,23 @@ public void OnPluginStart()
     RegConsoleCmd("sm_cpleader", Command_ObjectiveLeader, "Show which team leads by control-point ownership");
     RegConsoleCmd("sm_manual", Command_CvarHelp, "Displays information about plugin ConVars.");
 
+    DGM_InitializeConstructionMultiplierDetour();
     DGM_RefreshRespawnVisualState();
 }
 
 public void OnPluginEnd()
 {
+    g_bSetupConstructionMultiplierActive = false;
+
+    if (g_hConstructionMultiplierDetour != null)
+    {
+        g_hConstructionMultiplierDetour.Disable(
+            Hook_Pre,
+            DGM_GetConstructionMultiplierPre
+        );
+        delete g_hConstructionMultiplierDetour;
+    }
+
     DGM_ClearAllRespawnTimers();
     DGM_ClearAllRespawnReminderTimers();
 
@@ -1939,6 +2017,7 @@ public void OnMapStart()
     DGM_ResetCaptureIntervalStats(0);
 
     g_bSetupActive = false;
+    g_bSetupConstructionMultiplierActive = false;
     g_bNoEngineerSetupReduced = false;
     g_bRespawnAdminTouchedThisMap = false;
     g_bSetupTeamRatioForwardFired = false;
@@ -1950,6 +2029,7 @@ public void OnMapStart()
 public void OnMapEnd()
 {
     g_bGameRulesReady = false;
+    g_bSetupConstructionMultiplierActive = false;
     // NO_MAPCHANGE timers are closed by SourceMod during transitions; clear local handles.
     g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
     DGM_ClearSetupStartTimer();
@@ -2221,6 +2301,7 @@ public Action Command_CvarHelp(int client, int args)
         "respawn_redtime: float - Respawn time (seconds) specifically for Red team (beta)",
         "respawn_blutime: float - Respawn time (seconds) specifically for Blu team (beta)",
         "sm_autoaddtime: int - Seconds to add to KOTH timers when enabled (0 disables)",
+        "dgm_setup_construction_multiplier: float - Construction multiplier during setup (0.0 or 1.0 disables)",
         "respawn_red_on_cap: 0/1 - In asymmetrical modes, when 1, respawns Red instantly on cap",
         "sm_setuptime: int - Forces round setup time to this value (0 = disabled)",
         "sm_gamemode: string - Read-only; stores the detected gamemode name",
