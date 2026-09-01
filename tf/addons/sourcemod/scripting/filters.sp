@@ -14,7 +14,6 @@
 #undef REQUIRE_PLUGIN
 #include <adminsdb_api>
 #include <hugs_api>
-#include <mutecheck_api>
 #include <points_store_api>
 #include <tags_api>
 #include <whaletracker_api>
@@ -104,6 +103,8 @@ bool g_AutoRedlistGotRapes[MAXPLAYERS + 1];
 bool g_TidyChatSuppressNextTeamAlert[MAXPLAYERS + 1];
 float g_TidyChatSuppressTeamAlertsUntil = 0.0;
 
+#include "filters/mutecheck.inc"
+
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 {
     RegPluginLibrary("filters");
@@ -114,10 +115,11 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
     CreateNative("Filters_GetLastRecordedSteamName", Native_Filters_GetLastRecordedSteamName);
     CreateNative("FilterAlerts_MarkAutobalance", Native_FilterAlerts_MarkAutobalance);
     CreateNative("FilterAlerts_SuppressTeamAlertWindow", Native_FilterAlerts_SuppressTeamAlertWindow);
+    RegPluginLibrary("mutecheck");
+    CreateNative("MuteCheck_GetMutedClientCount", Native_MuteCheck_GetMutedClientCount);
     MarkNativeAsOptional("AdminsDB_GetClientWhitelistLevel");
     MarkNativeAsOptional("Hugs_GetRapesGiven");
     MarkNativeAsOptional("Hugs_AreStatsLoaded");
-    MarkNativeAsOptional("MuteCheck_GetMutedClientCount");
     MarkNativeAsOptional("PointsStore_HasPurchase");
     MarkNativeAsOptional("WhaleTracker_GetCumulativeKills");
     MarkNativeAsOptional("WhaleTracker_AreStatsLoaded");
@@ -520,7 +522,7 @@ static void Filters_GetHostStamp(char[] buffer, int maxlen)
 public Plugin myinfo = 
 {
     name = "filters",
-    author = "Hombre",
+    author = "Hombre, Dr. McKay",
     description = "Chat Management + Filtered/Blacklisted Words + Web Communication Frontend",
     version = "1.0.0",
     url = "https://kogasa.tf"
@@ -537,6 +539,7 @@ public void OnPluginStart()
     Filters_CreateConVars();
     Filters_RegisterCookies();
     Filters_RegisterCommands();
+    MuteCheck_Initialize();
     TidyChat_Initialize();
 
     RefreshHostAddress();
@@ -874,26 +877,7 @@ static void Filters_StopOutboxTimer()
 
 static bool Filters_CanCheckMutedClients()
 {
-    return Filters_MuteDeafenEnabled()
-        && GetFeatureStatus(FeatureType_Native, "MuteCheck_GetMutedClientCount") == FeatureStatus_Available;
-}
-
-static void Filters_ClearMuteDeafenState()
-{
-    bool changed = false;
-    for (int client = 1; client <= MaxClients; client++)
-    {
-        if (g_MuteDeafened[client])
-        {
-            g_MuteDeafened[client] = false;
-            changed = true;
-        }
-    }
-
-    if (changed)
-    {
-        Filters_UpdateVoiceOverrides();
-    }
+    return Filters_MuteDeafenEnabled();
 }
 
 static void Filters_RefreshMuteDeafenState()
@@ -905,7 +889,7 @@ static void Filters_RefreshMuteDeafenState()
     {
         bool shouldDeafen = canCheck
             && Filters_IsRealClientInGame(client)
-            && MuteCheck_GetMutedClientCount(client) > 0;
+            && MuteCheck_CountMutedClients(client) > 0;
 
         if (g_MuteDeafened[client] != shouldDeafen)
         {
@@ -957,12 +941,6 @@ public void OnConfigsExecuted()
 
 public void OnLibraryAdded(const char[] name)
 {
-    if (StrEqual(name, "mutecheck", false))
-    {
-        Filters_RefreshMuteDeafenState();
-        return;
-    }
-
     if (!StrEqual(name, "hugs", false) && !StrEqual(name, "whaletracker", false))
     {
         return;
@@ -979,12 +957,6 @@ public void OnLibraryAdded(const char[] name)
 
 public void OnLibraryRemoved(const char[] name)
 {
-    if (StrEqual(name, "mutecheck", false))
-    {
-        Filters_ClearMuteDeafenState();
-        return;
-    }
-
     if (!StrEqual(name, "hugs", false) && !StrEqual(name, "whaletracker", false))
     {
         return;
