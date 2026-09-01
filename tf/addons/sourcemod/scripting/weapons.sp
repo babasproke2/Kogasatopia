@@ -61,7 +61,7 @@
 
 public Plugin myinfo = {
 	name = "Weapons",
-	author = "nosoop, Hombre, tsuza, Mir, Huutti, Utsuho",
+	author = "nosoop, Hombre, tsuza, Mir, Huutti, Utsuho, Sappykun",
 	description = "Unified custom weapons, weapon behavior, models, sounds, and loadouts.",
 	version = "7.1" ... VERSION_SUFFIX,
 	url = "https://kogasa.tf"
@@ -127,6 +127,7 @@ Handle g_hWeaponsStatsDbReconnectTimer = null;
 Handle g_hOnItemRuntimeStateReady = null;
 
 #include "weapons/custom_attributes.sp"
+#include "weapons/whitelist.sp"
 #include "weapons/item_config.sp"
 #include "weapons/item_entity.sp"
 #include "weapons/item_export.sp"
@@ -167,6 +168,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int maxlen) {
 
 public void OnPluginStart() {
 	WeaponsCustomAttributes_OnPluginStart();
+	WeaponsWhitelist_OnPluginStart();
 	LoadTranslations("weapons.phrases");
 	LoadTranslations("common.phrases");
 	LoadTranslations("core.phrases");
@@ -177,6 +179,7 @@ public void OnPluginStart() {
 	}
 	
 	Handle dtGetLoadoutItem = DHookCreateFromConf(hGameConf, "CTFPlayer::GetLoadoutItem()");
+	DHookEnableDetour(dtGetLoadoutItem, false, OnGetLoadoutItemPre);
 	DHookEnableDetour(dtGetLoadoutItem, true, OnGetLoadoutItemPost);
 	
 	Handle dtManageRegularWeapons = DHookCreateFromConf(hGameConf, "CTFPlayer::ManageRegularWeapons()");
@@ -414,6 +417,7 @@ public void OnClientPutInServer(int client) {
 }
 
 public void OnClientDisconnect(int client) {
+	WeaponsWhitelist_OnClientDisconnect(client);
 	WeaponsSound_ResetClient(client);
 	WeaponsModels_OnClientDisconnect(client);
 	WeaponsGameplay_OnClientDisconnect(client);
@@ -762,13 +766,22 @@ void ApplyClientCustomLoadout(int client) {
  * The game expects there to be a valid CEconItemView pointer in certain areas of the code, so
  * avoid returning a nullptr.
  */
-MRESReturn OnGetLoadoutItemPost(int client, Handle hReturn, Handle hParams) {
+MRESReturn OnGetLoadoutItemPre(int client, DHookReturn hReturn, DHookParam hParams) {
+    return WeaponsWhitelist_OnGetLoadoutItemPre(client, hReturn, hParams);
+}
+
+MRESReturn OnGetLoadoutItemPost(int client, DHookReturn hReturn, DHookParam hParams) {
+    MRESReturn whitelistResult = WeaponsWhitelist_ApplyLoadoutRule(client, hReturn, hParams);
+    if (whitelistResult == MRES_Supercede) {
+        return whitelistResult;
+    }
+
 	if (!sm_weapons_enable_loadout.BoolValue) {
 		return MRES_Ignored;
 	}
 	
-	int playerClass = DHookGetParam(hParams, 1);
-	int loadoutSlot = DHookGetParam(hParams, 2);
+	int playerClass = hParams.Get(1);
+	int loadoutSlot = hParams.Get(2);
 	
 	if (loadoutSlot < 0 || loadoutSlot >= NUM_ITEMS) {
 		return MRES_Ignored;
@@ -818,7 +831,7 @@ MRESReturn OnGetLoadoutItemPost(int client, Handle hReturn, Handle hParams) {
 	Address pStoredItemView = GetEntityAddress(storedItem)
 			+ view_as<Address>(GetEntSendPropOffs(storedItem, "m_Item", true));
 	
-	DHookSetReturn(hReturn, pStoredItemView);
+	hReturn.Value = pStoredItemView;
 	return MRES_Supercede;
 }
 
