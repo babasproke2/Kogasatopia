@@ -58,6 +58,7 @@
 #define GRADIENT_NAME_ACCESS_ITEM "gradient_name_access"
 #define TRIPLE_GRADIENT_ACCESS_ITEM "triple_gradient_upgrade"
 #define CHAT_PREFIX_MAXLEN 128
+#define FILTERS_CROSS_SERVER_TAG_MAX 64
 #define FILTERS_CHAT_DATABASE_IMMUNE_STEAMID64 "76561198081148684"
 #define PARSEE_STEAMID64 "76561199812613650"
 #define PARSEE_STEAMID2 "STEAM_0:0:926173961"
@@ -141,6 +142,7 @@ Handle g_sEnabled = INVALID_HANDLE;
 Handle g_sChatMode2 = INVALID_HANDLE;
 ConVar g_hChatDebug = null;
 ConVar g_hWebchatParsee = null;
+ConVar g_hCrossServerTag = null;
 ConVar g_hFiltersCaseSensitive = null;
 ConVar g_hFiltersEnabled = null;
 ConVar g_hBlacklistMinLen = null;
@@ -579,6 +581,11 @@ static void Filters_CreateConVars()
     g_sChatMode2 = CreateConVar("filtermode", "0", "0=off, 1=quarantine with mutual whitelist/blacklist visibility, 2=quarantine with whitelist monitoring only");
     g_hChatDebug = CreateConVar("filters_chat_debug", "0", "Enable verbose debug logging for chat relay");
     g_hChatFrontend = CreateConVar("filters_chat_frontend", "1", "Show frontend chat to all clients; blacklist level 3 clients still receive it when disabled");
+    g_hCrossServerTag = CreateConVar(
+        "sm_filters_cross_sv_tag",
+        "none",
+        "Label stamped on database chat and shown when relayed to another server; none disables it."
+    );
     g_hWebchatParsee = CreateConVar(
         "sm_filters_webchat_parsee",
         "0",
@@ -1055,6 +1062,7 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         ... "personaname VARCHAR(128) NULL,"
         ... "iphash VARCHAR(64) NULL,"
         ... "source_subnet VARCHAR(32) NULL,"
+        ... "server_tag VARCHAR(64) NOT NULL DEFAULT '',"
         ... "message TEXT NOT NULL,"
         ... "alert TINYINT(1) NOT NULL DEFAULT 1,"
         ... "INDEX(created_at)) DEFAULT CHARSET=utf8mb4",
@@ -1063,6 +1071,7 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         ... "created_at INT NOT NULL,"
         ... "iphash VARCHAR(64) NOT NULL,"
         ... "source_subnet VARCHAR(32) NULL,"
+        ... "server_tag VARCHAR(64) NOT NULL DEFAULT '',"
         ... "display_name VARCHAR(128) DEFAULT '',"
         ... "message TEXT NOT NULL,"
         ... "host_ip VARCHAR(64) NOT NULL DEFAULT '',"
@@ -1075,7 +1084,9 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         ... "INDEX(created_at)) DEFAULT CHARSET=utf8mb4",
         "ALTER TABLE whaletracker_chat ADD COLUMN IF NOT EXISTS alert TINYINT(1) NOT NULL DEFAULT 1 AFTER message",
         "ALTER TABLE whaletracker_chat ADD COLUMN IF NOT EXISTS source_subnet VARCHAR(32) NULL AFTER iphash",
+        "ALTER TABLE whaletracker_chat ADD COLUMN IF NOT EXISTS server_tag VARCHAR(64) NOT NULL DEFAULT '' AFTER source_subnet",
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS source_subnet VARCHAR(32) NULL AFTER iphash",
+        "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS server_tag VARCHAR(64) NOT NULL DEFAULT '' AFTER source_subnet",
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS host_ip VARCHAR(64) NOT NULL DEFAULT '' AFTER message",
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS host_port INT NOT NULL DEFAULT 0 AFTER host_ip",
         "ALTER TABLE whaletracker_chat_outbox ADD COLUMN IF NOT EXISTS webchatonly TINYINT(1) NOT NULL DEFAULT 0 AFTER host_port",
@@ -1575,7 +1586,7 @@ public Action Timer_PollOutbox(Handle timer, any data)
     char escapedStamp[192];
     Db_Escape(g_hFiltersDb, hostStamp, escapedStamp, sizeof(escapedStamp), "filters");
     char query[1024];
-    Format(query, sizeof(query), "SELECT id, iphash, source_subnet, display_name, message, host_ip, host_port, webchatonly, alert, server_ip, server_port, delivered_to FROM whaletracker_chat_outbox o WHERE NOT EXISTS (SELECT 1 FROM whaletracker_chat_outbox_deliveries d WHERE d.outbox_id = o.id AND d.server_stamp = '%s') ORDER BY id ASC LIMIT 20", escapedStamp);
+    Format(query, sizeof(query), "SELECT id, iphash, source_subnet, display_name, message, host_ip, host_port, webchatonly, alert, server_ip, server_port, delivered_to, server_tag FROM whaletracker_chat_outbox o WHERE NOT EXISTS (SELECT 1 FROM whaletracker_chat_outbox_deliveries d WHERE d.outbox_id = o.id AND d.server_stamp = '%s') ORDER BY id ASC LIMIT 20", escapedStamp);
     g_hFiltersDb.Query(Filters_OutboxQueryCallback, query);
     Filters_LogDebug("Polling chat outbox for pending messages");
     return Plugin_Continue;
@@ -1620,6 +1631,12 @@ public void Filters_OutboxQueryCallback(Database db, DBResultSet results, const 
         {
             webchatOnly = results.FetchInt(7) != 0;
         }
+        char sourceTag[FILTERS_CROSS_SERVER_TAG_MAX];
+        sourceTag[0] = '\0';
+        if (fieldCount > 12)
+        {
+            results.FetchString(12, sourceTag, sizeof(sourceTag));
+        }
         // alert flag and server_ip/server_port are reserved for future use
         if (fieldCount > 11 && hostNeedle[0])
         {
@@ -1632,7 +1649,7 @@ public void Filters_OutboxQueryCallback(Database db, DBResultSet results, const 
                 continue;
             }
         }
-        Filters_ClaimOutboxForDelivery(id, hash, sourceSubnet, display, msg, sourceIp, sourcePort, webchatOnly, localStamp);
+        Filters_ClaimOutboxForDelivery(id, hash, sourceSubnet, sourceTag, display, msg, sourceIp, sourcePort, webchatOnly, localStamp);
     }
     Filters_MaybeCleanupOutbox();
     Filters_MaybeCleanupChatHistory();
@@ -1656,7 +1673,7 @@ static void Filters_RecordOutboxDelivery(int rowId, const char[] localStamp)
     g_hFiltersDb.Query(Filters_SimpleSqlCallback, query);
 }
 
-static void Filters_ClaimOutboxForDelivery(int rowId, const char[] hash, const char[] sourceSubnet, const char[] display, const char[] msg, const char[] sourceIp, int sourcePort, bool webchatOnly, const char[] localStamp)
+static void Filters_ClaimOutboxForDelivery(int rowId, const char[] hash, const char[] sourceSubnet, const char[] sourceTag, const char[] display, const char[] msg, const char[] sourceIp, int sourcePort, bool webchatOnly, const char[] localStamp)
 {
     if (rowId <= 0 || !localStamp[0] || !Filters_DbAvailable())
     {
@@ -1667,6 +1684,7 @@ static void Filters_ClaimOutboxForDelivery(int rowId, const char[] hash, const c
     pack.WriteCell(rowId);
     pack.WriteString(hash);
     pack.WriteString(sourceSubnet);
+    pack.WriteString(sourceTag);
     pack.WriteString(display);
     pack.WriteString(msg);
     pack.WriteString(sourceIp);
@@ -1700,6 +1718,8 @@ public void Filters_OutboxClaimCallback(Database db, DBResultSet results, const 
     pack.ReadString(hash, sizeof(hash));
     char sourceSubnet[32];
     pack.ReadString(sourceSubnet, sizeof(sourceSubnet));
+    char sourceTag[FILTERS_CROSS_SERVER_TAG_MAX];
+    pack.ReadString(sourceTag, sizeof(sourceTag));
     char display[128];
     pack.ReadString(display, sizeof(display));
     char msg[512];
@@ -1716,10 +1736,10 @@ public void Filters_OutboxClaimCallback(Database db, DBResultSet results, const 
         return;
     }
 
-    Filters_DeliverOutboxRow(id, hash, sourceSubnet, display, msg, sourceIp, sourcePort, webchatOnly);
+    Filters_DeliverOutboxRow(id, hash, sourceSubnet, sourceTag, display, msg, sourceIp, sourcePort, webchatOnly);
 }
 
-static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] sourceSubnet, const char[] display, const char[] msg, const char[] sourceIp, int sourcePort, bool webchatOnly)
+static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] sourceSubnet, const char[] sourceTag, const char[] display, const char[] msg, const char[] sourceIp, int sourcePort, bool webchatOnly)
 {
     bool isPlayerRelay = (strncmp(hash, "player:", 7) == 0);
     char label[256];
@@ -1742,6 +1762,12 @@ static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] sou
         }
     }
     bool fromLocalServer = Filters_IsLocalHostStamp(sourceIp, sourcePort);
+    char sourcePrefix[FILTERS_CROSS_SERVER_TAG_MAX + 32];
+    sourcePrefix[0] = '\0';
+    if (!fromLocalServer && sourceTag[0])
+    {
+        Format(sourcePrefix, sizeof(sourcePrefix), "{gold}[%s]{default} ", sourceTag);
+    }
 
     bool suppressChatBroadcast = webchatOnly || StrEqual(hash, "system") || fromLocalServer;
     bool isWebchatRelay = !isPlayerRelay && !StrEqual(hash, "system") && display[0];
@@ -1760,19 +1786,21 @@ static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] sou
 
     if (isPlayerRelay)
     {
+        char out[768];
+        Format(out, sizeof(out), "%s%s", sourcePrefix, msg);
         if (!suppressChatBroadcast)
         {
-            Filters_PrintOutboxToClients(msg);
+            Filters_PrintOutboxToClients(out);
         }
         if (!fromLocalServer && !webchatOnly)
         {
-            PrintToServer("%s", msg);
+            PrintToServer("%s", out);
         }
     }
     else
     {
-        char out[640];
-        Format(out, sizeof(out), "%s %s", label, msg);
+        char out[768];
+        Format(out, sizeof(out), "%s%s %s", sourcePrefix, label, msg);
         if (!suppressChatBroadcast)
         {
             Filters_PrintOutboxToClients(out);
@@ -1790,7 +1818,7 @@ static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] sou
     {
         Filters_LogDebug("Suppressed relay of webchat-only chat id %d", id);
     }
-    Filters_LogDebug("Relayed chat id %d hash %s name %s msg %s (from %s:%d)", id, hash, display, msg, sourceIp, sourcePort);
+    Filters_LogDebug("Relayed chat id %d hash %s tag %s name %s msg %s (from %s:%d)", id, hash, sourceTag, display, msg, sourceIp, sourcePort);
 }
 
 static void Filters_PrintOutboxToClients(const char[] message)
@@ -1870,6 +1898,29 @@ static void Filters_SanitizeDbMessage(const char[] message, char[] buffer, int m
     ReplaceString(buffer, maxlen, "{teamcolor}", "{grey}", false);
 }
 
+static void Filters_GetCrossServerTag(char[] buffer, int maxlen)
+{
+    buffer[0] = '\0';
+    if (g_hCrossServerTag == null)
+    {
+        return;
+    }
+
+    g_hCrossServerTag.GetString(buffer, maxlen);
+    TrimString(buffer);
+    if (StrEqual(buffer, "none", false))
+    {
+        buffer[0] = '\0';
+    }
+}
+
+static void Filters_GetEscapedCrossServerTag(char[] buffer, int maxlen)
+{
+    char tag[FILTERS_CROSS_SERVER_TAG_MAX];
+    Filters_GetCrossServerTag(tag, sizeof(tag));
+    Db_Escape(g_hFiltersDb, tag, buffer, maxlen, "filters");
+}
+
 static bool Filters_IsChatDatabaseImmune(int client)
 {
     char steamId64[KOGASA_STEAMID_MAX];
@@ -1895,6 +1946,8 @@ static void Filters_QueueOutboxMessage(int timestamp, const char[] iphash, const
     Db_Escape(g_hFiltersDb, iphash, escapedHash, sizeof(escapedHash), "filters");
     char escapedDisplay[256];
     Db_Escape(g_hFiltersDb, displayName, escapedDisplay, sizeof(escapedDisplay), "filters");
+    char escapedServerTag[FILTERS_CROSS_SERVER_TAG_MAX * 2];
+    Filters_GetEscapedCrossServerTag(escapedServerTag, sizeof(escapedServerTag));
     int webFlag = webchatOnly ? 1 : 0;
     int alert = alertFlag ? 1 : 0;
 
@@ -1907,9 +1960,10 @@ static void Filters_QueueOutboxMessage(int timestamp, const char[] iphash, const
         char escapedIp[128];
         Db_Escape(g_hFiltersDb, localIp, escapedIp, sizeof(escapedIp), "filters");
         Format(query, sizeof(query),
-            "INSERT INTO whaletracker_chat_outbox (created_at, iphash, display_name, message, host_ip, host_port, webchatonly, alert) VALUES (%d, '%s', '%s', '%s', '%s', %d, %d, %d)",
+            "INSERT INTO whaletracker_chat_outbox (created_at, iphash, server_tag, display_name, message, host_ip, host_port, webchatonly, alert) VALUES (%d, '%s', '%s', '%s', '%s', '%s', %d, %d, %d)",
             timestamp,
             escapedHash,
+            escapedServerTag,
             escapedDisplay,
             escapedMsg,
             escapedIp,
@@ -1920,9 +1974,10 @@ static void Filters_QueueOutboxMessage(int timestamp, const char[] iphash, const
     else
     {
         Format(query, sizeof(query),
-            "INSERT INTO whaletracker_chat_outbox (created_at, iphash, display_name, message, webchatonly, alert) VALUES (%d, '%s', '%s', '%s', %d, %d)",
+            "INSERT INTO whaletracker_chat_outbox (created_at, iphash, server_tag, display_name, message, webchatonly, alert) VALUES (%d, '%s', '%s', '%s', '%s', %d, %d)",
             timestamp,
             escapedHash,
+            escapedServerTag,
             escapedDisplay,
             escapedMsg,
             webFlag,
@@ -2001,18 +2056,20 @@ void Filters_LogChatMessage(int client, const char[] message)
     Db_Escape(g_hFiltersDb, name, escapedName, sizeof(escapedName), "filters");
     Filters_SanitizeDbMessage(message, sanitizedMsg, sizeof(sanitizedMsg));
     Db_Escape(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg), "filters");
+    char escapedServerTag[FILTERS_CROSS_SERVER_TAG_MAX * 2];
+    Filters_GetEscapedCrossServerTag(escapedServerTag, sizeof(escapedServerTag));
     char query[1024];
     if (hasSteam)
     {
         Format(query, sizeof(query),
-            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, '%s', '%s', NULL, '%s', 1)",
-            GetTime(), steamId, escapedName, escapedMsg);
+            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, server_tag, message, alert) VALUES (%d, '%s', '%s', NULL, '%s', '%s', 1)",
+            GetTime(), steamId, escapedName, escapedServerTag, escapedMsg);
     }
     else
     {
         Format(query, sizeof(query),
-            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, NULL, '%s', NULL, '%s', 1)",
-            GetTime(), escapedName, escapedMsg);
+            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, server_tag, message, alert) VALUES (%d, NULL, '%s', NULL, '%s', '%s', 1)",
+            GetTime(), escapedName, escapedServerTag, escapedMsg);
     }
     g_hFiltersDb.Query(Filters_InsertChatCallback, query);
     Filters_LogDebug("Logged chat from %s: %s", hasSteam ? steamId : "unknown", message);
@@ -2034,14 +2091,17 @@ static void Filters_LogAttributedChat(const char[] steamId64, const char[] displ
     Db_Escape(g_hFiltersDb, displayName, escapedName, sizeof(escapedName), "filters");
     Filters_SanitizeDbMessage(message, sanitizedMsg, sizeof(sanitizedMsg));
     Db_Escape(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg), "filters");
+    char escapedServerTag[FILTERS_CROSS_SERVER_TAG_MAX * 2];
+    Filters_GetEscapedCrossServerTag(escapedServerTag, sizeof(escapedServerTag));
 
     int timestamp = GetTime();
     char query[1536];
     Format(query, sizeof(query),
-        "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, '%s', '%s', NULL, '%s', 1)",
+        "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, server_tag, message, alert) VALUES (%d, '%s', '%s', NULL, '%s', '%s', 1)",
         timestamp,
         escapedSteam,
         escapedName,
+        escapedServerTag,
         escapedMsg);
     g_hFiltersDb.Query(Filters_InsertChatCallback, query);
 
@@ -2076,6 +2136,8 @@ void Filters_InsertSystemMessage(bool webchatOnly, bool alertFlag, const char[] 
     char escapedMsg[512];
     Filters_SanitizeDbMessage(message, sanitizedMsg, sizeof(sanitizedMsg));
     Db_Escape(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg), "filters");
+    char escapedServerTag[FILTERS_CROSS_SERVER_TAG_MAX * 2];
+    Filters_GetEscapedCrossServerTag(escapedServerTag, sizeof(escapedServerTag));
     char localIp[64];
     int localPort;
     Filters_GetLocalHostStamp(localIp, sizeof(localIp), localPort);
@@ -2097,8 +2159,9 @@ void Filters_InsertSystemMessage(bool webchatOnly, bool alertFlag, const char[] 
     char query[1024];
     int alert = alertFlag ? 1 : 0;
     Format(query, sizeof(query),
-        "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, NULL, '[SERVER]', 'system', '%s', %d)",
+        "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, server_tag, message, alert) VALUES (%d, NULL, '[SERVER]', 'system', '%s', '%s', %d)",
         timestamp,
+        escapedServerTag,
         escapedMsg,
         alert);
     g_hFiltersDb.Query(Filters_InsertChatCallback, query);
@@ -2949,6 +3012,7 @@ void Filters_PrintHelp(int client)
     CPrintToChat(client, "{default}[Filters] filtermode - 0=off, 1=quarantine with mutual whitelist/blacklist visibility, 2=quarantine with whitelist monitoring only.");
     CPrintToChat(client, "{default}[Filters] filters_chat_debug - Enable verbose debug logging for chat relay.");
     CPrintToChat(client, "{default}[Filters] filters_chat_frontend - Show frontend chat to all clients; blacklist level 3 clients still receive it when disabled.");
+    CPrintToChat(client, "{default}[Filters] sm_filters_cross_sv_tag - Label shown on messages relayed from this server; none disables.");
     CPrintToChat(client, "{default}[Filters] filters_filters - If 0, blacklist word matching is disabled.");
     CPrintToChat(client, "{default}[Filters] filters_blacklist_minlen - Minimum message length to check blacklist words.");
     CPrintToChat(client, "{default}[Filters] filters_christmas - If 1, red chat is {axis} and blue chat is {green}.");
@@ -4273,10 +4337,12 @@ public Action Command_WebSay(int client, int args)
         Filters_SanitizeDbMessage(msgPart, sanitizedMsg, sizeof(sanitizedMsg));
         Db_Escape(g_hFiltersDb, sanitizedMsg, escapedMsg, sizeof(escapedMsg), "filters");
         Db_Escape(g_hFiltersDb, hash, escapedHash, sizeof(escapedHash), "filters");
+        char escapedServerTag[FILTERS_CROSS_SERVER_TAG_MAX * 2];
+        Filters_GetEscapedCrossServerTag(escapedServerTag, sizeof(escapedServerTag));
         char query[1024];
         Format(query, sizeof(query),
-            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, message, alert) VALUES (%d, NULL, NULL, '%s', '%s', 1)",
-            GetTime(), escapedHash, escapedMsg);
+            "INSERT INTO whaletracker_chat (created_at, steamid, personaname, iphash, server_tag, message, alert) VALUES (%d, NULL, NULL, '%s', '%s', '%s', 1)",
+            GetTime(), escapedHash, escapedServerTag, escapedMsg);
         g_hFiltersDb.Query(Filters_InsertChatCallback, query);
         Filters_QueueOutboxMessage(GetTime(), hash, "", msgPart, false, true);
     }
