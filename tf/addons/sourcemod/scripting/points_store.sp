@@ -3,6 +3,9 @@
 
 #include <sourcemod>
 
+#include <sdkhooks>
+
+#include <tf2>
 #include <tf2_stocks>
 
 #include <multicolors>
@@ -11,6 +14,7 @@
 #include <dgm_api>
 #include <filters_api>
 #include <saysounds>
+#include <weapons>
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 #include <plugin_statistics>
@@ -114,11 +118,12 @@ char g_PerMapName[BP_PER_MAP_SCOPE_MAX];
 #include "points_store/bonus_labels.inc"
 #include "points_store/dailies.inc"
 #include "points_store/memoman_event.inc"
+#include "points_store/gameplay_rewards.inc"
 
 public Plugin myinfo =
 {
     name = "points_store",
-    author = "Kogasa",
+    author = "Kogasa, Hombre",
     description = "Currency purchase receipts, shop UI, and ownership API.",
     version = "1.0.0",
     url = "https://kogasa.tf"
@@ -254,6 +259,7 @@ public void OnPluginStart()
     Bounties_OnPluginStart();
     Dailies_OnPluginStart();
     MemomanEvent_OnPluginStart();
+    GameplayRewards_OnPluginStart();
 
     LoadStoreItems();
     ConnectDatabase();
@@ -317,8 +323,14 @@ public void OnClientAuthorized(int client, const char[] auth)
     Lotteries_OnClientAuthorized(client);
 }
 
+public void OnClientPutInServer(int client)
+{
+    GameplayRewards_OnClientPutInServer(client);
+}
+
 public void OnClientDisconnect(int client)
 {
+    GameplayRewards_OnClientDisconnect(client);
     Bounties_OnClientDisconnect(client);
     g_NextSendAllowedAt[client] = 0.0;
     ClearClientStoreCache(client);

@@ -1,22 +1,3 @@
-#pragma semicolon 1
-#pragma newdecls required
-
-#include <sourcemod>
-
-#include <sdkhooks>
-
-#include <tf2>
-#include <tf2_stocks>
-
-#include <points_store_api>
-
-#undef REQUIRE_PLUGIN
-#include <weapons>
-#include <whaletracker_api>
-#define REQUIRE_PLUGIN
-
-#include "include/client_validation.inc"
-
 #define REWARD_CHANCE_ALWAYS 1.0
 #define LAST_DAMAGE_MAX_AGE 1.0
 #define MEMOMAN_SOURCE_CUSTOM_WEAPON_KILL "custom_weapon_kill"
@@ -26,16 +7,7 @@ int g_LastDamageAttackerUserId[MAXPLAYERS + 1];
 int g_LastDamageWeaponRef[MAXPLAYERS + 1];
 float g_LastDamageAt[MAXPLAYERS + 1];
 
-public Plugin myinfo =
-{
-	name = "Gameplay Rewards",
-	author = "Hombre",
-	description = "Applies Points Store rewards from gameplay event APIs.",
-	version = "1.0.0",
-	url = "https://kogasa.tf"
-};
-
-public void OnPluginStart()
+void GameplayRewards_OnPluginStart()
 {
 	g_GameplayRewardDelay = CreateConVar(
 		"sm_whaletracker_bonus_default_delay",
@@ -57,13 +29,13 @@ public void OnPluginStart()
 	AutoExecConfig(true, "gameplay_rewards");
 }
 
-public void OnClientPutInServer(int client)
+void GameplayRewards_OnClientPutInServer(int client)
 {
 	ResetLastDamage(client);
 	SDKHook(client, SDKHook_OnTakeDamage, GameplayRewards_OnTakeDamage);
 }
 
-public void OnClientDisconnect(int client)
+void GameplayRewards_OnClientDisconnect(int client)
 {
 	ResetLastDamage(client);
 }
@@ -80,14 +52,41 @@ void AwardGameplayReward(int client, const char[] type, int target, float delay 
 		return;
 	}
 
-	PointsStore_ApplyBonusPoints(
+	RewardDefinition reward;
+	if (!GetRewardDefinition(type, reward))
+	{
+		return;
+	}
+
+	ApplyBonusPoints(
 		client,
-		type,
+		reward.amount,
 		true,
 		true,
 		REWARD_CHANCE_ALWAYS,
+		reward.id,
 		target,
-		delay >= 0.0 ? delay : GameplayRewardDelay());
+		delay >= 0.0 ? delay : GameplayRewardDelay(),
+		reward.perMapLimit,
+		true);
+}
+
+void AwardGameplayRewardSteamId(const char[] steamId64, const char[] type)
+{
+	RewardDefinition reward;
+	if (steamId64[0] == 0 || !GetRewardDefinition(type, reward))
+	{
+		return;
+	}
+
+	ApplyBonusPointsSteamId(
+		steamId64,
+		reward.amount,
+		true,
+		true,
+		reward.id,
+		reward.perMapLimit,
+		true);
 }
 
 bool AwardMemomanReward(
@@ -96,12 +95,8 @@ bool AwardMemomanReward(
 	const char[] detailId = "",
 	const char[] detailName = "")
 {
-	if (Client_IsHumanInGame(client)
-		&& GetFeatureStatus(FeatureType_Native, "PointsStore_AwardMemomanEvent") == FeatureStatus_Available)
-	{
-		return PointsStore_AwardMemomanEvent(client, sourceId, detailId, detailName);
-	}
-	return false;
+	return Client_IsHumanInGame(client)
+		&& MemomanEvent_QueueReward(client, sourceId, detailId, detailName);
 }
 
 void ResetLastDamage(int victim)
@@ -269,7 +264,7 @@ public void OnTopScoringPlayerRoundEnd(const char[] steamId64)
 {
 	if (steamId64[0] != '\0')
 	{
-		PointsStore_ApplyBonusPointsSteamId(steamId64, "top_scoring_player", true, true);
+		AwardGameplayRewardSteamId(steamId64, "top_scoring_player");
 	}
 }
 
