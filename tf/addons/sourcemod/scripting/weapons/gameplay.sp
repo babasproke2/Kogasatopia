@@ -1265,6 +1265,7 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
+	WeaponsMovement_OnPlayerDeath(client);
 
 	BlastJumpJarate_ClearPending(client);
 	Sproke_ClearEffect(client, false, true);
@@ -1491,6 +1492,7 @@ public Action OnPlayerSpawn(Event event, const char[] name, bool dontBroadcast)
 	int client = GetClientOfUserId(userId);
 	if (client <= 0 || !IsClientInGame(client))
 		return Plugin_Continue;
+	WeaponsMovement_OnPlayerSpawn(client);
 	BlastJumpJarate_ClearPending(client);
 	Escampette_QueueSpeedRecalculation(client);
 	HuntingRevolver_ResetClient(client);
@@ -1585,6 +1587,8 @@ Action OnEnergyRingTouch(int entity, int other) {
 }
 
 public Action TF2_CalcIsAttackCritical(int client, int weapon, char[] weaponname, bool &result) {
+	WeaponsMovement_OnCalcIsAttackCritical(client, weapon);
+
 	if (!WeaponsGameplay_IsEnabled()
 		|| !IsClientInGame(client) || weapon <= MaxClients || !IsValidEntity(weapon))
 		return Plugin_Continue;

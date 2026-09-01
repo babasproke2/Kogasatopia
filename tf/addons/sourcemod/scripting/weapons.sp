@@ -61,7 +61,7 @@
 
 public Plugin myinfo = {
 	name = "Weapons",
-	author = "nosoop, Hombre, tsuza, Mir, Huutti, Utsuho, Sappykun",
+	author = "nosoop, Hombre, tsuza, Mir, Huutti, Utsuho, Sappykun, Nanochip, Leonardo, MikeJS",
 	description = "Unified custom weapons, weapon behavior, models, sounds, and loadouts.",
 	version = "7.1" ... VERSION_SUFFIX,
 	url = "https://kogasa.tf"
@@ -128,6 +128,7 @@ Handle g_hOnItemRuntimeStateReady = null;
 
 #include "weapons/custom_attributes.sp"
 #include "weapons/whitelist.sp"
+#include "weapons/movement_attributes.sp"
 #include "weapons/item_config.sp"
 #include "weapons/item_entity.sp"
 #include "weapons/item_export.sp"
@@ -169,6 +170,7 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int maxlen) {
 public void OnPluginStart() {
 	WeaponsCustomAttributes_OnPluginStart();
 	WeaponsWhitelist_OnPluginStart();
+	WeaponsMovement_OnPluginStart();
 	LoadTranslations("weapons.phrases");
 	LoadTranslations("common.phrases");
 	LoadTranslations("core.phrases");
@@ -279,12 +281,17 @@ public void OnPluginEnd() {
 	WeaponsCustomAttributes_OnPluginEnd();
 }
 
+public void OnConfigsExecuted() {
+	WeaponsMovement_OnConfigsExecuted();
+}
+
 void Weapons_NotifyItemRuntimeStateReady(int client, int entity) {
 	if (!IsClientInGame(client) || !IsValidEntity(entity)) {
 		return;
 	}
 
 	Weapons_ApplyEngineOverrides(entity);
+	WeaponsMovement_OnItemRuntimeStateReady(client, entity);
 	WeaponsModels_OnItemRuntimeStateReady(client, entity);
 	WeaponsSound_OnItemRuntimeStateReady(client, entity);
 
@@ -397,6 +404,7 @@ void AppendItemDescriptionPart(char[] buffer, int maxlen, const char[] color, co
 }
 
 public void OnMapStart() {
+	WeaponsMovement_OnMapStart();
 	WeaponsCustomAttributes_OnMapStart();
 	WeaponsModels_OnMapStart();
 	LoadWeaponsConfig();
@@ -405,18 +413,21 @@ public void OnMapStart() {
 }
 
 public void OnMapEnd() {
+	WeaponsMovement_OnMapEnd();
 	WeaponsSound_Clear();
 	WeaponsGameplay_OnMapEnd();
 	WeaponsCustomAttributes_OnMapEnd();
 }
 
 public void OnClientPutInServer(int client) {
+	WeaponsMovement_OnClientPutInServer(client);
 	WeaponsSound_ResetClient(client);
 	WeaponsModels_OnClientPutInServer(client);
 	WeaponsGameplay_OnClientPutInServer(client);
 }
 
 public void OnClientDisconnect(int client) {
+	WeaponsMovement_OnClientDisconnect(client);
 	WeaponsWhitelist_OnClientDisconnect(client);
 	WeaponsSound_ResetClient(client);
 	WeaponsModels_OnClientDisconnect(client);
@@ -424,6 +435,7 @@ public void OnClientDisconnect(int client) {
 }
 
 void Weapons_OnWeaponSwitchPost(int client, int weapon) {
+	WeaponsMovement_OnWeaponSwitchPost(client, weapon);
 	WeaponsSound_OnWeaponSwitchPost(client, weapon);
 	WeaponsModels_OnWeaponSwitchPost(client, weapon);
 }
