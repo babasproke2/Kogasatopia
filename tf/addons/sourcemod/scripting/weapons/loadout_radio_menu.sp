@@ -186,6 +186,34 @@ static bool ItemVisibleInEquipMenu(int client, const CustomItemDefinition item) 
 	return CanPlayerViewItem(client, item);
 }
 
+static void QueueEquippedItemDescription(int client, const char[] uid) {
+	DataPack pack = new DataPack();
+	pack.WriteCell(GetClientUserId(client));
+	pack.WriteString(uid);
+	RequestFrame(Frame_PrintEquippedItemDescription, pack);
+}
+
+public void Frame_PrintEquippedItemDescription(any data) {
+	DataPack pack = view_as<DataPack>(data);
+	pack.Reset();
+
+	int client = GetClientOfUserId(pack.ReadCell());
+	char uid[MAX_ITEM_IDENTIFIER_LENGTH];
+	pack.ReadString(uid, sizeof(uid));
+	delete pack;
+
+	if (!client || !IsClientInGame(client)) {
+		return;
+	}
+
+	CustomItemDefinition item;
+	char description[MAX_ITEM_DESCRIPTION_LENGTH * 3];
+	if (GetCustomItemDefinition(uid, item)
+			&& FormatItemDescription(item, description, sizeof(description))) {
+		CPrintToChat(client, "{gold}[Weapons]{default} %s", description);
+	}
+}
+
 static void PrintShopPurchaseRequired(int client) {
 	char currencyColor[32] = "{cyan}";
 	ConVar currencyColorCvar = FindConVar("sm_points_store_currency_color");
@@ -335,12 +363,7 @@ static int OnEquipMenuEvent(Menu menu, MenuAction action, int param1, int param2
 
 				if (SetClientCustomLoadoutItem(client, g_iPlayerClassInMenu[client], uid,
 						LOADOUT_FLAG_UPDATE_BACKEND | LOADOUT_FLAG_ATTEMPT_REGEN)) {
-					CustomItemDefinition item;
-					char description[MAX_ITEM_DESCRIPTION_LENGTH * 3];
-					if (GetCustomItemDefinition(uid, item)
-							&& FormatItemDescription(item, description, sizeof(description))) {
-						CPrintToChat(client, "{gold}[Weapons]{default} %s", description);
-					}
+					QueueEquippedItemDescription(client, uid);
 				}
 			} else {
 				UnsetClientCustomLoadoutItem(client, g_iPlayerClassInMenu[client],
