@@ -201,15 +201,39 @@ static void WeaponsGameplay_SetPatchEnabled(MemoryPatch patch, bool enabled)
 	}
 }
 
+static void WeaponsGameplay_SetWranglerPatchEnabled(MemoryPatch patch, bool enabled)
+{
+	if (patch == null)
+	{
+		return;
+	}
+
+	if (enabled)
+	{
+		// Enable() copies the configured patch bytes, including the placeholder
+		// address. Install the live SourcePawn address after every enable.
+		patch.Enable();
+		StoreToAddress(
+			patch.Address + view_as<Address>(0x04),
+			view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)),
+			NumberType_Int32
+		);
+	}
+	else
+	{
+		patch.Disable();
+	}
+}
+
 static void WeaponsGameplay_SetPatchesEnabled(bool enabled)
 {
 	WeaponsGameplay_SetPatchEnabled(patch_RevertCozyCamper_FlinchNerf, enabled);
 	WeaponsGameplay_SetPatchEnabled(patch_AllowRandomCritOverride, enabled);
-	WeaponsGameplay_SetPatchEnabled(patch_Wrangler_CustomShieldRepair, enabled);
-	WeaponsGameplay_SetPatchEnabled(patch_Wrangler_CustomShieldShellRefill, enabled);
-	WeaponsGameplay_SetPatchEnabled(patch_Wrangler_CustomShieldRocketRefill, enabled);
-	WeaponsGameplay_SetPatchEnabled(patch_Wrangler_CustomShieldDamageTaken, enabled);
-	WeaponsGameplay_SetPatchEnabled(patch_Wrangler_RescueRanger_CustomShieldRepair, enabled);
+	WeaponsGameplay_SetWranglerPatchEnabled(patch_Wrangler_CustomShieldRepair, enabled);
+	WeaponsGameplay_SetWranglerPatchEnabled(patch_Wrangler_CustomShieldShellRefill, enabled);
+	WeaponsGameplay_SetWranglerPatchEnabled(patch_Wrangler_CustomShieldRocketRefill, enabled);
+	WeaponsGameplay_SetWranglerPatchEnabled(patch_Wrangler_CustomShieldDamageTaken, enabled);
+	WeaponsGameplay_SetWranglerPatchEnabled(patch_Wrangler_RescueRanger_CustomShieldRepair, enabled);
 }
 
 #include "gameplay_events.sp"
@@ -533,11 +557,6 @@ void WeaponsGameplay_OnPluginStart(GameData conf) {
 		if (!ValidateAndNullCheck(patch_Wrangler_CustomShieldDamageTaken)) SetFailState("Failed to create patch_Wrangler_CustomShieldDamageTaken");
 		if (!ValidateAndNullCheck(patch_Wrangler_RescueRanger_CustomShieldRepair)) SetFailState("Failed to create patch_Wrangler_RescueRanger_CustomShieldRepair");
 
-		StoreToAddress(patch_Wrangler_CustomShieldRepair.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
-		StoreToAddress(patch_Wrangler_CustomShieldShellRefill.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
-		StoreToAddress(patch_Wrangler_CustomShieldRocketRefill.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
-		StoreToAddress(patch_Wrangler_CustomShieldDamageTaken.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
-		StoreToAddress(patch_Wrangler_RescueRanger_CustomShieldRepair.Address + view_as<Address>(0x04), view_as<int>(GetAddressOfCell(g_flWranglerCustomShieldValue)), NumberType_Int32);
 		WeaponsGameplay_SetPatchesEnabled(WeaponsGameplay_IsEnabled());
 		delete overrideConf;
 
