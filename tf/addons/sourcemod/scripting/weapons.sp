@@ -224,6 +224,7 @@ public void OnPluginStart() {
 	
 	// player commands
 	RegAdminCmd("sm_cw", DisplayItems, 0);
+	RegAdminCmd("sm_cwc", DisplayItems, 0);
 	RegAdminCmd("sm_cwx", DisplayItems, 0);
 	RegAdminCmd("sm_items", DisplayItems, 0);
 	RegAdminCmd("sm_weapons", DisplayItems, 0);
