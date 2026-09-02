@@ -132,7 +132,9 @@ public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
 // Cookie handles
 Handle g_hCookieFilterWhitelist;
 Handle g_hCookieredlist;
+Handle g_hCookieMuteArchivedSpeakers;
 Handle g_hChatFrontend;
+bool g_bMuteArchivedSpeakers[MAXPLAYERS + 1];
 
 // Per-client name color and pattern preferences (empty string means unset)
 char g_NameColors[MAXPLAYERS + 1][32];
@@ -648,6 +650,7 @@ static void Filters_RegisterCookies()
 {
     g_hCookieFilterWhitelist = RegClientCookie("filter_filterwhitelist", "Player is whitelisted from word filters only", CookieAccess_Protected);
     g_hCookieredlist = RegClientCookie("filter_redlist", "Player cannot hear blacklisted clients", CookieAccess_Protected);
+    g_hCookieMuteArchivedSpeakers = RegClientCookie("filters_mute_parsee", "Player does not receive Parsee or Memoman messages", CookieAccess_Protected);
 }
 
 static void Filters_RegisterCommands()
@@ -674,6 +677,7 @@ static void Filters_RegisterCommands()
     // sm_memo is reserved for the Points Store Memoman event while it is active.
     // RegConsoleCmd("sm_memo", Command_RandomMemomanMessage, "Print a random archived Memoman message.");
     RegConsoleCmd("sm_bruh", Command_RandomMemomanMessage, "Print a random archived Memoman message.");
+    RegConsoleCmd("sm_muteparsee", Command_MuteParsee, "Toggle Parsee and Memoman messages.");
     RegAdminCmd("sm_migrate", Command_PrenameMigrate, ADMFLAG_SLAY, "sm_migrate - Migrates legacy name rules to SteamID rules for connected clients");
 
     RegConsoleCmd("sm_websay", Command_WebSay, "Relay a web chat message to all players");
@@ -1324,6 +1328,37 @@ public Action Command_RandomMemomanMessage(int client, int args)
     return Filters_CommandRandomArchivedMessage(client, ArchivedSpeaker_Memoman);
 }
 
+public Action Command_MuteParsee(int client, int args)
+{
+    if (client <= 0 || !IsClientInGame(client))
+    {
+        return Plugin_Handled;
+    }
+
+    if (!AreClientCookiesCached(client))
+    {
+        CPrintToChat(client, "{gold}[Filters]{default} Your preferences are still loading.");
+        return Plugin_Handled;
+    }
+
+    g_bMuteArchivedSpeakers[client] = !g_bMuteArchivedSpeakers[client];
+    SetClientCookie(
+        client,
+        g_hCookieMuteArchivedSpeakers,
+        g_bMuteArchivedSpeakers[client] ? "1" : "0");
+
+    if (g_bMuteArchivedSpeakers[client])
+    {
+        CPrintToChat(client, "{gold}[Filters]{default} You'll no longer see messages from Memoman or Parsee.");
+    }
+    else
+    {
+        CPrintToChat(client, "{gold}[Filters]{default} You can now see messages from Memoman and Parsee again!");
+    }
+
+    return Plugin_Handled;
+}
+
 static void Filters_ScheduleArchivedMessageTriggers(int client, const char[] message)
 {
     if (g_hMemomanEnabled.BoolValue
@@ -1622,11 +1657,11 @@ static void Filters_RenderArchivedSpeakerMessage(ArchivedSpeaker speaker, const 
     Format(output, sizeof(output), "%s{default} : %s", renderedName, message);
     if (webRelay)
     {
-        Filters_PrintOutboxToClients(output);
+        Filters_PrintOutboxToClients(output, true);
     }
     else
     {
-        Filters_PrintToChatAll(output);
+        Filters_PrintToChatAll(output, true);
     }
     PrintToServer("%s", output);
     if (!webRelay)
@@ -1898,12 +1933,16 @@ static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] sou
     Filters_LogDebug("Relayed chat id %d hash %s tag %s name %s msg %s (from %s:%d)", id, hash, sourceTag, display, msg, sourceIp, sourcePort);
 }
 
-static void Filters_PrintOutboxToClients(const char[] message)
+static void Filters_PrintOutboxToClients(const char[] message, bool skipArchivedMuted = false)
 {
     bool frontendEnabled = GetConVarInt(g_hChatFrontend) >= 1;
     for (int client = 1; client <= MaxClients; client++)
     {
         if (!Filters_ShouldReceiveChat(client, 0))
+        {
+            continue;
+        }
+        if (skipArchivedMuted && g_bMuteArchivedSpeakers[client])
         {
             continue;
         }
@@ -4112,11 +4151,15 @@ static bool Filters_ShouldReceiveChat(int receiver, int sender)
     return (sender > 0 && sender <= MaxClients && g_PlayerState[sender].isredlisted);
 }
 
-static void Filters_PrintToChatAll(const char[] message)
+static void Filters_PrintToChatAll(const char[] message, bool skipArchivedMuted = false)
 {
     for (int i = 1; i <= MaxClients; i++)
     {
         if (!Filters_ShouldReceiveChat(i, 0))
+        {
+            continue;
+        }
+        if (skipArchivedMuted && g_bMuteArchivedSpeakers[i])
         {
             continue;
         }
@@ -5087,6 +5130,9 @@ void ProcessCookies(int client)
 
     char cookie[32];
 
+    GetClientCookie(client, g_hCookieMuteArchivedSpeakers, cookie, sizeof(cookie));
+    g_bMuteArchivedSpeakers[client] = StrEqual(cookie, "1");
+
     Filters_RefreshAdminDbStatus(client);
 
     // Check if client has forced redlist/filter status from config.
@@ -5370,19 +5416,22 @@ public void Filters_OnMemomanChanged(ConVar convar, const char[] oldValue, const
 {
     if (StringToInt(oldValue) != 0 && StringToInt(newValue) == 0)
     {
-        CPrintToChatAll(
-            "{blue}Memoman{default}: BRU H\n{gold}[Server]{default} Memoman has been disabled!");
+        Filters_PrintToChatAll(
+            "{blue}Memoman{default}: BRU H\n{gold}[Server]{default} Memoman has been disabled!",
+            true);
     }
 }
 
 public void OnClientPutInServer(int client)
 {
+    g_bMuteArchivedSpeakers[client] = false;
     Filters_ResetArchivedMessageCooldowns(client);
     Filters_ResetExternalStats(client);
 }
 
 public void OnClientDisconnect(int client)
 {
+    g_bMuteArchivedSpeakers[client] = false;
     g_TidyChatSuppressNextTeamAlert[client] = false;
     Filters_ResetArchivedMessageCooldowns(client);
     Filters_ClearClientState(client);
