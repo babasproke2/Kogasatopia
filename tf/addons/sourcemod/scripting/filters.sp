@@ -71,6 +71,7 @@
 #define ARCHIVED_MESSAGE_COOLDOWN_SECONDS 30
 #define ARCHIVED_MESSAGE_WHITELIST_COOLDOWN_SECONDS 15
 #define PARSEE_PURCHASE_COOLDOWN_SECONDS 5
+#define ARCHIVED_MESSAGE_TEAM_DURATION_SECONDS 180
 #define TIDYCHAT_VERSION "0.5"
 
 enum ArchivedSpeaker
@@ -217,6 +218,8 @@ bool g_bOutboxStampReady = false;
 int g_iPendingSchemaQueries = 0;
 int g_iArchivedMessageCounts[ArchivedSpeaker_Count];
 int g_iNextArchivedMessageTime[MAXPLAYERS + 1][ArchivedSpeaker_Count];
+int g_iArchivedSpeakerTeam[ArchivedSpeaker_Count];
+int g_iArchivedSpeakerTeamExpiresAt[ArchivedSpeaker_Count];
 int g_iLastOutboxCleanup = 0;
 int g_iLastChatCleanup = 0;
 
@@ -1209,6 +1212,41 @@ static void Filters_GetArchivedSpeakerDetails(
     strcopy(fallbackName, nameLen, PARSEE_FALLBACK_NAME);
 }
 
+static int Filters_GetArchivedSpeakerTeam(ArchivedSpeaker speaker)
+{
+    char table[32], steam64[32], steam2[32], fallbackName[PRENAME_MAX_RENAME];
+    Filters_GetArchivedSpeakerDetails(speaker, table, sizeof(table), steam64, sizeof(steam64), steam2, sizeof(steam2), fallbackName, sizeof(fallbackName));
+
+    int client;
+    if (Filters_FindClientBySteamId64(steam64, client))
+    {
+        int team = GetClientTeam(client);
+        if (team == 2 || team == 3)
+        {
+            return team;
+        }
+    }
+
+    int now = GetTime();
+    if (g_iArchivedSpeakerTeam[speaker] != 2 && g_iArchivedSpeakerTeam[speaker] != 3)
+    {
+        g_iArchivedSpeakerTeam[speaker] = GetRandomInt(2, 3);
+        g_iArchivedSpeakerTeamExpiresAt[speaker] = now + ARCHIVED_MESSAGE_TEAM_DURATION_SECONDS;
+    }
+    else if (now >= g_iArchivedSpeakerTeamExpiresAt[speaker])
+    {
+        g_iArchivedSpeakerTeam[speaker] = g_iArchivedSpeakerTeam[speaker] == 2 ? 3 : 2;
+        g_iArchivedSpeakerTeamExpiresAt[speaker] = now + ARCHIVED_MESSAGE_TEAM_DURATION_SECONDS;
+    }
+
+    return g_iArchivedSpeakerTeam[speaker];
+}
+
+static void Filters_GetArchivedSpeakerTeamColor(ArchivedSpeaker speaker, char[] color, int maxlen)
+{
+    strcopy(color, maxlen, Filters_GetArchivedSpeakerTeam(speaker) == 2 ? "red" : "blue");
+}
+
 static void Filters_RefreshArchivedMessageCount(ArchivedSpeaker speaker, int requesterUserId = 0)
 {
     g_iArchivedMessageCounts[speaker] = 0;
@@ -1334,7 +1372,7 @@ static Action Filters_CommandRandomArchivedMessage(int client, ArchivedSpeaker s
         char displayName[PRENAME_MAX_RENAME];
         strcopy(displayName, sizeof(displayName), speaker == ArchivedSpeaker_Memoman ? "Memoman" : "Parsee");
         char color[8];
-        strcopy(color, sizeof(color), GetRandomInt(0, 1) == 0 ? "red" : "blue");
+        Filters_GetArchivedSpeakerTeamColor(speaker, color, sizeof(color));
         int secondsRemaining = g_iNextArchivedMessageTime[client][speaker] - now;
         CPrintToChat(client, "{gold}[Filters] {%s}%s{default} is on cooldown! (%ds)", color, displayName, secondsRemaining);
         return Plugin_Handled;
@@ -1566,7 +1604,7 @@ static void Filters_RenderArchivedSpeakerMessage(ArchivedSpeaker speaker, const 
             }
             else
             {
-                strcopy(color, 32, GetRandomInt(0, 1) == 0 ? "red" : "blue");
+                Filters_GetArchivedSpeakerTeamColor(speaker, color, 32);
             }
             BuildRenderedStoredName(displayName, color, "", renderedName, sizeof(renderedName));
         }
@@ -1575,7 +1613,7 @@ static void Filters_RenderArchivedSpeakerMessage(ArchivedSpeaker speaker, const 
     {
         if (!IsValidNamePattern(pattern) && !color[0])
         {
-            strcopy(color, 32, GetRandomInt(0, 1) == 0 ? "red" : "blue");
+            Filters_GetArchivedSpeakerTeamColor(speaker, color, 32);
         }
         BuildRenderedStoredName(displayName, color, pattern, renderedName, sizeof(renderedName));
     }
