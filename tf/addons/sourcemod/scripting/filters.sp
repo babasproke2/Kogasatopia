@@ -1521,7 +1521,8 @@ static void Filters_ArchiveSubnetParseeMessage(int outboxId)
         "INSERT IGNORE INTO parsee_messages (date, message, source_outbox_id) "
         ... "SELECT FROM_UNIXTIME(created_at), message, id "
         ... "FROM whaletracker_chat_outbox "
-        ... "WHERE id = %d AND source_subnet = '%s'",
+        ... "WHERE id = %d AND source_subnet = '%s' "
+        ... "AND CHAR_LENGTH(TRIM(message)) >= 5",
         outboxId,
         PARSEE_WEB_SUBNET_STAMP);
     g_hFiltersDb.Query(Filters_ArchiveSubnetParseeMessageCallback, query);
