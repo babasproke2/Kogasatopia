@@ -1112,7 +1112,8 @@ public void T_Filters_SQLConnect(Database db, const char[] error, any data)
         "CREATE TABLE IF NOT EXISTS filters_namecolors (steamid VARCHAR(32) PRIMARY KEY, color VARCHAR(32) NOT NULL DEFAULT '', pattern VARCHAR(96) NOT NULL DEFAULT '', updated_at INT NOT NULL DEFAULT 0)",
         "ALTER TABLE filters_namecolors ADD COLUMN IF NOT EXISTS pattern VARCHAR(96) NOT NULL DEFAULT '' AFTER color",
         "ALTER TABLE filters_namecolors MODIFY COLUMN pattern VARCHAR(96) NOT NULL DEFAULT ''",
-        "CREATE TABLE IF NOT EXISTS parsee_messages (date DATETIME NOT NULL, message TEXT NOT NULL, INDEX(date)) DEFAULT CHARSET=utf8mb4",
+        "CREATE TABLE IF NOT EXISTS parsee_messages (date DATETIME NOT NULL, message TEXT NOT NULL, source_outbox_id INT NULL UNIQUE, INDEX(date)) DEFAULT CHARSET=utf8mb4",
+        "ALTER TABLE parsee_messages ADD COLUMN IF NOT EXISTS source_outbox_id INT NULL UNIQUE AFTER message",
         "CREATE TABLE IF NOT EXISTS memoman_messages (date DATETIME NOT NULL, message TEXT NOT NULL, INDEX(date)) DEFAULT CHARSET=utf8mb4"
     };
 
@@ -1470,6 +1471,38 @@ static void Filters_QueryArchivedSpeakerRelay(ArchivedSpeaker speaker, const cha
     g_hFiltersDb.Query(Filters_ArchivedSpeakerRelayCallback, query, pack);
 }
 
+static void Filters_ArchiveSubnetParseeMessage(int outboxId)
+{
+    if (outboxId <= 0 || !Filters_DbAvailable())
+    {
+        return;
+    }
+
+    char query[512];
+    Format(query, sizeof(query),
+        "INSERT IGNORE INTO parsee_messages (date, message, source_outbox_id) "
+        ... "SELECT FROM_UNIXTIME(created_at), message, id "
+        ... "FROM whaletracker_chat_outbox "
+        ... "WHERE id = %d AND source_subnet = '%s'",
+        outboxId,
+        PARSEE_WEB_SUBNET_STAMP);
+    g_hFiltersDb.Query(Filters_ArchiveSubnetParseeMessageCallback, query);
+}
+
+public void Filters_ArchiveSubnetParseeMessageCallback(Database db, DBResultSet results, const char[] error, any data)
+{
+    if (error[0] != '\0')
+    {
+        LogError("[Filters] Failed to archive subnet-matched Parsee message: %s", error);
+        return;
+    }
+
+    if (results != null && results.AffectedRows > 0)
+    {
+        g_iArchivedMessageCounts[ArchivedSpeaker_Parsee]++;
+    }
+}
+
 public void Filters_ArchivedSpeakerRelayCallback(Database db, DBResultSet results, const char[] error, any data)
 {
     DataPack pack = view_as<DataPack>(data);
@@ -1774,7 +1807,12 @@ static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] sou
     bool forceParseeRelay = g_hWebchatParsee != null
         && g_hWebchatParsee.BoolValue
         && isWebchatRelay;
-    if (forceParseeRelay || StrEqual(sourceSubnet, PARSEE_WEB_SUBNET_STAMP))
+    bool subnetParseeRelay = StrEqual(sourceSubnet, PARSEE_WEB_SUBNET_STAMP);
+    if (subnetParseeRelay)
+    {
+        Filters_ArchiveSubnetParseeMessage(id);
+    }
+    if (forceParseeRelay || subnetParseeRelay)
     {
         if (!suppressChatBroadcast)
         {
