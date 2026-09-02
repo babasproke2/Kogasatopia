@@ -43,6 +43,7 @@
 #define ATTR_RANDOM_CRITS_OVERRIDE "random crits override"
 #define ATTR_RECOIL_JUMPING "recoil jumping"
 #define ATTR_BLAST_JUMP_JARATE "blast jump jarate"
+#define ATTR_SHORT_CIRCUIT_PREFEB2014 "short circuit prefeb2014"
 #define ATTR_CIRCULAR_BULLET_SPREAD "circular bullet spread"
 #define ATTR_WIDE_HORIZONTAL_BULLET_SPREAD "wide horizontal bullet spread"
 #define ATTR_AMBASSADOR_ACCURACY_RECOVERY "ambassador accuracy recovery"
@@ -65,6 +66,9 @@
 #define SOUND_AMBASSADOR_CRIT_HIT "player/crit_hit.wav"
 #define RESTORE_PRIMARY_SHOT_DAMAGE_WINDOW 5.0
 #define SOUND_CLIP_REFILL_CRIT "minecraft/burp.mp3"
+#define SHORT_CIRCUIT_MAX_RANGE 300.0
+#define SHORT_CIRCUIT_PARTICLE "dxhr_arm_muzzleflash"
+#define SHORT_CIRCUIT_PLAYER_CENTER_HEIGHT 41.0
 
 #define SPROKE_ATTR_NAME		"sproke attribute"
 #define SPROKE_PRIMARY_ATTR		"mod max primary clip override"
@@ -92,6 +96,7 @@
 tf2_player tf2_players[MAXPLAYERS + 1];
 float g_flProjectileSpawnTime[MAX_TRACKED_ENTITIES];
 bool g_bProjectileSandmanPreJI[MAX_TRACKED_ENTITIES];
+bool g_bShortCircuitAttackHooks[MAX_TRACKED_ENTITIES];
 int g_iSandmanStunFrame[MAXPLAYERS + 1];
 int g_iSandmanStunInflictorRef[MAXPLAYERS + 1];
 #define ENVIRONMENTAL_KILL_CREDIT_WINDOW 10.0
@@ -141,6 +146,7 @@ int g_iMetalOffset = -1;
 bool g_bWarnedMetalOffset = false;
 bool g_bAccuracyExploding[MAXPLAYERS + 1];
 int g_iAmbassadorCritParticle = INVALID_STRING_INDEX;
+int g_iShortCircuitParticle = INVALID_STRING_INDEX;
 bool g_bPendingFullPelletIgnite[MAXPLAYERS + 1][MAXPLAYERS + 1];
 int g_iPendingFullPelletWeaponRef[MAXPLAYERS + 1][MAXPLAYERS + 1];
 float g_fPendingFullPelletBurnDuration[MAXPLAYERS + 1][MAXPLAYERS + 1];
@@ -175,6 +181,8 @@ DynamicDetour dhook_CTFPlayerShared_StunPlayer;
 DynamicDetour dhook_IsFixedWeaponSpreadEnabled;
 DynamicHook dhook_CObjectCartDispenser_DispenseMetal;
 DynamicHook dhook_CTFWeaponBase_CanFireCriticalShot;
+DynamicHook dhook_CTFWeaponBase_PrimaryAttack;
+DynamicHook dhook_CTFWeaponBase_SecondaryAttack;
 DynamicHook dhook_CTFStunBall_ApplyBallImpactEffectOnVictim;
 Handle g_SDKCalcIsAttackCriticalHelper = null;
 bool g_bCalculatingRandomCritOverride = false;
@@ -522,6 +530,8 @@ void WeaponsGameplay_OnPluginStart(GameData conf) {
 		dhook_IsFixedWeaponSpreadEnabled = DynamicDetour.FromConf(overrideConf, "IsFixedWeaponSpreadEnabled");
 		dhook_CObjectCartDispenser_DispenseMetal = DynamicHook.FromConf(conf, "CObjectCartDispenser::DispenseMetal");
 		dhook_CTFWeaponBase_CanFireCriticalShot = DynamicHook.FromConf(conf, "CTFWeaponBase::CanFireCriticalShot");
+		dhook_CTFWeaponBase_PrimaryAttack = DynamicHook.FromConf(conf, "CTFWeaponBase::PrimaryAttack");
+		dhook_CTFWeaponBase_SecondaryAttack = DynamicHook.FromConf(conf, "CTFWeaponBase::SecondaryAttack");
 		dhook_CTFStunBall_ApplyBallImpactEffectOnVictim = DynamicHook.FromConf(conf, "CTFStunBall::ApplyBallImpactEffectOnVictim");
 
 		if (dhook_CTFPlayer_CalculateMaxSpeed == null) SetFailState("Failed to create dhook_CTFPlayer_CalculateMaxSpeed");
@@ -530,6 +540,8 @@ void WeaponsGameplay_OnPluginStart(GameData conf) {
 		if (dhook_IsFixedWeaponSpreadEnabled == null) SetFailState("Failed to create dhook_IsFixedWeaponSpreadEnabled");
 		if (dhook_CObjectCartDispenser_DispenseMetal == null) SetFailState("Failed to create dhook_CObjectCartDispenser_DispenseMetal");
 		if (dhook_CTFWeaponBase_CanFireCriticalShot == null) SetFailState("Failed to create dhook_CTFWeaponBase_CanFireCriticalShot");
+		if (dhook_CTFWeaponBase_PrimaryAttack == null) SetFailState("Failed to create dhook_CTFWeaponBase_PrimaryAttack");
+		if (dhook_CTFWeaponBase_SecondaryAttack == null) SetFailState("Failed to create dhook_CTFWeaponBase_SecondaryAttack");
 		if (dhook_CTFStunBall_ApplyBallImpactEffectOnVictim == null) SetFailState("Failed to create dhook_CTFStunBall_ApplyBallImpactEffectOnVictim");
 
 		dhook_CTFPlayer_CalculateMaxSpeed.Enable(Hook_Post, CalculateMaxSpeed);
@@ -538,7 +550,7 @@ void WeaponsGameplay_OnPluginStart(GameData conf) {
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Post, ApplyBiteEffects_Post);
 		dhook_CTFPlayerShared_StunPlayer.Enable(Hook_Pre, SandmanPreJI_StunPlayer_Pre);
 		dhook_IsFixedWeaponSpreadEnabled.Enable(Hook_Pre, IsFixedWeaponSpreadEnabled_Pre);
-		WeaponsGameplay_HookExistingCriticalShotWeapons();
+		WeaponsGameplay_HookExistingWeaponEntities();
 
 		// Create the patches
 		patch_RevertCozyCamper_FlinchNerf = MemoryPatch.CreateFromConf(conf, "CTFPlayer::ApplyPunchImpulseX_FakeFullyChargedCondition");
@@ -583,25 +595,30 @@ public void PreCacheWeaponSounds() {
 	PrecacheSound(ATTR_SECONDARY_REFILL_SOUND, true);
 }
 
-static void Ambassador102_CacheCritParticle()
+static int WeaponsGameplay_FindParticleIndex(const char[] name)
 {
-	g_iAmbassadorCritParticle = INVALID_STRING_INDEX;
-
 	int table = FindStringTable("ParticleEffectNames");
 	if (table == INVALID_STRING_TABLE)
-		return;
+		return INVALID_STRING_INDEX;
 
 	char particle[128];
 	int count = GetStringTableNumStrings(table);
 	for (int i = 0; i < count; i++)
 	{
 		ReadStringTable(table, i, particle, sizeof(particle));
-		if (StrEqual(particle, "crit_text", false))
+		if (StrEqual(particle, name, false))
 		{
-			g_iAmbassadorCritParticle = i;
-			return;
+			return i;
 		}
 	}
+
+	return INVALID_STRING_INDEX;
+}
+
+static void WeaponsGameplay_CacheParticles()
+{
+	g_iAmbassadorCritParticle = WeaponsGameplay_FindParticleIndex("crit_text");
+	g_iShortCircuitParticle = WeaponsGameplay_FindParticleIndex(SHORT_CIRCUIT_PARTICLE);
 }
 
 void WeaponsGameplay_OnMapStart() {
@@ -612,7 +629,7 @@ void WeaponsGameplay_OnMapStart() {
 	}
 	Escampette_RecalculateAllSpeeds();
 	PreCacheWeaponSounds();
-	Ambassador102_CacheCritParticle();
+	WeaponsGameplay_CacheParticles();
 }
 
 void WeaponsGameplay_OnMapEnd()
@@ -703,6 +720,7 @@ void WeaponsGameplay_OnEntityCreated(int entity, const char[] class) {
 	}
 
 	WeaponsGameplay_HookCriticalShotEntity(entity, class);
+	WeaponsGameplay_HookShortCircuitEntity(entity, class);
 }
 
 public void OnEntityDestroyed(int entity)
@@ -711,6 +729,7 @@ public void OnEntityDestroyed(int entity)
 	{
 		g_flProjectileSpawnTime[entity] = 0.0;
 		g_bProjectileSandmanPreJI[entity] = false;
+		g_bShortCircuitAttackHooks[entity] = false;
 	}
 }
 
@@ -784,7 +803,25 @@ static void WeaponsGameplay_HookCriticalShotEntity(int weapon, const char[] clas
 	dhook_CTFWeaponBase_CanFireCriticalShot.HookEntity(Hook_Post, weapon, CanFireCriticalShot_Post);
 }
 
-static void WeaponsGameplay_HookExistingCriticalShotWeapons()
+static void WeaponsGameplay_HookShortCircuitEntity(int weapon, const char[] classname)
+{
+	if (dhook_CTFWeaponBase_PrimaryAttack == null
+		|| dhook_CTFWeaponBase_SecondaryAttack == null
+		|| weapon <= MaxClients
+		|| weapon >= MAX_TRACKED_ENTITIES
+		|| !IsValidEntity(weapon)
+		|| !StrEqual(classname, "tf_weapon_mechanical_arm")
+		|| g_bShortCircuitAttackHooks[weapon])
+	{
+		return;
+	}
+
+	dhook_CTFWeaponBase_PrimaryAttack.HookEntity(Hook_Pre, weapon, ShortCircuit_PrimaryAttack_Pre);
+	dhook_CTFWeaponBase_SecondaryAttack.HookEntity(Hook_Pre, weapon, ShortCircuit_SecondaryAttack_Pre);
+	g_bShortCircuitAttackHooks[weapon] = true;
+}
+
+static void WeaponsGameplay_HookExistingWeaponEntities()
 {
 	char classname[64];
 	int maxEntities = GetMaxEntities();
@@ -795,7 +832,194 @@ static void WeaponsGameplay_HookExistingCriticalShotWeapons()
 
 		GetEntityClassname(weapon, classname, sizeof(classname));
 		WeaponsGameplay_HookCriticalShotEntity(weapon, classname);
+		WeaponsGameplay_HookShortCircuitEntity(weapon, classname);
 	}
+}
+
+static bool ShortCircuit_IsEnabledWeapon(int weapon)
+{
+	if (!WeaponsGameplay_IsEnabled()
+		|| !IsValidWeaponEntity(weapon)
+		|| TF2CustAttr_GetInt(weapon, ATTR_SHORT_CIRCUIT_PREFEB2014, 0) != 1)
+	{
+		return false;
+	}
+
+	char classname[64];
+	GetEntityClassname(weapon, classname, sizeof(classname));
+	return StrEqual(classname, "tf_weapon_mechanical_arm");
+}
+
+static bool ShortCircuit_IsEligibleProjectile(int entity, const char[] classname)
+{
+	return entity > MaxClients
+		&& StrContains(classname, "tf_projectile_") == 0
+		&& StrContains(classname, "tf_projectile_spell") == -1
+		&& !StrEqual(classname, "tf_projectile_energy_ring")
+		&& !StrEqual(classname, "tf_projectile_grapplinghook")
+		&& !StrEqual(classname, "tf_projectile_syringe");
+}
+
+public bool ShortCircuit_TraceFilter(int entity, int contentsMask, any target)
+{
+	if (entity == target || entity <= MaxClients)
+		return false;
+
+	char classname[64];
+	GetEntityClassname(entity, classname, sizeof(classname));
+	return StrContains(classname, "obj_") != 0
+		&& StrContains(classname, "tf_projectile_") != 0
+		&& !StrEqual(classname, "func_respawnroomvisualizer");
+}
+
+static float ShortCircuit_FixYaw(float angle)
+{
+	return angle > 180.0 ? angle - 360.0 : angle;
+}
+
+static float ShortCircuit_CalcViewOffset(const float viewAngles[3], const float targetAngles[3])
+{
+	float pitch = FloatAbs(viewAngles[0] - targetAngles[0]);
+	float yaw = ShortCircuit_FixYaw(FloatAbs(viewAngles[1] - targetAngles[1]));
+	return SquareRoot(pitch * pitch + yaw * yaw);
+}
+
+static void ShortCircuit_RotateVectorAroundZ(const float vector[3], float angle, float output[3])
+{
+	float radians = DegToRad(angle);
+	output[0] = vector[0] * Cosine(radians) - vector[1] * Sine(radians);
+	output[1] = vector[0] * Sine(radians) + vector[1] * Cosine(radians);
+	output[2] = vector[2];
+}
+
+static void ShortCircuit_ShowParticle(const float origin[3], const float target[3], const float angles[3])
+{
+	if (g_iShortCircuitParticle == INVALID_STRING_INDEX)
+		return;
+
+	TE_Start("TFParticleEffect");
+	TE_WriteFloat("m_vecOrigin[0]", origin[0]);
+	TE_WriteFloat("m_vecOrigin[1]", origin[1]);
+	TE_WriteFloat("m_vecOrigin[2]", origin[2]);
+	TE_WriteFloat("m_vecStart[0]", target[0]);
+	TE_WriteFloat("m_vecStart[1]", target[1]);
+	TE_WriteFloat("m_vecStart[2]", target[2]);
+	TE_WriteVector("m_vecAngles", angles);
+	TE_WriteNum("m_iParticleSystemIndex", g_iShortCircuitParticle);
+	TE_SendToAllInRange(origin, RangeType_Visibility, 0.0);
+}
+
+static bool DoShortCircuitProjectileRemoval(int owner, int weapon, int baseAmount, int amountPerDestroyed, float playerDamage = 0.0)
+{
+	if (!Weapons_IsClientInGame(owner) || !IsPlayerAlive(owner))
+		return false;
+
+	int metal = TF_GetMetalAmount(owner);
+	if (baseAmount > 0)
+	{
+		TF_SetMetalAmount(owner, metal - baseAmount);
+	}
+
+	float eyePosition[3];
+	float eyeAngles[3];
+	GetClientEyePosition(owner, eyePosition);
+	GetClientEyeAngles(owner, eyeAngles);
+
+	bool hit = false;
+	char classname[64];
+	int maxEntities = GetMaxEntities();
+	for (int target = 1; target < maxEntities; target++)
+	{
+		if (!IsValidEntity(target))
+			continue;
+
+		GetEntityClassname(target, classname, sizeof(classname));
+		bool isPlayer = target <= MaxClients;
+		if (!isPlayer && !ShortCircuit_IsEligibleProjectile(target, classname))
+			continue;
+
+		if (isPlayer && (!Weapons_IsClientInGame(target) || !IsPlayerAlive(target)))
+			continue;
+
+		if (GetEntProp(target, Prop_Send, "m_iTeamNum") == GetClientTeam(owner))
+			continue;
+
+		float targetPosition[3];
+		GetEntPropVector(target, Prop_Send, "m_vecOrigin", targetPosition);
+		if (isPlayer)
+			targetPosition[2] += SHORT_CIRCUIT_PLAYER_CENTER_HEIGHT;
+
+		float distance = GetVectorDistance(eyePosition, targetPosition);
+		if (distance >= SHORT_CIRCUIT_MAX_RANGE)
+			continue;
+
+		float direction[3];
+		float targetAngles[3];
+		MakeVectorFromPoints(eyePosition, targetPosition, direction);
+		GetVectorAngles(direction, targetAngles);
+		targetAngles[1] = ShortCircuit_FixYaw(targetAngles[1]);
+
+		float flatEyeAngles[3];
+		flatEyeAngles[0] = 0.0;
+		flatEyeAngles[1] = eyeAngles[1];
+		flatEyeAngles[2] = eyeAngles[2];
+		targetAngles[0] = 0.0;
+		float angleLimit = isPlayer
+			? ValveRemapVal(distance, 0.0, 150.0, 70.0, 25.0)
+			: ValveRemapVal(distance, 0.0, 200.0, 80.0, 40.0);
+		if (ShortCircuit_CalcViewOffset(flatEyeAngles, targetAngles) >= angleLimit)
+			continue;
+
+		TR_TraceRayFilter(eyePosition, targetPosition, MASK_SOLID, RayType_EndPoint, ShortCircuit_TraceFilter, target);
+		if (TR_DidHit())
+			continue;
+
+		if (isPlayer)
+		{
+			if (playerDamage <= 0.0)
+				continue;
+
+			SDKHooks_TakeDamage(target, weapon, owner, playerDamage, DMG_SHOCK, weapon, NULL_VECTOR, targetPosition, false);
+		}
+		else
+		{
+			if (amountPerDestroyed > 0)
+			{
+				metal = TF_GetMetalAmount(owner);
+				if (metal < baseAmount + amountPerDestroyed)
+					break;
+
+				TF_SetMetalAmount(owner, metal - amountPerDestroyed);
+			}
+
+			RemoveEntity(target);
+		}
+
+		hit = true;
+		float muzzleOffset[3] = {10.0, -10.0, -20.0};
+		float rotatedOffset[3];
+		float particleOrigin[3];
+		ShortCircuit_RotateVectorAroundZ(muzzleOffset, flatEyeAngles[1], rotatedOffset);
+		AddVectors(eyePosition, rotatedOffset, particleOrigin);
+		ShortCircuit_ShowParticle(particleOrigin, targetPosition, flatEyeAngles);
+	}
+
+	return hit;
+}
+
+public MRESReturn ShortCircuit_PrimaryAttack_Pre(int weapon)
+{
+	if (!ShortCircuit_IsEnabledWeapon(weapon))
+		return MRES_Ignored;
+
+	int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
+	DoShortCircuitProjectileRemoval(owner, weapon, 0, 15, 0.0);
+	return MRES_Ignored;
+}
+
+public MRESReturn ShortCircuit_SecondaryAttack_Pre(int weapon)
+{
+	return ShortCircuit_IsEnabledWeapon(weapon) ? MRES_Supercede : MRES_Ignored;
 }
 
 static Action Ambassador102_OnHeadshotDamage(int victim, int attacker, int weapon, float &damage, int damagetype, int damagecustom)
@@ -1420,7 +1644,7 @@ public void WeaponsGameplay_OnEnabledChanged(ConVar convar, const char[] oldValu
 	if (enabled)
 	{
 		HookAllBuildings();
-		WeaponsGameplay_HookExistingCriticalShotWeapons();
+		WeaponsGameplay_HookExistingWeaponEntities();
 	}
 
 	Escampette_RecalculateAllSpeeds();

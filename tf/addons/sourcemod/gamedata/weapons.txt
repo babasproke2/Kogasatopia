@@ -66,6 +66,16 @@
 
 		"Offsets"
 		{
+			"CTFWeaponBase::PrimaryAttack"
+			{
+				"windows"	"287"
+				"linux"		"293"
+			}
+			"CTFWeaponBase::SecondaryAttack"
+			{
+				"windows"	"288"
+				"linux"		"294"
+			}
 			"CTFWeaponBase::CanFireCriticalShot"
 			{
 				"windows"	"439"
@@ -164,6 +174,20 @@
 
 		"Functions"
 		{
+			"CTFWeaponBase::PrimaryAttack"
+			{
+				"offset"	"CTFWeaponBase::PrimaryAttack"
+				"hooktype"	"entity"
+				"this"		"entity"
+				"return"	"void"
+			}
+			"CTFWeaponBase::SecondaryAttack"
+			{
+				"offset"	"CTFWeaponBase::SecondaryAttack"
+				"hooktype"	"entity"
+				"this"		"entity"
+				"return"	"void"
+			}
 			"CTFPlayer::GetLoadoutItem()"
 			{
 				"signature"		"CTFPlayer::GetLoadoutItem()"
