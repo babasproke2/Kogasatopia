@@ -685,7 +685,9 @@ public Action Timer_Autobalance(Handle timer)
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsClientInGame(i) || IsFakeClient(i))
+        // Bots occupy real team slots and therefore count toward imbalance,
+        // but IsBasicBalanceCandidate() keeps them out of every target pool.
+        if (!IsClientInGame(i))
         {
             continue;
         }
