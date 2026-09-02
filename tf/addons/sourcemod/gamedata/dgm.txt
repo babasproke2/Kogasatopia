@@ -9,11 +9,6 @@
                 "library" "server"
                 "linux" "\x55\x89\xE5\x57\x56\x53\x83\xEC\x38\xFF\x75\x08\xE8\x2A\x2A\x2A\x2A\x83\xC4\x10\x85\xC0\x74\x29"
             }
-            "CBaseObject::GetUpgradeAmountPerHit"
-            {
-                "library" "server"
-                "linux" "@_ZN11CBaseObject22GetUpgradeAmountPerHitEv"
-            }
         }
 
         "Functions"
@@ -24,13 +19,6 @@
                 "callconv" "thiscall"
                 "this" "entity"
                 "return" "float"
-            }
-            "CBaseObject::GetUpgradeAmountPerHit"
-            {
-                "signature" "CBaseObject::GetUpgradeAmountPerHit"
-                "callconv" "thiscall"
-                "this" "entity"
-                "return" "int"
             }
         }
     }

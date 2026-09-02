@@ -48,6 +48,7 @@ ConVar g_cvAutoAddTime;
 ConVar g_cvSetupUberMultiplier;
 ConVar g_cvSetupConstructionMultiplier;
 ConVar g_cvUpgradeMetalPerHit;
+ConVar g_cvTfObjUpgradePerHit;
 ConVar g_cvNoEngineerSetupReduction;
 ConVar g_cvTimeOverride;
 ConVar g_cvRespawnTime;
@@ -76,6 +77,7 @@ Handle g_hRespawnTimers[MAXPLAYERS + 1];
 Handle g_hRespawnReminderTimers[MAXPLAYERS + 1];
 bool g_bSetupActive = false;
 bool g_bSetupConstructionMultiplierActive = false;
+bool g_bSetupUpgradeMetalActive = false;
 bool g_bGameRulesReady = false;
 bool g_bNoEngineerSetupReduced = false;
 bool g_bSetupUberUnavailableLogged = false;
@@ -89,8 +91,8 @@ int g_iCaptureIntervalSeconds[DGM_MAX_CAPTURE_INTERVALS];
 int g_iCaptureRoundElapsedSeconds[DGM_MAX_CAPTURE_INTERVALS];
 int g_iCaptureTeam[DGM_MAX_CAPTURE_INTERVALS];
 int g_iCapturePoint[DGM_MAX_CAPTURE_INTERVALS];
+int g_iOriginalUpgradePerHit = 0;
 DynamicDetour g_hConstructionMultiplierDetour = null;
-DynamicDetour g_hUpgradeAmountPerHitDetour = null;
 
 public Plugin myinfo = {
     name = "Gamemode Detector",
@@ -1566,7 +1568,9 @@ void DGM_SetSetupActive(bool setupActive)
 
     // Waiting-for-players shares DGM's setup handling, but this engine override
     // applies only during an actual setup round.
-    g_bSetupConstructionMultiplierActive = setupActive && DGM_IsRealSetupActive();
+    bool realSetupActive = setupActive && DGM_IsRealSetupActive();
+    g_bSetupConstructionMultiplierActive = realSetupActive;
+    DGM_SetSetupUpgradeMetalActive(realSetupActive);
 
     if (g_bSetupActive == setupActive)
     {
@@ -1619,7 +1623,7 @@ void DGM_SetSetupActive(bool setupActive)
     }
 }
 
-void DGM_InitializeBuildingDetours()
+void DGM_InitializeConstructionMultiplierDetour()
 {
     GameData gameData = new GameData("dgm");
     if (gameData == null)
@@ -1631,34 +1635,18 @@ void DGM_InitializeBuildingDetours()
         gameData,
         "CBaseObject::GetConstructionMultiplier"
     );
-    g_hUpgradeAmountPerHitDetour = DynamicDetour.FromConf(
-        gameData,
-        "CBaseObject::GetUpgradeAmountPerHit"
-    );
     delete gameData;
 
     if (g_hConstructionMultiplierDetour == null)
     {
         SetFailState("Failed to create CBaseObject::GetConstructionMultiplier detour.");
     }
-    if (g_hUpgradeAmountPerHitDetour == null)
-    {
-        SetFailState("Failed to create CBaseObject::GetUpgradeAmountPerHit detour.");
-    }
-
     if (!g_hConstructionMultiplierDetour.Enable(
         Hook_Pre,
         DGM_GetConstructionMultiplierPre
     ))
     {
         SetFailState("Failed to enable CBaseObject::GetConstructionMultiplier detour.");
-    }
-    if (!g_hUpgradeAmountPerHitDetour.Enable(
-        Hook_Post,
-        DGM_GetUpgradeAmountPerHitPost
-    ))
-    {
-        SetFailState("Failed to enable CBaseObject::GetUpgradeAmountPerHit detour.");
     }
 }
 
@@ -1682,23 +1670,46 @@ public MRESReturn DGM_GetConstructionMultiplierPre(
     return MRES_Supercede;
 }
 
-public MRESReturn DGM_GetUpgradeAmountPerHitPost(
-    int building,
-    DHookReturn hReturn)
+void DGM_SetSetupUpgradeMetalActive(bool active)
 {
-    if (g_cvUpgradeMetalPerHit == null || hReturn.Value != 50)
+    if (!active)
     {
-        return MRES_Ignored;
+        DGM_RestoreSetupUpgradeMetal();
+        return;
     }
 
-    int metal = g_cvUpgradeMetalPerHit.IntValue;
-    if (metal == 50)
+    if (g_cvTfObjUpgradePerHit == null || g_cvUpgradeMetalPerHit == null)
     {
-        return MRES_Ignored;
+        return;
     }
 
-    hReturn.Value = metal;
-    return MRES_Override;
+    if (!g_bSetupUpgradeMetalActive)
+    {
+        g_iOriginalUpgradePerHit = g_cvTfObjUpgradePerHit.IntValue;
+        g_bSetupUpgradeMetalActive = true;
+    }
+
+    int baseMetal = g_cvUpgradeMetalPerHit.IntValue / 2;
+    if (g_cvTfObjUpgradePerHit.IntValue != baseMetal)
+    {
+        g_cvTfObjUpgradePerHit.IntValue = baseMetal;
+    }
+}
+
+void DGM_RestoreSetupUpgradeMetal()
+{
+    if (!g_bSetupUpgradeMetalActive)
+    {
+        return;
+    }
+
+    if (g_cvTfObjUpgradePerHit != null)
+    {
+        g_cvTfObjUpgradePerHit.IntValue = g_iOriginalUpgradePerHit;
+    }
+
+    g_bSetupUpgradeMetalActive = false;
+    g_iOriginalUpgradePerHit = 0;
 }
 
 void DGM_UpdateSetupState()
@@ -1980,13 +1991,19 @@ public void OnPluginStart()
     g_cvUpgradeMetalPerHit = CreateConVar(
         "dgm_upgrade_metal_per_hit",
         "200",
-        "Metal applied by a normal wrench upgrade hit.",
+        "Desired metal applied per wrench upgrade hit during setup; odd values round down.",
         _,
         true,
         0.0,
         true,
         1000.0
     );
+    g_cvTfObjUpgradePerHit = FindConVar("tf_obj_upgrade_per_hit");
+    if (g_cvTfObjUpgradePerHit == null)
+    {
+        SetFailState("Failed to find tf_obj_upgrade_per_hit.");
+    }
+    HookConVarChange(g_cvUpgradeMetalPerHit, ConVarChange_UpgradeMetalPerHit);
     // Always respawn red team on control point capture in asymmetrical gamemodes?
     g_cvAsymCapRespawn = CreateConVar("respawn_red_on_cap", "0", "Override respawn times", _, true, 0.0, true, 1.0);
     // Change the setup time to this in asymmetrical gamemodes
@@ -2023,12 +2040,13 @@ public void OnPluginStart()
     RegConsoleCmd("sm_cpleader", Command_ObjectiveLeader, "Show which team leads by control-point ownership");
     RegConsoleCmd("sm_manual", Command_CvarHelp, "Displays information about plugin ConVars.");
 
-    DGM_InitializeBuildingDetours();
+    DGM_InitializeConstructionMultiplierDetour();
     DGM_RefreshRespawnVisualState();
 }
 
 public void OnPluginEnd()
 {
+    DGM_RestoreSetupUpgradeMetal();
     g_bSetupConstructionMultiplierActive = false;
 
     if (g_hConstructionMultiplierDetour != null)
@@ -2039,15 +2057,6 @@ public void OnPluginEnd()
         );
         delete g_hConstructionMultiplierDetour;
     }
-    if (g_hUpgradeAmountPerHitDetour != null)
-    {
-        g_hUpgradeAmountPerHitDetour.Disable(
-            Hook_Post,
-            DGM_GetUpgradeAmountPerHitPost
-        );
-        delete g_hUpgradeAmountPerHitDetour;
-    }
-
     DGM_ClearAllRespawnTimers();
     DGM_ClearAllRespawnReminderTimers();
 
@@ -2061,6 +2070,7 @@ public void OnPluginEnd()
 
 public void OnMapStart()
 {
+    DGM_RestoreSetupUpgradeMetal();
     g_bGameRulesReady = false;
     // NO_MAPCHANGE timers are closed by SourceMod during transitions; clear local handles.
     g_hNoEngineerSetupReductionTimer = INVALID_HANDLE;
@@ -2082,6 +2092,7 @@ public void OnMapStart()
 
 public void OnMapEnd()
 {
+    DGM_RestoreSetupUpgradeMetal();
     g_bGameRulesReady = false;
     g_bSetupConstructionMultiplierActive = false;
     // NO_MAPCHANGE timers are closed by SourceMod during transitions; clear local handles.
@@ -2099,6 +2110,14 @@ public void ConVarChange_RespawnSetting(ConVar convar, const char[] oldValue, co
         g_InternalOverride = DGM_AreRespawnTimesForcedOn();
         DGM_RefreshRespawnVisualState();
         DGM_RespawnDeadClients();
+    }
+}
+
+public void ConVarChange_UpgradeMetalPerHit(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    if (g_bSetupConstructionMultiplierActive)
+    {
+        DGM_SetSetupUpgradeMetalActive(true);
     }
 }
 
@@ -2356,7 +2375,7 @@ public Action Command_CvarHelp(int client, int args)
         "respawn_blutime: float - Respawn time (seconds) specifically for Blu team (beta)",
         "sm_autoaddtime: int - Seconds to add to KOTH timers when enabled (0 disables)",
         "dgm_setup_construction_multiplier: float - Construction multiplier during setup (0.0 or 1.0 disables)",
-        "dgm_upgrade_metal_per_hit: int - Metal applied by a normal wrench upgrade hit",
+        "dgm_upgrade_metal_per_hit: int - Desired metal per wrench upgrade hit during setup",
         "respawn_red_on_cap: 0/1 - In asymmetrical modes, when 1, respawns Red instantly on cap",
         "sm_setuptime: int - Forces round setup time to this value (0 = disabled)",
         "sm_gamemode: string - Read-only; stores the detected gamemode name",
