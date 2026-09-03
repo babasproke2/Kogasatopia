@@ -154,6 +154,7 @@ ConVar g_hFiltersTeamChat = null;
 ConVar g_hRedlistEnabled = null;
 ConVar g_hPChat = null;
 ConVar g_hMuteDeafenEnabled = null;
+ConVar g_hParseeEnabled = null;
 ConVar g_hMemomanEnabled = null;
 ConVar g_hTidyChatEnabled = null;
 ConVar g_hTidyChatVoice = null;
@@ -617,6 +618,16 @@ static void Filters_CreateConVars()
         true,
         1.0
     );
+    g_hParseeEnabled = CreateConVar(
+        "sm_filters_parsee",
+        "0",
+        "Enable Parsee archived messages and webchat impersonation.",
+        _,
+        true,
+        0.0,
+        true,
+        1.0
+    );
     g_hMemomanEnabled = CreateConVar(
         "sm_filters_memoman",
         "0",
@@ -643,6 +654,7 @@ static void Filters_CreateConVars()
     HookConVarChange(g_sChatMode2, Filters_OnFilterModeChanged);
     HookConVarChange(g_hRedlistEnabled, Filters_OnRedlistChanged);
     HookConVarChange(g_hMuteDeafenEnabled, Filters_OnMuteDeafenChanged);
+    HookConVarChange(g_hParseeEnabled, Filters_OnParseeChanged);
     HookConVarChange(g_hMemomanEnabled, Filters_OnMemomanChanged);
 }
 
@@ -1185,7 +1197,10 @@ public void Filters_SchemaQueryCallback(Database db, DBResultSet results, const 
         {
             Filters_PrenameLoadRules();
         }
-        Filters_RefreshArchivedMessageCount(ArchivedSpeaker_Parsee);
+        if (g_hParseeEnabled.BoolValue)
+        {
+            Filters_RefreshArchivedMessageCount(ArchivedSpeaker_Parsee);
+        }
         Filters_RefreshArchivedMessageCount(ArchivedSpeaker_Memoman);
     }
 }
@@ -1315,6 +1330,11 @@ public void Filters_ArchivedMessageCountCallback(Database db, DBResultSet result
 
 public Action Command_RandomParseeMessage(int client, int args)
 {
+    if (!g_hParseeEnabled.BoolValue)
+    {
+        return Plugin_Handled;
+    }
+
     return Filters_CommandRandomArchivedMessage(client, ArchivedSpeaker_Parsee);
 }
 
@@ -1366,8 +1386,9 @@ static void Filters_ScheduleArchivedMessageTriggers(int client, const char[] mes
     {
         Filters_ScheduleArchivedMessageTrigger(client, ArchivedSpeaker_Memoman);
     }
-    if (StrContains(message, "parsee", false) != -1
-        || StrContains(message, "kig", false) != -1)
+    if (g_hParseeEnabled.BoolValue
+        && (StrContains(message, "parsee", false) != -1
+            || StrContains(message, "kig", false) != -1))
     {
         Filters_ScheduleArchivedMessageTrigger(client, ArchivedSpeaker_Parsee);
     }
@@ -1386,8 +1407,8 @@ public Action Timer_ArchivedMessageTrigger(Handle timer, DataPack pack)
     pack.Reset();
     int client = GetClientOfUserId(pack.ReadCell());
     ArchivedSpeaker speaker = pack.ReadCell();
-    if (speaker == ArchivedSpeaker_Memoman
-        && !g_hMemomanEnabled.BoolValue)
+    if ((speaker == ArchivedSpeaker_Parsee && !g_hParseeEnabled.BoolValue)
+        || (speaker == ArchivedSpeaker_Memoman && !g_hMemomanEnabled.BoolValue))
     {
         return Plugin_Stop;
     }
@@ -1462,6 +1483,11 @@ static void Filters_ResetArchivedMessageCooldowns(int client)
 
 static void Filters_QueryRandomArchivedMessage(ArchivedSpeaker speaker)
 {
+    if (speaker == ArchivedSpeaker_Parsee && !g_hParseeEnabled.BoolValue)
+    {
+        return;
+    }
+
     char table[32], steam64[32], steam2[32], fallbackName[PRENAME_MAX_RENAME];
     Filters_GetArchivedSpeakerDetails(speaker, table, sizeof(table), steam64, sizeof(steam64), steam2, sizeof(steam2), fallbackName, sizeof(fallbackName));
 
@@ -1488,8 +1514,8 @@ static void Filters_QueryRandomArchivedMessage(ArchivedSpeaker speaker)
 public void Filters_RandomArchivedMessageCallback(Database db, DBResultSet results, const char[] error, any data)
 {
     ArchivedSpeaker speaker = view_as<ArchivedSpeaker>(data);
-    if (speaker == ArchivedSpeaker_Memoman
-        && !g_hMemomanEnabled.BoolValue)
+    if ((speaker == ArchivedSpeaker_Parsee && !g_hParseeEnabled.BoolValue)
+        || (speaker == ArchivedSpeaker_Memoman && !g_hMemomanEnabled.BoolValue))
     {
         return;
     }
@@ -1521,6 +1547,11 @@ public void Filters_RandomArchivedMessageCallback(Database db, DBResultSet resul
 
 static void Filters_QueryArchivedSpeakerRelay(ArchivedSpeaker speaker, const char[] message)
 {
+    if (speaker == ArchivedSpeaker_Parsee && !g_hParseeEnabled.BoolValue)
+    {
+        return;
+    }
+
     char table[32], steam64[32], steam2[32], fallbackName[PRENAME_MAX_RENAME];
     Filters_GetArchivedSpeakerDetails(speaker, table, sizeof(table), steam64, sizeof(steam64), steam2, sizeof(steam2), fallbackName, sizeof(fallbackName));
 
@@ -1546,7 +1577,7 @@ static void Filters_QueryArchivedSpeakerRelay(ArchivedSpeaker speaker, const cha
 
 static void Filters_ArchiveSubnetParseeMessage(int outboxId)
 {
-    if (outboxId <= 0 || !Filters_DbAvailable())
+    if (!g_hParseeEnabled.BoolValue || outboxId <= 0 || !Filters_DbAvailable())
     {
         return;
     }
@@ -1586,6 +1617,11 @@ public void Filters_ArchivedSpeakerRelayCallback(Database db, DBResultSet result
     pack.ReadString(message, sizeof(message));
     delete pack;
 
+    if (speaker == ArchivedSpeaker_Parsee && !g_hParseeEnabled.BoolValue)
+    {
+        return;
+    }
+
     char table[32], steam64[32], steam2[32], displayName[PRENAME_MAX_RENAME];
     Filters_GetArchivedSpeakerDetails(speaker, table, sizeof(table), steam64, sizeof(steam64), steam2, sizeof(steam2), displayName, sizeof(displayName));
 
@@ -1609,6 +1645,11 @@ public void Filters_ArchivedSpeakerRelayCallback(Database db, DBResultSet result
 
 static void Filters_RenderArchivedSpeakerMessage(ArchivedSpeaker speaker, const char[] message, char[] displayName, char[] color, char[] pattern, bool webRelay)
 {
+    if (speaker == ArchivedSpeaker_Parsee && !g_hParseeEnabled.BoolValue)
+    {
+        return;
+    }
+
     char table[32], steam64[32], steam2[32], fallbackName[PRENAME_MAX_RENAME];
     Filters_GetArchivedSpeakerDetails(speaker, table, sizeof(table), steam64, sizeof(steam64), steam2, sizeof(steam2), fallbackName, sizeof(fallbackName));
 
@@ -1878,10 +1919,13 @@ static void Filters_DeliverOutboxRow(int id, const char[] hash, const char[] sou
 
     bool suppressChatBroadcast = webchatOnly || StrEqual(hash, "system") || fromLocalServer;
     bool isWebchatRelay = !isPlayerRelay && !StrEqual(hash, "system") && display[0];
-    bool forceParseeRelay = g_hWebchatParsee != null
+    bool parseeEnabled = g_hParseeEnabled != null && g_hParseeEnabled.BoolValue;
+    bool forceParseeRelay = parseeEnabled
+        && g_hWebchatParsee != null
         && g_hWebchatParsee.BoolValue
         && isWebchatRelay;
-    bool subnetParseeRelay = StrEqual(sourceSubnet, PARSEE_WEB_SUBNET_STAMP);
+    bool subnetParseeRelay = parseeEnabled
+        && StrEqual(sourceSubnet, PARSEE_WEB_SUBNET_STAMP);
     if (subnetParseeRelay)
     {
         Filters_ArchiveSubnetParseeMessage(id);
@@ -5410,6 +5454,14 @@ public void Filters_OnRedlistChanged(ConVar convar, const char[] oldValue, const
 public void Filters_OnMuteDeafenChanged(ConVar convar, const char[] oldValue, const char[] newValue)
 {
     Filters_RefreshMuteDeafenState();
+}
+
+public void Filters_OnParseeChanged(ConVar convar, const char[] oldValue, const char[] newValue)
+{
+    if (StringToInt(oldValue) == 0 && StringToInt(newValue) != 0)
+    {
+        Filters_RefreshArchivedMessageCount(ArchivedSpeaker_Parsee);
+    }
 }
 
 public void Filters_OnMemomanChanged(ConVar convar, const char[] oldValue, const char[] newValue)
