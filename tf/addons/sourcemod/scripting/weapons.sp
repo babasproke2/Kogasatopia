@@ -436,6 +436,7 @@ public void OnClientDisconnect(int client) {
 }
 
 void Weapons_OnWeaponSwitchPost(int client, int weapon) {
+	Plasma_OnWeaponSwitchPost(client);
 	WeaponsMovement_OnWeaponSwitchPost(client, weapon);
 	WeaponsSound_OnWeaponSwitchPost(client, weapon);
 	WeaponsModels_OnWeaponSwitchPost(client, weapon);

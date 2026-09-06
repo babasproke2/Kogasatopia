@@ -73,6 +73,37 @@ static void Plasma_UnlockAttack(int weapon)
 	g_bPlasmaOwnsAttackLock[weapon] = false;
 }
 
+static void Plasma_SyncAttackLock(int weapon)
+{
+	// no_attack is provided to the owner, so it must not stay on a holstered rifle.
+	int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
+	bool block = g_fPlasmaLockedUntil[weapon] > GetEngineTime()
+		&& Weapons_IsClientInGame(owner) && IsPlayerAlive(owner)
+		&& GetEntPropEnt(owner, Prop_Send, "m_hActiveWeapon") == weapon;
+	if (block)
+	{
+		if (!g_bPlasmaOwnsAttackLock[weapon])
+			Plasma_LockAttack(weapon);
+	}
+	else
+		Plasma_UnlockAttack(weapon);
+}
+
+void Plasma_OnWeaponSwitchPost(int client)
+{
+	// Sync immediately after a successful switch, not just on the next frame.
+	for (int weapon = MaxClients + 1; weapon < MAX_TRACKED_ENTITIES; weapon++)
+	{
+		if (!g_bPlasmaHooked[weapon] || EntRefToEntIndex(g_iPlasmaRef[weapon]) != weapon
+			|| GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity") != client)
+			continue;
+		if (WeaponsGameplay_IsEnabled() && Plasma_IsWeapon(weapon))
+			Plasma_UpdateHeat(weapon);
+		else
+			Plasma_UnlockAttack(weapon);
+	}
+}
+
 void Plasma_ClearAll()
 {
 	for (int weapon = MaxClients + 1; weapon < MAX_TRACKED_ENTITIES; weapon++)
@@ -113,6 +144,7 @@ static void Plasma_UpdateHeat(int weapon)
 		{
 			g_fPlasmaHeat[weapon] = 100.0 * remaining / PLASMA_OVERHEAT_SECONDS;
 		}
+		Plasma_SyncAttackLock(weapon);
 		return;
 	}
 
@@ -191,7 +223,7 @@ static void Plasma_CheckShot(int weapon)
 	{
 		g_fPlasmaHeat[weapon] = 100.0;
 		g_fPlasmaLockedUntil[weapon] = GetEngineTime() + PLASMA_OVERHEAT_SECONDS;
-		Plasma_LockAttack(weapon);
+		Plasma_SyncAttackLock(weapon);
 		if (Weapons_IsClientInGame(owner))
 			EmitSoundToAll(SOUND_PLASMA_OVERHEAT, owner, SNDCHAN_AUTO, SNDLEVEL_NORMAL);
 	}
