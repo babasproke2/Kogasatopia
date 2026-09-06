@@ -47,6 +47,7 @@ public Plugin myinfo = {
 
 bool g_bHookActivated = false;
 
+int g_iScoreAdjustment[MAXPLAYERS+1]; // Backstab kill-point deductions for this connection.
 int g_iAddScore[MAXPLAYERS+1]; // The old scores that are currently being added to the clients.
 KeyValues g_kvOldScores = null; // Keys are steamids of players disconnected, and values are their old scores.
 
@@ -80,6 +81,7 @@ int TF2_GetPlayerScore(int client) {
 
 
 public void OnPluginStart() {
+	HookEvent("player_death", Event_player_death, EventHookMode_Post);
 	HookEvent("player_activate", Event_player_activate, EventHookMode_Post);
 	HookEvent("player_disconnect", Event_player_disconnect, EventHookMode_Pre);
 	HookEvent("teamplay_restart_round", Event_restart_round, EventHookMode_Post);
@@ -111,8 +113,10 @@ void ResetOldScores() {
 	delete g_kvOldScores;
 	g_kvOldScores = CreateKeyValues("OldScores");
 	
-	for (int client = 1; client <= MaxClients; client++)
+	for (int client = 1; client <= MaxClients; client++) {
 		g_iAddScore[client] = 0;
+		g_iScoreAdjustment[client] = 0;
+	}
 }
 
 public void Event_restart_round(Event event, const char[] name, bool dontBroadcast) {
@@ -125,6 +129,28 @@ public void OnMapStart() {
 
 
 
+
+public void OnClientPutInServer(int client) {
+	g_iAddScore[client] = 0;
+	g_iScoreAdjustment[client] = 0;
+}
+
+public void Event_player_death(Event event, const char[] name, bool dontBroadcast) {
+	if (event.GetInt("customkill") != TF_CUSTOM_BACKSTAB
+		|| (event.GetInt("death_flags") & TF_DEATHFLAG_DEADRINGER))
+		return;
+
+	int attacker = GetClientOfUserId(event.GetInt("attacker"));
+	int victim = GetClientOfUserId(event.GetInt("userid"));
+	if (!IsRealPlayer(attacker) || attacker == victim
+		|| TF2_GetPlayerClass(attacker) != TFClass_Spy)
+		return;
+
+	// Leave TF2's real score intact; remove only the ordinary kill point
+	// from the displayed total after the player manager recalculates it.
+	g_iScoreAdjustment[attacker]--;
+	StartHook();
+}
 
 // When a player connects, check if it is a returning player, and adjust his score accordingly.
 public void Event_player_activate(Event event, const char[] name, bool dontBroadcast) {
@@ -157,6 +183,7 @@ public void Event_player_disconnect(Event event, const char[] name, bool dontBro
 	int client = GetClientOfUserId(userid);
 	
 	g_iAddScore[client] = 0;
+	g_iScoreAdjustment[client] = 0;
 	
 	// Clear the old scores if the server is empty
 	if (GetClientCount() == 1) {
@@ -220,10 +247,12 @@ public void Hook_OnThinkPost(int iEnt) {
 	int iTotalScore[MAXPLAYERS+1];
 	GetEntDataArray(iEnt, iTotalScoreOffset, iTotalScore, MaxClients+1);
 	
-	// Add the old scores
+	// Apply reconnect credit and backstab deductions to the fresh engine totals.
 	for (int i = 1; i <= MaxClients; i++) {
 		if (IsClientInGame(i)) {
-			iTotalScore[i] += g_iAddScore[i];
+			iTotalScore[i] += g_iAddScore[i] + g_iScoreAdjustment[i];
+			if (iTotalScore[i] < 0)
+				iTotalScore[i] = 0;
 		}
 	}
 	
