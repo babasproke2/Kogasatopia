@@ -92,6 +92,8 @@ int g_iLastEntitySpawnTime = 0;
 bool g_bFreeRtdNoticeScheduled[MAXPLAYERS + 1];
 bool g_bRtdCooldownHudVisible[MAXPLAYERS + 1];
 Handle g_hRtdCooldownHudTimer;
+int g_iLastFireworkTime[MAXPLAYERS + 1];
+bool g_bPurchasedFirework[MAXPLAYERS + 1];
 
 Handle g_hFwdCanRoll;
 Handle g_hFwdCanForce;
@@ -239,6 +241,8 @@ void ResetAllClients(RTDRemoveReason reason, const int iInitiator=0, const bool 
 		}
 
 		g_hRollers.Reset(i);
+		g_iLastFireworkTime[i] = 0;
+		g_bPurchasedFirework[i] = false;
 	}
 }
 
@@ -294,6 +298,8 @@ public void OnClientPutInServer(int client)
 	g_bFreeRtdNoticeScheduled[client] = false;
 	g_bRtdCooldownHudVisible[client] = false;
 	g_hRollers.Reset(client);
+	g_iLastFireworkTime[client] = 0;
+	g_bPurchasedFirework[client] = false;
 
 	if (g_hRollers.GetHud(client) == null)
 		g_hRollers.SetHud(client, CreateHudSynchronizer());
@@ -311,6 +317,8 @@ public void OnClientDisconnect(int client)
 		RemovePerk(client, RTDRemove_Disconnect);
 
 	g_hRollers.Reset(client);
+	g_iLastFireworkTime[client] = 0;
+	g_bPurchasedFirework[client] = false;
 	SDKUnhook(client, SDKHook_GetMaxHealth, OnGetMaxHealth);
 }
 
@@ -335,7 +343,8 @@ void UpdateRtdCooldownHud(int client)
 	}
 
 	int remaining = g_hRollers.GetLastRollTime(client) + g_iCvarRollInterval - GetTime();
-	if (remaining <= 0)
+	int fireworkRemaining = g_iLastFireworkTime[client] + g_iCvarRollInterval - GetTime();
+	if (remaining <= 0 && fireworkRemaining <= 0)
 	{
 		ClearRtdCooldownHud(client);
 		return;
@@ -345,7 +354,12 @@ void UpdateRtdCooldownHud(int client)
 	int red = (team == 2) ? 255 : 32;
 	int blue = (team == 3) ? 255 : 32;
 	SetHudTextParams(g_fCvarTimerPosX, g_fCvarTimerPosY, 1.0, red, 32, blue, 255);
-	ShowSyncHudText(client, g_hRollers.GetHud(client), "RTD cooldown: %d", remaining);
+	if (remaining > 0 && fireworkRemaining > 0)
+		ShowSyncHudText(client, g_hRollers.GetHud(client), "RTD cooldown: %d\nFirework cooldown: %d", remaining, fireworkRemaining);
+	else if (remaining > 0)
+		ShowSyncHudText(client, g_hRollers.GetHud(client), "RTD cooldown: %d", remaining);
+	else
+		ShowSyncHudText(client, g_hRollers.GetHud(client), "Firework cooldown: %d", fireworkRemaining);
 	g_bRtdCooldownHudVisible[client] = true;
 }
 
@@ -633,10 +647,19 @@ bool PurchaseFirework(int payer, int target, int cost)
 		return false;
 	}
 
+	// Like normal RTD, the recipient owns the cooldown. Recheck at purchase
+	// time so a stale confirmation menu cannot bypass it or charge on failure.
+	if (g_hRollers.GetInRoll(target))
+	{
+		RTDPrint(payer, "%N is already using RTD.", target);
+		return false;
+	}
+	if (!IsPerkCooldownReady(target, payer, true))
+		return false;
 	if (!SpendFireworkCost(payer, cost))
 		return false;
 
-	ApplyPerk(target, firework);
+	ApplyPerk(target, firework, .purchasedFirework=true);
 	return true;
 }
 
@@ -1460,6 +1483,27 @@ void ParseDisabledPerks()
 	delete hDisabledPerks;
 }
 
+bool IsPerkCooldownReady(int client, int replyClient, bool firework = false)
+{
+	int lastUse = firework ? g_iLastFireworkTime[client] : g_hRollers.GetLastRollTime(client);
+	int remaining = lastUse + g_iCvarRollInterval - GetTime();
+	if (remaining <= 0)
+		return true;
+
+	if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
+		RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Wait", 0x04, remaining, 0x01);
+	return false;
+}
+
+void FinishPerkCooldown(int client)
+{
+	if (g_bPurchasedFirework[client])
+		g_iLastFireworkTime[client] = GetTime();
+	else
+		g_hRollers.SetLastRollTime(client, GetTime());
+	g_bPurchasedFirework[client] = false;
+}
+
 bool RollPerkForClient(int client, int payer = 0, bool chargeCost = true)
 {
 	if (!IsValidClient(client))
@@ -1537,14 +1581,8 @@ bool RollPerkForClient(int client, int payer = 0, bool chargeCost = true)
 		return false;
 	}
 
-	int iTimeLeft = g_hRollers.GetLastRollTime(client) + g_iCvarRollInterval;
-	if (GetTime() < iTimeLeft)
-	{
-		if (g_iCvarChat & view_as<int>(ChatFlag_Reasons))
-			RTDPrint(replyClient, "%t", "RTD2_Cant_Roll_Wait", 0x04, iTimeLeft - GetTime(), 0x01);
-
+	if (!IsPerkCooldownReady(client, replyClient))
 		return false;
-	}
 
 	switch (g_iCvarRtdMode)
 	{
@@ -1827,10 +1865,12 @@ Perk RollPerk(const int client=0, const int iRollFlags=ROLLFLAG_NONE, const char
 	return perk;
 }
 
-void ApplyPerk(const int client, Perk perk, const int iPerkTime=-1)
+void ApplyPerk(const int client, Perk perk, const int iPerkTime=-1, bool purchasedFirework=false)
 {
 	if (!IsValidClient(client))
 		return;
+
+	g_bPurchasedFirework[client] = purchasedFirework;
 
 	// Save player class for the duration of the perk, specifically until the next one is applied
 	Shared[client].ClassForPerk = TF2_GetPlayerClass(client);
@@ -1860,7 +1900,7 @@ void ApplyPerk(const int client, Perk perk, const int iPerkTime=-1)
 	}
 	else
 	{
-		g_hRollers.SetLastRollTime(client, GetTime());
+		FinishPerkCooldown(client);
 	}
 
 	Forward_PerkApplied(client, perk, iDuration);
@@ -2076,7 +2116,7 @@ void RemovedPerk(int client, RTDRemoveReason reason, const char[] sReason="")
 	}
 
 	g_hRollers.SetInRoll(client, false);
-	g_hRollers.SetLastRollTime(client, GetTime());
+	FinishPerkCooldown(client);
 
 	Forward_PerkRemoved(client, perk, reason);
 	g_hRollers.SetPerk(client, null);
