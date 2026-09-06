@@ -4,6 +4,7 @@
 #define PLASMA_COOL_RATE 30.0
 #define PLASMA_OVERHEAT_SECONDS 2.33
 #define PLASMA_NO_ATTACK_ATTRIBUTE 821
+#define SOUND_PLASMA_OVERHEAT "weapons/halo_ce/plasrifle_overheat_10b.wav"
 
 bool g_bPlasmaHooked[MAX_TRACKED_ENTITIES];
 int g_iPlasmaRef[MAX_TRACKED_ENTITIES];
@@ -185,13 +186,15 @@ static void Plasma_CheckShot(int weapon)
 	g_iPlasmaShotsSeen[weapon]++;
 	g_fPlasmaHeat[weapon] += PLASMA_HEAT_PER_SHOT;
 	g_fPlasmaUpdated[weapon] = GetEngineTime();
+	int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
 	if (g_fPlasmaHeat[weapon] >= 100.0)
 	{
 		g_fPlasmaHeat[weapon] = 100.0;
 		g_fPlasmaLockedUntil[weapon] = GetEngineTime() + PLASMA_OVERHEAT_SECONDS;
 		Plasma_LockAttack(weapon);
+		if (Weapons_IsClientInGame(owner))
+			EmitSoundToAll(SOUND_PLASMA_OVERHEAT, owner, SNDCHAN_AUTO, SNDLEVEL_NORMAL);
 	}
-	int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
 	if (Weapons_IsClientInGame(owner))
 		Plasma_ShowHeat(owner, weapon);
 }
