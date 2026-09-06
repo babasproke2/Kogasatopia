@@ -1,4 +1,4 @@
-// Pistol battery uses two rounds per shot from a configured 200-round clip.
+// Pistol battery uses one round per shot from a configured 100-round clip.
 #define ATTR_PLASMA_RIFLE "plasma rifle attributes"
 #define PLASMA_HEAT_PER_SHOT 8.0
 #define PLASMA_COOL_RATE 30.0
@@ -29,7 +29,8 @@ void Plasma_Hook(int weapon, const char[] classname)
 {
 	if (weapon <= MaxClients || weapon >= MAX_TRACKED_ENTITIES
 		|| dhook_CTFWeaponBase_PrimaryAttack == null
-		|| !StrEqual(classname, "tf_weapon_pistol") || g_bPlasmaHooked[weapon])
+		|| (!StrEqual(classname, "tf_weapon_pistol") && !StrEqual(classname, "tf_weapon_pistol_scout"))
+		|| g_bPlasmaHooked[weapon])
 		return;
 
 	dhook_CTFWeaponBase_PrimaryAttack.HookEntity(Hook_Pre, weapon, Plasma_PrimaryAttack_Pre);
@@ -131,7 +132,7 @@ public MRESReturn Plasma_PrimaryAttack_Pre(int weapon)
 
 	Plasma_UpdateHeat(weapon);
 	int clip = GetEntProp(weapon, Prop_Send, "m_iClip1");
-	if (g_fPlasmaLockedUntil[weapon] > GetEngineTime() || clip < 2)
+	if (g_fPlasmaLockedUntil[weapon] > GetEngineTime() || clip < 1)
 		return MRES_Supercede;
 
 	g_iPlasmaClipBefore[weapon] = clip;
@@ -142,15 +143,14 @@ public MRESReturn Plasma_PrimaryAttack_Post(int weapon)
 {
 	int before = g_iPlasmaClipBefore[weapon];
 	g_iPlasmaClipBefore[weapon] = -1;
-	if (!WeaponsGameplay_IsEnabled() || !Plasma_IsWeapon(weapon) || before < 2)
+	if (!WeaponsGameplay_IsEnabled() || !Plasma_IsWeapon(weapon) || before < 1)
 		return MRES_Ignored;
 
 	int after = GetEntProp(weapon, Prop_Send, "m_iClip1");
 	if (after >= before)
 		return MRES_Ignored; // No actual shot (cooldown, dry fire, etc.).
 
-	// The pistol already consumed one round; consume the other battery unit.
-	SetEntProp(weapon, Prop_Send, "m_iClip1", after > 0 ? after - 1 : 0);
+	// The pistol's normal one-round consumption is the complete battery cost.
 	g_fPlasmaHeat[weapon] += PLASMA_HEAT_PER_SHOT;
 	g_fPlasmaUpdated[weapon] = GetEngineTime();
 	if (g_fPlasmaHeat[weapon] >= 100.0)
