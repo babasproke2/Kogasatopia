@@ -81,6 +81,8 @@ static void MuteCheck_ReplyForTarget(int client, int target)
 {
     char muteMessage[512];
     char unmuteMessage[512];
+    int mutedCount = 0;
+    int unmutedCount = 0;
 
     for (int listener = 1; listener <= MaxClients; listener++)
     {
@@ -91,10 +93,12 @@ static void MuteCheck_ReplyForTarget(int client, int target)
 
         if (IsClientMuted(listener, target))
         {
+            mutedCount++;
             MuteCheck_AppendClientName(muteMessage, sizeof(muteMessage), listener);
         }
         else
         {
+            unmutedCount++;
             MuteCheck_AppendClientName(unmuteMessage, sizeof(unmuteMessage), listener);
         }
     }
@@ -102,11 +106,16 @@ static void MuteCheck_ReplyForTarget(int client, int target)
     if (muteMessage[0] == 0)
     {
         ReplyToCommand(client, "%s %N is muted by nobody.", g_MuteCheckTag, target);
-        return;
     }
     else
     {
         ReplyToCommand(client, "%s %N is muted by %s.", g_MuteCheckTag, target, muteMessage);
+    }
+
+    // muted / unmuted > 0.4; integer comparison also handles zero unmuted clients.
+    if (mutedCount * 5 <= unmutedCount * 2)
+    {
+        return;
     }
 
     if (unmuteMessage[0] == 0)
