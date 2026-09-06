@@ -1,4 +1,4 @@
-// Pistol battery uses one round per shot from a configured 100-round clip.
+// Pistol battery uses one round per shot, including clipless reserve-ammo setups.
 #define ATTR_PLASMA_RIFLE "plasma rifle attributes"
 #define PLASMA_HEAT_PER_SHOT 8.0
 #define PLASMA_COOL_RATE 30.0
@@ -7,7 +7,7 @@
 
 bool g_bPlasmaHooked[MAX_TRACKED_ENTITIES];
 int g_iPlasmaRef[MAX_TRACKED_ENTITIES];
-int g_iPlasmaClipBefore[MAX_TRACKED_ENTITIES];
+int g_iPlasmaAmmoBefore[MAX_TRACKED_ENTITIES];
 float g_fPlasmaHeat[MAX_TRACKED_ENTITIES];
 float g_fPlasmaUpdated[MAX_TRACKED_ENTITIES];
 float g_fPlasmaLockedUntil[MAX_TRACKED_ENTITIES];
@@ -37,7 +37,7 @@ void Plasma_Hook(int weapon, const char[] classname)
 	dhook_CTFWeaponBase_PrimaryAttack.HookEntity(Hook_Post, weapon, Plasma_PrimaryAttack_Post);
 	g_bPlasmaHooked[weapon] = true;
 	g_iPlasmaRef[weapon] = EntIndexToEntRef(weapon);
-	g_iPlasmaClipBefore[weapon] = -1;
+	g_iPlasmaAmmoBefore[weapon] = -1;
 	g_fPlasmaHeat[weapon] = 0.0;
 	g_fPlasmaUpdated[weapon] = GetEngineTime();
 	g_fPlasmaLockedUntil[weapon] = 0.0;
@@ -124,30 +124,48 @@ static void Plasma_UpdateHeat(int weapon)
 	}
 }
 
+static int Plasma_GetAmmo(int weapon)
+{
+	// Match CTFWeaponBaseGun::RemoveProjectileAmmo: -1 means use owner ammo.
+	int clip = GetEntProp(weapon, Prop_Send, "m_iClip1");
+	if (clip != -1)
+		return clip;
+
+	int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
+	if (!Weapons_IsClientInGame(owner))
+		return -1;
+
+	// Primary firing can use the secondary ammo pool (pistols); don't hardcode it.
+	int ammoType = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType");
+	if (ammoType < 0 || ammoType >= GetEntPropArraySize(owner, Prop_Send, "m_iAmmo"))
+		return -1;
+	return GetEntProp(owner, Prop_Send, "m_iAmmo", _, ammoType);
+}
+
 public MRESReturn Plasma_PrimaryAttack_Pre(int weapon)
 {
-	g_iPlasmaClipBefore[weapon] = -1;
+	g_iPlasmaAmmoBefore[weapon] = -1;
 	if (!WeaponsGameplay_IsEnabled() || !Plasma_IsWeapon(weapon))
 		return MRES_Ignored;
 
 	Plasma_UpdateHeat(weapon);
-	int clip = GetEntProp(weapon, Prop_Send, "m_iClip1");
-	if (g_fPlasmaLockedUntil[weapon] > GetEngineTime() || clip < 1)
+	int ammo = Plasma_GetAmmo(weapon);
+	if (g_fPlasmaLockedUntil[weapon] > GetEngineTime() || ammo < 1)
 		return MRES_Supercede;
 
-	g_iPlasmaClipBefore[weapon] = clip;
+	g_iPlasmaAmmoBefore[weapon] = ammo;
 	return MRES_Ignored;
 }
 
 public MRESReturn Plasma_PrimaryAttack_Post(int weapon)
 {
-	int before = g_iPlasmaClipBefore[weapon];
-	g_iPlasmaClipBefore[weapon] = -1;
+	int before = g_iPlasmaAmmoBefore[weapon];
+	g_iPlasmaAmmoBefore[weapon] = -1;
 	if (!WeaponsGameplay_IsEnabled() || !Plasma_IsWeapon(weapon) || before < 1)
 		return MRES_Ignored;
 
-	int after = GetEntProp(weapon, Prop_Send, "m_iClip1");
-	if (after >= before)
+	int after = Plasma_GetAmmo(weapon);
+	if (after < 0 || after >= before)
 		return MRES_Ignored; // No actual shot (cooldown, dry fire, etc.).
 
 	// The pistol's normal one-round consumption is the complete battery cost.
