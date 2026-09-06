@@ -7,7 +7,8 @@
 
 bool g_bPlasmaHooked[MAX_TRACKED_ENTITIES];
 int g_iPlasmaRef[MAX_TRACKED_ENTITIES];
-int g_iPlasmaAmmoBefore[MAX_TRACKED_ENTITIES];
+float g_fPlasmaLastFireTime[MAX_TRACKED_ENTITIES];
+int g_iPlasmaShotsSeen[MAX_TRACKED_ENTITIES];
 float g_fPlasmaHeat[MAX_TRACKED_ENTITIES];
 float g_fPlasmaUpdated[MAX_TRACKED_ENTITIES];
 float g_fPlasmaLockedUntil[MAX_TRACKED_ENTITIES];
@@ -37,7 +38,8 @@ void Plasma_Hook(int weapon, const char[] classname)
 	dhook_CTFWeaponBase_PrimaryAttack.HookEntity(Hook_Post, weapon, Plasma_PrimaryAttack_Post);
 	g_bPlasmaHooked[weapon] = true;
 	g_iPlasmaRef[weapon] = EntIndexToEntRef(weapon);
-	g_iPlasmaAmmoBefore[weapon] = -1;
+	g_fPlasmaLastFireTime[weapon] = GetEntPropFloat(weapon, Prop_Send, "m_flLastFireTime");
+	g_iPlasmaShotsSeen[weapon] = 0;
 	g_fPlasmaHeat[weapon] = 0.0;
 	g_fPlasmaUpdated[weapon] = GetEngineTime();
 	g_fPlasmaLockedUntil[weapon] = 0.0;
@@ -77,6 +79,7 @@ void Plasma_ClearAll()
 		if (g_bPlasmaHooked[weapon] && EntRefToEntIndex(g_iPlasmaRef[weapon]) == weapon)
 		{
 			Plasma_UnlockAttack(weapon);
+			g_fPlasmaLastFireTime[weapon] = GetEntPropFloat(weapon, Prop_Send, "m_flLastFireTime");
 			g_fPlasmaHeat[weapon] = 0.0;
 			g_fPlasmaLockedUntil[weapon] = 0.0;
 			g_fPlasmaUpdated[weapon] = GetEngineTime();
@@ -144,31 +147,42 @@ static int Plasma_GetAmmo(int weapon)
 
 public MRESReturn Plasma_PrimaryAttack_Pre(int weapon)
 {
-	g_iPlasmaAmmoBefore[weapon] = -1;
 	if (!WeaponsGameplay_IsEnabled() || !Plasma_IsWeapon(weapon))
 		return MRES_Ignored;
 
 	Plasma_UpdateHeat(weapon);
-	int ammo = Plasma_GetAmmo(weapon);
-	if (g_fPlasmaLockedUntil[weapon] > GetEngineTime() || ammo < 1)
+	if (g_fPlasmaLockedUntil[weapon] > GetEngineTime())
 		return MRES_Supercede;
 
-	g_iPlasmaAmmoBefore[weapon] = ammo;
+	// Let the engine decide whether clipless / infinite-ammo weapons can fire.
 	return MRES_Ignored;
 }
 
 public MRESReturn Plasma_PrimaryAttack_Post(int weapon)
 {
-	int before = g_iPlasmaAmmoBefore[weapon];
-	g_iPlasmaAmmoBefore[weapon] = -1;
-	if (!WeaponsGameplay_IsEnabled() || !Plasma_IsWeapon(weapon) || before < 1)
+	if (!WeaponsGameplay_IsEnabled() || !Plasma_IsWeapon(weapon))
 		return MRES_Ignored;
 
-	int after = Plasma_GetAmmo(weapon);
-	if (after < 0 || after >= before)
-		return MRES_Ignored; // No actual shot (cooldown, dry fire, etc.).
+	Plasma_CheckShot(weapon);
+	return MRES_Ignored;
+}
+
+static void Plasma_CheckShot(int weapon)
+{
+	// FireProjectile updates this even if another plugin restores all consumed ammo.
+	// Both the post hook and OnGameFrame call here; the timestamp deduplicates them.
+	float fired = GetEntPropFloat(weapon, Prop_Send, "m_flLastFireTime");
+	float previous = g_fPlasmaLastFireTime[weapon];
+	g_fPlasmaLastFireTime[weapon] = fired;
+	if (fired <= previous)
+		return; // No shot, dry fire, or a reset of the weapon's fire timestamp.
+
+	Plasma_UpdateHeat(weapon);
+	if (g_fPlasmaLockedUntil[weapon] > GetEngineTime())
+		return;
 
 	// The pistol's normal one-round consumption is the complete battery cost.
+	g_iPlasmaShotsSeen[weapon]++;
 	g_fPlasmaHeat[weapon] += PLASMA_HEAT_PER_SHOT;
 	g_fPlasmaUpdated[weapon] = GetEngineTime();
 	if (g_fPlasmaHeat[weapon] >= 100.0)
@@ -180,7 +194,26 @@ public MRESReturn Plasma_PrimaryAttack_Post(int weapon)
 	int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
 	if (Weapons_IsClientInGame(owner))
 		Plasma_ShowHeat(owner, weapon);
-	return MRES_Ignored;
+}
+
+public Action Command_PlasmaStatus(int client, int args)
+{
+	ReplyToCommand(client, "[Plasma firetime-v1] gameplay=%d", WeaponsGameplay_IsEnabled());
+	int found = 0;
+	for (int weapon = MaxClients + 1; weapon < MAX_TRACKED_ENTITIES; weapon++)
+	{
+		if (!Plasma_IsWeapon(weapon))
+			continue;
+		char classname[64];
+		GetEntityClassname(weapon, classname, sizeof(classname));
+		ReplyToCommand(client, "[Plasma] entity=%d class=%s ammo=%d heat=%.1f shots=%d lock=%d fired=%.4f seen=%.4f",
+			weapon, classname, Plasma_GetAmmo(weapon), g_fPlasmaHeat[weapon], g_iPlasmaShotsSeen[weapon],
+			g_bPlasmaOwnsAttackLock[weapon], GetEntPropFloat(weapon, Prop_Send, "m_flLastFireTime"),
+			g_fPlasmaLastFireTime[weapon]);
+		found++;
+	}
+	ReplyToCommand(client, "[Plasma] %d attributed pistol(s) tracked.", found);
+	return Plugin_Handled;
 }
 
 static void Plasma_ShowHeat(int client, int weapon)
@@ -206,11 +239,16 @@ void Plasma_OnFrame()
 		if (!g_bPlasmaHooked[weapon] || EntRefToEntIndex(g_iPlasmaRef[weapon]) != weapon)
 			continue;
 		if (Plasma_IsWeapon(weapon))
+		{
+			// Also observe shots outside the virtual PrimaryAttack call path.
+			Plasma_CheckShot(weapon);
 			Plasma_UpdateHeat(weapon);
+		}
 		else
 		{
 			// Removing the custom attribute must also remove our firing restriction.
 			Plasma_UnlockAttack(weapon);
+			g_fPlasmaLastFireTime[weapon] = GetEntPropFloat(weapon, Prop_Send, "m_flLastFireTime");
 			g_fPlasmaHeat[weapon] = 0.0;
 			g_fPlasmaLockedUntil[weapon] = 0.0;
 			g_fPlasmaUpdated[weapon] = GetEngineTime();
