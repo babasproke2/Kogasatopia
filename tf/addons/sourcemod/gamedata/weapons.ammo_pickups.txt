@@ -1,0 +1,31 @@
+"Games"
+{
+	"tf"
+	{
+		"Signatures"
+		{
+			"CTFPlayer::GiveAmmoWithSource"
+			{
+				"library" "server"
+				"linux" "@_ZN9CTFPlayer8GiveAmmoEiib11EAmmoSource"
+			}
+		}
+		"Functions"
+		{
+			"CTFPlayer::GiveAmmoWithSource"
+			{
+				"signature" "CTFPlayer::GiveAmmoWithSource"
+				"callconv" "thiscall"
+				"this" "entity"
+				"return" "int"
+				"arguments"
+				{
+					"iCount" { "type" "int" }
+					"iAmmoIndex" { "type" "int" }
+					"bSuppressSound" { "type" "bool" }
+					"eAmmoSource" { "type" "int" }
+				}
+			}
+		}
+	}
+}

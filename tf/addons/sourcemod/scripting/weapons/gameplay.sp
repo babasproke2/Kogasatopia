@@ -183,6 +183,7 @@ DynamicHook dhook_CObjectCartDispenser_DispenseMetal;
 DynamicHook dhook_CTFWeaponBase_CanFireCriticalShot;
 DynamicHook dhook_CTFWeaponBase_PrimaryAttack;
 #include "plasma_rifle.sp"
+#include "ammo_pickups.sp"
 DynamicHook dhook_CTFWeaponBase_SecondaryAttack;
 DynamicHook dhook_CTFStunBall_ApplyBallImpactEffectOnVictim;
 Handle g_SDKCalcIsAttackCriticalHelper = null;
@@ -553,6 +554,7 @@ void WeaponsGameplay_OnPluginStart(GameData conf) {
 		dhook_CTFPlayerShared_StunPlayer.Enable(Hook_Pre, SandmanPreJI_StunPlayer_Pre);
 		dhook_IsFixedWeaponSpreadEnabled.Enable(Hook_Pre, IsFixedWeaponSpreadEnabled_Pre);
 		WeaponsGameplay_HookExistingWeaponEntities();
+		AmmoPickups_Init();
 
 		// Create the patches
 		patch_RevertCozyCamper_FlinchNerf = MemoryPatch.CreateFromConf(conf, "CTFPlayer::ApplyPunchImpulseX_FakeFullyChargedCondition");
@@ -650,6 +652,7 @@ void WeaponsGameplay_OnMapEnd()
 
 void WeaponsGameplay_OnPluginEnd()
 {
+	AmmoPickups_Shutdown();
 	Plasma_ClearAll();
 	g_bPluginEnding = true;
 	Escampette_RecalculateAllSpeeds();
