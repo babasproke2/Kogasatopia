@@ -182,6 +182,7 @@ DynamicDetour dhook_IsFixedWeaponSpreadEnabled;
 DynamicHook dhook_CObjectCartDispenser_DispenseMetal;
 DynamicHook dhook_CTFWeaponBase_CanFireCriticalShot;
 DynamicHook dhook_CTFWeaponBase_PrimaryAttack;
+#include "plasma_rifle.sp"
 DynamicHook dhook_CTFWeaponBase_SecondaryAttack;
 DynamicHook dhook_CTFStunBall_ApplyBallImpactEffectOnVictim;
 Handle g_SDKCalcIsAttackCriticalHelper = null;
@@ -634,6 +635,7 @@ void WeaponsGameplay_OnMapStart() {
 
 void WeaponsGameplay_OnMapEnd()
 {
+	Plasma_ClearAll();
 	FullPelletIgnite_ClearAll();
 	for (int client = 1; client <= MaxClients; client++)
 	{
@@ -645,6 +647,7 @@ void WeaponsGameplay_OnMapEnd()
 
 void WeaponsGameplay_OnPluginEnd()
 {
+	Plasma_ClearAll();
 	g_bPluginEnding = true;
 	Escampette_RecalculateAllSpeeds();
 	WeaponsGameplayEvents_Shutdown();
@@ -721,6 +724,7 @@ void WeaponsGameplay_OnEntityCreated(int entity, const char[] class) {
 
 	WeaponsGameplay_HookCriticalShotEntity(entity, class);
 	WeaponsGameplay_HookShortCircuitEntity(entity, class);
+	Plasma_Hook(entity, class);
 }
 
 public void OnEntityDestroyed(int entity)
@@ -730,6 +734,8 @@ public void OnEntityDestroyed(int entity)
 		g_flProjectileSpawnTime[entity] = 0.0;
 		g_bProjectileSandmanPreJI[entity] = false;
 		g_bShortCircuitAttackHooks[entity] = false;
+		g_bPlasmaHooked[entity] = false;
+		g_bPlasmaOwnsAttackLock[entity] = false;
 	}
 }
 
@@ -737,9 +743,11 @@ public void OnGameFrame()
 {
 	if (!WeaponsGameplay_IsEnabled())
 	{
+		Plasma_ClearAll();
 		return;
 	}
 
+	Plasma_OnFrame();
 	static int frame;
 
 	frame++;
@@ -833,6 +841,7 @@ static void WeaponsGameplay_HookExistingWeaponEntities()
 		GetEntityClassname(weapon, classname, sizeof(classname));
 		WeaponsGameplay_HookCriticalShotEntity(weapon, classname);
 		WeaponsGameplay_HookShortCircuitEntity(weapon, classname);
+		Plasma_Hook(weapon, classname);
 	}
 }
 
