@@ -20,10 +20,22 @@
 				"return" "int"
 				"arguments"
 				{
-					"iCount" { "type" "int" }
-					"iAmmoIndex" { "type" "int" }
-					"bSuppressSound" { "type" "bool" }
-					"eAmmoSource" { "type" "int" }
+					"iCount"
+					{
+						"type" "int"
+					}
+					"iAmmoIndex"
+					{
+						"type" "int"
+					}
+					"bSuppressSound"
+					{
+						"type" "bool"
+					}
+					"eAmmoSource"
+					{
+						"type" "int"
+					}
 				}
 			}
 		}
