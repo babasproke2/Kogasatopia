@@ -790,7 +790,7 @@ Action RunWhitelistLevelListCommand(int client, bool whitelist)
         ... "FROM %s aw "
         ... "LEFT JOIN filters_steam_names fs ON fs.steamid64 = aw.steamid64 COLLATE utf8mb4_uca1400_ai_ci "
         ... "WHERE aw.level %s 0 "
-        ... "ORDER BY ABS(aw.level) DESC, aw.steamid64 ASC LIMIT 64",
+        ... "ORDER BY ABS(aw.level) DESC, aw.steamid64 ASC",
         ADMIN_WHITELIST_TABLE_NAME,
         whitelist ? ">" : "<");
     SQL_TQuery(g_hDatabase, SQL_OnWhitelistLevelList, query, pack);
@@ -838,21 +838,47 @@ public void SQL_OnWhitelistLevelList(Database db, DBResultSet results, const cha
     {
         char steamId64[32];
         char displayName[128];
-        while (results.FetchRow())
+        // Resolve online status once, then retain the database's level ordering
+        // within each group. Apply the display limit AFTER prioritizing online users.
+        StringMap onlineClients = new StringMap();
+        for (int target = 1; target <= MaxClients; target++)
         {
-            results.FetchString(0, steamId64, sizeof(steamId64));
-            int level = results.FetchInt(1);
-            results.FetchString(2, displayName, sizeof(displayName));
-            if (client > 0)
+            if (IsClientInGame(target) && !IsFakeClient(target)
+                && GetClientAuthId(target, AuthId_SteamID64, steamId64, sizeof(steamId64)))
             {
-                CPrintToChat(client, "{green}[AdminsDB]{default} {gold}%d{default}: %s ({lightgreen}%s{default})", level, displayName, steamId64);
+                onlineClients.SetValue(steamId64, target);
             }
-            else
-            {
-                PrintToServer("[AdminsDB] %d: %s (%s)", level, displayName, steamId64);
-            }
-            count++;
         }
+        for (int pass = 0; pass < 2 && count < 64; pass++)
+        {
+            results.Rewind();
+            while (count < 64 && results.FetchRow())
+            {
+                results.FetchString(0, steamId64, sizeof(steamId64));
+                int target;
+                bool online = onlineClients.GetValue(steamId64, target);
+                if (online != (pass == 0))
+                    continue;
+
+                int level = results.FetchInt(1);
+                if (online)
+                    GetClientName(target, displayName, sizeof(displayName));
+                else
+                    results.FetchString(2, displayName, sizeof(displayName));
+
+                if (client > 0)
+                {
+                    CPrintToChat(client, "{green}[AdminsDB]{default} {gold}%d{default}: %s%s ({lightgreen}%s{default})",
+                        level, displayName, online ? " {gold}[ONLINE]{default}" : "", steamId64);
+                }
+                else
+                {
+                    PrintToServer("[AdminsDB] %d: %s%s (%s)", level, displayName, online ? " [ONLINE]" : "", steamId64);
+                }
+                count++;
+            }
+        }
+        delete onlineClients;
     }
 
     if (count == 0)
