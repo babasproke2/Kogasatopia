@@ -102,6 +102,7 @@ static void MuteCheck_ReplyForTarget(int client, int target)
     if (muteMessage[0] == 0)
     {
         ReplyToCommand(client, "%s %N is muted by nobody.", g_MuteCheckTag, target);
+        return;
     }
     else
     {
