@@ -1,6 +1,6 @@
 // Pistol battery uses one round per shot, including clipless reserve-ammo setups.
 #define ATTR_PLASMA_RIFLE "plasma rifle attributes"
-#define PLASMA_HEAT_PER_SHOT 6.0
+#define PLASMA_HEAT_PER_SHOT 7.0
 #define PLASMA_COOL_RATE 30.0
 #define PLASMA_OVERHEAT_SECONDS 2.33
 #define PLASMA_NO_ATTACK_ATTRIBUTE 821
