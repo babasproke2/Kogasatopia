@@ -17,7 +17,6 @@ bool g_bPlasmaHadNoAttack[MAX_TRACKED_ENTITIES];
 float g_fPlasmaPreviousNoAttack[MAX_TRACKED_ENTITIES];
 int g_iPlasmaHudRef[MAXPLAYERS + 1];
 int g_iPlasmaHudHeat[MAXPLAYERS + 1];
-float g_fPlasmaHudTime[MAXPLAYERS + 1];
 
 static bool Plasma_IsWeapon(int weapon)
 {
@@ -219,16 +218,15 @@ public Action Command_PlasmaStatus(int client, int args)
 static void Plasma_ShowHeat(int client, int weapon)
 {
 	int heat = RoundToCeil(g_fPlasmaHeat[weapon]);
-	float now = GetEngineTime();
 	int reference = EntIndexToEntRef(weapon);
-	if (g_iPlasmaHudRef[client] != reference || g_iPlasmaHudHeat[client] != heat
-		|| now - g_fPlasmaHudTime[client] >= 1.0)
+	if (g_iPlasmaHudRef[client] != reference || heat > g_iPlasmaHudHeat[client]
+		|| (heat == 0 && g_iPlasmaHudHeat[client] != 0))
 	{
 		PrintHintText(client, "Heat: %d%%", heat);
-		g_iPlasmaHudRef[client] = reference;
-		g_iPlasmaHudHeat[client] = heat;
-		g_fPlasmaHudTime[client] = now;
 	}
+	// Observe cooling silently so the next shot refreshes even below the last shown heat.
+	g_iPlasmaHudRef[client] = reference;
+	g_iPlasmaHudHeat[client] = heat;
 }
 
 void Plasma_OnFrame()
