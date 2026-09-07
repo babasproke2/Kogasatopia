@@ -38,6 +38,7 @@
 #define ATTR_RELOAD_ON_HIT "reload on hit"
 #define ATTR_RELOAD_ON_KILL "reload on kill"
 #define ATTR_REFILL_CLIP_ON_HIT "refill clip on hit"
+#define ATTR_REFILL_SECONDARY_CLIP_ON_HIT "refill secondary clip on hit"
 #define ATTR_AMBASSADOR_102 "ambassador 102"
 #define ATTR_RANDOM_SPREAD_OVERRIDE "random spread override"
 #define ATTR_RANDOM_CRITS_OVERRIDE "random crits override"
@@ -89,6 +90,7 @@
 #define ATTR_VITA_SAW_REVERT "vita saw revert"
 #define VITASAW_MAX_PRESERVED_CHARGE 0.20
 #define WEAPON_SLOT_PRIMARY 0
+#define WEAPON_SLOT_SECONDARY 1
 #define WEAPON_SLOT_LAST 5
 
 #define FLAME_SHOTGUN_FULL_PELLET_THRESHOLD 6
@@ -2672,6 +2674,45 @@ static void RefillClipOnHit_ApplyFrame(any data)
 	ReloadWeaponClip(weapon, refillAmount);
 }
 
+static void RefillSecondaryClipOnHit_ApplyFrame(any data)
+{
+	DataPack pack = view_as<DataPack>(data);
+	pack.Reset();
+	int attacker = GetClientOfUserId(pack.ReadCell());
+	int sourceWeapon = EntRefToEntIndex(pack.ReadCell());
+	int refillAmount = pack.ReadCell();
+	delete pack;
+
+	if (!Weapons_IsClientInGame(attacker)
+		|| !Weapons_IsValidWeaponEntity(sourceWeapon))
+	{
+		return;
+	}
+
+	int secondary = GetPlayerWeaponSlot(attacker, WEAPON_SLOT_SECONDARY);
+	if (!Weapons_IsClipWeaponEntity(secondary))
+	{
+		return;
+	}
+
+	ReloadWeaponClip(secondary, refillAmount);
+}
+
+static void RefillSecondaryClipOnHit_OnDamage(int attacker, int weapon)
+{
+	int refillAmount = TF2CustAttr_GetInt(weapon, ATTR_REFILL_SECONDARY_CLIP_ON_HIT, 0);
+	if (refillAmount <= 0)
+	{
+		return;
+	}
+
+	DataPack pack = new DataPack();
+	pack.WriteCell(GetClientUserId(attacker));
+	pack.WriteCell(EntIndexToEntRef(weapon));
+	pack.WriteCell(refillAmount);
+	RequestFrame(RefillSecondaryClipOnHit_ApplyFrame, pack);
+}
+
 static void ReloadOnKill_OnKill(int weapon)
 {
 	ReloadWeaponClip(weapon, TF2CustAttr_GetInt(weapon, ATTR_RELOAD_ON_KILL));
@@ -3265,6 +3306,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 			&& GetClientTeam(client) != GetClientTeam(attacker))
 		{
 			RefillClipOnHit_OnDamage(damageWeapon);
+			RefillSecondaryClipOnHit_OnDamage(attacker, damageWeapon);
 		}
 
 		// Resolve duel damage without falling back to the attacker's active weapon.
