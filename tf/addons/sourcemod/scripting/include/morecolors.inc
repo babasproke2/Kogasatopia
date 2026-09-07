@@ -568,6 +568,7 @@ stock Handle:InitColorTrie() {
 	SetTrieValue(hTrie, "goldenrod", 0xDAA520);
 	SetTrieValue(hTrie, "gray", 0xCCCCCC); // same as spectator team color
 	SetTrieValue(hTrie, "grey", 0xCCCCCC);
+	SetTrieValue(hTrie, "gr", 0x3EFF3E); // alias for green
 	SetTrieValue(hTrie, "green", 0x3EFF3E);
 	SetTrieValue(hTrie, "greenyellow", 0xADFF2F);
 	SetTrieValue(hTrie, "haunted", 0x38F3AB); // same as Haunted item quality in TF2
@@ -589,6 +590,7 @@ stock Handle:InitColorTrie() {
 	SetTrieValue(hTrie, "lightgoldenrodyellow", 0xFAFAD2);
 	SetTrieValue(hTrie, "lightgray", 0xD3D3D3);
 	SetTrieValue(hTrie, "lightgrey", 0xD3D3D3);
+	SetTrieValue(hTrie, "lg", 0x99FF99); // alias for lightgreen
 	SetTrieValue(hTrie, "lightgreen", 0x99FF99);
 	SetTrieValue(hTrie, "lightpink", 0xFFB6C1);
 	SetTrieValue(hTrie, "lightsalmon", 0xFFA07A);
@@ -601,6 +603,7 @@ stock Handle:InitColorTrie() {
 	SetTrieValue(hTrie, "lime", 0x00FF00);
 	SetTrieValue(hTrie, "limegreen", 0x32CD32);
 	SetTrieValue(hTrie, "linen", 0xFAF0E6);
+	SetTrieValue(hTrie, "mg", 0xFF00FF); // alias for magenta
 	SetTrieValue(hTrie, "magenta", 0xFF00FF);
 	SetTrieValue(hTrie, "maroon", 0x800000);
 	SetTrieValue(hTrie, "mediumaquamarine", 0x66CDAA);
