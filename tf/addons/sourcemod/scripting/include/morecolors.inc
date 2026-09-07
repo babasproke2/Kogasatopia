@@ -634,6 +634,7 @@ stock Handle:InitColorTrie() {
 	SetTrieValue(hTrie, "paleturquoise", 0xAFEEEE);
 	SetTrieValue(hTrie, "palevioletred", 0xD87093);
 	SetTrieValue(hTrie, "papayawhip", 0xFFEFD5);
+	SetTrieValue(hTrie, "pp", 0xFFDAB9); // alias for peachpuff
 	SetTrieValue(hTrie, "peachpuff", 0xFFDAB9);
 	SetTrieValue(hTrie, "peru", 0xCD853F);
 	SetTrieValue(hTrie, "pink", 0xFFC0CB);
