@@ -48,6 +48,7 @@ public Plugin myinfo = {
 bool g_bHookActivated = false;
 
 int g_iScoreAdjustment[MAXPLAYERS+1]; // Backstab kill-point deductions for this connection.
+int g_iQualifyingTeleports[MAXPLAYERS+1];
 int g_iAddScore[MAXPLAYERS+1]; // The old scores that are currently being added to the clients.
 KeyValues g_kvOldScores = null; // Keys are steamids of players disconnected, and values are their old scores.
 
@@ -82,6 +83,7 @@ int TF2_GetPlayerScore(int client) {
 
 public void OnPluginStart() {
 	HookEvent("player_death", Event_player_death, EventHookMode_Post);
+	HookEvent("player_teleported", Event_player_teleported, EventHookMode_Post);
 	HookEvent("player_activate", Event_player_activate, EventHookMode_Post);
 	HookEvent("player_disconnect", Event_player_disconnect, EventHookMode_Pre);
 	HookEvent("teamplay_restart_round", Event_restart_round, EventHookMode_Post);
@@ -116,6 +118,7 @@ void ResetOldScores() {
 	for (int client = 1; client <= MaxClients; client++) {
 		g_iAddScore[client] = 0;
 		g_iScoreAdjustment[client] = 0;
+		g_iQualifyingTeleports[client] = 0;
 	}
 }
 
@@ -133,6 +136,7 @@ public void OnMapStart() {
 public void OnClientPutInServer(int client) {
 	g_iAddScore[client] = 0;
 	g_iScoreAdjustment[client] = 0;
+	g_iQualifyingTeleports[client] = 0;
 }
 
 public void Event_player_death(Event event, const char[] name, bool dontBroadcast) {
@@ -150,6 +154,27 @@ public void Event_player_death(Event event, const char[] name, bool dontBroadcas
 	// from the displayed total after the player manager recalculates it.
 	g_iScoreAdjustment[attacker]--;
 	StartHook();
+}
+
+public void Event_player_teleported(Event event, const char[] name, bool dontBroadcast) {
+	int teleportedUserId = event.GetInt("userid");
+	int builderUserId = event.GetInt("builderid");
+	if (builderUserId == teleportedUserId)
+		return;
+
+	int teleported = GetClientOfUserId(teleportedUserId);
+	int builder = GetClientOfUserId(builderUserId);
+	if (!IsRealPlayer(teleported) || !IsRealPlayer(builder)
+		|| TF2_GetPlayerClass(builder) != TFClass_Engineer
+		|| GetClientTeam(teleported) != GetClientTeam(builder))
+		return;
+
+	g_iQualifyingTeleports[builder]++;
+	if ((g_iQualifyingTeleports[builder] % 2) == 0) {
+		// TF2 awards one TFSTAT_TELEPORTS point per two teammate uses.
+		g_iScoreAdjustment[builder]--;
+		StartHook();
+	}
 }
 
 // When a player connects, check if it is a returning player, and adjust his score accordingly.
@@ -184,6 +209,7 @@ public void Event_player_disconnect(Event event, const char[] name, bool dontBro
 	
 	g_iAddScore[client] = 0;
 	g_iScoreAdjustment[client] = 0;
+	g_iQualifyingTeleports[client] = 0;
 	
 	// Clear the old scores if the server is empty
 	if (GetClientCount() == 1) {
