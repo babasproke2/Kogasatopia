@@ -4,10 +4,13 @@
  * Weapons select a configured sound group with "replace sound".
  */
 #define Weapons_ATTR_REPLACE_SOUND "replace sound"
+#define Weapons_ATTR_CUSTOM_DEPLOY_SOUND "custom deploy sound"
+#define WEAPONS_CUSTOM_DEPLOY_SOUND_COOLDOWN 3.0
 
 StringMap g_WeaponsSoundGroups;
 int g_iWeaponsSoundWeaponRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
 char g_sWeaponsSoundGroup[MAXPLAYERS + 1][64];
+float g_flWeaponsNextDeploySoundTime[MAXPLAYERS + 1];
 
 enum struct WeaponsSoundGroup
 {
@@ -93,6 +96,36 @@ public Action WeaponsSound_Hook(
 void WeaponsSound_OnWeaponSwitchPost(int client, int weapon)
 {
 	WeaponsSound_UpdateClientWeapon(client, weapon);
+	WeaponsSound_PlayCustomDeploySound(client, weapon);
+}
+
+static void WeaponsSound_PlayCustomDeploySound(int client, int weapon)
+{
+	if (!Weapons_IsValidClient(client) || !IsValidEntity(weapon)
+			|| GetGameTime() < g_flWeaponsNextDeploySoundTime[client])
+	{
+		return;
+	}
+
+	char sample[PLATFORM_MAX_PATH];
+	TF2CustAttr_GetString(weapon, Weapons_ATTR_CUSTOM_DEPLOY_SOUND,
+		sample, sizeof(sample));
+	TrimString(sample);
+	if (!sample[0])
+	{
+		return;
+	}
+
+	if (!PrecacheSound(sample, true))
+	{
+		LogError("Failed to precache custom deploy sound '%s' for weapon %d",
+			sample, weapon);
+		return;
+	}
+
+	g_flWeaponsNextDeploySoundTime[client] =
+		GetGameTime() + WEAPONS_CUSTOM_DEPLOY_SOUND_COOLDOWN;
+	EmitSoundToAll(sample, client, SNDCHAN_AUTO, SNDLEVEL_NORMAL);
 }
 
 void WeaponsSound_OnItemRuntimeStateReady(int client, int entity)
@@ -117,7 +150,7 @@ void WeaponsSound_UpdateClientWeapon(int client, int weapon)
 		g_sWeaponsSoundGroup[client], sizeof(g_sWeaponsSoundGroup[]));
 }
 
-void WeaponsSound_ResetClient(int client)
+void WeaponsSound_ResetClient(int client, bool resetDeployCooldown = false)
 {
 	if (client <= 0 || client > MaxClients)
 	{
@@ -125,13 +158,17 @@ void WeaponsSound_ResetClient(int client)
 	}
 	g_iWeaponsSoundWeaponRef[client] = INVALID_ENT_REFERENCE;
 	g_sWeaponsSoundGroup[client][0] = '\0';
+	if (resetDeployCooldown)
+	{
+		g_flWeaponsNextDeploySoundTime[client] = 0.0;
+	}
 }
 
 void WeaponsSound_ResetClients()
 {
 	for (int client = 1; client <= MaxClients; client++)
 	{
-		WeaponsSound_ResetClient(client);
+		WeaponsSound_ResetClient(client, true);
 	}
 }
 

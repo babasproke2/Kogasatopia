@@ -422,7 +422,7 @@ public void OnMapEnd() {
 
 public void OnClientPutInServer(int client) {
 	WeaponsMovement_OnClientPutInServer(client);
-	WeaponsSound_ResetClient(client);
+	WeaponsSound_ResetClient(client, true);
 	WeaponsModels_OnClientPutInServer(client);
 	WeaponsGameplay_OnClientPutInServer(client);
 }
@@ -430,7 +430,7 @@ public void OnClientPutInServer(int client) {
 public void OnClientDisconnect(int client) {
 	WeaponsMovement_OnClientDisconnect(client);
 	WeaponsWhitelist_OnClientDisconnect(client);
-	WeaponsSound_ResetClient(client);
+	WeaponsSound_ResetClient(client, true);
 	WeaponsModels_OnClientDisconnect(client);
 	WeaponsGameplay_OnClientDisconnect(client);
 }
