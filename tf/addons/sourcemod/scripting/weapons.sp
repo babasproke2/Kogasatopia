@@ -192,6 +192,7 @@ public void OnPluginStart() {
 	DHookEnableDetour(dtManageRegularWeapons, true, OnManageRegularWeaponsPost);
 	
 	WeaponsGameplay_OnPluginStart(hGameConf);
+	WeaponsSound_OnPluginStart(hGameConf);
 	delete hGameConf;
 	
 	HookUserMessage(GetUserMessageId("PlayerLoadoutUpdated"), OnPlayerLoadoutUpdated,
@@ -264,7 +265,6 @@ public void OnPluginStart() {
 		}
 	}
 
-	WeaponsSound_OnPluginStart();
 	WeaponsModels_OnPluginStart();
 	LoadWeaponsConfig();
 	WeaponsCommands_OnPluginStart();
@@ -444,6 +444,7 @@ void Weapons_OnWeaponSwitchPost(int client, int weapon) {
 
 public void OnEntityCreated(int entity, const char[] className) {
 	WeaponsCustomAttributes_OnEntityCreated(entity);
+	WeaponsSound_OnEntityCreated(entity, className);
 	WeaponsModels_OnEntityCreated(entity, className);
 	WeaponsGameplay_OnEntityCreated(entity, className);
 }

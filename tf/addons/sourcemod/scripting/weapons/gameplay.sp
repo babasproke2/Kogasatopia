@@ -3306,6 +3306,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 			RefillClipOnHit_OnDamage(damageWeapon);
 			RefillSecondaryClipOnHit_OnDamage(attacker, damageWeapon);
 			WeaponsSound_PlayOnHit(attacker, damageWeapon);
+			WeaponsSound_PlayCustomMeleeHit(attacker, directDamageWeapon);
 		}
 
 		// Resolve duel damage without falling back to the attacker's active weapon.
