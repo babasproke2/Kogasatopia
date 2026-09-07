@@ -3269,13 +3269,20 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 
 		// Resolve duel damage without falling back to the attacker's active weapon.
 		int duelWeapon = GetDamageSourceWeapon(0, weapon, inflictor);
-		if (duelWeapon > MaxClients && IsValidEntity(duelWeapon)
-			&& TF2CustAttr_GetInt(duelWeapon, "duel declared") != 0)
+		if (duelWeapon > MaxClients && IsValidEntity(duelWeapon))
 		{
 			int victimWeapon = GetEntPropEnt(client, Prop_Data, "m_hActiveWeapon");
-			if (victimWeapon > MaxClients && IsValidEntity(victimWeapon) && TF2CustAttr_GetInt(victimWeapon, "duel declared") != 0)
+			if (victimWeapon > MaxClients && IsValidEntity(victimWeapon))
 			{
-				if (GetClip(duelWeapon) == 6)
+				if (TF2CustAttr_GetInt(duelWeapon, "duel declared", 0) != 0
+					&& TF2CustAttr_GetInt(victimWeapon, "duel declared", 0) != 0)
+				{
+					damagetype |= DMG_CRIT;
+					return Plugin_Changed;
+				}
+				if (TF2CustAttr_GetInt(duelWeapon, "duel declared revolver", 0) != 0
+					&& TF2CustAttr_GetInt(victimWeapon, "duel declared revolver", 0) != 0
+					&& GetClip(duelWeapon) == 6)
 				{
 					damage = 100.0;
 					damagetype |= DMG_CRIT;
