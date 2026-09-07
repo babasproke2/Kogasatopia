@@ -434,8 +434,6 @@ void WeaponsGameplay_OnPluginStart(GameData conf) {
 	g_hSandmanMaxStunFlightTime = CreateConVar("sm_weapons_sandman_max_stun_flight_time", "1.5", "Flight time at which the reverted Sandman reaches maximum stun duration.", FCVAR_NONE, true, 0.1);
 	g_hSandmanFallbackBaseDuration = CreateConVar("sm_weapons_sandman_fallback_base_duration", "2.0", "Fallback maximum Sandman stun duration when tf_scout_stunball_base_duration is unavailable.", FCVAR_NONE, true, 0.1);
 	g_hSandmanBaseDuration = FindConVar("tf_scout_stunball_base_duration");
-	RegAdminCmd("sm_scatterpellets_status", Command_ScatterPelletsStatus, ADMFLAG_GENERIC, "Print scattergun pellet integration status.");
-	RegAdminCmd("sm_plasma_status", Command_PlasmaStatus, ADMFLAG_GENERIC, "Print plasma rifle heat and shot detection status.");
 	RegAdminCmd("sm_weapons_reload", Command_ReloadWeaponsConfig, ADMFLAG_CONFIG, "Reload weapon definitions from configs/weapons.cfg.");
 	RegAdminCmd("sm_weapons_refresh", Command_ReloadWeaponsConfig, ADMFLAG_CONFIG, "Refresh weapon definitions from configs/weapons.cfg.");
 	g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
