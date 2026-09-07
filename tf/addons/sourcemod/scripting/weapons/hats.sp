@@ -1,31 +1,14 @@
-#pragma semicolon 1
-#pragma newdecls required
+/**
+ * Custom hat configuration, persistence, menus, and wearable lifecycle.
+ *
+ * Hats intentionally keep their own config/schema while sharing the unified
+ * Weapons plugin's item lifecycle and wearable helpers.
+ */
 
-#include <sourcemod>
-#include <clientprefs>
-
-#include <sdktools>
-
-#include <tf2_stocks>
-#include <tf2attributes>
-#include <tf2items>
-
-#undef REQUIRE_PLUGIN
-#include <points_store_api>
-#define REQUIRE_PLUGIN
-
-#include "include/client_validation.inc"
-#include "include/strings.inc"
-
-#define CONFIG_FILE "configs/custom_hats.cfg"
+#define CUSTOM_HATS_CONFIG_FILE "configs/custom_hats.cfg"
 #define DEFAULT_SCOUT_MODEL "models/uma_musume/player/items/scout/mercenary_derby.mdl"
-#define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
-#if !defined EF_BONEMERGE
-#define EF_BONEMERGE 0x0010
-#endif
-#if !defined EF_BONEMERGE_FASTCULL
-#define EF_BONEMERGE_FASTCULL 0x0800
-#endif
+#define HAT_EF_BONEMERGE 0x0010
+#define HAT_EF_BONEMERGE_FASTCULL 0x0800
 
 #define MAX_HATS 32
 #define HAT_COOKIE_VALUE_LEN 100
@@ -48,7 +31,6 @@ Handle g_hHatSaveTimer[MAXPLAYERS + 1];
 bool g_bHatSaveAllowClear[MAXPLAYERS + 1];
 int g_iClientEnabledHatCount[MAXPLAYERS + 1];
 Handle g_hHatStateCookie = INVALID_HANDLE;
-Handle g_hWearableEquip = INVALID_HANDLE;
 int g_iHatPaintChoice[MAXPLAYERS + 1][MAX_HATS];
 ConVar g_hHatDebug = null;
 
@@ -140,51 +122,23 @@ static const char g_PaintNames[][48] =
 	"Waterlogged lab coat"
 };
 
-public Plugin myinfo =
-{
-	name = "Custom Hats",
-	author = "Hombre",
-	description = "Equips configured custom hats.",
-	version = "1.0.0",
-	url = "https://kogasa.tf"
-};
-
-public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int err_max)
+void CustomHats_RegisterNatives()
 {
 	RegPluginLibrary("custom_hats");
 	CreateNative("CustomHats_GetPrefix", Native_CustomHats_GetPrefix);
 	CreateNative("CustomHats_GetTagChoices", Native_CustomHats_GetTagChoices);
 	CreateNative("CustomHats_ResolveTag", Native_CustomHats_ResolveTag);
 	CreateNative("CustomHats_FindTagSource", Native_CustomHats_FindTagSource);
-	return APLRes_Success;
 }
 
-public void OnPluginStart()
+void CustomHats_OnPluginStart()
 {
-	HookEvent("post_inventory_application", Event_PostInventory, EventHookMode_Post);
+	HookEvent("post_inventory_application", CustomHats_EventPostInventory, EventHookMode_Post);
 	RegConsoleCmd("sm_hats", Command_Hats, "Open the custom hats menu");
 	RegConsoleCmd("sm_hat", Command_Hats, "Open the custom hats menu");
 	RegConsoleCmd("sm_wear", Command_Hats, "Open the custom hats menu");
 	g_hHatStateCookie = RegClientCookie("custom_hats_state", "Custom hats state (hat,paint,hat,paint)", CookieAccess_Public);
 	g_hHatDebug = CreateConVar("sm_custom_hats_debug", "0", "Enable custom hats debug logging (0/1).", FCVAR_NONE, true, 0.0, true, 1.0);
-
-	GameData hTF2 = new GameData("sm-tf2.games");
-	if (hTF2 == null)
-	{
-		SetFailState("This plugin is designed for a TF2 dedicated server only.");
-	}
-
-	StartPrepSDKCall(SDKCall_Player);
-	PrepSDKCall_SetVirtual(hTF2.GetOffset("RemoveWearable") - 1);
-	PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
-	g_hWearableEquip = EndPrepSDKCall();
-
-	if (g_hWearableEquip == null)
-	{
-		SetFailState("Failed to create call: CBasePlayer::EquipWearable");
-	}
-
-	delete hTF2;
 
 	for (int i = 1; i <= MaxClients; i++)
 	{
@@ -212,7 +166,7 @@ public void OnPluginStart()
 	RecalculateAllClientEnabledHatCounts();
 }
 
-public void OnConfigsExecuted()
+void CustomHats_OnConfigsExecuted()
 {
 	LoadConfig();
 	RecalculateAllClientEnabledHatCounts();
@@ -223,12 +177,12 @@ public void OnConfigsExecuted()
 	}
 }
 
-public void OnMapStart()
+void CustomHats_OnMapStart()
 {
 	PrecacheConfiguredHats();
 }
 
-public void OnLibraryAdded(const char[] name)
+void CustomHats_OnLibraryAdded(const char[] name)
 {
 	if (StrEqual(name, "points_store"))
 	{
@@ -236,7 +190,7 @@ public void OnLibraryAdded(const char[] name)
 	}
 }
 
-public void OnLibraryRemoved(const char[] name)
+void CustomHats_OnLibraryRemoved(const char[] name)
 {
 	if (StrEqual(name, "points_store"))
 	{
@@ -255,7 +209,7 @@ static void RefreshAllClientHats()
 	}
 }
 
-public void OnPluginEnd()
+void CustomHats_OnPluginEnd()
 {
 	RemoveAllHats();
 	for (int i = 1; i <= MaxClients; i++)
@@ -273,7 +227,7 @@ public void OnPluginEnd()
 	}
 }
 
-public void OnClientPutInServer(int client)
+void CustomHats_OnClientPutInServer(int client)
 {
 	if (client <= 0 || client > MaxClients)
 	{
@@ -287,7 +241,7 @@ public void OnClientPutInServer(int client)
 	g_bHatApplyPending[client] = false;
 }
 
-public void OnClientConnected(int client)
+void CustomHats_OnClientConnected(int client)
 {
 	if (client <= 0 || client > MaxClients)
 	{
@@ -315,7 +269,7 @@ public void OnClientConnected(int client)
 	g_bHatStatePendingAllowClear[client] = false;
 }
 
-public void OnClientCookiesCached(int client)
+void CustomHats_OnClientCookiesCached(int client)
 {
 	if (!Client_IsInGame(client))
 	{
@@ -343,9 +297,14 @@ public void OnClientCookiesCached(int client)
 	LoadHatStateCookie(client);
 	g_bHatStateLoaded[client] = true;
 	MigrateLegacyHatCookieIfNeeded(client);
+
+	if (IsPlayerAlive(client))
+	{
+		RequestFrame(ApplyHatFrame, GetClientUserId(client));
+	}
 }
 
-public void OnClientDisconnect(int client)
+void CustomHats_OnClientDisconnect(int client)
 {
 	if (g_hPostInventoryTimer[client] != INVALID_HANDLE)
 	{
@@ -380,7 +339,7 @@ public Action Command_Hats(int client, int args)
 	return Plugin_Handled;
 }
 
-public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemDefinitionIndex, int itemLevel, int itemQuality, int entityIndex)
+int CustomHats_OnGiveNamedItemPost(int client)
 {
 	if (!Client_IsInGame(client) || g_bHatApplyPending[client])
 	{
@@ -404,7 +363,7 @@ public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemD
 	return 0;
 }
 
-public void Event_PostInventory(Event event, const char[] name, bool dontBroadcast)
+public void CustomHats_EventPostInventory(Event event, const char[] name, bool dontBroadcast)
 {
 	int client = GetClientOfUserId(event.GetInt("userid"));
 	if (!Client_IsInGame(client))
@@ -1057,11 +1016,10 @@ int CreateWearableBase(int client, int itemIndex, int level, int quality)
 	SetEntProp(entity, Prop_Send, "m_bInitialized", 1);
 	SetEntProp(entity, Prop_Send, "m_iEntityLevel", level);
 	SetEntProp(entity, Prop_Send, "m_iEntityQuality", quality);
-	SetEntProp(entity, Prop_Send, "m_bValidatedAttachedEntity", 1);
 	SetEntProp(entity, Prop_Send, "m_iAccountID", GetSteamAccountID(client));
 	SetEntPropEnt(entity, Prop_Send, "m_hOwnerEntity", client);
 
-	SetEntProp(entity, Prop_Send, "m_fEffects", EF_BONEMERGE | EF_BONEMERGE_FASTCULL);
+	SetEntProp(entity, Prop_Send, "m_fEffects", HAT_EF_BONEMERGE | HAT_EF_BONEMERGE_FASTCULL);
 	SetEntProp(entity, Prop_Send, "m_iTeamNum", GetClientTeam(client));
 	SetEntProp(entity, Prop_Send, "m_nSkin", GetClientTeam(client));
 	SetEntProp(entity, Prop_Send, "m_usSolidFlags", 4);
@@ -1071,7 +1029,8 @@ int CreateWearableBase(int client, int itemIndex, int level, int quality)
 
 	DispatchSpawn(entity);
 	ActivateEntity(entity);
-	SDKCall(g_hWearableEquip, client, entity);
+	TF2Util_EquipPlayerWearable(client, entity);
+	Weapons_MarkValidatedAttachedEntity(entity, client, "custom_hat");
 
 	return entity;
 }
@@ -1755,7 +1714,7 @@ void LoadConfig()
 	}
 
 	char path[PLATFORM_MAX_PATH];
-	BuildPath(Path_SM, path, sizeof(path), CONFIG_FILE);
+	BuildPath(Path_SM, path, sizeof(path), CUSTOM_HATS_CONFIG_FILE);
 
 	if (!FileExists(path))
 	{

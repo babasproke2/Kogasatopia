@@ -4235,6 +4235,8 @@ static void WeaponsGameplay_QueuePrimaryClipBonusRefresh(int client)
 
 public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemDefinitionIndex, int itemLevel, int itemQuality, int entityIndex)
 {
+	CustomHats_OnGiveNamedItemPost(client);
+
 	if (WeaponsGameplay_IsEnabled()) {
 		ShockCharge_StopTimer(client);
 		tf2_players[client].shockCharge = 30;

@@ -7,7 +7,7 @@ These plugins are very specific and are shared for the sake of letting anyone lo
 - dgm.sp for instant respawn configuration and gamemode tweaks
 - saysounds.sp as an implementation of the saysounds concept with many features
 - announcers.sp for gameplay announcers such as Unreal Tournament killstreak trackers
-- custom_hats.sp for custom hats
+- weapons.sp for unified custom weapons and the internally modular custom hats system
 - autobalance_4teams and whalescramble for autobalancing and scrambling inspired by gScramble
 - hugs.sp to hug your friends (and more)
 - filters.sp, a large plugin that handles chat such as a tags feature, a web frontend connection and word filters

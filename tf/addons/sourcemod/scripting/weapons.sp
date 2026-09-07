@@ -50,6 +50,7 @@
 #include "include/steam_identity.inc"
 #include "include/item_indexes.inc"
 #include "include/client_validation.inc"
+#include "include/strings.inc"
 #include "include/tf2_classes.inc"
 
 #tryinclude <autoversioning/version>
@@ -131,6 +132,7 @@ Handle g_hOnItemRuntimeStateReady = null;
 #include "weapons/movement_attributes.sp"
 #include "weapons/item_config.sp"
 #include "weapons/item_entity.sp"
+#include "weapons/hats.sp"
 #include "weapons/item_export.sp"
 #include "weapons/loadout_entries.sp"
 #include "weapons/loadout_radio_menu.sp"
@@ -144,6 +146,7 @@ int g_attrdef_AllowedInMedievalMode;
 
 public APLRes AskPluginLoad2(Handle self, bool late, char[] error, int maxlen) {
 	WeaponsCustomAttributes_RegisterNatives();
+	CustomHats_RegisterNatives();
 	MarkNativeAsOptional("DGM_CurrentNormalizedMap");
 	MarkNativeAsOptional("DGM_NormalizeMapName");
 	MarkNativeAsOptional("DGM_GetGameModeKey");
@@ -171,6 +174,7 @@ public void OnPluginStart() {
 	WeaponsCustomAttributes_OnPluginStart();
 	WeaponsWhitelist_OnPluginStart();
 	WeaponsMovement_OnPluginStart();
+	CustomHats_OnPluginStart();
 	LoadTranslations("weapons.phrases");
 	LoadTranslations("common.phrases");
 	LoadTranslations("core.phrases");
@@ -272,6 +276,7 @@ public void OnPluginStart() {
 }
 
 public void OnPluginEnd() {
+	CustomHats_OnPluginEnd();
 	WeaponsGameplay_OnPluginEnd();
 	WeaponsModels_OnPluginEnd();
 	WeaponsSound_OnPluginEnd();
@@ -284,6 +289,7 @@ public void OnPluginEnd() {
 
 public void OnConfigsExecuted() {
 	WeaponsMovement_OnConfigsExecuted();
+	CustomHats_OnConfigsExecuted();
 }
 
 void Weapons_NotifyItemRuntimeStateReady(int client, int entity) {
@@ -311,6 +317,14 @@ public void OnAllPluginsLoaded() {
 	
 	g_attrdef_AllowedInMedievalMode =
 			TF2Econ_TranslateAttributeNameToDefinitionIndex("allowed in medieval mode");
+}
+
+public void OnLibraryAdded(const char[] name) {
+	CustomHats_OnLibraryAdded(name);
+}
+
+public void OnLibraryRemoved(const char[] name) {
+	CustomHats_OnLibraryRemoved(name);
 }
 
 Action DisplayItemDescriptions(int client, int argc) {
@@ -408,6 +422,7 @@ public void OnMapStart() {
 	WeaponsMovement_OnMapStart();
 	WeaponsCustomAttributes_OnMapStart();
 	WeaponsModels_OnMapStart();
+	CustomHats_OnMapStart();
 	LoadWeaponsConfig();
 	PrecacheMenuResources();
 	WeaponsGameplay_OnMapStart();
@@ -425,9 +440,11 @@ public void OnClientPutInServer(int client) {
 	WeaponsSound_ResetClient(client, true);
 	WeaponsModels_OnClientPutInServer(client);
 	WeaponsGameplay_OnClientPutInServer(client);
+	CustomHats_OnClientPutInServer(client);
 }
 
 public void OnClientDisconnect(int client) {
+	CustomHats_OnClientDisconnect(client);
 	WeaponsMovement_OnClientDisconnect(client);
 	WeaponsWhitelist_OnClientDisconnect(client);
 	WeaponsSound_ResetClient(client, true);
@@ -464,6 +481,7 @@ public void OnClientConnected(int client) {
 			g_CurrentLoadout[client][c][i].Clear(.initialize = true);
 		}
 	}
+	CustomHats_OnClientConnected(client);
 }
 
 public void OnClientAuthorized(int client, const char[] auth) {
@@ -483,6 +501,7 @@ void FetchLoadoutItems(int client) {
 }
 
 public void OnClientCookiesCached(int client) {
+	CustomHats_OnClientCookiesCached(client);
 	bool wasRetrieved = g_bRetrievedLoadout[client];
 
 	for (int c; c < NUM_PLAYER_CLASSES; c++) {
