@@ -13,17 +13,15 @@
 
 #undef REQUIRE_PLUGIN
 #include <dgm_api>
-#include <clans_api>
 #include <filters_api>
-#include <points_store_api>
 #include <saysounds>
 #include <whaletracker_api>
 #define REQUIRE_PLUGIN
 #include <plugin_statistics>
 
-#include "include/steam_identity.inc"
 #include "include/buildings.inc"
 #include "include/duel_detection.inc"
+#include "include/team_balance_api.inc"
 
 native int FilterAlerts_SuppressTeamAlertWindow(float seconds);
 
@@ -69,9 +67,7 @@ bool g_bNativeVotes = false;
 bool g_bVoteAllowLowPop = false;
 WhaleVoteKind g_eActiveVoteKind = WhaleVote_None;
 int g_iActiveSurrenderTeam = 0;
-bool scrambleCooldown = false;
 NativeVote g_hVote = null;
-Handle g_hScrambleCooldownTimer = null;
 ConVar g_hLogEnabled = null;
 ConVar g_hAutoRounds = null;
 ConVar g_hVoteTime = null;
@@ -89,8 +85,6 @@ ConVar g_hWinStreakAuto = null;
 ConVar g_hNoSequentialAuto = null;
 ConVar g_hMpScrambleTeamsAuto = null;
 int g_iRoundsSinceAuto = 0;
-StringMap g_hScrambleImmunity = null;
-int g_iScramblesSinceImmunityClear = 0;
 bool g_bAutoScramblePendingRoundStart = false;
 float g_flAutoScramblePendingRoundStartUntil = 0.0;
 bool g_bExecuteSwapImmediately = false;
@@ -107,8 +101,6 @@ bool g_bScrambledThisRound = false;
 bool g_bLastRoundHadScramble = false;
 bool g_bStackRedPayloadAttempted = false;
 int g_iRoundStartTimestamp = 0;
-int g_iScrambleRespawnAttempts[MAXPLAYERS + 1];
-int g_iScrambleRespawnExpectedTeam[MAXPLAYERS + 1];
 
 #define TEAM_RED  2
 #define TEAM_BLU  3
@@ -126,21 +118,18 @@ enum ScrambleScoreKind
     ScrambleScore_WhaleRank
 };
 #define SCRAMBLE_PLAYER_PERCENT_DIVISOR  5
-#define SCRAMBLE_RESPAWN_RETRY_DELAY  0.50
-#define SCRAMBLE_RESPAWN_RETRY_COUNT  8
 #define SCRAMBLE_SETUP_POLISH_DELAY  0.75
 #define SCRAMBLE_SETUP_UBER_DELAY  0.25
 #define SCRAMBLE_AUTO_RESPAWN_SWEEP_DELAY  0.85
 #define SCRAMBLE_AUTO_RESPAWN_SWEEP_REPEAT_DELAY  1.10
 #define SCRAMBLE_AUTO_RESPAWN_SWEEP_COUNT  3
-#define POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM "scramImmunity24h"
 #define WHALESCRAMBLE_STATS_DETAIL_MAX 384
 public Plugin myinfo =
 {
     name = "whalescramble",
     author = "Hombre, AW 'Swixel' Stanley",
-    description = "Player-triggered whale scramble vote helper",
-    version = "1.1.0",
+    description = "Vote and ranking front end for the authoritative team-balance controller",
+    version = "2.0.0",
     url = "https://kogasa.tf"
 };
 
@@ -148,9 +137,6 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 {
     MarkNativeAsOptional("FilterAlerts_SuppressTeamAlertWindow");
     MarkNativeAsOptional("Filters_GetChatName");
-    MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
-    MarkNativeAsOptional("PointsStore_HasPurchase");
-    MarkNativeAsOptional("PointsStore_ConsumePurchaseUse");
     MarkNativeAsOptional("DGM_IsSmallFormatGamemode");
     MarkNativeAsOptional("DGM_RealTeamPlayerCount");
     MarkNativeAsOptional("DGM_GetGameModeKey");
@@ -186,8 +172,6 @@ public void OnPluginStart()
     g_hWinStreakAuto = CreateConVar("sm_whalescramble_win_streak", "2", "Automatically whale scramble after one team wins this many full rounds in a row. 0 disables.", _, true, 0.0, true, 20.0);
     g_hNoSequentialAuto = CreateConVar("sm_whalescramble_no_sequential", "1", "Block auto scrambles from happening in consecutive rounds or more than once in one round.", _, true, 0.0, true, 1.0);
     g_hMpScrambleTeamsAuto = FindConVar("mp_scrambleteams_auto");
-    g_hScrambleImmunity = new StringMap();
-
     for (int i = 0; i < sizeof(SCRAMBLE_COMMANDS); i++)
     {
         RegConsoleCmd(SCRAMBLE_COMMANDS[i], Command_Scramble);
@@ -242,28 +226,18 @@ public void OnMapStart()
 {
     g_bStackRedPayloadAttempted = false;
     ResetVotes();
-    ClearScrambleRespawnAttempts();
-    ClearScrambleCooldown();
     ClearAutoScramblePending();
     ApplyEngineScramblePolicy();
     g_iRoundsSinceAuto = 0;
-    g_iScramblesSinceImmunityClear = 0;
     ResetWinStreakTracking();
-    if (g_hScrambleImmunity != null)
-    {
-        g_hScrambleImmunity.Clear();
-    }
-    LogWhale("Map start: immunity cleared, votes reset.");
+    LogWhale("Map start: votes reset; team-balance controller owns runtime state.");
 }
 
 public void OnMapEnd()
 {
     ResetVotes();
-    ClearScrambleRespawnAttempts();
-    ClearScrambleCooldown();
     ClearAutoScramblePending();
     g_iRoundsSinceAuto = 0;
-    g_iScramblesSinceImmunityClear = 0;
     ResetWinStreakTracking();
     LogWhale("Map end: votes reset.");
 }
@@ -271,7 +245,7 @@ public void OnMapEnd()
 public void OnPluginEnd()
 {
     ResetVotes();
-    ClearScrambleCooldown();
+    TeamBalance_CancelScramble();
     ClearAutoScramblePending();
     DuelDetection_Shutdown();
     LogWhale("Plugin ended.");
@@ -295,7 +269,6 @@ public void OnClientDisconnect(int client)
         ClearClientSurrenderVote(client);
         LogSurrenderState("disconnect_clear");
     }
-    ClearScrambleRespawnState(client);
 }
 
 public void OnClientPutInServer(int client)
@@ -1043,7 +1016,7 @@ static void LogSurrenderState(const char[] reason)
         g_bVoteRunning ? 1 : 0,
         voteKind,
         g_iActiveSurrenderTeam,
-        scrambleCooldown ? 1 : 0);
+        TeamBalance_IsScrambleCooldownActive() ? 1 : 0);
 }
 
 static void SetPlayerVoteRequested(int client, WhaleVoteKind kind, bool value)
@@ -1094,7 +1067,7 @@ static void HandleVoteRequest(int client, WhaleVoteKind kind)
     char actionName[16];
     GetVoteActionName(kind, actionName, sizeof(actionName));
 
-    if (scrambleCooldown)
+    if (TeamBalance_IsScrambleCooldownActive())
     {
         CPrintToChat(client, "{blue}[WhaleScramble]{default} %s is on cooldown.", actionName);
         LogWhale("Vote request rejected: %s cooldown active (client %N).", actionName, client);
@@ -1182,7 +1155,7 @@ static bool StartVote(int client, bool suppressFeedback, bool allowLowPop, Whale
             suppressFeedback ? 1 : 0);
     }
 
-    if (scrambleCooldown)
+    if (TeamBalance_IsScrambleCooldownActive())
     {
         if (!suppressFeedback && client > 0 && IsClientInGame(client))
         {
@@ -1264,9 +1237,23 @@ static bool StartVote(int client, bool suppressFeedback, bool allowLowPop, Whale
         voteTime = 1;
     }
 
+    if (!TeamBalance_BeginScrambleVote(float(voteTime)))
+    {
+        g_hVote.Close();
+        g_hVote = null;
+        if (!suppressFeedback && client > 0 && IsClientInGame(client))
+        {
+            CPrintToChat(client, "{blue}[WhaleScramble]{default} Team balancing is busy; try again in a moment.");
+        }
+        LogWhale("Vote start failed: authoritative team-balance state is busy.");
+        LogWhaleStat("vote_result", "kind=%s|phase=start|result=failed|reason=balance_busy", actionName);
+        return false;
+    }
+
     g_bVoteRunning = NativeVotes_DisplayToAll(g_hVote, voteTime);
     if (!g_bVoteRunning)
     {
+        TeamBalance_CancelScramble();
         g_hVote.Close();
         g_hVote = null;
         g_bVoteAllowLowPop = false;
@@ -1302,7 +1289,7 @@ static bool StartAutoScramble(bool suppressFeedback)
         return false;
     }
 
-    if (scrambleCooldown)
+    if (TeamBalance_IsScrambleCooldownActive())
     {
         LogWhale("Auto scramble aborted: scramble cooldown active.");
         LogWhaleStat("auto_scramble_decision", "trigger=auto|result=blocked|reason=cooldown");
@@ -1362,6 +1349,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
     {
         case MenuAction_End:
         {
+            TeamBalance_EndScrambleVote();
             vote.Close();
             g_hVote = null;
             g_bVoteRunning = false;
@@ -1381,6 +1369,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
         }
         case MenuAction_VoteCancel:
         {
+            TeamBalance_CancelScramble();
             if (param1 == VoteCancel_NoVotes)
             {
                 NativeVotes_DisplayFail(vote, NativeVotesFail_NotEnoughVotes);
@@ -1408,6 +1397,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
         {
             if (voteKind == WhaleVote_None)
             {
+                TeamBalance_CancelScramble();
                 NativeVotes_DisplayFail(vote, NativeVotesFail_Generic);
                 g_bVoteAllowLowPop = false;
                 LogWhale("Vote end failed closed: active vote kind missing.");
@@ -1421,6 +1411,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
 
             if (totalVotes <= 0)
             {
+                TeamBalance_CancelScramble();
                 NativeVotes_DisplayFail(vote, NativeVotesFail_NotEnoughVotes);
                 LogWhale("Vote failed: no votes.");
                 LogWhaleStat("vote_result", "kind=%s|phase=end|result=failed|reason=no_votes", voteKindName);
@@ -1432,6 +1423,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
 
             if (yesPercent < 0.50)
             {
+                TeamBalance_CancelScramble();
                 NativeVotes_DisplayFail(vote, NativeVotesFail_Loses);
                 CPrintToChatAll("Vote failed (Yes %.0f%%).", yesPercent * 100.0);
                 g_bVoteAllowLowPop = false;
@@ -1461,10 +1453,13 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
                         winningTeamNum,
                         yesVotes,
                         totalVotes);
-                    StartScrambleCooldown();
-                    ServerCommand("mp_scrambleteams");
-                    SaySounds_TryPlayCommand(0, TEAM_MOVE_SAYSOUND, true);
-                    success = true;
+                    if (TeamBalance_BeginScramble(false))
+                    {
+                        TeamBalance_FinishScramble(true, false);
+                        ServerCommand("mp_scrambleteams");
+                        SaySounds_TryPlayCommand(0, TEAM_MOVE_SAYSOUND, true);
+                        success = true;
+                    }
                 }
                 else
                 {
@@ -1506,6 +1501,7 @@ public int ScrambleVoteHandler(NativeVote vote, MenuAction action, int param1, i
                         LogWhale("Vote passed but scramble conditions not met.");
                         LogWhaleStat("vote_result", "kind=scramble|phase=end|result=passed|success=0|reason=scramble_conditions|yes=%d|total=%d|yes_percent=%.1f", yesVotes, totalVotes, yesPercent * 100.0);
                     }
+                    TeamBalance_CancelScramble();
                 }
                 g_bVoteAllowLowPop = false;
                 g_eActiveVoteKind = WhaleVote_None;
@@ -1554,29 +1550,6 @@ static void ResetSurrenderVotes(const char[] reason)
         g_iPlayerSurrenderVoteTeam[i] = 0;
     }
     LogSurrenderState(reason);
-}
-
-static void StartScrambleCooldown()
-{
-    scrambleCooldown = true;
-    if (g_hScrambleCooldownTimer != null)
-    {
-        delete g_hScrambleCooldownTimer;
-        g_hScrambleCooldownTimer = null;
-    }
-
-    g_hScrambleCooldownTimer = CreateTimer(120.0, Timer_ResetScrambleCooldown, _, TIMER_FLAG_NO_MAPCHANGE);
-    LogWhale("Scramble cooldown started.");
-}
-
-static void ClearScrambleCooldown()
-{
-    scrambleCooldown = false;
-    if (g_hScrambleCooldownTimer != null)
-    {
-        delete g_hScrambleCooldownTimer;
-        g_hScrambleCooldownTimer = null;
-    }
 }
 
 static void ArmAutoScrambleForNextRound()
@@ -1681,14 +1654,8 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsClientInGame(i)) continue;
-        if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue)) continue;
-        if (DuelDetection_IsClientInDuel(i)) continue;
-
+        if (!TeamBalance_IsScrambleCandidate(i, 0, ignoreImmunity, g_hCountBots != null && g_hCountBots.BoolValue)) continue;
         int team = GetClientTeam(i);
-        if (team != TEAM_RED && team != TEAM_BLU) continue;
-
-        if (!ignoreImmunity && IsScrambleImmune(i)) continue;
 
         if (team == TEAM_RED) redEligible++;
         else bluEligible++;
@@ -1724,13 +1691,8 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
 
         for (int i = 1; i <= MaxClients; i++)
         {
-            if (!IsClientInGame(i)) continue;
-            if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue)) continue;
-            if (DuelDetection_IsClientInDuel(i)) continue;
-
+            if (!TeamBalance_IsScrambleCandidate(i, 0, ignoreImmunity, g_hCountBots != null && g_hCountBots.BoolValue)) continue;
             int team = GetClientTeam(i);
-            if (team != TEAM_RED && team != TEAM_BLU) continue;
-            if (!ignoreImmunity && IsScrambleImmune(i)) continue;
 
             if (team == TEAM_RED) redEligible++;
             else bluEligible++;
@@ -1798,6 +1760,14 @@ static bool StartWhaleScramble(int issuer, bool broadcastFailures, bool allowLow
         pack.WriteCell(GetClientUserId(topBlu[i]));
     }
 
+    if (!TeamBalance_BeginScramble(forced))
+    {
+        delete pack;
+        NotifyFailure(issuer, broadcastFailures, "Team balancing is busy; try again in a moment.");
+        LogWhale("Topswap scramble aborted: authoritative team-balance state is busy.");
+        return false;
+    }
+
     if (g_bExecuteSwapImmediately)
     {
         LogWhale("Scramble executing immediately: swapCount=%d.", swapCount);
@@ -1848,14 +1818,8 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsClientInGame(i)) continue;
-        if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue)) continue;
-        if (DuelDetection_IsClientInDuel(i)) continue;
-
+        if (!TeamBalance_IsScrambleCandidate(i, 0, ignoreImmunity, g_hCountBots != null && g_hCountBots.BoolValue)) continue;
         int team = GetClientTeam(i);
-        if (team != TEAM_RED && team != TEAM_BLU) continue;
-
-        if (!ignoreImmunity && IsScrambleImmune(i)) continue;
         if (!IsSimpleScrambleEligibleClass(i, forced)) continue;
 
         if (team == TEAM_RED)
@@ -1890,13 +1854,8 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
         bluCandidateCount = 0;
         for (int i = 1; i <= MaxClients; i++)
         {
-            if (!IsClientInGame(i)) continue;
-            if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue)) continue;
-            if (DuelDetection_IsClientInDuel(i)) continue;
-
+            if (!TeamBalance_IsScrambleCandidate(i, 0, ignoreImmunity, g_hCountBots != null && g_hCountBots.BoolValue)) continue;
             int team = GetClientTeam(i);
-            if (team != TEAM_RED && team != TEAM_BLU) continue;
-            if (!ignoreImmunity && IsScrambleImmune(i)) continue;
 
             if (team == TEAM_RED)
             {
@@ -1977,6 +1936,14 @@ static bool StartRandomWhaleScramble(int issuer, bool broadcastFailures, bool al
     for (int i = 0; i < swapCount; i++)
     {
         pack.WriteCell(GetClientUserId(topBlu[i]));
+    }
+
+    if (!TeamBalance_BeginScramble(forced))
+    {
+        delete pack;
+        NotifyFailure(issuer, broadcastFailures, "Team balancing is busy; try again in a moment.");
+        LogWhale("Random scramble aborted: authoritative team-balance state is busy.");
+        return false;
     }
 
     if (g_bExecuteSwapImmediately)
@@ -2080,13 +2047,13 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
 
     for (int i = 1; i <= MaxClients; i++)
     {
-        if (!IsClientInGame(i))
+        // Score accounting includes recently moved/immune players because they
+        // still contribute to their team's total; the controller filters the
+        // actual candidate pool below.
+        if (!IsClientInGame(i)
+            || (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue))
+            || DuelDetection_IsClientInDuel(i))
             continue;
-        if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue))
-            continue;
-        if (DuelDetection_IsClientInDuel(i))
-            continue;
-
         int team = GetClientTeam(i);
         if (team != TEAM_RED && team != TEAM_BLU)
             continue;
@@ -2102,7 +2069,7 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
             bluScoreTotal += score;
         }
 
-        if (!ignoreImmunity && IsScrambleImmune(i))
+        if (!TeamBalance_IsScrambleCandidate(i, team, ignoreImmunity, g_hCountBots != null && g_hCountBots.BoolValue))
             continue;
         if (scoreKind == ScrambleScore_WhaleRank && IsWhaleRankBalanceIgnoredClass(i))
             continue;
@@ -2153,18 +2120,9 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
 
         for (int i = 1; i <= MaxClients; i++)
         {
-            if (!IsClientInGame(i))
+            if (!TeamBalance_IsScrambleCandidate(i, 0, ignoreImmunity, g_hCountBots != null && g_hCountBots.BoolValue))
                 continue;
-            if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue))
-                continue;
-            if (DuelDetection_IsClientInDuel(i))
-                continue;
-
             int team = GetClientTeam(i);
-            if (team != TEAM_RED && team != TEAM_BLU)
-                continue;
-            if (!ignoreImmunity && IsScrambleImmune(i))
-                continue;
             if (scoreKind == ScrambleScore_WhaleRank && IsWhaleRankBalanceIgnoredClass(i))
                 continue;
 
@@ -2284,6 +2242,14 @@ static bool StartScoreBalanceWhaleScramble(int issuer, bool broadcastFailures, b
     for (int i = 0; i < swapCount; i++)
     {
         pack.WriteCell(GetClientUserId(topBlu[i]));
+    }
+
+    if (!TeamBalance_BeginScramble(forced))
+    {
+        delete pack;
+        NotifyFailure(issuer, broadcastFailures, "Team balancing is busy; try again in a moment.");
+        LogWhale("%s scramble aborted: authoritative team-balance state is busy.", modeLabel);
+        return false;
     }
 
     if (g_bExecuteSwapImmediately)
@@ -2582,6 +2548,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
     int pairR[MAX_SWAP_BUFFER];
     int pairB[MAX_SWAP_BUFFER];
     int pairCount = 0;
+    bool allowBots = g_hCountBots != null && g_hCountBots.BoolValue;
     for (int i = 0; i < swapCount; i++)
     {
         int r = GetClientOfUserId(redIds[i]);
@@ -2606,51 +2573,27 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
             continue;
         }
 
+        if (!TeamBalance_MoveScramblePair(r, b, ignoreImmunity, allowBots, suppressRespawn))
+        {
+            LogWhale("Skipping scramble pair: authoritative validation rejected red=%N blu=%N.", r, b);
+            LogWhaleStat("scramble_pair", "result=rejected|reason=controller_validation|mode=%s", scrambleMode);
+            continue;
+        }
+
         if (pairCount < MAX_SWAP_BUFFER)
         {
             pairR[pairCount] = r;
             pairB[pairCount] = b;
             pairCount++;
         }
-
-        if (r > 0 && IsClientInGame(r) && GetClientTeam(r) == TEAM_RED)
-        {
-            ChangeClientTeam(r, TEAM_BLU);
-            if (!suppressRespawn)
-            {
-                QueueScrambleRespawn(r, TEAM_BLU);
-            }
-            MarkScrambleImmune(r);
-        }
-        if (b > 0 && IsClientInGame(b) && GetClientTeam(b) == TEAM_BLU)
-        {
-            ChangeClientTeam(b, TEAM_RED);
-            if (!suppressRespawn)
-            {
-                QueueScrambleRespawn(b, TEAM_RED);
-            }
-            MarkScrambleImmune(b);
-        }
     }
 
     moved = pairCount * 2;
     if (moved > 0)
     {
-        g_iScramblesSinceImmunityClear++;
-        if (g_iScramblesSinceImmunityClear >= 2)
-        {
-            if (g_hScrambleImmunity != null)
-            {
-                g_hScrambleImmunity.Clear();
-            }
-            g_iScramblesSinceImmunityClear = 0;
-            LogWhale("Cleared per-map scramble immunity after two completed scrambles.");
-            LogWhaleStat("immunity_clear", "reason=two_completed_scrambles");
-        }
-
+        TeamBalance_FinishScramble(true);
         g_bScrambledThisRound = true;
         ResetSurrenderVotes("whalescramble_execute");
-        StartScrambleCooldown();
         CPrintToChatAll("{tomato}[{purple}Gap{tomato}]{default} {gold}Whalescrambling{default} %d players!", moved);
         SaySounds_TryPlayCommand(0, TEAM_MOVE_SAYSOUND, true);
         LogWhale("Scramble executed: moved=%d pairs=%d suppressRespawn=%d.", moved, pairCount, suppressRespawn ? 1 : 0);
@@ -2722,6 +2665,7 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
     }
     else
     {
+        TeamBalance_FinishScramble(false);
         int issuer = GetClientOfUserId(issuerUserId);
         if (issuer > 0 && IsClientInGame(issuer))
         {
@@ -2730,119 +2674,6 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
         LogWhale("Scramble executed: no eligible pairs.");
         LogWhaleStat("scramble_result", "mode=%s|result=aborted|reason=no_eligible_pairs|swap=%d|ignore_immunity=%d", scrambleMode, swapCount, ignoreImmunity ? 1 : 0);
     }
-    return Plugin_Stop;
-}
-
-static void ClearScrambleRespawnAttempts()
-{
-    for (int client = 1; client <= MaxClients; client++)
-    {
-        ClearScrambleRespawnState(client);
-    }
-}
-
-static void ClearScrambleRespawnState(int client)
-{
-    if (client <= 0 || client > MaxClients)
-    {
-        return;
-    }
-
-    g_iScrambleRespawnAttempts[client] = 0;
-    g_iScrambleRespawnExpectedTeam[client] = 0;
-}
-
-static bool QueueScrambleRespawn(int client, int expectedTeam)
-{
-    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
-    {
-        return false;
-    }
-    if (DuelDetection_IsClientInDuel(client))
-    {
-        return false;
-    }
-
-    if (expectedTeam != TEAM_RED && expectedTeam != TEAM_BLU)
-    {
-        expectedTeam = GetClientTeam(client);
-    }
-
-    g_iScrambleRespawnAttempts[client] = SCRAMBLE_RESPAWN_RETRY_COUNT;
-    g_iScrambleRespawnExpectedTeam[client] = expectedTeam;
-    CreateTimer(SCRAMBLE_RESPAWN_RETRY_DELAY, Timer_VerifyScrambleRespawn, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
-    return true;
-}
-
-public Action Timer_VerifyScrambleRespawn(Handle timer, any userid)
-{
-    int client = GetClientOfUserId(userid);
-    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
-    {
-        return Plugin_Stop;
-    }
-    if (DuelDetection_IsClientInDuel(client))
-    {
-        ClearScrambleRespawnState(client);
-        return Plugin_Stop;
-    }
-
-    int team = GetClientTeam(client);
-    if (team != TEAM_RED && team != TEAM_BLU)
-    {
-        ClearScrambleRespawnState(client);
-        return Plugin_Stop;
-    }
-
-    if (g_iScrambleRespawnAttempts[client] <= 0)
-    {
-        return Plugin_Stop;
-    }
-
-    int expectedTeam = g_iScrambleRespawnExpectedTeam[client];
-    if (expectedTeam != TEAM_RED && expectedTeam != TEAM_BLU)
-    {
-        expectedTeam = team;
-    }
-
-    g_iScrambleRespawnAttempts[client]--;
-    if (team != expectedTeam)
-    {
-        if (g_iScrambleRespawnAttempts[client] <= 0)
-        {
-            LogWhale("Scramble respawn failed: %N settled on team=%d while expectedTeam=%d.", client, team, expectedTeam);
-            LogWhaleStat("respawn_recovery", "result=failed|reason=wrong_team|team=%d|expected_team=%d", team, expectedTeam);
-            ClearScrambleRespawnState(client);
-            return Plugin_Stop;
-        }
-
-        CreateTimer(SCRAMBLE_RESPAWN_RETRY_DELAY, Timer_VerifyScrambleRespawn, userid, TIMER_FLAG_NO_MAPCHANGE);
-        return Plugin_Stop;
-    }
-
-    if (TF2_GetPlayerClass(client) == TFClass_Unknown)
-    {
-        TF2_SetPlayerClass(client, TFClass_Scout);
-    }
-
-    if (!IsPlayerAlive(client))
-    {
-        TF2_RespawnPlayer(client);
-    }
-
-    if (IsPlayerAlive(client) || g_iScrambleRespawnAttempts[client] <= 0)
-    {
-        if (!IsPlayerAlive(client))
-        {
-            LogWhale("Scramble respawn failed: %N team=%d expectedTeam=%d attempts exhausted.", client, team, expectedTeam);
-            LogWhaleStat("respawn_recovery", "result=failed|reason=attempts_exhausted|team=%d|expected_team=%d", team, expectedTeam);
-        }
-
-        ClearScrambleRespawnState(client);
-        return Plugin_Stop;
-    }
-
-    CreateTimer(SCRAMBLE_RESPAWN_RETRY_DELAY, Timer_VerifyScrambleRespawn, userid, TIMER_FLAG_NO_MAPCHANGE);
     return Plugin_Stop;
 }
 
@@ -2929,7 +2760,7 @@ static void QueueScrambleRespawnsForActiveTeams(const char[] context)
             continue;
         }
 
-        if (QueueScrambleRespawn(i, team))
+        if (TeamBalance_QueueRespawn(i, team))
         {
             queued++;
         }
@@ -2962,17 +2793,6 @@ static void FillSetupMedicUbers()
 
         SetEntPropFloat(medigun, Prop_Send, "m_flChargeLevel", 1.0);
     }
-}
-
-public Action Timer_ResetScrambleCooldown(Handle timer)
-{
-    if (timer == g_hScrambleCooldownTimer)
-    {
-        g_hScrambleCooldownTimer = null;
-    }
-    scrambleCooldown = false;
-    LogWhale("Scramble cooldown expired.");
-    return Plugin_Stop;
 }
 
 static void NotifyFailure(int issuer, bool broadcastFailures, const char[] fmt, any ...)
@@ -3092,7 +2912,7 @@ static bool ResolveScramblePurchaseImmunity(int &client, int team, int redIds[MA
         return false;
     }
 
-    int usesRemaining = PointsStore_ConsumePurchaseUse(client, POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM);
+    int usesRemaining = TeamBalance_ConsumeScramblePurchaseImmunity(client);
     if (usesRemaining < 0)
     {
         return true;
@@ -3127,22 +2947,7 @@ static int SelectScrambleReplacementForPass(int protectedClient, int team, int r
             continue;
         }
 
-        if (!IsClientInGame(i))
-        {
-            continue;
-        }
-
-        if (IsFakeClient(i) && (g_hCountBots == null || !g_hCountBots.BoolValue))
-        {
-            continue;
-        }
-
-        if (DuelDetection_IsClientInDuel(i))
-        {
-            continue;
-        }
-
-        if (GetClientTeam(i) != team)
+        if (!TeamBalance_IsScrambleCandidate(i, team, ignoreImmunity, g_hCountBots != null && g_hCountBots.BoolValue))
         {
             continue;
         }
@@ -3153,11 +2958,6 @@ static int SelectScrambleReplacementForPass(int protectedClient, int team, int r
         }
 
         if (HasScramblePurchaseImmunity(i))
-        {
-            continue;
-        }
-
-        if (!ignoreImmunity && IsScrambleImmune(i))
         {
             continue;
         }
@@ -3187,75 +2987,9 @@ static bool IsClientSelectedForScramble(int client, int redIds[MAX_SWAP_BUFFER],
     return false;
 }
 
-static bool IsScrambleImmune(int client)
-{
-    if (client <= 0 || !IsClientInGame(client) || g_hScrambleImmunity == null)
-    {
-        return false;
-    }
-
-    if (HasClanTeammateProtection(client))
-    {
-        return true;
-    }
-
-    char steamId[32];
-    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
-    {
-        return false;
-    }
-
-    int dummy = 0;
-    return g_hScrambleImmunity.GetValue(steamId, dummy);
-}
-
 static bool HasScramblePurchaseImmunity(int client)
 {
-    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
-    {
-        return false;
-    }
-
-    if (GetFeatureStatus(FeatureType_Native, "PointsStore_HasPurchase") != FeatureStatus_Available)
-    {
-        return false;
-    }
-
-    if (GetFeatureStatus(FeatureType_Native, "PointsStore_ConsumePurchaseUse") != FeatureStatus_Available)
-    {
-        return false;
-    }
-
-    return PointsStore_HasPurchase(client, POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM);
-}
-
-static bool HasClanTeammateProtection(int client)
-{
-    if (GetFeatureStatus(FeatureType_Native, "Clans_GetSameTeamClanMemberCount") != FeatureStatus_Available)
-    {
-        return false;
-    }
-
-    int count = Clans_GetSameTeamClanMemberCount(client);
-    // Clans returns -1 while its cache/client state is unavailable. Fail open
-    // so a transient clan lookup issue cannot make every scramble candidate invalid.
-    return count > 1;
-}
-
-static void MarkScrambleImmune(int client)
-{
-    if (client <= 0 || !IsClientInGame(client) || g_hScrambleImmunity == null)
-    {
-        return;
-    }
-
-    char steamId[32];
-    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
-    {
-        return;
-    }
-
-    g_hScrambleImmunity.SetValue(steamId, 1, true);
+    return TeamBalance_HasScramblePurchaseImmunity(client);
 }
 
 static void LogWhale(const char[] fmt, any ...)

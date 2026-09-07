@@ -40,10 +40,29 @@ native int FilterAlerts_MarkAutobalance(int client);
 #define TEAM_SWAP_COST 25
 #define TEAM_SWAP_REWARD_ID "team_swap_receiver"
 #define TEAM_SWAP_TIMEOUT 60.0
+#define TEAM_BALANCE_SETTLE_TIME 3.0
+#define TEAM_BALANCE_OPERATION_LEASE 5.0
+#define TEAM_BALANCE_MOVE_PROTECTION 15.0
+#define TEAM_BALANCE_SCRAMBLE_COOLDOWN 120.0
+#define TEAM_BALANCE_RESPAWN_RETRY_DELAY 0.50
+#define TEAM_BALANCE_RESPAWN_RETRY_COUNT 8
+#define POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM "scramImmunity24h"
+
+enum TeamBalanceState
+{
+    TeamBalance_Idle = 0,
+    TeamBalance_Autobalance,
+    TeamBalance_ManualSwap,
+    TeamBalance_ScrambleVote,
+    TeamBalance_ScramblePending,
+    TeamBalance_ScrambleMoving,
+    TeamBalance_Settling
+};
 
 StringMap g_hMapImmunity = null;            // SteamID64 set for map-long immunity.
 StringMap g_hPersistentImmunity = null;     // SteamID64 set for persistent admin immunity.
 StringMap g_hVolunteers = null;             // SteamID64 set for persistent autobalance volunteers.
+StringMap g_hScrambleImmunity = null;       // SteamID64 set for two completed scrambles.
 Database  g_hImmunityDb = null;
 Handle    g_hImmunityDbReconnectTimer = null;
 bool      g_bImmunityDbReady = false;
@@ -68,13 +87,20 @@ int     g_iSwapRequestSenderTeam[MAXPLAYERS + 1];
 int     g_iSwapRequestTargetTeam[MAXPLAYERS + 1];
 Handle  g_hSwapRequestTimer[MAXPLAYERS + 1];
 bool    g_bSwapRequestFinalizing[MAXPLAYERS + 1];
+TeamBalanceState g_eTeamBalanceState = TeamBalance_Idle;
+float   g_fTeamBalanceStateUntil = 0.0;
+float   g_fScrambleCooldownUntil = 0.0;
+int     g_iScramblesSinceImmunityClear = 0;
+int     g_iBalanceRespawnAttempts[MAXPLAYERS + 1];
+int     g_iBalanceRespawnExpectedTeam[MAXPLAYERS + 1];
+float   g_fBalanceMovedUntil[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
     name        = "autobalance_4teams",
     author      = "Hombre, AW 'Swixel' Stanley",
-    description = "Moves players when 4 teams are imbalanced.",
-    version     = "1.3",
+    description = "Authoritative controller for autobalance, team swaps, and WhaleScramble.",
+    version     = "2.0",
     url         = "https://kogasa.tf"
 };
 
@@ -82,6 +108,18 @@ public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max
 {
     RegPluginLibrary("autobalance_4teams");
     CreateNative("Autobalance_HasPendingTeamSwap", Native_HasPendingTeamSwap);
+    CreateNative("TeamBalance_IsBusy", Native_TeamBalanceIsBusy);
+    CreateNative("TeamBalance_IsScrambleCooldownActive", Native_TeamBalanceIsScrambleCooldownActive);
+    CreateNative("TeamBalance_BeginScrambleVote", Native_TeamBalanceBeginScrambleVote);
+    CreateNative("TeamBalance_EndScrambleVote", Native_TeamBalanceEndScrambleVote);
+    CreateNative("TeamBalance_BeginScramble", Native_TeamBalanceBeginScramble);
+    CreateNative("TeamBalance_CancelScramble", Native_TeamBalanceCancelScramble);
+    CreateNative("TeamBalance_FinishScramble", Native_TeamBalanceFinishScramble);
+    CreateNative("TeamBalance_IsScrambleCandidate", Native_TeamBalanceIsScrambleCandidate);
+    CreateNative("TeamBalance_HasScramblePurchaseImmunity", Native_TeamBalanceHasScramblePurchaseImmunity);
+    CreateNative("TeamBalance_ConsumeScramblePurchaseImmunity", Native_TeamBalanceConsumeScramblePurchaseImmunity);
+    CreateNative("TeamBalance_MoveScramblePair", Native_TeamBalanceMoveScramblePair);
+    CreateNative("TeamBalance_QueueRespawn", Native_TeamBalanceQueueRespawn);
     MarkNativeAsOptional("FilterAlerts_MarkAutobalance");
     MarkNativeAsOptional("Clans_GetSameTeamClanMemberCount");
     MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
@@ -106,6 +144,467 @@ public any Native_HasPendingTeamSwap(Handle plugin, int numParams)
 {
     int client = GetNativeCell(1);
     return HasPendingTeamSwap(client);
+}
+
+public any Native_TeamBalanceIsBusy(Handle plugin, int numParams)
+{
+    TeamBalance_RefreshState();
+    return g_eTeamBalanceState != TeamBalance_Idle;
+}
+
+public any Native_TeamBalanceIsScrambleCooldownActive(Handle plugin, int numParams)
+{
+    return TeamBalance_IsScrambleCooldownActiveInternal();
+}
+
+public any Native_TeamBalanceBeginScrambleVote(Handle plugin, int numParams)
+{
+    float leaseSeconds = view_as<float>(GetNativeCell(1));
+    if (leaseSeconds < 1.0)
+    {
+        leaseSeconds = 1.0;
+    }
+
+    return TeamBalance_TryBegin(TeamBalance_ScrambleVote, leaseSeconds + 2.0, false);
+}
+
+public any Native_TeamBalanceEndScrambleVote(Handle plugin, int numParams)
+{
+    TeamBalance_RefreshState();
+    if (g_eTeamBalanceState == TeamBalance_ScrambleVote)
+    {
+        TeamBalance_SetState(TeamBalance_Idle, 0.0);
+    }
+    return 0;
+}
+
+public any Native_TeamBalanceBeginScramble(Handle plugin, int numParams)
+{
+    bool bypassCooldown = view_as<bool>(GetNativeCell(1));
+    TeamBalance_RefreshState();
+    if (g_eTeamBalanceState == TeamBalance_ScrambleVote)
+    {
+        TeamBalance_SetState(TeamBalance_ScramblePending, TEAM_BALANCE_OPERATION_LEASE);
+        return true;
+    }
+
+    return TeamBalance_TryBegin(TeamBalance_ScramblePending, TEAM_BALANCE_OPERATION_LEASE, bypassCooldown);
+}
+
+public any Native_TeamBalanceCancelScramble(Handle plugin, int numParams)
+{
+    TeamBalance_RefreshState();
+    if (g_eTeamBalanceState == TeamBalance_ScrambleVote
+        || g_eTeamBalanceState == TeamBalance_ScramblePending
+        || g_eTeamBalanceState == TeamBalance_ScrambleMoving)
+    {
+        TeamBalance_SetState(TeamBalance_Idle, 0.0);
+    }
+    return 0;
+}
+
+public any Native_TeamBalanceFinishScramble(Handle plugin, int numParams)
+{
+    bool movedPlayers = view_as<bool>(GetNativeCell(1));
+    bool countForImmunity = view_as<bool>(GetNativeCell(2));
+    TeamBalance_FinishScrambleInternal(movedPlayers, countForImmunity);
+    return 0;
+}
+
+public any Native_TeamBalanceIsScrambleCandidate(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    int expectedTeam = GetNativeCell(2);
+    bool ignoreImmunity = view_as<bool>(GetNativeCell(3));
+    bool allowBots = view_as<bool>(GetNativeCell(4));
+    return TeamBalance_IsScrambleCandidateInternal(client, expectedTeam, ignoreImmunity, allowBots);
+}
+
+public any Native_TeamBalanceHasScramblePurchaseImmunity(Handle plugin, int numParams)
+{
+    return TeamBalance_HasScramblePurchaseImmunityInternal(GetNativeCell(1));
+}
+
+public any Native_TeamBalanceConsumeScramblePurchaseImmunity(Handle plugin, int numParams)
+{
+    int client = GetNativeCell(1);
+    if (!TeamBalance_HasScramblePurchaseImmunityInternal(client))
+    {
+        return -1;
+    }
+
+    return PointsStore_ConsumePurchaseUse(client, POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM);
+}
+
+public any Native_TeamBalanceMoveScramblePair(Handle plugin, int numParams)
+{
+    return TeamBalance_MoveScramblePairInternal(
+        GetNativeCell(1),
+        GetNativeCell(2),
+        view_as<bool>(GetNativeCell(3)),
+        view_as<bool>(GetNativeCell(4)),
+        view_as<bool>(GetNativeCell(5))
+    );
+}
+
+public any Native_TeamBalanceQueueRespawn(Handle plugin, int numParams)
+{
+    return TeamBalance_QueueRespawnInternal(GetNativeCell(1), GetNativeCell(2), false);
+}
+
+static void TeamBalance_SetState(TeamBalanceState state, float leaseSeconds)
+{
+    g_eTeamBalanceState = state;
+    g_fTeamBalanceStateUntil = (state != TeamBalance_Idle && leaseSeconds > 0.0)
+        ? GetEngineTime() + leaseSeconds
+        : 0.0;
+}
+
+static void TeamBalance_RefreshState()
+{
+    if (g_eTeamBalanceState == TeamBalance_Idle || g_fTeamBalanceStateUntil <= 0.0)
+    {
+        return;
+    }
+
+    if (GetEngineTime() >= g_fTeamBalanceStateUntil)
+    {
+        LogBalance("Balance state lease expired: state=%d", view_as<int>(g_eTeamBalanceState));
+        TeamBalance_SetState(TeamBalance_Idle, 0.0);
+    }
+}
+
+static bool TeamBalance_IsScrambleCooldownActiveInternal()
+{
+    if (g_fScrambleCooldownUntil <= 0.0)
+    {
+        return false;
+    }
+
+    if (GetEngineTime() >= g_fScrambleCooldownUntil)
+    {
+        g_fScrambleCooldownUntil = 0.0;
+        LogBalance("Scramble cooldown expired.");
+        return false;
+    }
+
+    return true;
+}
+
+static bool TeamBalance_TryBegin(TeamBalanceState state, float leaseSeconds, bool bypassScrambleCooldown)
+{
+    TeamBalance_RefreshState();
+    if (g_eTeamBalanceState != TeamBalance_Idle)
+    {
+        return false;
+    }
+
+    if (!bypassScrambleCooldown
+        && (state == TeamBalance_ScrambleVote || state == TeamBalance_ScramblePending)
+        && TeamBalance_IsScrambleCooldownActiveInternal())
+    {
+        return false;
+    }
+
+    TeamBalance_SetState(state, leaseSeconds);
+    return true;
+}
+
+static void TeamBalance_FinishOperation(bool movedPlayers)
+{
+    if (movedPlayers)
+    {
+        TeamBalance_SetState(TeamBalance_Settling, TEAM_BALANCE_SETTLE_TIME);
+    }
+    else
+    {
+        TeamBalance_SetState(TeamBalance_Idle, 0.0);
+    }
+}
+
+static void TeamBalance_FinishScrambleInternal(bool movedPlayers, bool countForImmunity)
+{
+    TeamBalance_RefreshState();
+    if (g_eTeamBalanceState != TeamBalance_ScramblePending
+        && g_eTeamBalanceState != TeamBalance_ScrambleMoving)
+    {
+        LogBalance("Ignored invalid scramble completion transition from state=%d", view_as<int>(g_eTeamBalanceState));
+        return;
+    }
+
+    if (!movedPlayers)
+    {
+        TeamBalance_FinishOperation(false);
+        return;
+    }
+
+    g_fScrambleCooldownUntil = GetEngineTime() + TEAM_BALANCE_SCRAMBLE_COOLDOWN;
+    if (countForImmunity)
+    {
+        g_iScramblesSinceImmunityClear++;
+        if (g_iScramblesSinceImmunityClear >= 2)
+        {
+            if (g_hScrambleImmunity != null)
+            {
+                g_hScrambleImmunity.Clear();
+            }
+            g_iScramblesSinceImmunityClear = 0;
+            LogBalance("Cleared scramble immunity after two completed scrambles.");
+        }
+    }
+
+    TeamBalance_FinishOperation(true);
+    LogBalance("Scramble completed; cooldown and settle window started.");
+}
+
+static bool TeamBalance_IsScrambleCandidateInternal(int client, int expectedTeam, bool ignoreImmunity, bool allowBots)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    {
+        return false;
+    }
+    if (!allowBots && IsFakeClient(client))
+    {
+        return false;
+    }
+    if ((expectedTeam == TEAM_RED || expectedTeam == TEAM_BLUE) && GetClientTeam(client) != expectedTeam)
+    {
+        return false;
+    }
+    if (GetClientTeam(client) != TEAM_RED && GetClientTeam(client) != TEAM_BLUE)
+    {
+        return false;
+    }
+    if (DuelDetection_IsClientInDuel(client))
+    {
+        return false;
+    }
+    if (TeamBalance_IsRecentlyMoved(client))
+    {
+        return false;
+    }
+    if (!ignoreImmunity && TeamBalance_IsScrambleImmuneInternal(client))
+    {
+        return false;
+    }
+
+    return true;
+}
+
+static bool TeamBalance_IsScrambleImmuneInternal(int client)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || g_hScrambleImmunity == null)
+    {
+        return false;
+    }
+    bool clanProtectionAvailable = GetFeatureStatus(FeatureType_Native, "Clans_GetSameTeamClanMemberCount") == FeatureStatus_Available;
+    if (HasClanTeammateProtection(client, GetClientTeam(client), clanProtectionAvailable))
+    {
+        return true;
+    }
+
+    char steamId[32];
+    if (!Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
+    {
+        return false;
+    }
+
+    int dummy;
+    return g_hScrambleImmunity.GetValue(steamId, dummy);
+}
+
+static void TeamBalance_MarkScrambleImmune(int client)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || g_hScrambleImmunity == null)
+    {
+        return;
+    }
+
+    char steamId[32];
+    if (Kogasa_GetClientSteamId64(client, steamId, sizeof(steamId), true))
+    {
+        g_hScrambleImmunity.SetValue(steamId, 1, true);
+    }
+}
+
+static bool TeamBalance_HasScramblePurchaseImmunityInternal(int client)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || IsFakeClient(client))
+    {
+        return false;
+    }
+    if (GetFeatureStatus(FeatureType_Native, "PointsStore_HasPurchase") != FeatureStatus_Available
+        || GetFeatureStatus(FeatureType_Native, "PointsStore_ConsumePurchaseUse") != FeatureStatus_Available)
+    {
+        return false;
+    }
+
+    return PointsStore_HasPurchase(client, POINTS_STORE_SCRAMBLE_IMMUNITY_ITEM);
+}
+
+static bool TeamBalance_MoveScramblePairInternal(int redClient, int bluClient, bool ignoreImmunity, bool allowBots, bool suppressRespawn)
+{
+    TeamBalance_RefreshState();
+    if (g_eTeamBalanceState != TeamBalance_ScramblePending && g_eTeamBalanceState != TeamBalance_ScrambleMoving)
+    {
+        return false;
+    }
+    if (!TeamBalance_IsScrambleCandidateInternal(redClient, TEAM_RED, ignoreImmunity, allowBots)
+        || !TeamBalance_IsScrambleCandidateInternal(bluClient, TEAM_BLUE, ignoreImmunity, allowBots)
+        || TeamBalance_HasScramblePurchaseImmunityInternal(redClient)
+        || TeamBalance_HasScramblePurchaseImmunityInternal(bluClient))
+    {
+        return false;
+    }
+
+    TeamBalance_SetState(TeamBalance_ScrambleMoving, TEAM_BALANCE_OPERATION_LEASE);
+    ChangeClientTeam(redClient, TEAM_BLUE);
+    ChangeClientTeam(bluClient, TEAM_RED);
+    TeamBalance_MarkRecentlyMoved(redClient);
+    TeamBalance_MarkRecentlyMoved(bluClient);
+    if (!suppressRespawn)
+    {
+        TeamBalance_QueueRespawnInternal(redClient, TEAM_BLUE, false);
+        TeamBalance_QueueRespawnInternal(bluClient, TEAM_RED, false);
+    }
+    TeamBalance_MarkScrambleImmune(redClient);
+    TeamBalance_MarkScrambleImmune(bluClient);
+    return true;
+}
+
+static bool TeamBalance_MoveAutobalanceClient(int client, int expectedTeam, int targetTeam)
+{
+    if (g_eTeamBalanceState != TeamBalance_Autobalance
+        || !IsGameTeam(expectedTeam) || !IsGameTeam(targetTeam) || expectedTeam == targetTeam
+        || !IsBasicBalanceCandidate(client, expectedTeam)
+        || IsClientImmune(client) || HasAutobalancePurchaseImmunity(client))
+    {
+        return false;
+    }
+
+    ChangeClientTeam(client, targetTeam);
+    TeamBalance_MarkRecentlyMoved(client);
+    TeamBalance_QueueRespawnInternal(client, targetTeam, true);
+    SetClientMapImmunity(client, true);
+    TeamBalance_FinishOperation(true);
+    return true;
+}
+
+static bool TeamBalance_QueueRespawnInternal(int client, int expectedTeam, bool immediate)
+{
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client) || DuelDetection_IsClientInDuel(client))
+    {
+        return false;
+    }
+    if (!IsGameTeam(expectedTeam))
+    {
+        expectedTeam = GetClientTeam(client);
+    }
+    if (!IsGameTeam(expectedTeam))
+    {
+        return false;
+    }
+
+    g_iBalanceRespawnAttempts[client] = TEAM_BALANCE_RESPAWN_RETRY_COUNT;
+    g_iBalanceRespawnExpectedTeam[client] = expectedTeam;
+    if (immediate && GetClientTeam(client) == expectedTeam)
+    {
+        if (TF2_GetPlayerClass(client) == TFClass_Unknown)
+        {
+            TF2_SetPlayerClass(client, TFClass_Scout);
+        }
+        if (!IsPlayerAlive(client))
+        {
+            TF2_RespawnPlayer(client);
+        }
+    }
+    CreateTimer(TEAM_BALANCE_RESPAWN_RETRY_DELAY, Timer_TeamBalanceVerifyRespawn, GetClientUserId(client), TIMER_FLAG_NO_MAPCHANGE);
+    return true;
+}
+
+static void TeamBalance_ClearRespawnState(int client)
+{
+    if (client > 0 && client <= MaxClients)
+    {
+        g_iBalanceRespawnAttempts[client] = 0;
+        g_iBalanceRespawnExpectedTeam[client] = 0;
+    }
+}
+
+static bool TeamBalance_IsRecentlyMoved(int client)
+{
+    return client > 0 && client <= MaxClients && g_fBalanceMovedUntil[client] > GetEngineTime();
+}
+
+static void TeamBalance_MarkRecentlyMoved(int client)
+{
+    if (client > 0 && client <= MaxClients)
+    {
+        g_fBalanceMovedUntil[client] = GetEngineTime() + TEAM_BALANCE_MOVE_PROTECTION;
+    }
+}
+
+static void TeamBalance_ResetRuntime()
+{
+    TeamBalance_SetState(TeamBalance_Idle, 0.0);
+    g_fScrambleCooldownUntil = 0.0;
+    g_iScramblesSinceImmunityClear = 0;
+    if (g_hScrambleImmunity != null)
+    {
+        g_hScrambleImmunity.Clear();
+    }
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        TeamBalance_ClearRespawnState(client);
+        g_fBalanceMovedUntil[client] = 0.0;
+    }
+}
+
+public Action Timer_TeamBalanceVerifyRespawn(Handle timer, any userid)
+{
+    int client = GetClientOfUserId(userid);
+    if (client <= 0 || client > MaxClients || !IsClientInGame(client))
+    {
+        return Plugin_Stop;
+    }
+    if (DuelDetection_IsClientInDuel(client) || g_iBalanceRespawnAttempts[client] <= 0)
+    {
+        TeamBalance_ClearRespawnState(client);
+        return Plugin_Stop;
+    }
+
+    int team = GetClientTeam(client);
+    int expectedTeam = g_iBalanceRespawnExpectedTeam[client];
+    g_iBalanceRespawnAttempts[client]--;
+    if (team != expectedTeam)
+    {
+        if (g_iBalanceRespawnAttempts[client] > 0)
+        {
+            CreateTimer(TEAM_BALANCE_RESPAWN_RETRY_DELAY, Timer_TeamBalanceVerifyRespawn, userid, TIMER_FLAG_NO_MAPCHANGE);
+        }
+        else
+        {
+            TeamBalance_ClearRespawnState(client);
+        }
+        return Plugin_Stop;
+    }
+
+    if (TF2_GetPlayerClass(client) == TFClass_Unknown)
+    {
+        TF2_SetPlayerClass(client, TFClass_Scout);
+    }
+    if (!IsPlayerAlive(client))
+    {
+        TF2_RespawnPlayer(client);
+    }
+    if (IsPlayerAlive(client) || g_iBalanceRespawnAttempts[client] <= 0)
+    {
+        TeamBalance_ClearRespawnState(client);
+        return Plugin_Stop;
+    }
+
+    CreateTimer(TEAM_BALANCE_RESPAWN_RETRY_DELAY, Timer_TeamBalanceVerifyRespawn, userid, TIMER_FLAG_NO_MAPCHANGE);
+    return Plugin_Stop;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +634,8 @@ public void OnPluginStart()
     g_hMapImmunity = new StringMap();
     g_hPersistentImmunity = new StringMap();
     g_hVolunteers = new StringMap();
+    g_hScrambleImmunity = new StringMap();
+    TeamBalance_ResetRuntime();
     ClearAllTeamSwapRequests();
 
     ApplyServerBalanceCvars(true);
@@ -143,6 +644,7 @@ public void OnPluginStart()
 
 public void OnMapStart()
 {
+    TeamBalance_ResetRuntime();
     ClearAllTeamSwapRequests();
     StopAutobalanceTimer();
     g_fImbalanceDetectedAt = 0.0;
@@ -156,6 +658,7 @@ public void OnMapStart()
 
 public void OnMapEnd()
 {
+    TeamBalance_ResetRuntime();
     ClearAllTeamSwapRequests();
     StopAutobalanceTimer();
     g_fImbalanceDetectedAt = 0.0;
@@ -163,6 +666,11 @@ public void OnMapEnd()
 
 public void OnClientDisconnect(int client)
 {
+    TeamBalance_ClearRespawnState(client);
+    if (client > 0 && client <= MaxClients)
+    {
+        g_fBalanceMovedUntil[client] = 0.0;
+    }
     ClearTeamSwapRequestsForClient(client);
 }
 
@@ -200,6 +708,12 @@ public void OnPluginEnd()
     {
         delete g_hVolunteers;
         g_hVolunteers = null;
+    }
+
+    if (g_hScrambleImmunity != null)
+    {
+        delete g_hScrambleImmunity;
+        g_hScrambleImmunity = null;
     }
 
 }
@@ -293,7 +807,11 @@ public Action Command_ForceTeamSwap(int client, int args)
 
     ClearTeamSwapRequestsForClient(first);
     ClearTeamSwapRequestsForClient(second);
-    SwapTeamClients(first, second);
+    if (!TeamBalance_MoveManualPair(first, second))
+    {
+        ReplyToCommand(client, "[Team Swap] Team balancing is busy; try again in a moment.");
+        return Plugin_Handled;
+    }
 
     ReplyToCommand(client, "[Team Swap] Force-swapped %N with %N.", first, second);
     if (first != client)
@@ -345,6 +863,14 @@ public Action Command_AcceptTeamSwap(int client, int args)
         return Plugin_Handled;
     }
 
+    TeamBalance_RefreshState();
+    if (g_eTeamBalanceState != TeamBalance_Idle)
+    {
+        CPrintToChat(client, "[Team Swap] Team balancing is busy; try again in a moment.");
+        CPrintToChat(sender, "[Team Swap] Team balancing is busy; try again in a moment.");
+        return Plugin_Handled;
+    }
+
     if (!CanUseTeamSwapStore(sender, true) || !CanUseTeamSwapStore(client, false))
     {
         CPrintToChat(client, "[Team Swap] The Gems store is not ready for both players.");
@@ -374,7 +900,7 @@ public Action Command_AcceptTeamSwap(int client, int args)
         return Plugin_Handled;
     }
 
-    SwapTeamClients(sender, client);
+    TeamBalance_MoveManualPair(sender, client);
 
     char senderName[256];
     char targetName[256];
@@ -600,8 +1126,13 @@ static bool IsTeamSwapClient(int client)
     return client > 0 && client <= MaxClients && IsClientInGame(client) && !IsFakeClient(client);
 }
 
-static void SwapTeamClients(int first, int second)
+static bool TeamBalance_MoveManualPair(int first, int second)
 {
+    if (!TeamBalance_TryBegin(TeamBalance_ManualSwap, TEAM_BALANCE_OPERATION_LEASE, true))
+    {
+        return false;
+    }
+
     int firstTeam = GetClientTeam(first);
     int secondTeam = GetClientTeam(second);
     bool firstWasAlive = IsPlayerAlive(first);
@@ -609,14 +1140,18 @@ static void SwapTeamClients(int first, int second)
 
     ChangeClientTeam(first, secondTeam);
     ChangeClientTeam(second, firstTeam);
+    TeamBalance_MarkRecentlyMoved(first);
+    TeamBalance_MarkRecentlyMoved(second);
     if (firstWasAlive)
     {
-        TF2_RespawnPlayer(first);
+        TeamBalance_QueueRespawnInternal(first, secondTeam, true);
     }
     if (secondWasAlive)
     {
-        TF2_RespawnPlayer(second);
+        TeamBalance_QueueRespawnInternal(second, firstTeam, true);
     }
+    TeamBalance_FinishOperation(true);
+    return true;
 }
 
 static bool CanUseTeamSwapStore(int client, bool printFailure)
@@ -677,6 +1212,12 @@ public Action Timer_StartAutobalance(Handle timer)
 public Action Timer_Autobalance(Handle timer)
 {
     if (ShouldSuppressAutobalanceForGamemode())
+    {
+        return Plugin_Continue;
+    }
+
+    TeamBalance_RefreshState();
+    if (g_eTeamBalanceState != TeamBalance_Idle)
     {
         return Plugin_Continue;
     }
@@ -846,6 +1387,11 @@ public Action Timer_Autobalance(Handle timer)
     // all eligible candidates with a bias toward lower scores.
     // ------------------------------------------------------------------
 
+    if (!TeamBalance_TryBegin(TeamBalance_Autobalance, TEAM_BALANCE_OPERATION_LEASE, true))
+    {
+        return Plugin_Continue;
+    }
+
     int totalScore   = 0;
     int totalPlayers = 0;
     float avg = 0.0;
@@ -883,6 +1429,7 @@ public Action Timer_Autobalance(Handle timer)
             {
                 LogBalance("Skip balance on %s: simple selection found no eligible candidates", fromTeamName);
             }
+            TeamBalance_FinishOperation(false);
             return Plugin_Continue;
         }
     }
@@ -919,6 +1466,7 @@ public Action Timer_Autobalance(Handle timer)
                 );
             }
 
+            TeamBalance_FinishOperation(false);
             return Plugin_Continue;
         }
 
@@ -958,6 +1506,7 @@ public Action Timer_Autobalance(Handle timer)
 
     if (!ResolveAutobalancePurchaseImmunity(pick, biggestTeam, clanProtectionAvailable, loggingEnabled))
     {
+        TeamBalance_FinishOperation(false);
         return Plugin_Continue;
     }
 
@@ -967,6 +1516,7 @@ public Action Timer_Autobalance(Handle timer)
         {
             LogBalance("Skip balance on %N: client entered a duel before move", pick);
         }
+        TeamBalance_FinishOperation(false);
         return Plugin_Continue;
     }
 
@@ -991,13 +1541,19 @@ public Action Timer_Autobalance(Handle timer)
         FilterAlerts_MarkAutobalance(pick);
     }
 
-    ChangeClientTeam(pick, smallestTeam);
-    TF2_RespawnPlayer(pick);
+    if (!TeamBalance_MoveAutobalanceClient(pick, biggestTeam, smallestTeam))
+    {
+        TeamBalance_FinishOperation(false);
+        if (loggingEnabled)
+        {
+            LogBalance("Skip balance on %N: candidate became invalid before the authoritative move", pick);
+        }
+        return Plugin_Continue;
+    }
     if (volunteerSelection && GetFeatureStatus(FeatureType_Native, "PointsStore_ApplyBonusPoints") == FeatureStatus_Available)
     {
         PointsStore_ApplyBonusPoints(pick, "autobalance_volunteer", true, true, 1.0, 0, 0.0);
     }
-    SetClientMapImmunity(pick, true);
     g_fImbalanceDetectedAt = 0.0;
     SaySounds_TryPlayCommand(0, TEAM_MOVE_SAYSOUND, true);
 
@@ -1097,6 +1653,7 @@ static bool IsBasicBalanceCandidate(int client, int team)
     if (!IsClientInGame(client) || IsFakeClient(client)) return false;
     if (GetClientTeam(client) != team) return false;
     if (DuelDetection_IsClientInDuel(client)) return false;
+    if (TeamBalance_IsRecentlyMoved(client)) return false;
     if (ClientHasDecapitationHeads(client)) return false;
 
     return true;
