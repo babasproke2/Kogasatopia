@@ -23,6 +23,7 @@
 #define TF_ITEM_DEFINDEX_GUNSLINGER 142
 
 #define ATTR_EXTRA_WEARABLE_MODEL_OVERRIDE "extra wearable model override"
+#define ATTR_PROJECTILE_MODEL_OVERRIDE "projectile model override"
 #define ATTR_NAME_KILLSTREAK_IDLEEFFECT "killstreak idleeffect"
 #define ATTR_CLASS_KILLSTREAK_IDLEEFFECT "killstreak_idleeffect"
 
@@ -77,6 +78,7 @@ void WeaponsModels_PrecacheItemAssets(KeyValues attributes) {
 		"viewmodel override",
 		"worldmodel override",
 		"arm model override",
+		ATTR_PROJECTILE_MODEL_OVERRIDE,
 		ATTR_EXTRA_WEARABLE_MODEL_OVERRIDE
 	};
 
@@ -111,7 +113,36 @@ void WeaponsModels_OnClientDisconnect(int client) {
 void WeaponsModels_OnEntityCreated(int entity, const char[] className) {
 	if (StrEqual(className, "tf_dropped_weapon")) {
 		SDKHook(entity, SDKHook_SpawnPost, WeaponsModels_OnDroppedWeaponSpawnPost);
+	} else if (StrEqual(className, "tf_projectile_arrow")) {
+		SDKHook(entity, SDKHook_SpawnPost, WeaponsModels_OnProjectileSpawnPost);
 	}
+}
+
+void WeaponsModels_OnProjectileSpawnPost(int projectile) {
+	RequestFrame(WeaponsModels_ApplyProjectileModelFrame, EntIndexToEntRef(projectile));
+}
+
+void WeaponsModels_ApplyProjectileModelFrame(any projectileRef) {
+	int projectile = EntRefToEntIndex(projectileRef);
+	if (projectile == INVALID_ENT_REFERENCE || !IsValidEntity(projectile)
+			|| !HasEntProp(projectile, Prop_Send, "m_hLauncher")) {
+		return;
+	}
+
+	int launcher = GetEntPropEnt(projectile, Prop_Send, "m_hLauncher");
+	if (launcher <= MaxClients || !IsValidEntity(launcher)
+			|| !TF2Util_IsEntityWeapon(launcher)) {
+		return;
+	}
+
+	char model[PLATFORM_MAX_PATH];
+	if (!TF2CustAttr_GetString(launcher, ATTR_PROJECTILE_MODEL_OVERRIDE,
+			model, sizeof(model)) || !FileExistsAndLog(model, true)) {
+		return;
+	}
+
+	PrecacheModelAndLog(model);
+	SetEntityModel(projectile, model);
 }
 
 /**
