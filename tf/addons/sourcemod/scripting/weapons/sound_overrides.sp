@@ -5,6 +5,7 @@
  */
 #define Weapons_ATTR_REPLACE_SOUND "replace sound"
 #define Weapons_ATTR_CUSTOM_DEPLOY_SOUND "custom deploy sound"
+#define Weapons_ATTR_EMIT_SOUND_ON_HIT "emit sound on hit"
 #define WEAPONS_CUSTOM_DEPLOY_SOUND_COOLDOWN 3.0
 
 StringMap g_WeaponsSoundGroups;
@@ -107,25 +108,45 @@ static void WeaponsSound_PlayCustomDeploySound(int client, int weapon)
 		return;
 	}
 
+	if (WeaponsSound_EmitCustomAttribute(client, weapon,
+			Weapons_ATTR_CUSTOM_DEPLOY_SOUND, "custom deploy"))
+	{
+		g_flWeaponsNextDeploySoundTime[client] =
+			GetGameTime() + WEAPONS_CUSTOM_DEPLOY_SOUND_COOLDOWN;
+	}
+}
+
+void WeaponsSound_PlayOnHit(int attacker, int weapon)
+{
+	WeaponsSound_EmitCustomAttribute(attacker, weapon,
+		Weapons_ATTR_EMIT_SOUND_ON_HIT, "on-hit");
+}
+
+static bool WeaponsSound_EmitCustomAttribute(int client, int weapon,
+		const char[] attribute, const char[] context)
+{
+	if (!Weapons_IsValidClient(client) || !IsValidEntity(weapon))
+	{
+		return false;
+	}
+
 	char sample[PLATFORM_MAX_PATH];
-	TF2CustAttr_GetString(weapon, Weapons_ATTR_CUSTOM_DEPLOY_SOUND,
-		sample, sizeof(sample));
+	TF2CustAttr_GetString(weapon, attribute, sample, sizeof(sample));
 	TrimString(sample);
 	if (!sample[0])
 	{
-		return;
+		return false;
 	}
 
 	if (!PrecacheSound(sample, true))
 	{
-		LogError("Failed to precache custom deploy sound '%s' for weapon %d",
-			sample, weapon);
-		return;
+		LogError("Failed to precache %s sound '%s' for weapon %d",
+			context, sample, weapon);
+		return false;
 	}
 
-	g_flWeaponsNextDeploySoundTime[client] =
-		GetGameTime() + WEAPONS_CUSTOM_DEPLOY_SOUND_COOLDOWN;
 	EmitSoundToAll(sample, client, SNDCHAN_AUTO, SNDLEVEL_NORMAL);
+	return true;
 }
 
 void WeaponsSound_OnItemRuntimeStateReady(int client, int entity)
