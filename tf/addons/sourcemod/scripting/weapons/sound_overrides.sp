@@ -6,6 +6,7 @@
 #define Weapons_ATTR_REPLACE_SOUND "replace sound"
 #define Weapons_ATTR_CUSTOM_DEPLOY_SOUND "custom deploy sound"
 #define Weapons_ATTR_EMIT_SOUND_ON_HIT "emit sound on hit"
+#define Weapons_ATTR_CUSTOM_HITSOUND "custom hitsound"
 #define Weapons_ATTR_CUSTOM_MELEE_SWING_SOUND "custom melee swing sound"
 #define Weapons_ATTR_CUSTOM_MELEE_HIT_SOUND "custom melee hit sound"
 #define WEAPONS_SOUND_ENTRY_BATSABER_SWING "Weapon_BatSaber.Swing"
@@ -198,6 +199,12 @@ void WeaponsSound_PlayOnHit(int victim, int weapon)
 {
 	WeaponsSound_EmitCustomAttribute(victim, weapon,
 		Weapons_ATTR_EMIT_SOUND_ON_HIT, "on-hit");
+}
+
+void WeaponsSound_PlayCustomHitsound(int attacker, int weapon)
+{
+	WeaponsSound_EmitCustomAttribute(attacker, weapon,
+		Weapons_ATTR_CUSTOM_HITSOUND, "custom hitsound");
 }
 
 void WeaponsSound_PlayCustomMeleeHit(int attacker, int weapon)
