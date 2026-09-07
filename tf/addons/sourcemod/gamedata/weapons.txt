@@ -76,11 +76,6 @@
 				"windows"	"288"
 				"linux"		"294"
 			}
-			"CTFWeaponBase::GetShootSound"
-			{
-				"windows"	"338"
-				"linux"		"344"
-			}
 			"CTFWeaponBase::CanFireCriticalShot"
 			{
 				"windows"	"439"
@@ -192,20 +187,6 @@
 				"hooktype"	"entity"
 				"this"		"entity"
 				"return"	"void"
-			}
-			"CTFWeaponBase::GetShootSound"
-			{
-				"offset"	"CTFWeaponBase::GetShootSound"
-				"hooktype"	"entity"
-				"this"		"entity"
-				"return"	"charptr"
-				"arguments"
-				{
-					"sound_type"
-					{
-						"type"	"int"
-					}
-				}
 			}
 			"CTFPlayer::GetLoadoutItem()"
 			{
