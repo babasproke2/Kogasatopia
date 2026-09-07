@@ -90,6 +90,7 @@ ConVar g_hNoSequentialAuto = null;
 ConVar g_hMpScrambleTeamsAuto = null;
 int g_iRoundsSinceAuto = 0;
 StringMap g_hScrambleImmunity = null;
+int g_iScramblesSinceImmunityClear = 0;
 bool g_bAutoScramblePendingRoundStart = false;
 float g_flAutoScramblePendingRoundStartUntil = 0.0;
 bool g_bExecuteSwapImmediately = false;
@@ -246,6 +247,7 @@ public void OnMapStart()
     ClearAutoScramblePending();
     ApplyEngineScramblePolicy();
     g_iRoundsSinceAuto = 0;
+    g_iScramblesSinceImmunityClear = 0;
     ResetWinStreakTracking();
     if (g_hScrambleImmunity != null)
     {
@@ -261,6 +263,7 @@ public void OnMapEnd()
     ClearScrambleCooldown();
     ClearAutoScramblePending();
     g_iRoundsSinceAuto = 0;
+    g_iScramblesSinceImmunityClear = 0;
     ResetWinStreakTracking();
     LogWhale("Map end: votes reset.");
 }
@@ -2633,6 +2636,18 @@ public Action Timer_DoSwap(Handle timer, DataPack pack)
     moved = pairCount * 2;
     if (moved > 0)
     {
+        g_iScramblesSinceImmunityClear++;
+        if (g_iScramblesSinceImmunityClear >= 2)
+        {
+            if (g_hScrambleImmunity != null)
+            {
+                g_hScrambleImmunity.Clear();
+            }
+            g_iScramblesSinceImmunityClear = 0;
+            LogWhale("Cleared per-map scramble immunity after two completed scrambles.");
+            LogWhaleStat("immunity_clear", "reason=two_completed_scrambles");
+        }
+
         g_bScrambledThisRound = true;
         ResetSurrenderVotes("whalescramble_execute");
         StartScrambleCooldown();
