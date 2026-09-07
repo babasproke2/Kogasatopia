@@ -97,7 +97,7 @@ float   g_fBalanceMovedUntil[MAXPLAYERS + 1];
 
 public Plugin myinfo =
 {
-    name        = "autobalance_4teams",
+    name        = "whalebalance",
     author      = "Hombre, AW 'Swixel' Stanley",
     description = "Authoritative controller for autobalance, team swaps, and WhaleScramble.",
     version     = "2.0",
@@ -107,6 +107,7 @@ public Plugin myinfo =
 public APLRes AskPluginLoad2(Handle myself, bool late, char[] error, int err_max)
 {
     RegPluginLibrary("autobalance_4teams");
+    RegPluginLibrary("whalebalance");
     CreateNative("Autobalance_HasPendingTeamSwap", Native_HasPendingTeamSwap);
     CreateNative("TeamBalance_IsBusy", Native_TeamBalanceIsBusy);
     CreateNative("TeamBalance_IsScrambleCooldownActive", Native_TeamBalanceIsScrambleCooldownActive);
@@ -630,7 +631,7 @@ public void OnPluginStart()
     RegConsoleCmd("sm_sw", Command_RequestTeamSwap, "sm_sw [name] - Request a team swap with an enemy player.");
     RegAdminCmd("sm_forceswap", Command_ForceTeamSwap, ADMFLAG_GENERIC, "sm_forceswap <name> [name] - Force two players to swap teams.");
     RegConsoleCmd("sm_yes", Command_AcceptTeamSwap, "Accept a pending team-swap request.");
-    LogBalance("[autobalance_4teams] Plugin started.");
+    LogBalance("[whalebalance] Plugin started.");
     g_hMapImmunity = new StringMap();
     g_hPersistentImmunity = new StringMap();
     g_hVolunteers = new StringMap();
@@ -1367,7 +1368,7 @@ public Action Timer_Autobalance(Handle timer)
         );
     }
     PrintToServer(
-        "[autobalance_4teams] Imbalance: RED=%d BLU=%d GREEN=%d YELLOW=%d | from=%s(%d) to=%s(%d) force=%s age=%.1f",
+        "[whalebalance] Imbalance: RED=%d BLU=%d GREEN=%d YELLOW=%d | from=%s(%d) to=%s(%d) force=%s age=%.1f",
         teamCounts[TEAM_RED], teamCounts[TEAM_BLUE], teamCounts[TEAM_GREEN], teamCounts[TEAM_YELLOW],
         fromTeamName, biggestCount, toTeamName, smallestCount,
         forceBalance ? "yes" : "no",
@@ -1530,7 +1531,7 @@ public Action Timer_Autobalance(Handle timer)
         );
     }
     PrintToServer(
-        "[autobalance_4teams] move %N (%d) %s -> %s | score=%d avg=%.2f candidates=%d simple=%d volunteer=%d",
+        "[whalebalance] move %N (%d) %s -> %s | score=%d avg=%.2f candidates=%d simple=%d volunteer=%d",
         pick, GetClientUserId(pick),
         fromTeamName, toTeamName,
         GetClientScore(pick), avg, candidateCount, simpleSelection ? 1 : 0, volunteerSelection ? 1 : 0
@@ -2016,7 +2017,7 @@ static void ConnectImmunityDatabase()
         strcopy(configName, sizeof(configName), DB_DEFAULT_CONFIG);
     }
 
-    if (!Db_CheckConfigOrLog("autobalance_4teams", configName))
+    if (!Db_CheckConfigOrLog("whalebalance", configName))
     {
         return;
     }
@@ -2045,7 +2046,7 @@ public void SQL_OnImmunityDatabaseConnected(Database db, const char[] error, any
 {
     if (db == null)
     {
-        LogError("[autobalance_4teams] Immunity DB connection failed: %s", error);
+        LogError("[whalebalance] Immunity DB connection failed: %s", error);
         ScheduleImmunityDatabaseReconnect();
         return;
     }
@@ -2063,7 +2064,7 @@ public void SQL_OnImmunityDatabaseConnected(Database db, const char[] error, any
 
     if (!g_hImmunityDb.SetCharset("utf8mb4"))
     {
-        LogError("[autobalance_4teams] Failed to set utf8mb4 charset");
+        LogError("[whalebalance] Failed to set utf8mb4 charset");
     }
 
     g_hImmunityDb.Query(SQL_OnImmunitySchemaReady,
@@ -2076,7 +2077,7 @@ public void SQL_OnImmunitySchemaReady(Database db, DBResultSet results, const ch
 {
     if (error[0])
     {
-        LogError("[autobalance_4teams] Immunity schema creation failed: %s", error);
+        LogError("[whalebalance] Immunity schema creation failed: %s", error);
         if (Db_IsTransientError(error))
         {
             ScheduleImmunityDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
@@ -2102,7 +2103,7 @@ public void SQL_OnPersistentImmunityLoaded(Database db, DBResultSet results, con
 {
     if (error[0])
     {
-        LogError("[autobalance_4teams] Persistent immunity preload failed: %s", error);
+        LogError("[whalebalance] Persistent immunity preload failed: %s", error);
         if (Db_IsTransientError(error))
         {
             ScheduleImmunityDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
@@ -2142,7 +2143,7 @@ public void SQL_OnVolunteerSchemaReady(Database db, DBResultSet results, const c
 {
     if (error[0])
     {
-        LogError("[autobalance_4teams] Volunteer schema creation failed: %s", error);
+        LogError("[whalebalance] Volunteer schema creation failed: %s", error);
         if (Db_IsTransientError(error))
         {
             ScheduleImmunityDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
@@ -2164,7 +2165,7 @@ public void SQL_OnPersistentVolunteersLoaded(Database db, DBResultSet results, c
 {
     if (error[0])
     {
-        LogError("[autobalance_4teams] Persistent volunteer preload failed: %s", error);
+        LogError("[whalebalance] Persistent volunteer preload failed: %s", error);
         if (Db_IsTransientError(error))
         {
             ScheduleImmunityDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
@@ -2205,14 +2206,14 @@ public void SQL_OnPersistentVolunteersLoaded(Database db, DBResultSet results, c
 static void AB_EscapeSql(const char[] input, char[] output, int maxlen)
 {
     output[0] = '\0';
-    Db_Escape(g_hImmunityDb, input, output, maxlen, "autobalance_4teams");
+    Db_Escape(g_hImmunityDb, input, output, maxlen, "whalebalance");
 }
 
 public Action Command_Volunteer(int client, int args)
 {
     if (g_hImmunityDb == null || !g_bVolunteerDbReady)
     {
-        ReplyToCommand(client, "[autobalance_4teams] Persistent volunteer database is not ready.");
+        ReplyToCommand(client, "[whalebalance] Persistent volunteer database is not ready.");
         return Plugin_Handled;
     }
 
@@ -2223,7 +2224,7 @@ public Action Command_Volunteer(int client, int args)
     {
         if (client > 0 && !CheckCommandAccess(client, "sm_volunteer_target", ADMFLAG_GENERIC, true))
         {
-            ReplyToCommand(client, "[autobalance_4teams] Usage: sm_volunteer");
+            ReplyToCommand(client, "[whalebalance] Usage: sm_volunteer");
             return Plugin_Handled;
         }
 
@@ -2242,13 +2243,13 @@ public Action Command_Volunteer(int client, int args)
 
     if (target <= 0)
     {
-        ReplyToCommand(client, "[autobalance_4teams] Usage: sm_volunteer [client name/substring]");
+        ReplyToCommand(client, "[whalebalance] Usage: sm_volunteer [client name/substring]");
         return Plugin_Handled;
     }
 
     if (!IsClientInGame(target) || IsFakeClient(target))
     {
-        ReplyToCommand(client, "[autobalance_4teams] Invalid volunteer target.");
+        ReplyToCommand(client, "[whalebalance] Invalid volunteer target.");
         return Plugin_Handled;
     }
 
@@ -2257,7 +2258,7 @@ public Action Command_Volunteer(int client, int args)
     char steamId[32];
     if (!Kogasa_GetClientSteamId64(target, steamId, sizeof(steamId), true))
     {
-        ReplyToCommand(client, "[autobalance_4teams] Failed to read SteamID64 for %N.", target);
+        ReplyToCommand(client, "[whalebalance] Failed to read SteamID64 for %N.", target);
         return Plugin_Handled;
     }
 
@@ -2320,7 +2321,7 @@ public void SQL_OnPersistentVolunteerToggled(Database db, DBResultSet results, c
             }
         }
 
-        LogError("[autobalance_4teams] Persistent volunteer toggle failed for %s: %s", steamId, error);
+        LogError("[whalebalance] Persistent volunteer toggle failed for %s: %s", steamId, error);
         if (Db_IsTransientError(error))
         {
             ScheduleImmunityDatabaseReconnect(DB_RECONNECT_FAST_DELAY);
@@ -2425,13 +2426,13 @@ public Action Command_Immune(int client, int args)
 {
     if (args < 1)
     {
-        ReplyToCommand(client, "[autobalance_4teams] Usage: sm_immune <client name/substring>");
+        ReplyToCommand(client, "[whalebalance] Usage: sm_immune <client name/substring>");
         return Plugin_Handled;
     }
 
     if (g_hImmunityDb == null || !g_bImmunityDbReady)
     {
-        ReplyToCommand(client, "[autobalance_4teams] Persistent immunity database is not ready.");
+        ReplyToCommand(client, "[whalebalance] Persistent immunity database is not ready.");
         return Plugin_Handled;
     }
 
@@ -2448,7 +2449,7 @@ public Action Command_Immune(int client, int args)
     char steamId[32];
     if (!Kogasa_GetClientSteamId64(target, steamId, sizeof(steamId), true))
     {
-        ReplyToCommand(client, "[autobalance_4teams] Failed to read SteamID64 for %N.", target);
+        ReplyToCommand(client, "[whalebalance] Failed to read SteamID64 for %N.", target);
         return Plugin_Handled;
     }
 
@@ -2505,10 +2506,10 @@ public void SQL_OnPersistentImmunityToggled(Database db, DBResultSet results, co
     {
         if (actor > 0 && IsClientInGame(actor))
         {
-            ReplyToCommand(actor, "[autobalance_4teams] Failed to toggle persistent immunity.");
+            ReplyToCommand(actor, "[whalebalance] Failed to toggle persistent immunity.");
         }
 
-        LogError("[autobalance_4teams] Persistent immunity toggle failed for %s: %s", steamId, error);
+        LogError("[whalebalance] Persistent immunity toggle failed for %s: %s", steamId, error);
         return;
     }
 
@@ -2543,8 +2544,8 @@ public void SQL_OnPersistentImmunityToggled(Database db, DBResultSet results, co
     {
         ReplyToCommand(actor,
             wasImmune
-                ? "[autobalance_4teams] Persistent immunity removed."
-                : "[autobalance_4teams] Persistent immunity applied.");
+                ? "[whalebalance] Persistent immunity removed."
+                : "[whalebalance] Persistent immunity applied.");
     }
 }
 
@@ -2615,7 +2616,7 @@ static void LogBalance(const char[] fmt, any ...)
 
 static void DeriveBalanceEventName(const char[] message, char[] output, int maxlen)
 {
-    int start = strncmp(message, "[autobalance_4teams] ", 21, false) == 0 ? 21 : 0;
+    int start = strncmp(message, "[whalebalance] ", 15, false) == 0 ? 15 : 0;
     if (strncmp(message[start], "Autobalancing ", 14, false) == 0)
     {
         strcopy(output, maxlen, "autobalance_move");

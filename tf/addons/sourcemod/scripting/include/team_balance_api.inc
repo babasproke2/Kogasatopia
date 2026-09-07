@@ -41,7 +41,7 @@ native bool TeamBalance_QueueRespawn(int client, int expectedTeam);
 
 public SharedPlugin __pl_team_balance =
 {
-    name = "autobalance_4teams",
-    file = "autobalance_4teams.smx",
+    name = "whalebalance",
+    file = "whalebalance.smx",
     required = 1,
 };

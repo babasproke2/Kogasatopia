@@ -11,7 +11,7 @@ native bool Autobalance_HasPendingTeamSwap(int client);
 public SharedPlugin __pl_autobalance_4teams =
 {
     name = "autobalance_4teams",
-    file = "autobalance_4teams.smx",
+    file = "whalebalance.smx",
     required = 0,
 };
 
