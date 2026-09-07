@@ -61,6 +61,7 @@
 ArrayList g_ItemKeys = null;
 ArrayList g_ItemNames = null;
 ArrayList g_ItemDescriptions = null;
+ArrayList g_ItemColors = null;
 ArrayList g_ItemPrices = null;
 ArrayList g_ItemDurations = null;
 ArrayList g_ItemUses = null;
@@ -177,6 +178,7 @@ public void OnPluginStart()
     g_ItemKeys = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_KEY_MAX));
     g_ItemNames = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_NAME_MAX));
     g_ItemDescriptions = new ArrayList(ByteCountToCells(BP_TRANS_ITEM_DESCRIPTION_MAX));
+    g_ItemColors = new ArrayList(ByteCountToCells(BP_CURRENCY_COLOR_MAX));
     g_ItemPrices = new ArrayList();
     g_ItemDurations = new ArrayList();
     g_ItemUses = new ArrayList();
@@ -274,6 +276,8 @@ public void OnPluginEnd()
 
     delete g_ItemKeys;
     delete g_ItemNames;
+    delete g_ItemDescriptions;
+    delete g_ItemColors;
     delete g_ItemPrices;
     delete g_ItemDurations;
     delete g_ItemUses;
@@ -986,6 +990,7 @@ void LoadStoreItems()
     g_ItemKeys.Clear();
     g_ItemNames.Clear();
     g_ItemDescriptions.Clear();
+    g_ItemColors.Clear();
     g_ItemPrices.Clear();
     g_ItemDurations.Clear();
     g_ItemUses.Clear();
@@ -1013,6 +1018,7 @@ void LoadStoreItems()
         char itemKey[BP_TRANS_ITEM_KEY_MAX];
         char itemName[BP_TRANS_ITEM_NAME_MAX];
         char description[BP_TRANS_ITEM_DESCRIPTION_MAX];
+        char color[BP_CURRENCY_COLOR_MAX];
         char priceText[32];
         char durationText[32];
         char usesText[32];
@@ -1020,11 +1026,13 @@ void LoadStoreItems()
         kv.GetString("price", priceText, sizeof(priceText));
         kv.GetString("long_name", itemName, sizeof(itemName));
         kv.GetString("description", description, sizeof(description), "No description configured.");
+        kv.GetString("color", color, sizeof(color), "gold");
         kv.GetString("duration", durationText, sizeof(durationText));
         kv.GetString("uses", usesText, sizeof(usesText));
         TrimString(itemKey);
         TrimString(itemName);
         TrimString(description);
+        TrimString(color);
         TrimString(priceText);
         TrimString(durationText);
         TrimString(usesText);
@@ -1033,6 +1041,10 @@ void LoadStoreItems()
         if (itemKey[0] == '\0' || itemName[0] == '\0' || price <= 0)
         {
             continue;
+        }
+        if (color[0] == '\0')
+        {
+            strcopy(color, sizeof(color), "gold");
         }
 
         int durationSeconds = ParseDurationSeconds(durationText);
@@ -1046,7 +1058,7 @@ void LoadStoreItems()
             }
         }
 
-        AddStoreItemSorted(itemKey, itemName, description, price, durationSeconds, useCount);
+        AddStoreItemSorted(itemKey, itemName, description, color, price, durationSeconds, useCount);
     }
     while (kv.GotoNextKey());
 
@@ -1098,7 +1110,7 @@ int ParseDurationSeconds(const char[] input)
     return amount * multiplier;
 }
 
-void AddStoreItemSorted(const char[] itemKey, const char[] itemName, const char[] description, int price, int durationSeconds, int useCount)
+void AddStoreItemSorted(const char[] itemKey, const char[] itemName, const char[] description, const char[] color, int price, int durationSeconds, int useCount)
 {
     if (FindStoreItem(itemKey) != -1)
     {
@@ -1121,6 +1133,7 @@ void AddStoreItemSorted(const char[] itemKey, const char[] itemName, const char[
         g_ItemKeys.PushString(itemKey);
         g_ItemNames.PushString(itemName);
         g_ItemDescriptions.PushString(description);
+        g_ItemColors.PushString(color);
         g_ItemPrices.Push(price);
         g_ItemDurations.Push(durationSeconds);
         g_ItemUses.Push(useCount);
@@ -1130,12 +1143,14 @@ void AddStoreItemSorted(const char[] itemKey, const char[] itemName, const char[
     g_ItemKeys.ShiftUp(insertAt);
     g_ItemNames.ShiftUp(insertAt);
     g_ItemDescriptions.ShiftUp(insertAt);
+    g_ItemColors.ShiftUp(insertAt);
     g_ItemPrices.ShiftUp(insertAt);
     g_ItemDurations.ShiftUp(insertAt);
     g_ItemUses.ShiftUp(insertAt);
     g_ItemKeys.SetString(insertAt, itemKey);
     g_ItemNames.SetString(insertAt, itemName);
     g_ItemDescriptions.SetString(insertAt, description);
+    g_ItemColors.SetString(insertAt, color);
     g_ItemPrices.Set(insertAt, price);
     g_ItemDurations.Set(insertAt, durationSeconds);
     g_ItemUses.Set(insertAt, useCount);
@@ -4085,15 +4100,17 @@ void PrintStoreItemDescription(int client, const char[] itemKey)
 
     char itemName[BP_TRANS_ITEM_NAME_MAX];
     char description[BP_TRANS_ITEM_DESCRIPTION_MAX];
+    char color[BP_CURRENCY_COLOR_MAX];
     g_ItemNames.GetString(itemIndex, itemName, sizeof(itemName));
     g_ItemDescriptions.GetString(itemIndex, description, sizeof(description));
+    g_ItemColors.GetString(itemIndex, color, sizeof(color));
     TrimString(description);
     if (!description[0])
     {
         strcopy(description, sizeof(description), "No description configured.");
     }
 
-    CPrintToChat(client, "{gold}[Shop]{default} %s: %s", itemName, description);
+    CPrintToChat(client, "{%s}%s{default}: %s", color, itemName, description);
 }
 
 void AttemptPurchase(int client, const char[] itemKey)
