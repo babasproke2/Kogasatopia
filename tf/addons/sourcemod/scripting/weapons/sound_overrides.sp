@@ -194,9 +194,9 @@ static void WeaponsSound_PlayCustomDeploySound(int client, int weapon)
 	}
 }
 
-void WeaponsSound_PlayOnHit(int attacker, int weapon)
+void WeaponsSound_PlayOnHit(int victim, int weapon)
 {
-	WeaponsSound_EmitCustomAttribute(attacker, weapon,
+	WeaponsSound_EmitCustomAttribute(victim, weapon,
 		Weapons_ATTR_EMIT_SOUND_ON_HIT, "on-hit");
 }
 
