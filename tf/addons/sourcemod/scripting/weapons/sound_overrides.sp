@@ -6,9 +6,24 @@
 #define Weapons_ATTR_REPLACE_SOUND "replace sound"
 #define Weapons_ATTR_CUSTOM_DEPLOY_SOUND "custom deploy sound"
 #define Weapons_ATTR_EMIT_SOUND_ON_HIT "emit sound on hit"
+#define Weapons_ATTR_CUSTOM_MELEE_SWING_SOUND \
+	"custom melee swing sound"
+#define Weapons_ATTR_CUSTOM_MELEE_CRIT_SWING_SOUND \
+	"custom melee crit swing sound"
+#define Weapons_ATTR_CUSTOM_MELEE_HIT_SOUND \
+	"custom melee hit sound"
+#define Weapons_ATTR_CUSTOM_MELEE_HIT_WORLD_SOUND \
+	"custom melee hit world sound"
+
+#define WEAPONS_SOUND_BURST 5
+#define WEAPONS_SOUND_MELEE_MISS 8
+#define WEAPONS_SOUND_MELEE_HIT 9
+#define WEAPONS_SOUND_MELEE_HIT_WORLD 10
+
 #define WEAPONS_CUSTOM_DEPLOY_SOUND_COOLDOWN 3.0
 
 StringMap g_WeaponsSoundGroups;
+DynamicHook g_WeaponsSoundGetShootSoundHook;
 int g_iWeaponsSoundWeaponRef[MAXPLAYERS + 1] = { INVALID_ENT_REFERENCE, ... };
 char g_sWeaponsSoundGroup[MAXPLAYERS + 1][64];
 float g_flWeaponsNextDeploySoundTime[MAXPLAYERS + 1];
@@ -23,16 +38,111 @@ enum struct WeaponsSoundGroup
 	}
 }
 
-void WeaponsSound_OnPluginStart()
+void WeaponsSound_OnPluginStart(GameData gameConf)
 {
+	g_WeaponsSoundGetShootSoundHook =
+		DynamicHook.FromConf(gameConf, "CTFWeaponBase::GetShootSound");
+	if (g_WeaponsSoundGetShootSoundHook == null)
+	{
+		SetFailState("Failed to create CTFWeaponBase::GetShootSound hook");
+	}
+
 	RegServerCmd("sm_weapons_reload_sounds", WeaponsSound_CommandReload);
 	AddNormalSoundHook(WeaponsSound_Hook);
+	WeaponsSound_HookExistingWeaponEntities();
 }
 
 void WeaponsSound_OnPluginEnd()
 {
 	RemoveNormalSoundHook(WeaponsSound_Hook);
+	delete g_WeaponsSoundGetShootSoundHook;
+	g_WeaponsSoundGetShootSoundHook = null;
 	WeaponsSound_Clear();
+}
+
+void WeaponsSound_OnEntityCreated(int entity, const char[] className)
+{
+	WeaponsSound_HookWeaponEntity(entity, className);
+}
+
+static void WeaponsSound_HookExistingWeaponEntities()
+{
+	char className[64];
+	int maxEntities = GetMaxEntities();
+	for (int weapon = MaxClients + 1; weapon < maxEntities; weapon++)
+	{
+		if (!IsValidEntity(weapon))
+		{
+			continue;
+		}
+
+		GetEntityClassname(weapon, className, sizeof(className));
+		WeaponsSound_HookWeaponEntity(weapon, className);
+	}
+}
+
+static void WeaponsSound_HookWeaponEntity(int weapon, const char[] className)
+{
+	if (g_WeaponsSoundGetShootSoundHook == null
+			|| weapon <= MaxClients
+			|| !IsValidEntity(weapon)
+			|| StrContains(className, "tf_weapon_") != 0)
+	{
+		return;
+	}
+
+	g_WeaponsSoundGetShootSoundHook.HookEntity(
+		Hook_Pre, weapon, WeaponsSound_GetShootSoundPre);
+}
+
+public MRESReturn WeaponsSound_GetShootSoundPre(
+	int weapon, DHookReturn returnValue, DHookParam parameters)
+{
+	if (!IsValidEntity(weapon))
+	{
+		return MRES_Ignored;
+	}
+
+	char attribute[64];
+	switch (parameters.Get(1))
+	{
+		case WEAPONS_SOUND_MELEE_MISS:
+		{
+			strcopy(attribute, sizeof(attribute),
+				Weapons_ATTR_CUSTOM_MELEE_SWING_SOUND);
+		}
+		case WEAPONS_SOUND_BURST:
+		{
+			strcopy(attribute, sizeof(attribute),
+				Weapons_ATTR_CUSTOM_MELEE_CRIT_SWING_SOUND);
+		}
+		case WEAPONS_SOUND_MELEE_HIT:
+		{
+			strcopy(attribute, sizeof(attribute),
+				Weapons_ATTR_CUSTOM_MELEE_HIT_SOUND);
+		}
+		case WEAPONS_SOUND_MELEE_HIT_WORLD:
+		{
+			strcopy(attribute, sizeof(attribute),
+				Weapons_ATTR_CUSTOM_MELEE_HIT_WORLD_SOUND);
+		}
+		default:
+		{
+			return MRES_Ignored;
+		}
+	}
+
+	char replacement[PLATFORM_MAX_PATH];
+	TF2CustAttr_GetString(
+		weapon, attribute, replacement, sizeof(replacement));
+	TrimString(replacement);
+	if (!replacement[0])
+	{
+		return MRES_Ignored;
+	}
+
+	returnValue.SetString(replacement);
+	return MRES_Supercede;
 }
 
 public Action WeaponsSound_CommandReload(int args)
@@ -230,16 +340,38 @@ void WeaponsSound_ValidateItemConfig(const char[] itemUid, KeyValues attributes)
 
 	char groupName[64];
 	attributes.GetString(Weapons_ATTR_REPLACE_SOUND, groupName, sizeof(groupName));
-	if (!groupName[0])
+	if (groupName[0])
 	{
-		return;
+		WeaponsSoundGroup group;
+		if (g_WeaponsSoundGroups == null
+				|| !g_WeaponsSoundGroups.GetArray(groupName, group, sizeof(group)))
+		{
+			LogError("Item uid '%s' references unknown sound group '%s'",
+				itemUid, groupName);
+		}
 	}
 
-	WeaponsSoundGroup group;
-	if (g_WeaponsSoundGroups == null
-			|| !g_WeaponsSoundGroups.GetArray(groupName, group, sizeof(group)))
+	WeaponsSound_ValidateScriptSoundAttribute(
+		itemUid, attributes, Weapons_ATTR_CUSTOM_MELEE_SWING_SOUND);
+	WeaponsSound_ValidateScriptSoundAttribute(
+		itemUid, attributes, Weapons_ATTR_CUSTOM_MELEE_CRIT_SWING_SOUND);
+	WeaponsSound_ValidateScriptSoundAttribute(
+		itemUid, attributes, Weapons_ATTR_CUSTOM_MELEE_HIT_SOUND);
+	WeaponsSound_ValidateScriptSoundAttribute(
+		itemUid, attributes, Weapons_ATTR_CUSTOM_MELEE_HIT_WORLD_SOUND);
+}
+
+static void WeaponsSound_ValidateScriptSoundAttribute(
+	const char[] itemUid, KeyValues attributes, const char[] attribute)
+{
+	char soundEntry[PLATFORM_MAX_PATH];
+	attributes.GetString(attribute, soundEntry, sizeof(soundEntry));
+	TrimString(soundEntry);
+	if (soundEntry[0] && !PrecacheScriptSound(soundEntry))
 	{
-		LogError("Item uid '%s' references unknown sound group '%s'", itemUid, groupName);
+		LogError(
+			"Item uid '%s' references unknown game sound '%s' for attribute '%s'",
+			itemUid, soundEntry, attribute);
 	}
 }
 
