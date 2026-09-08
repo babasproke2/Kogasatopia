@@ -47,6 +47,7 @@
 #define ROUND_TIMER_STATE_SETUP 0
 #define ROUND_TIMER_STATE_NORMAL 1
 #define ROUND_START_SIREN_CHANNEL (SNDCHAN_USER_BASE + 1)
+#define ROUND_START_SIREN_DUPLICATE_GUARD 5.0
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define SAYSOUND_ON_KILL_ATTR "saysound on kill"
 #define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
@@ -126,6 +127,9 @@ int g_iCountdownArmedMask = 0;
 float g_fLastCountdownRemaining = -1.0;
 int g_iTrackedSetupSirenTimerRef = INVALID_ENT_REFERENCE;
 bool g_bTrackedSetupSirenHandled = false;
+int g_iLastHandledSetupSirenTimerRef = INVALID_ENT_REFERENCE;
+float g_fLastRoundStartSirenTime = -9999.0;
+bool g_bLegacyRoundStartSirensCleared = false;
 
 static const char gStockCountdownSounds[][] =
 {
@@ -411,6 +415,8 @@ public void OnMapStart()
 {
     ResetCountdownTracking();
     ResetRoundStartSirenTracking();
+    g_iLastHandledSetupSirenTimerRef = INVALID_ENT_REFERENCE;
+    g_fLastRoundStartSirenTime = -9999.0;
     PrecacheConfiguredSounds();
 }
 
@@ -427,24 +433,53 @@ static void ReplaceRoundStartSiren()
         return;
     }
 
+    float now = GetGameTime();
+    if (now - g_fLastRoundStartSirenTime < ROUND_START_SIREN_DUPLICATE_GUARD)
+    {
+        LogMessage("[SaySounds:Siren] Suppressed duplicate setup-timer transition.");
+        return;
+    }
+    g_fLastRoundStartSirenTime = now;
+
     char replacement[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
     int index = GetRandomInt(0, gReadyRoundStartSirenReplacements.Length - 1);
     gReadyRoundStartSirenReplacements.GetString(index, replacement, sizeof(replacement));
     gReadyRoundStartSirenGroups.GetString(index, groupName, sizeof(groupName));
+    LogMessage(
+        "[SaySounds:Siren] Playing one replacement: %s (timer entref %d).",
+        replacement,
+        g_iTrackedSetupSirenTimerRef
+    );
+
+    // A channel is scoped to its emitter. Use one emitter for every recipient
+    // so another siren replaces the current one instead of creating a new stream.
+    bool clearLegacyEmitters = !g_bLegacyRoundStartSirensCleared;
+    for (int i = 0; i < gReadyRoundStartSirenReplacements.Length; i++)
+    {
+        char sample[PLATFORM_MAX_PATH];
+        gReadyRoundStartSirenReplacements.GetString(i, sample, sizeof(sample));
+        StopSound(SOUND_FROM_WORLD, ROUND_START_SIREN_CHANNEL, sample);
+
+        // Clear sounds emitted by builds that used each recipient as the emitter.
+        if (clearLegacyEmitters)
+        {
+            for (int emitter = 1; emitter <= MaxClients; emitter++)
+            {
+                if (IsClientInGame(emitter))
+                {
+                    StopSound(emitter, ROUND_START_SIREN_CHANNEL, sample);
+                }
+            }
+        }
+    }
+    g_bLegacyRoundStartSirensCleared = true;
 
     for (int client = 1; client <= MaxClients; client++)
     {
         if (!IsClientInGame(client) || IsFakeClient(client))
         {
             continue;
-        }
-
-        for (int i = 0; i < gReadyRoundStartSirenReplacements.Length; i++)
-        {
-            char sample[PLATFORM_MAX_PATH];
-            gReadyRoundStartSirenReplacements.GetString(i, sample, sizeof(sample));
-            StopSound(client, ROUND_START_SIREN_CHANNEL, sample);
         }
 
         float emitVolume;
@@ -458,7 +493,7 @@ static void ReplaceRoundStartSiren()
         EmitSoundToClient(
             client,
             replacement,
-            client,
+            SOUND_FROM_WORLD,
             ROUND_START_SIREN_CHANNEL,
             SNDLEVEL_NONE,
             SND_NOFLAGS,
@@ -897,7 +932,6 @@ static void MonitorRoundStartSirenTransition()
         int state = GetEntProp(timerEntity, Prop_Send, "m_nState");
         if (state == ROUND_TIMER_STATE_SETUP)
         {
-            g_bTrackedSetupSirenHandled = false;
             return;
         }
 
@@ -906,7 +940,11 @@ static void MonitorRoundStartSirenTransition()
             if (!g_bTrackedSetupSirenHandled)
             {
                 g_bTrackedSetupSirenHandled = true;
-                ReplaceRoundStartSiren();
+                if (g_iTrackedSetupSirenTimerRef != g_iLastHandledSetupSirenTimerRef)
+                {
+                    g_iLastHandledSetupSirenTimerRef = g_iTrackedSetupSirenTimerRef;
+                    ReplaceRoundStartSiren();
+                }
             }
             return;
         }
