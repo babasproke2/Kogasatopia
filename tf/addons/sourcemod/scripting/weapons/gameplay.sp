@@ -23,6 +23,8 @@
 #define SOUND_FLAME_OUT "player/flame_out.wav"
 #define ATTR_PRIMARY_CLIP_SIZE_BONUS "clip size bonus primary"
 #define ATTR_CLIP_SIZE_BONUS "clip size bonus"
+#define ATTR_MAX_PIPEBOMBS_DECREASED_WEARER "max pipebombs decreased wearer"
+#define ATTR_MAX_PIPEBOMBS_DECREASED "max pipebombs decreased"
 #define ATTR_RESTORE_PRIMARY_SHOT_BY_DAMAGE "restore primary shot by damage"
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
 #define ATTR_REFILL_PRIMARY_CLIP_ON_KILL "refill primary clip on kill"
@@ -4265,18 +4267,51 @@ static void WeaponsGameplay_ApplyPrimaryClipBonusFromLoadout(int client)
 	TF2Attrib_SetByName(primary, ATTR_CLIP_SIZE_BONUS, bonus);
 }
 
-public void WeaponsGameplay_FrameApplyPrimaryClipBonus(any userId)
+static float WeaponsGameplay_GetPipebombDecreaseFromLoadout(int client)
 {
-	int client = GetClientOfUserId(userId);
-	WeaponsGameplay_ApplyPrimaryClipBonusFromLoadout(client);
+	float decrease = 0.0;
+
+	for (int slot = 0; slot <= WEAPON_SLOT_LAST; slot++)
+	{
+		int weapon = GetPlayerWeaponSlot(client, slot);
+		if (!Weapons_IsValidWeaponEntity(weapon))
+			continue;
+
+		decrease += TF2CustAttr_GetFloat(weapon, ATTR_MAX_PIPEBOMBS_DECREASED_WEARER, 0.0);
+	}
+
+	return decrease;
 }
 
-static void WeaponsGameplay_QueuePrimaryClipBonusRefresh(int client)
+static void WeaponsGameplay_ApplyPipebombDecreaseFromLoadout(int client)
 {
 	if (!Weapons_IsClientInGame(client))
 		return;
 
-	RequestFrame(WeaponsGameplay_FrameApplyPrimaryClipBonus, GetClientUserId(client));
+	int secondary = GetPlayerWeaponSlot(client, WEAPON_SLOT_SECONDARY);
+	if (!Weapons_IsValidWeaponEntity(secondary))
+		return;
+
+	float decrease = WeaponsGameplay_GetPipebombDecreaseFromLoadout(client);
+	if (decrease == 0.0)
+		return;
+
+	TF2Attrib_SetByName(secondary, ATTR_MAX_PIPEBOMBS_DECREASED, decrease);
+}
+
+public void WeaponsGameplay_FrameApplyWearerAttributes(any userId)
+{
+	int client = GetClientOfUserId(userId);
+	WeaponsGameplay_ApplyPrimaryClipBonusFromLoadout(client);
+	WeaponsGameplay_ApplyPipebombDecreaseFromLoadout(client);
+}
+
+static void WeaponsGameplay_QueueWearerAttributeRefresh(int client)
+{
+	if (!Weapons_IsClientInGame(client))
+		return;
+
+	RequestFrame(WeaponsGameplay_FrameApplyWearerAttributes, GetClientUserId(client));
 }
 
 public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemDefinitionIndex, int itemLevel, int itemQuality, int entityIndex)
@@ -4317,7 +4352,7 @@ public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemD
 			SetClip_Weapon(entityIndex, newMax);
 		}
 
-		WeaponsGameplay_QueuePrimaryClipBonusRefresh(client);
+		WeaponsGameplay_QueueWearerAttributeRefresh(client);
 	}
 
 	return 0;
