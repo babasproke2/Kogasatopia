@@ -381,7 +381,15 @@ public void OnMapEnd()
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
 {
+    bool sirenWasQueued = g_hRoundStartSirenTimer != INVALID_HANDLE;
     CancelRoundStartSirenTimer();
+
+    if (sirenWasQueued)
+    {
+        QueueRoundStartSirenTimer();
+        return;
+    }
+
     gRoundStartSirenPlayed = false;
 }
 
@@ -393,6 +401,11 @@ public void Event_SetupFinished(Event event, const char[] name, bool dontBroadca
     }
 
     gRoundStartSirenPlayed = true;
+    QueueRoundStartSirenTimer();
+}
+
+static void QueueRoundStartSirenTimer()
+{
     CancelRoundStartSirenTimer();
     g_hRoundStartSirenTimer = CreateTimer(
         ROUND_START_SIREN_DELAY,
