@@ -48,6 +48,7 @@
 #define ROUND_TIMER_STATE_NORMAL 1
 #define ROUND_START_SIREN_CHANNEL (SNDCHAN_USER_BASE + 1)
 #define ROUND_START_SIREN_REPLACEMENT_DELAY 0.05
+#define ROUND_START_AUTO_COUNTDOWN_RESTORE_DELAY 0.50
 #define ROUND_START_SIREN_DUPLICATE_GUARD 5.0
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define SAYSOUND_ON_KILL_ATTR "saysound on kill"
@@ -119,6 +120,7 @@ Handle g_hKillCookie = INVALID_HANDLE;
 Handle g_hDisabledGroupsCookie = INVALID_HANDLE;
 Handle g_hCountdownMonitorTimer = INVALID_HANDLE;
 Handle g_hRoundStartSirenTimer = INVALID_HANDLE;
+Handle g_hRoundStartAutoCountdownRestoreTimer = INVALID_HANDLE;
 bool gNormalSoundHookAdded = false;
 ConVar g_hForce;
 ConVar g_hDefaultDeathSound;
@@ -128,8 +130,9 @@ int g_iTrackedCountdownTimerRef = INVALID_ENT_REFERENCE;
 int g_iCountdownArmedMask = 0;
 float g_fLastCountdownRemaining = -1.0;
 int g_iTrackedSetupSirenTimerRef = INVALID_ENT_REFERENCE;
-bool g_bTrackedSetupSirenHandled = false;
-int g_iLastHandledSetupSirenTimerRef = INVALID_ENT_REFERENCE;
+int g_iTrackedSetupSirenState = -1;
+bool g_bTrackedSetupAutoCountdownOriginal = false;
+bool g_bTrackedSetupAutoCountdownSuppressed = false;
 int g_iPendingSetupSirenTimerRef = INVALID_ENT_REFERENCE;
 float g_fLastRoundStartSirenTime = -9999.0;
 
@@ -262,7 +265,8 @@ public void OnPluginStart()
 public void OnPluginEnd()
 {
     CancelCountdownMonitorTimer();
-    CancelRoundStartSirenTimer();
+    CancelRoundStartSirenTimers();
+    RestoreTrackedSetupAutoCountdown();
 
     if (gNormalSoundHookAdded)
     {
@@ -416,17 +420,16 @@ public void OnConfigsExecuted()
 
 public void OnMapStart()
 {
-    CancelRoundStartSirenTimer();
+    CancelRoundStartSirenTimers();
     ResetCountdownTracking();
     ResetRoundStartSirenTracking();
-    g_iLastHandledSetupSirenTimerRef = INVALID_ENT_REFERENCE;
     g_fLastRoundStartSirenTime = -9999.0;
     PrecacheConfiguredSounds();
 }
 
 public void OnMapEnd()
 {
-    CancelRoundStartSirenTimer();
+    CancelRoundStartSirenTimers();
     ResetCountdownTracking();
     ResetRoundStartSirenTracking();
 }
@@ -452,6 +455,7 @@ static void ReplaceRoundStartSiren()
     gReadyRoundStartSirenReplacements.GetString(index, replacement, sizeof(replacement));
     gReadyRoundStartSirenGroups.GetString(index, groupName, sizeof(groupName));
     int replacementRecipientCount = 0;
+    int stockRecipientCount = 0;
     for (int client = 1; client <= MaxClients; client++)
     {
         if (!IsClientInGame(client) || IsFakeClient(client))
@@ -462,12 +466,19 @@ static void ReplaceRoundStartSiren()
         float emitVolume;
         if (!CanPlaySaySoundToClient(client, groupName, emitVolume))
         {
+            EmitSoundToClient(
+                client,
+                STOCK_ROUND_START_SIREN,
+                client,
+                SNDCHAN_AUTO,
+                SNDLEVEL_NONE
+            );
+            stockRecipientCount++;
             continue;
         }
 
-        // The stock siren is client-local. Stop it after it has started, then
-        // use that same client as the emitter for exactly one replacement.
-        StopSound(client, SNDCHAN_AUTO, STOCK_ROUND_START_SIREN);
+        // Automatic client countdown audio is suppressed on the HUD timer, so
+        // this is the only round-start sound emitted to an opted-in client.
         for (int i = 0; i < gReadyRoundStartSirenReplacements.Length; i++)
         {
             char sample[PLATFORM_MAX_PATH];
@@ -488,10 +499,11 @@ static void ReplaceRoundStartSiren()
     }
 
     LogMessage(
-        "[SaySounds:Siren] Played one replacement: %s (timer entref %d, client emissions %d).",
+        "[SaySounds:Siren] Played one replacement: %s (timer entref %d, custom %d, stock %d).",
         replacement,
         g_iPendingSetupSirenTimerRef,
-        replacementRecipientCount
+        replacementRecipientCount,
+        stockRecipientCount
     );
 }
 
@@ -516,6 +528,7 @@ public Action Timer_ReplaceRoundStartSiren(Handle timer)
 
     g_hRoundStartSirenTimer = INVALID_HANDLE;
     ReplaceRoundStartSiren();
+    ScheduleRoundStartAutoCountdownRestore();
     g_iPendingSetupSirenTimerRef = INVALID_ENT_REFERENCE;
     return Plugin_Stop;
 }
@@ -529,6 +542,49 @@ static void CancelRoundStartSirenTimer()
     }
 
     g_iPendingSetupSirenTimerRef = INVALID_ENT_REFERENCE;
+}
+
+static void ScheduleRoundStartAutoCountdownRestore()
+{
+    if (!g_bTrackedSetupAutoCountdownSuppressed)
+    {
+        return;
+    }
+
+    if (g_hRoundStartAutoCountdownRestoreTimer != INVALID_HANDLE)
+    {
+        delete g_hRoundStartAutoCountdownRestoreTimer;
+    }
+
+    g_hRoundStartAutoCountdownRestoreTimer = CreateTimer(
+        ROUND_START_AUTO_COUNTDOWN_RESTORE_DELAY,
+        Timer_RestoreRoundStartAutoCountdown,
+        _,
+        TIMER_FLAG_NO_MAPCHANGE
+    );
+}
+
+public Action Timer_RestoreRoundStartAutoCountdown(Handle timer)
+{
+    if (timer != g_hRoundStartAutoCountdownRestoreTimer)
+    {
+        return Plugin_Stop;
+    }
+
+    g_hRoundStartAutoCountdownRestoreTimer = INVALID_HANDLE;
+    RestoreTrackedSetupAutoCountdown();
+    return Plugin_Stop;
+}
+
+static void CancelRoundStartSirenTimers()
+{
+    CancelRoundStartSirenTimer();
+
+    if (g_hRoundStartAutoCountdownRestoreTimer != INVALID_HANDLE)
+    {
+        delete g_hRoundStartAutoCountdownRestoreTimer;
+        g_hRoundStartAutoCountdownRestoreTimer = INVALID_HANDLE;
+    }
 }
 
 public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroadcast)
@@ -871,7 +927,8 @@ public Action Timer_MonitorSetupCountdown(Handle timer)
 
     MonitorRoundStartSirenTransition();
 
-    if (gReadyCountdownReplacements.Length == 0)
+    if (gReadyCountdownReplacements.Length == 0
+        && !g_bTrackedSetupAutoCountdownSuppressed)
     {
         ResetCountdownTracking();
         return Plugin_Continue;
@@ -915,7 +972,7 @@ public Action Timer_MonitorSetupCountdown(Handle timer)
         return Plugin_Continue;
     }
 
-    bool shouldEmit = GetCountdownTimerBool(timerEntity, "m_bAutoCountdown")
+    bool shouldEmit = IsSetupAutoCountdownEnabled(timerEntity)
         && !IsWaitingForPlayers();
 
     for (int i = 0; i < sizeof(gCountdownSeconds); i++)
@@ -951,8 +1008,8 @@ static void MonitorRoundStartSirenTransition()
     int timerEntity = EntRefToEntIndex(g_iTrackedSetupSirenTimerRef);
     if (setupTimer != -1 && setupTimer != timerEntity)
     {
-        g_iTrackedSetupSirenTimerRef = EntIndexToEntRef(setupTimer);
-        g_bTrackedSetupSirenHandled = false;
+        ResetRoundStartSirenTracking();
+        TrackSetupSirenTimer(setupTimer);
         return;
     }
 
@@ -961,19 +1018,23 @@ static void MonitorRoundStartSirenTransition()
         int state = GetEntProp(timerEntity, Prop_Send, "m_nState");
         if (state == ROUND_TIMER_STATE_SETUP)
         {
+            if (g_iTrackedSetupSirenState != ROUND_TIMER_STATE_SETUP)
+            {
+                TrackSetupSirenTimer(timerEntity);
+            }
+            else
+            {
+                SuppressTrackedSetupAutoCountdown();
+            }
             return;
         }
 
         if (state == ROUND_TIMER_STATE_NORMAL)
         {
-            if (!g_bTrackedSetupSirenHandled)
+            if (g_iTrackedSetupSirenState == ROUND_TIMER_STATE_SETUP)
             {
-                g_bTrackedSetupSirenHandled = true;
-                if (g_iTrackedSetupSirenTimerRef != g_iLastHandledSetupSirenTimerRef)
-                {
-                    g_iLastHandledSetupSirenTimerRef = g_iTrackedSetupSirenTimerRef;
-                    ScheduleRoundStartSirenReplacement();
-                }
+                g_iTrackedSetupSirenState = ROUND_TIMER_STATE_NORMAL;
+                ScheduleRoundStartSirenReplacement();
             }
             return;
         }
@@ -983,9 +1044,88 @@ static void MonitorRoundStartSirenTransition()
     ResetRoundStartSirenTracking();
     if (setupTimer != -1)
     {
-        g_iTrackedSetupSirenTimerRef = EntIndexToEntRef(setupTimer);
-        g_bTrackedSetupSirenHandled = false;
+        TrackSetupSirenTimer(setupTimer);
     }
+}
+
+static void TrackSetupSirenTimer(int timerEntity)
+{
+    if (!IsRoundTimerEntity(timerEntity))
+    {
+        return;
+    }
+
+    int timerRef = EntIndexToEntRef(timerEntity);
+    if (timerRef != g_iTrackedSetupSirenTimerRef)
+    {
+        RestoreTrackedSetupAutoCountdown();
+        g_iTrackedSetupSirenTimerRef = timerRef;
+    }
+
+    g_iTrackedSetupSirenState = GetEntProp(timerEntity, Prop_Send, "m_nState");
+    g_bTrackedSetupAutoCountdownOriginal =
+        GetCountdownTimerBool(timerEntity, "m_bAutoCountdown");
+    SuppressTrackedSetupAutoCountdown();
+}
+
+static void SuppressTrackedSetupAutoCountdown()
+{
+    int timerEntity = EntRefToEntIndex(g_iTrackedSetupSirenTimerRef);
+    if (!IsRoundTimerEntity(timerEntity)
+        || !HasEntProp(timerEntity, Prop_Send, "m_bAutoCountdown"))
+    {
+        return;
+    }
+
+    if (!g_bTrackedSetupAutoCountdownSuppressed)
+    {
+        g_bTrackedSetupAutoCountdownOriginal =
+            GetCountdownTimerBool(timerEntity, "m_bAutoCountdown");
+        g_bTrackedSetupAutoCountdownSuppressed = true;
+        LogMessage(
+            "[SaySounds:Siren] Suppressed automatic countdown on HUD timer entref %d (original %d).",
+            g_iTrackedSetupSirenTimerRef,
+            g_bTrackedSetupAutoCountdownOriginal
+        );
+    }
+
+    if (GetCountdownTimerBool(timerEntity, "m_bAutoCountdown"))
+    {
+        SetEntProp(timerEntity, Prop_Send, "m_bAutoCountdown", 0);
+    }
+}
+
+static void RestoreTrackedSetupAutoCountdown()
+{
+    if (!g_bTrackedSetupAutoCountdownSuppressed)
+    {
+        return;
+    }
+
+    int timerEntity = EntRefToEntIndex(g_iTrackedSetupSirenTimerRef);
+    if (IsRoundTimerEntity(timerEntity)
+        && HasEntProp(timerEntity, Prop_Send, "m_bAutoCountdown"))
+    {
+        SetEntProp(
+            timerEntity,
+            Prop_Send,
+            "m_bAutoCountdown",
+            g_bTrackedSetupAutoCountdownOriginal ? 1 : 0
+        );
+    }
+
+    g_bTrackedSetupAutoCountdownSuppressed = false;
+}
+
+static bool IsSetupAutoCountdownEnabled(int timerEntity)
+{
+    if (EntIndexToEntRef(timerEntity) == g_iTrackedSetupSirenTimerRef
+        && g_bTrackedSetupAutoCountdownSuppressed)
+    {
+        return g_bTrackedSetupAutoCountdownOriginal;
+    }
+
+    return GetCountdownTimerBool(timerEntity, "m_bAutoCountdown");
 }
 
 static bool IsRoundTimerEntity(int entity)
@@ -1004,8 +1144,10 @@ static bool IsRoundTimerEntity(int entity)
 
 static void ResetRoundStartSirenTracking()
 {
+    RestoreTrackedSetupAutoCountdown();
     g_iTrackedSetupSirenTimerRef = INVALID_ENT_REFERENCE;
-    g_bTrackedSetupSirenHandled = false;
+    g_iTrackedSetupSirenState = -1;
+    g_bTrackedSetupAutoCountdownOriginal = false;
 }
 
 static void ReplaceSetupCountdownWarning(int warningIndex)
@@ -1017,16 +1159,13 @@ static void ReplaceSetupCountdownWarning(int warningIndex)
 
     char replacement[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
-    if (!GetRandomReadyReplacement(
+    bool hasReplacement = GetRandomReadyReplacement(
         gReadyCountdownReplacements,
         gReadyCountdownGroups,
         replacement,
         sizeof(replacement),
         groupName,
-        sizeof(groupName)))
-    {
-        return;
-    }
+        sizeof(groupName));
 
     for (int client = 1; client <= MaxClients; client++)
     {
@@ -1036,12 +1175,19 @@ static void ReplaceSetupCountdownWarning(int warningIndex)
         }
 
         float emitVolume;
-        if (!CanPlaySaySoundToClient(client, groupName, emitVolume))
+        if (!hasReplacement
+            || !CanPlaySaySoundToClient(client, groupName, emitVolume))
         {
+            EmitSoundToClient(
+                client,
+                gStockCountdownSounds[warningIndex],
+                client,
+                SNDCHAN_VOICE_BASE,
+                SNDLEVEL_NONE
+            );
             continue;
         }
 
-        StopSound(client, SNDCHAN_VOICE_BASE, gStockCountdownSounds[warningIndex]);
         EmitSoundToClient(
             client,
             replacement,
