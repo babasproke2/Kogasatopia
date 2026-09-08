@@ -37,6 +37,8 @@
 #define STOCK_ROUND_WIN_SOUND "Game.YourTeamWon"
 #define STOCK_ROUND_LOSE_SOUND "Game.YourTeamLost"
 #define STOCK_OVERTIME_SOUND "Game.Overtime"
+#define STOCK_CP_SUCCESS "Announcer.Success"
+#define STOCK_CP_FAILURE "Announcer.Failure"
 #define ROUND_START_SIREN_DELAY 0.05
 #define CLIENT_ANNOUNCER_REPLACEMENT_DELAY 0.05
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
@@ -487,7 +489,9 @@ public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroa
         replacements = gReadyRoundLoseReplacements;
         groups = gReadyRoundLoseGroups;
     }
-    else if (StrEqual(stockSound, STOCK_OVERTIME_SOUND))
+    else if (StrEqual(stockSound, STOCK_OVERTIME_SOUND)
+        || StrEqual(stockSound, STOCK_CP_SUCCESS)
+        || StrEqual(stockSound, STOCK_CP_FAILURE))
     {
         replacements = gReadyAnnouncerMiscReplacements;
         groups = gReadyAnnouncerMiscGroups;
