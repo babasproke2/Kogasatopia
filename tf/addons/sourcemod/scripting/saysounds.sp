@@ -135,6 +135,7 @@ bool g_bTrackedSetupAutoCountdownOriginal = false;
 bool g_bTrackedSetupAutoCountdownSuppressed = false;
 int g_iPendingSetupSirenTimerRef = INVALID_ENT_REFERENCE;
 float g_fLastRoundStartSirenTime = -9999.0;
+int g_iNextRoundStartSirenIndex = -1;
 
 static const char gStockCountdownSounds[][] =
 {
@@ -434,10 +435,18 @@ public void OnMapEnd()
     ResetRoundStartSirenTracking();
 }
 
-static void ReplaceRoundStartSiren()
+static void ReplaceRoundStartSiren(int index)
 {
     if (gReadyRoundStartSirenReplacements.Length == 0)
     {
+        return;
+    }
+
+    if (index < 0 || index >= gReadyRoundStartSirenReplacements.Length)
+    {
+        LogError("[SaySounds:Siren] Invalid replacement index %d for %d configured sounds.",
+            index,
+            gReadyRoundStartSirenReplacements.Length);
         return;
     }
 
@@ -451,7 +460,6 @@ static void ReplaceRoundStartSiren()
 
     char replacement[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
-    int index = GetRandomInt(0, gReadyRoundStartSirenReplacements.Length - 1);
     gReadyRoundStartSirenReplacements.GetString(index, replacement, sizeof(replacement));
     gReadyRoundStartSirenGroups.GetString(index, groupName, sizeof(groupName));
     int replacementRecipientCount = 0;
@@ -510,16 +518,32 @@ static void ReplaceRoundStartSiren()
 static void ScheduleRoundStartSirenReplacement()
 {
     CancelRoundStartSirenTimer();
+
+    int replacementCount = gReadyRoundStartSirenReplacements.Length;
+    if (replacementCount == 0)
+    {
+        return;
+    }
+
+    if (g_iNextRoundStartSirenIndex < 0)
+    {
+        g_iNextRoundStartSirenIndex = GetRandomInt(0, replacementCount - 1);
+    }
+    else if (g_iNextRoundStartSirenIndex >= replacementCount)
+    {
+        g_iNextRoundStartSirenIndex %= replacementCount;
+    }
+
     g_iPendingSetupSirenTimerRef = g_iTrackedSetupSirenTimerRef;
     g_hRoundStartSirenTimer = CreateTimer(
         ROUND_START_SIREN_REPLACEMENT_DELAY,
         Timer_ReplaceRoundStartSiren,
-        _,
+        g_iNextRoundStartSirenIndex,
         TIMER_FLAG_NO_MAPCHANGE
     );
 }
 
-public Action Timer_ReplaceRoundStartSiren(Handle timer)
+public Action Timer_ReplaceRoundStartSiren(Handle timer, any data)
 {
     if (timer != g_hRoundStartSirenTimer)
     {
@@ -527,7 +551,19 @@ public Action Timer_ReplaceRoundStartSiren(Handle timer)
     }
 
     g_hRoundStartSirenTimer = INVALID_HANDLE;
-    ReplaceRoundStartSiren();
+    int replacementIndex = data;
+    ReplaceRoundStartSiren(replacementIndex);
+
+    int replacementCount = gReadyRoundStartSirenReplacements.Length;
+    if (replacementCount > 0)
+    {
+        g_iNextRoundStartSirenIndex = (replacementIndex + 1) % replacementCount;
+    }
+    else
+    {
+        g_iNextRoundStartSirenIndex = -1;
+    }
+
     ScheduleRoundStartAutoCountdownRestore();
     g_iPendingSetupSirenTimerRef = INVALID_ENT_REFERENCE;
     return Plugin_Stop;
