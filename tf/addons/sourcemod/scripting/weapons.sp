@@ -301,6 +301,7 @@ void Weapons_NotifyItemRuntimeStateReady(int client, int entity) {
 	WeaponsMovement_OnItemRuntimeStateReady(client, entity);
 	WeaponsModels_OnItemRuntimeStateReady(client, entity);
 	WeaponsSound_OnItemRuntimeStateReady(client, entity);
+	WeaponsGameplay_OnItemRuntimeStateReady(client, entity);
 
 	if (g_hOnItemRuntimeStateReady == null) {
 		return;
@@ -781,6 +782,8 @@ void ApplyClientCustomLoadout(int client) {
 			Weapons_NotifyItemRuntimeStateReady(client, currentLoadoutItem);
 		}
 	}
+
+	WeaponsGameplay_QueueWearerAttributeRefresh(client);
 	
 	// TODO: switch to the correct slot if we're not holding anything
 	// as is the case again, this happens on non-valid-for-class items

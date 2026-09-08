@@ -25,6 +25,10 @@
 #define ATTR_CLIP_SIZE_BONUS "clip size bonus"
 #define ATTR_MAX_PIPEBOMBS_DECREASED_WEARER "max pipebombs decreased wearer"
 #define ATTR_MAX_PIPEBOMBS_DECREASED "max pipebombs decreased"
+#define ATTR_CLASS_MAX_PIPEBOMBS_DECREASED "add_max_pipebombs"
+#define MIN_MAX_PIPEBOMBS_ATTRIBUTE -7.0
+#define ATTR_STICKYBOMB_FIZZLE_TIME_WEARER "stickybomb fizzle time wearer"
+#define ATTR_STICKYBOMB_FIZZLE_TIME "stickybomb fizzle time"
 #define ATTR_RESTORE_PRIMARY_SHOT_BY_DAMAGE "restore primary shot by damage"
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
 #define ATTR_REFILL_PRIMARY_CLIP_ON_KILL "refill primary clip on kill"
@@ -110,6 +114,13 @@ int g_iEnvironmentalKillAttackerUserId[MAXPLAYERS + 1];
 float g_fEnvironmentalKillTime[MAXPLAYERS + 1];
 int g_iBlastJumpJaratePendingWeapon[MAXPLAYERS + 1];
 float g_flBlastJumpJaratePendingUntil[MAXPLAYERS + 1];
+int g_iPipebombWearerSecondaryRef[MAXPLAYERS + 1];
+bool g_bPipebombWearerHadBaseAttribute[MAXPLAYERS + 1];
+float g_flPipebombWearerBaseAttribute[MAXPLAYERS + 1];
+float g_flPipebombWearerBaseEffectiveAttribute[MAXPLAYERS + 1];
+int g_iStickyFizzleWearerSecondaryRef[MAXPLAYERS + 1];
+bool g_bStickyFizzleWearerHadBaseAttribute[MAXPLAYERS + 1];
+float g_flStickyFizzleWearerBaseAttribute[MAXPLAYERS + 1];
 
 enum struct tf2_player
 {
@@ -392,6 +403,8 @@ void WeaponsGameplay_RegisterNatives()
 stock void ResetClientArrays(int client)
 {
 	if (!Weapons_IsValidPlayerIndex(client)) return;
+	WeaponsGameplay_ClearPipebombWearerAttribute(client);
+	WeaponsGameplay_ClearStickyFizzleWearerAttribute(client);
 	BlastJumpJarate_ClearPending(client);
 	HuntingRevolver_ResetClient(client);
 	FullPelletIgnite_ClearClient(client);
@@ -635,6 +648,8 @@ void WeaponsGameplay_OnMapStart() {
 	FullPelletIgnite_ClearAll();
 	for (int client = 1; client <= MaxClients; client++)
 	{
+		WeaponsGameplay_ClearPipebombWearerAttribute(client);
+		WeaponsGameplay_ClearStickyFizzleWearerAttribute(client);
 		BlastJumpJarate_ClearPending(client);
 	}
 	Escampette_RecalculateAllSpeeds();
@@ -648,6 +663,8 @@ void WeaponsGameplay_OnMapEnd()
 	FullPelletIgnite_ClearAll();
 	for (int client = 1; client <= MaxClients; client++)
 	{
+		WeaponsGameplay_ClearPipebombWearerAttribute(client);
+		WeaponsGameplay_ClearStickyFizzleWearerAttribute(client);
 		HuntingRevolver_ResetClient(client);
 		Harvester_ClearState(client);
 		ShockCharge_StopTimer(client);
@@ -4284,20 +4301,169 @@ static float WeaponsGameplay_GetPipebombDecreaseFromLoadout(int client)
 	return decrease;
 }
 
+static void WeaponsGameplay_ClearPipebombWearerAttribute(int client)
+{
+	if (!Weapons_IsValidPlayerIndex(client))
+		return;
+
+	int secondary = EntRefToEntIndex(g_iPipebombWearerSecondaryRef[client]);
+	if (Weapons_IsValidWeaponEntity(secondary))
+	{
+		if (g_bPipebombWearerHadBaseAttribute[client])
+		{
+			TF2Attrib_SetByName(
+				secondary,
+				ATTR_MAX_PIPEBOMBS_DECREASED,
+				g_flPipebombWearerBaseAttribute[client]
+			);
+		}
+		else
+		{
+			TF2Attrib_RemoveByName(secondary, ATTR_MAX_PIPEBOMBS_DECREASED);
+		}
+	}
+
+	g_iPipebombWearerSecondaryRef[client] = INVALID_ENT_REFERENCE;
+	g_bPipebombWearerHadBaseAttribute[client] = false;
+	g_flPipebombWearerBaseAttribute[client] = 0.0;
+	g_flPipebombWearerBaseEffectiveAttribute[client] = 0.0;
+}
+
 static void WeaponsGameplay_ApplyPipebombDecreaseFromLoadout(int client)
 {
 	if (!Weapons_IsClientInGame(client))
 		return;
 
 	int secondary = GetPlayerWeaponSlot(client, WEAPON_SLOT_SECONDARY);
-	if (!Weapons_IsValidWeaponEntity(secondary))
-		return;
-
 	float decrease = WeaponsGameplay_GetPipebombDecreaseFromLoadout(client);
-	if (decrease == 0.0)
+
+	if (EntRefToEntIndex(g_iPipebombWearerSecondaryRef[client]) != secondary)
+	{
+		WeaponsGameplay_ClearPipebombWearerAttribute(client);
+	}
+
+	if (!Weapons_IsValidWeaponEntity(secondary) || decrease == 0.0)
+	{
+		WeaponsGameplay_ClearPipebombWearerAttribute(client);
+		return;
+	}
+
+	if (g_iPipebombWearerSecondaryRef[client] == INVALID_ENT_REFERENCE)
+	{
+		Address baseAttribute = TF2Attrib_GetByName(
+			secondary,
+			ATTR_MAX_PIPEBOMBS_DECREASED
+		);
+
+		g_iPipebombWearerSecondaryRef[client] = EntIndexToEntRef(secondary);
+		g_bPipebombWearerHadBaseAttribute[client] = baseAttribute != Address_Null;
+		g_flPipebombWearerBaseAttribute[client] =
+			baseAttribute != Address_Null ? TF2Attrib_GetValue(baseAttribute) : 0.0;
+		g_flPipebombWearerBaseEffectiveAttribute[client] = TF2Attrib_HookValueFloat(
+			0.0,
+			ATTR_CLASS_MAX_PIPEBOMBS_DECREASED,
+			secondary
+		);
+	}
+
+	float effectiveAttribute =
+		g_flPipebombWearerBaseEffectiveAttribute[client] + decrease;
+	if (effectiveAttribute < MIN_MAX_PIPEBOMBS_ATTRIBUTE)
+	{
+		decrease += MIN_MAX_PIPEBOMBS_ATTRIBUTE - effectiveAttribute;
+	}
+
+	TF2Attrib_SetByName(
+		secondary,
+		ATTR_MAX_PIPEBOMBS_DECREASED,
+		g_flPipebombWearerBaseAttribute[client] + decrease
+	);
+}
+
+static float WeaponsGameplay_GetStickyFizzleTimeFromLoadout(int client)
+{
+	float fizzleTime = 0.0;
+
+	for (int slot = 0; slot <= WEAPON_SLOT_LAST; slot++)
+	{
+		int weapon = GetPlayerWeaponSlot(client, slot);
+		if (!Weapons_IsValidWeaponEntity(weapon))
+			continue;
+
+		float value = TF2CustAttr_GetFloat(
+			weapon,
+			ATTR_STICKYBOMB_FIZZLE_TIME_WEARER,
+			0.0
+		);
+		if (value > fizzleTime)
+		{
+			fizzleTime = value;
+		}
+	}
+
+	return fizzleTime;
+}
+
+static void WeaponsGameplay_ClearStickyFizzleWearerAttribute(int client)
+{
+	if (!Weapons_IsValidPlayerIndex(client))
 		return;
 
-	TF2Attrib_SetByName(secondary, ATTR_MAX_PIPEBOMBS_DECREASED, decrease);
+	int secondary = EntRefToEntIndex(g_iStickyFizzleWearerSecondaryRef[client]);
+	if (Weapons_IsValidWeaponEntity(secondary))
+	{
+		if (g_bStickyFizzleWearerHadBaseAttribute[client])
+		{
+			TF2Attrib_SetByName(
+				secondary,
+				ATTR_STICKYBOMB_FIZZLE_TIME,
+				g_flStickyFizzleWearerBaseAttribute[client]
+			);
+		}
+		else
+		{
+			TF2Attrib_RemoveByName(secondary, ATTR_STICKYBOMB_FIZZLE_TIME);
+		}
+	}
+
+	g_iStickyFizzleWearerSecondaryRef[client] = INVALID_ENT_REFERENCE;
+	g_bStickyFizzleWearerHadBaseAttribute[client] = false;
+	g_flStickyFizzleWearerBaseAttribute[client] = 0.0;
+}
+
+static void WeaponsGameplay_ApplyStickyFizzleTimeFromLoadout(int client)
+{
+	if (!Weapons_IsClientInGame(client))
+		return;
+
+	int secondary = GetPlayerWeaponSlot(client, WEAPON_SLOT_SECONDARY);
+	float fizzleTime = WeaponsGameplay_GetStickyFizzleTimeFromLoadout(client);
+
+	if (EntRefToEntIndex(g_iStickyFizzleWearerSecondaryRef[client]) != secondary)
+	{
+		WeaponsGameplay_ClearStickyFizzleWearerAttribute(client);
+	}
+
+	if (!Weapons_IsValidWeaponEntity(secondary) || fizzleTime <= 0.0)
+	{
+		WeaponsGameplay_ClearStickyFizzleWearerAttribute(client);
+		return;
+	}
+
+	if (g_iStickyFizzleWearerSecondaryRef[client] == INVALID_ENT_REFERENCE)
+	{
+		Address baseAttribute = TF2Attrib_GetByName(
+			secondary,
+			ATTR_STICKYBOMB_FIZZLE_TIME
+		);
+
+		g_iStickyFizzleWearerSecondaryRef[client] = EntIndexToEntRef(secondary);
+		g_bStickyFizzleWearerHadBaseAttribute[client] = baseAttribute != Address_Null;
+		g_flStickyFizzleWearerBaseAttribute[client] =
+			baseAttribute != Address_Null ? TF2Attrib_GetValue(baseAttribute) : 0.0;
+	}
+
+	TF2Attrib_SetByName(secondary, ATTR_STICKYBOMB_FIZZLE_TIME, fizzleTime);
 }
 
 public void WeaponsGameplay_FrameApplyWearerAttributes(any userId)
@@ -4305,14 +4471,23 @@ public void WeaponsGameplay_FrameApplyWearerAttributes(any userId)
 	int client = GetClientOfUserId(userId);
 	WeaponsGameplay_ApplyPrimaryClipBonusFromLoadout(client);
 	WeaponsGameplay_ApplyPipebombDecreaseFromLoadout(client);
+	WeaponsGameplay_ApplyStickyFizzleTimeFromLoadout(client);
 }
 
-static void WeaponsGameplay_QueueWearerAttributeRefresh(int client)
+void WeaponsGameplay_QueueWearerAttributeRefresh(int client)
 {
 	if (!Weapons_IsClientInGame(client))
 		return;
 
 	RequestFrame(WeaponsGameplay_FrameApplyWearerAttributes, GetClientUserId(client));
+}
+
+void WeaponsGameplay_OnItemRuntimeStateReady(int client, int entity)
+{
+	if (!Weapons_IsClientInGame(client) || !Weapons_IsValidWeaponEntity(entity))
+		return;
+
+	WeaponsGameplay_QueueWearerAttributeRefresh(client);
 }
 
 public int TF2Items_OnGiveNamedItem_Post(int client, char[] classname, int itemDefinitionIndex, int itemLevel, int itemQuality, int entityIndex)
