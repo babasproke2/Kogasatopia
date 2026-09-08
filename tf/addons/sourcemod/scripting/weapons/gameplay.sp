@@ -3370,6 +3370,7 @@ public Action OnTakeDamage(int client, int &attacker, int &inflictor, float &dam
 			RefillClipOnHit_OnDamage(damageWeapon);
 			RefillSecondaryClipOnHit_OnDamage(attacker, damageWeapon);
 			WeaponsSound_PlayOnHit(client, damageWeapon);
+			WeaponsSound_PlayWearerOnHit(client, attacker);
 			WeaponsSound_PlayCustomHitsound(attacker, directDamageWeapon);
 			WeaponsSound_PlayCustomMeleeHit(attacker, directDamageWeapon);
 		}
