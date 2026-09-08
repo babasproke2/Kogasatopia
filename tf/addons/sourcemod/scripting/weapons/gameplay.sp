@@ -2694,7 +2694,15 @@ static void RefillSecondaryClipOnHit_ApplyFrame(any data)
 		return;
 	}
 
-	ReloadWeaponClip(secondary, refillAmount);
+	if (ReloadWeaponClip(secondary, refillAmount))
+	{
+		EmitSoundToAll(
+			SOUND_CLIP_REFILL_CRIT,
+			attacker,
+			SNDCHAN_AUTO,
+			SNDLEVEL_NORMAL
+		);
+	}
 }
 
 static void RefillSecondaryClipOnHit_OnDamage(int attacker, int weapon)
