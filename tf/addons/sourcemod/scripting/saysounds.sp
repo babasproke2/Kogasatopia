@@ -7,6 +7,8 @@
 
 #include <sdktools_sound>
 #include <sdktools_stringtables>
+#include <sdktools_functions>
+#include <sdktools_gamerules>
 
 #undef REQUIRE_PLUGIN
 #include <tf_custom_attributes>
@@ -33,6 +35,7 @@
 #define ROUND_WIN_REPLACEMENTS_SECTION "roundwinreplacements"
 #define ROUND_LOSE_REPLACEMENTS_SECTION "roundlosereplacements"
 #define ANNOUNCER_MISC_REPLACEMENTS_SECTION "replaceannouncermisc"
+#define COUNTDOWN_REPLACEMENTS_SECTION "countdownreplacements"
 #define STOCK_ROUND_START_SIREN "ambient_mp3/siren.mp3"
 #define STOCK_ROUND_WIN_SOUND "Game.YourTeamWon"
 #define STOCK_ROUND_LOSE_SOUND "Game.YourTeamLost"
@@ -41,6 +44,9 @@
 #define STOCK_CP_FAILURE "Announcer.Failure"
 #define ROUND_START_SIREN_DELAY 0.05
 #define CLIENT_ANNOUNCER_REPLACEMENT_DELAY 0.05
+#define COUNTDOWN_MONITOR_INTERVAL 0.05
+#define CLIENT_COUNTDOWN_REPLACEMENT_DELAY 0.04
+#define ROUND_TIMER_STATE_SETUP 0
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define SAYSOUND_ON_KILL_ATTR "saysound on kill"
 #define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
@@ -78,6 +84,10 @@ ArrayList gAnnouncerMiscReplacements;
 ArrayList gAnnouncerMiscGroups;
 ArrayList gReadyAnnouncerMiscReplacements;
 ArrayList gReadyAnnouncerMiscGroups;
+ArrayList gCountdownReplacements;
+ArrayList gCountdownGroups;
+ArrayList gReadyCountdownReplacements;
+ArrayList gReadyCountdownGroups;
 bool gConfigLoaded = false;
 bool gConfigInAPIOnlyGroups = false;
 bool gConfigInPaidSaysoundGroups = false;
@@ -86,6 +96,7 @@ bool gConfigInRoundStartSirens = false;
 bool gConfigInRoundWinReplacements = false;
 bool gConfigInRoundLoseReplacements = false;
 bool gConfigInAnnouncerMiscReplacements = false;
+bool gConfigInCountdownReplacements = false;
 bool gRoundStartSirenPlayed = false;
 int gConfigSectionDepth = 0;
 int gConfigAPIOnlyGroupsDepth = -1;
@@ -95,6 +106,7 @@ int gConfigRoundStartSirensDepth = -1;
 int gConfigRoundWinReplacementsDepth = -1;
 int gConfigRoundLoseReplacementsDepth = -1;
 int gConfigAnnouncerMiscReplacementsDepth = -1;
+int gConfigCountdownReplacementsDepth = -1;
 float g_fClientVolume[MAXPLAYERS + 1];
 float g_fNextAllowedSound[MAXPLAYERS + 1];
 char g_szDeathSound[MAXPLAYERS + 1][MAX_COMMAND_NAME * 4];
@@ -105,11 +117,26 @@ Handle g_hDeathCookie = INVALID_HANDLE;
 Handle g_hKillCookie = INVALID_HANDLE;
 Handle g_hDisabledGroupsCookie = INVALID_HANDLE;
 Handle g_hRoundStartSirenTimer = INVALID_HANDLE;
+Handle g_hCountdownMonitorTimer = INVALID_HANDLE;
 bool gNormalSoundHookAdded = false;
 ConVar g_hForce;
 ConVar g_hDefaultDeathSound;
 ConVar g_hDefaultVolume;
 int g_iSaySoundStatsCounter = 0;
+int g_iTrackedCountdownTimerRef = INVALID_ENT_REFERENCE;
+int g_iCountdownArmedMask = 0;
+float g_fLastCountdownRemaining = -1.0;
+
+static const char gStockCountdownSounds[][] =
+{
+    "vo/announcer_begins_5sec.mp3",
+    "vo/announcer_begins_4sec.mp3",
+    "vo/announcer_begins_3sec.mp3",
+    "vo/announcer_begins_2sec.mp3",
+    "vo/announcer_begins_1sec.mp3"
+};
+
+static const int gCountdownSeconds[] = { 5, 4, 3, 2, 1 };
 
 const float MIN_VOLUME = 0.0;
 const float MAX_VOLUME = 1.0;
@@ -163,6 +190,10 @@ public void OnPluginStart()
     gAnnouncerMiscGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
     gReadyAnnouncerMiscReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
     gReadyAnnouncerMiscGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
+    gCountdownReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    gCountdownGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
+    gReadyCountdownReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    gReadyCountdownGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
 
     g_hForce = CreateConVar("saysounds_force", "0", "Force everyone to hear saysounds");
     g_hDefaultDeathSound = CreateConVar("saysounds_default_death_sound", "doh", "Saysound command/group used when a victim has no death sound set and the attacker has no kill sound.");
@@ -197,8 +228,14 @@ public void OnPluginStart()
     HookEvent("teamplay_setup_finished", Event_SetupFinished, EventHookMode_PostNoCopy);
     HookEvent("teamplay_broadcast_audio", Event_BroadcastAudio, EventHookMode_Pre);
     HookEvent("teamplay_point_startcapture", Event_PointStartCapture, EventHookMode_Post);
-    AddNormalSoundHook(AnnouncerMisc_NormalSoundHook);
+    AddNormalSoundHook(AnnouncementReplacement_NormalSoundHook);
     gNormalSoundHookAdded = true;
+    g_hCountdownMonitorTimer = CreateTimer(
+        COUNTDOWN_MONITOR_INTERVAL,
+        Timer_MonitorSetupCountdown,
+        _,
+        TIMER_REPEAT
+    );
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -221,10 +258,11 @@ public void OnPluginStart()
 public void OnPluginEnd()
 {
     CancelRoundStartSirenTimer();
+    CancelCountdownMonitorTimer();
 
     if (gNormalSoundHookAdded)
     {
-        RemoveNormalSoundHook(AnnouncerMisc_NormalSoundHook);
+        RemoveNormalSoundHook(AnnouncementReplacement_NormalSoundHook);
         gNormalSoundHookAdded = false;
     }
 
@@ -306,6 +344,10 @@ public void OnPluginEnd()
     delete gAnnouncerMiscGroups;
     delete gReadyAnnouncerMiscReplacements;
     delete gReadyAnnouncerMiscGroups;
+    delete gCountdownReplacements;
+    delete gCountdownGroups;
+    delete gReadyCountdownReplacements;
+    delete gReadyCountdownGroups;
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -372,6 +414,7 @@ public void OnMapStart()
 {
     CancelRoundStartSirenTimer();
     gRoundStartSirenPlayed = false;
+    ResetCountdownTracking();
     PrecacheConfiguredSounds();
 }
 
@@ -379,6 +422,7 @@ public void OnMapEnd()
 {
     CancelRoundStartSirenTimer();
     gRoundStartSirenPlayed = false;
+    ResetCountdownTracking();
 }
 
 public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
@@ -546,7 +590,7 @@ public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroa
     return sentToClient ? Plugin_Handled : Plugin_Continue;
 }
 
-public Action AnnouncerMisc_NormalSoundHook(
+public Action AnnouncementReplacement_NormalSoundHook(
     int clients[MAXPLAYERS],
     int &numClients,
     char sample[PLATFORM_MAX_PATH],
@@ -559,8 +603,21 @@ public Action AnnouncerMisc_NormalSoundHook(
     char soundEntry[PLATFORM_MAX_PATH],
     int &seed)
 {
-    if (!IsStockControlPointAnnouncerSample(sample)
-        || gReadyAnnouncerMiscReplacements.Length == 0)
+    ArrayList replacements;
+    ArrayList groups;
+    if (IsStockControlPointAnnouncerSample(sample)
+        && gReadyAnnouncerMiscReplacements.Length > 0)
+    {
+        replacements = gReadyAnnouncerMiscReplacements;
+        groups = gReadyAnnouncerMiscGroups;
+    }
+    else if (GetStockCountdownSoundIndex(sample) != -1
+        && gReadyCountdownReplacements.Length > 0)
+    {
+        replacements = gReadyCountdownReplacements;
+        groups = gReadyCountdownGroups;
+    }
+    else
     {
         return Plugin_Continue;
     }
@@ -568,8 +625,8 @@ public Action AnnouncerMisc_NormalSoundHook(
     char replacement[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
     if (!GetRandomReadyReplacement(
-        gReadyAnnouncerMiscReplacements,
-        gReadyAnnouncerMiscGroups,
+        replacements,
+        groups,
         replacement,
         sizeof(replacement),
         groupName,
@@ -767,6 +824,261 @@ static void StopClientCaptureWarningSounds(int client)
     }
 }
 
+static int GetStockCountdownSoundIndex(const char[] sample)
+{
+    char normalized[PLATFORM_MAX_PATH];
+    strcopy(normalized, sizeof(normalized), sample);
+    TrimString(normalized);
+    while (normalized[0] != '\0' && !IsAsciiAlphaNumeric(normalized[0]))
+    {
+        Strings_ShiftLeft(normalized, sizeof(normalized), 1);
+    }
+    NormalizeSoundPath(normalized, sizeof(normalized));
+    Strings_ToLower(normalized, sizeof(normalized));
+
+    for (int i = 0; i < sizeof(gStockCountdownSounds); i++)
+    {
+        if (StrEqual(normalized, gStockCountdownSounds[i]))
+        {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+public Action Timer_MonitorSetupCountdown(Handle timer)
+{
+    if (timer != g_hCountdownMonitorTimer)
+    {
+        return Plugin_Stop;
+    }
+
+    if (gReadyCountdownReplacements.Length == 0)
+    {
+        ResetCountdownTracking();
+        return Plugin_Continue;
+    }
+
+    int timerEntity = FindActiveSetupCountdownTimer();
+    if (timerEntity == -1)
+    {
+        ResetCountdownTracking();
+        return Plugin_Continue;
+    }
+
+    float remaining = GetSetupCountdownRemaining(timerEntity);
+    if (remaining < 0.0)
+    {
+        ResetCountdownTracking();
+        return Plugin_Continue;
+    }
+
+    int timerRef = EntIndexToEntRef(timerEntity);
+    if (timerRef != g_iTrackedCountdownTimerRef)
+    {
+        g_iTrackedCountdownTimerRef = timerRef;
+        g_iCountdownArmedMask = 0;
+        ArmCountdownWarnings(remaining);
+    }
+    else if (g_fLastCountdownRemaining >= 0.0
+        && remaining > g_fLastCountdownRemaining + 0.2)
+    {
+        // Mirror CTeamRoundTimer::CalculateOutputMessages() after time is added.
+        ArmCountdownWarnings(remaining);
+    }
+
+    g_fLastCountdownRemaining = remaining;
+
+    if (GetCountdownTimerBool(timerEntity, "m_bIsDisabled")
+        || GetCountdownTimerBool(timerEntity, "m_bTimerPaused")
+        || (GetCountdownTimerBool(timerEntity, "m_bStopWatchTimer")
+            && GetCountdownTimerBool(timerEntity, "m_bInCaptureWatchState")))
+    {
+        return Plugin_Continue;
+    }
+
+    bool shouldEmit = GetCountdownTimerBool(timerEntity, "m_bAutoCountdown")
+        && !IsWaitingForPlayers();
+
+    for (int i = 0; i < sizeof(gCountdownSeconds); i++)
+    {
+        int warningBit = 1 << i;
+        if ((g_iCountdownArmedMask & warningBit) == 0
+            || remaining > float(gCountdownSeconds[i] + 1))
+        {
+            continue;
+        }
+
+        // ClientThink clears only one warning per frame because its checks are else-if.
+        g_iCountdownArmedMask &= ~warningBit;
+        if (shouldEmit)
+        {
+            CreateTimer(
+                CLIENT_COUNTDOWN_REPLACEMENT_DELAY,
+                Timer_ReplaceSetupCountdownWarning,
+                i,
+                TIMER_FLAG_NO_MAPCHANGE
+            );
+        }
+        break;
+    }
+
+    return Plugin_Continue;
+}
+
+public Action Timer_ReplaceSetupCountdownWarning(Handle timer, any warningIndex)
+{
+    if (warningIndex < 0 || warningIndex >= sizeof(gStockCountdownSounds))
+    {
+        return Plugin_Stop;
+    }
+
+    char replacement[PLATFORM_MAX_PATH];
+    char groupName[MAX_GROUP_NAME];
+    if (!GetRandomReadyReplacement(
+        gReadyCountdownReplacements,
+        gReadyCountdownGroups,
+        replacement,
+        sizeof(replacement),
+        groupName,
+        sizeof(groupName)))
+    {
+        return Plugin_Stop;
+    }
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client) || IsFakeClient(client))
+        {
+            continue;
+        }
+
+        float emitVolume;
+        if (!CanPlaySaySoundToClient(client, groupName, emitVolume))
+        {
+            continue;
+        }
+
+        StopSound(client, SNDCHAN_VOICE_BASE, gStockCountdownSounds[warningIndex]);
+        EmitSoundToClient(
+            client,
+            replacement,
+            client,
+            SNDCHAN_VOICE_BASE,
+            SNDLEVEL_NONE,
+            SND_NOFLAGS,
+            emitVolume
+        );
+    }
+
+    return Plugin_Stop;
+}
+
+static int FindActiveSetupCountdownTimer()
+{
+    int objectiveResource = -1;
+    while ((objectiveResource = FindEntityByClassname(objectiveResource, "tf_objective_resource")) != -1)
+    {
+        if (!HasEntProp(objectiveResource, Prop_Send, "m_iTimerToShowInHUD"))
+        {
+            continue;
+        }
+
+        int timerEntity = GetEntProp(objectiveResource, Prop_Send, "m_iTimerToShowInHUD");
+        if (IsSetupCountdownTimer(timerEntity))
+        {
+            return timerEntity;
+        }
+    }
+
+    int timerEntity = -1;
+    while ((timerEntity = FindEntityByClassname(timerEntity, "team_round_timer")) != -1)
+    {
+        if (!IsSetupCountdownTimer(timerEntity)
+            || GetCountdownTimerBool(timerEntity, "m_bIsDisabled"))
+        {
+            continue;
+        }
+
+        if (!HasEntProp(timerEntity, Prop_Send, "m_bShowInHUD")
+            || GetCountdownTimerBool(timerEntity, "m_bShowInHUD"))
+        {
+            return timerEntity;
+        }
+    }
+
+    return -1;
+}
+
+static bool IsSetupCountdownTimer(int entity)
+{
+    return entity > MaxClients
+        && IsValidEntity(entity)
+        && HasEntProp(entity, Prop_Send, "m_nState")
+        && GetEntProp(entity, Prop_Send, "m_nState") == ROUND_TIMER_STATE_SETUP;
+}
+
+static float GetSetupCountdownRemaining(int timerEntity)
+{
+    if (GetCountdownTimerBool(timerEntity, "m_bTimerPaused"))
+    {
+        if (!HasEntProp(timerEntity, Prop_Send, "m_flTimeRemaining"))
+        {
+            return -1.0;
+        }
+        return GetEntPropFloat(timerEntity, Prop_Send, "m_flTimeRemaining");
+    }
+
+    if (!HasEntProp(timerEntity, Prop_Send, "m_flTimerEndTime"))
+    {
+        return -1.0;
+    }
+
+    float remaining = GetEntPropFloat(timerEntity, Prop_Send, "m_flTimerEndTime") - GetGameTime();
+    return remaining > 0.0 ? remaining : 0.0;
+}
+
+static bool GetCountdownTimerBool(int timerEntity, const char[] property)
+{
+    return HasEntProp(timerEntity, Prop_Send, property)
+        && GetEntProp(timerEntity, Prop_Send, property) != 0;
+}
+
+static bool IsWaitingForPlayers()
+{
+    return FindEntityByClassname(-1, "tf_gamerules") != -1
+        && GameRules_GetProp("m_bInWaitingForPlayers", 1) != 0;
+}
+
+static void ArmCountdownWarnings(float remaining)
+{
+    for (int i = 0; i < sizeof(gCountdownSeconds); i++)
+    {
+        if (remaining >= float(gCountdownSeconds[i]))
+        {
+            g_iCountdownArmedMask |= 1 << i;
+        }
+    }
+}
+
+static void ResetCountdownTracking()
+{
+    g_iTrackedCountdownTimerRef = INVALID_ENT_REFERENCE;
+    g_iCountdownArmedMask = 0;
+    g_fLastCountdownRemaining = -1.0;
+}
+
+static void CancelCountdownMonitorTimer()
+{
+    if (g_hCountdownMonitorTimer != INVALID_HANDLE)
+    {
+        delete g_hCountdownMonitorTimer;
+        g_hCountdownMonitorTimer = INVALID_HANDLE;
+    }
+    ResetCountdownTracking();
+}
+
 Action ChatCommandListener(int client, const char[] command, int argc)
 {
     if (client <= 0 || !IsClientInGame(client))
@@ -895,6 +1207,10 @@ void LoadSaySoundConfig()
     gAnnouncerMiscGroups.Clear();
     gReadyAnnouncerMiscReplacements.Clear();
     gReadyAnnouncerMiscGroups.Clear();
+    gCountdownReplacements.Clear();
+    gCountdownGroups.Clear();
+    gReadyCountdownReplacements.Clear();
+    gReadyCountdownGroups.Clear();
     gConfigLoaded = false;
     gConfigInAPIOnlyGroups = false;
     gConfigInPaidSaysoundGroups = false;
@@ -903,6 +1219,7 @@ void LoadSaySoundConfig()
     gConfigInRoundWinReplacements = false;
     gConfigInRoundLoseReplacements = false;
     gConfigInAnnouncerMiscReplacements = false;
+    gConfigInCountdownReplacements = false;
     gConfigSectionDepth = 0;
     gConfigAPIOnlyGroupsDepth = -1;
     gConfigPaidSaysoundGroupsDepth = -1;
@@ -911,6 +1228,7 @@ void LoadSaySoundConfig()
     gConfigRoundWinReplacementsDepth = -1;
     gConfigRoundLoseReplacementsDepth = -1;
     gConfigAnnouncerMiscReplacementsDepth = -1;
+    gConfigCountdownReplacementsDepth = -1;
     EnsureGroupRegistered(DEFAULT_GROUP);
 
     char filePath[PLATFORM_MAX_PATH];
@@ -1010,6 +1328,13 @@ public SMCResult Config_EnterSection(SMCParser parser, const char[] name, bool o
         gConfigInAnnouncerMiscReplacements = true;
         gConfigAnnouncerMiscReplacementsDepth = gConfigSectionDepth;
     }
+    else if (StrEqual(sectionName, COUNTDOWN_REPLACEMENTS_SECTION)
+        || StrEqual(sectionName, "count_down_replacements")
+        || StrEqual(sectionName, "count-down-replacements"))
+    {
+        gConfigInCountdownReplacements = true;
+        gConfigCountdownReplacementsDepth = gConfigSectionDepth;
+    }
 
     return SMCParse_Continue;
 }
@@ -1059,6 +1384,13 @@ public SMCResult Config_LeaveSection(SMCParser parser)
         gConfigAnnouncerMiscReplacementsDepth = -1;
     }
 
+    if (gConfigInCountdownReplacements
+        && gConfigSectionDepth == gConfigCountdownReplacementsDepth)
+    {
+        gConfigInCountdownReplacements = false;
+        gConfigCountdownReplacementsDepth = -1;
+    }
+
     if (gConfigSectionDepth > 0)
     {
         gConfigSectionDepth--;
@@ -1090,6 +1422,12 @@ public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[
     if (gConfigInAnnouncerMiscReplacements)
     {
         Config_ReplacementSound(value, gAnnouncerMiscReplacements, gAnnouncerMiscGroups);
+        return SMCParse_Continue;
+    }
+
+    if (gConfigInCountdownReplacements)
+    {
+        Config_ReplacementSound(value, gCountdownReplacements, gCountdownGroups);
         return SMCParse_Continue;
     }
 
@@ -1337,6 +1675,13 @@ void PrecacheConfiguredSounds()
         gReadyAnnouncerMiscReplacements,
         gReadyAnnouncerMiscGroups,
         "Miscellaneous announcer"
+    );
+    PrecacheReplacementSounds(
+        gCountdownReplacements,
+        gCountdownGroups,
+        gReadyCountdownReplacements,
+        gReadyCountdownGroups,
+        "Setup countdown"
     );
 }
 
