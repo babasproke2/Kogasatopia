@@ -76,6 +76,7 @@ bool gConfigInGroupAliases = false;
 bool gConfigInRoundStartSirens = false;
 bool gConfigInRoundWinReplacements = false;
 bool gConfigInRoundLoseReplacements = false;
+bool gRoundStartSirenPlayed = false;
 int gConfigSectionDepth = 0;
 int gConfigAPIOnlyGroupsDepth = -1;
 int gConfigPaidSaysoundGroupsDepth = -1;
@@ -92,6 +93,7 @@ Handle g_hVolumeCookie = INVALID_HANDLE;
 Handle g_hDeathCookie = INVALID_HANDLE;
 Handle g_hKillCookie = INVALID_HANDLE;
 Handle g_hDisabledGroupsCookie = INVALID_HANDLE;
+Handle g_hRoundStartSirenTimer = INVALID_HANDLE;
 ConVar g_hForce;
 ConVar g_hDefaultDeathSound;
 ConVar g_hDefaultVolume;
@@ -175,6 +177,7 @@ public void OnPluginStart()
     AddCommandListener(ChatCommandListener, "say");
     AddCommandListener(ChatCommandListener, "say_team");
     HookEvent("player_death", Event_PlayerDeathPost, EventHookMode_Post);
+    HookEvent("teamplay_round_start", Event_RoundStart, EventHookMode_PostNoCopy);
     HookEvent("teamplay_setup_finished", Event_SetupFinished, EventHookMode_PostNoCopy);
     HookEvent("teamplay_broadcast_audio", Event_BroadcastAudio, EventHookMode_Pre);
 
@@ -198,6 +201,8 @@ public void OnPluginStart()
 
 public void OnPluginEnd()
 {
+    CancelRoundStartSirenTimer();
+
     if (gSoundMap != null)
     {
         delete gSoundMap;
@@ -336,21 +341,47 @@ public void OnConfigsExecuted()
 
 public void OnMapStart()
 {
+    CancelRoundStartSirenTimer();
+    gRoundStartSirenPlayed = false;
     PrecacheConfiguredSounds();
+}
+
+public void OnMapEnd()
+{
+    CancelRoundStartSirenTimer();
+    gRoundStartSirenPlayed = false;
+}
+
+public void Event_RoundStart(Event event, const char[] name, bool dontBroadcast)
+{
+    CancelRoundStartSirenTimer();
+    gRoundStartSirenPlayed = false;
 }
 
 public void Event_SetupFinished(Event event, const char[] name, bool dontBroadcast)
 {
-    CreateTimer(
+    if (gRoundStartSirenPlayed)
+    {
+        return;
+    }
+
+    gRoundStartSirenPlayed = true;
+    CancelRoundStartSirenTimer();
+    g_hRoundStartSirenTimer = CreateTimer(
         ROUND_START_SIREN_DELAY,
         Timer_ReplaceRoundStartSiren,
         _,
-        TIMER_FLAG_NO_MAPCHANGE
+        0
     );
 }
 
 public Action Timer_ReplaceRoundStartSiren(Handle timer)
 {
+    if (timer == g_hRoundStartSirenTimer)
+    {
+        g_hRoundStartSirenTimer = INVALID_HANDLE;
+    }
+
     if (gReadyRoundStartSirenReplacements.Length == 0)
     {
         return Plugin_Stop;
@@ -388,6 +419,15 @@ public Action Timer_ReplaceRoundStartSiren(Handle timer)
     }
 
     return Plugin_Stop;
+}
+
+static void CancelRoundStartSirenTimer()
+{
+    if (g_hRoundStartSirenTimer != INVALID_HANDLE)
+    {
+        delete g_hRoundStartSirenTimer;
+        g_hRoundStartSirenTimer = INVALID_HANDLE;
+    }
 }
 
 public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroadcast)
