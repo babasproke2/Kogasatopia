@@ -43,6 +43,7 @@
 #define STOCK_CP_SUCCESS "Announcer.Success"
 #define STOCK_CP_FAILURE "Announcer.Failure"
 #define ROUND_START_SIREN_DELAY 0.05
+#define ROUND_START_SIREN_DEBOUNCE 1.0
 #define CLIENT_ANNOUNCER_REPLACEMENT_DELAY 0.05
 #define COUNTDOWN_MONITOR_INTERVAL 0.05
 #define CLIENT_COUNTDOWN_REPLACEMENT_DELAY 0.04
@@ -98,6 +99,7 @@ bool gConfigInRoundLoseReplacements = false;
 bool gConfigInAnnouncerMiscReplacements = false;
 bool gConfigInCountdownReplacements = false;
 bool gRoundStartSirenPlayed = false;
+float g_flLastRoundStartSiren = -9999.0;
 int gConfigSectionDepth = 0;
 int gConfigAPIOnlyGroupsDepth = -1;
 int gConfigPaidSaysoundGroupsDepth = -1;
@@ -414,6 +416,7 @@ public void OnMapStart()
 {
     CancelRoundStartSirenTimer();
     gRoundStartSirenPlayed = false;
+    g_flLastRoundStartSiren = -9999.0;
     ResetCountdownTracking();
     PrecacheConfiguredSounds();
 }
@@ -422,6 +425,7 @@ public void OnMapEnd()
 {
     CancelRoundStartSirenTimer();
     gRoundStartSirenPlayed = false;
+    g_flLastRoundStartSiren = -9999.0;
     ResetCountdownTracking();
 }
 
@@ -463,10 +467,20 @@ static void QueueRoundStartSirenTimer()
 
 public Action Timer_ReplaceRoundStartSiren(Handle timer)
 {
-    if (timer == g_hRoundStartSirenTimer)
+    if (timer != g_hRoundStartSirenTimer)
     {
-        g_hRoundStartSirenTimer = INVALID_HANDLE;
+        return Plugin_Stop;
     }
+
+    g_hRoundStartSirenTimer = INVALID_HANDLE;
+
+    float now = GetGameTime();
+    if (now - g_flLastRoundStartSiren < ROUND_START_SIREN_DEBOUNCE)
+    {
+        return Plugin_Stop;
+    }
+
+    g_flLastRoundStartSiren = now;
 
     if (gReadyRoundStartSirenReplacements.Length == 0)
     {
@@ -493,6 +507,13 @@ public Action Timer_ReplaceRoundStartSiren(Handle timer)
         }
 
         StopSound(client, SNDCHAN_AUTO, STOCK_ROUND_START_SIREN);
+        for (int i = 0; i < gReadyRoundStartSirenReplacements.Length; i++)
+        {
+            char sample[PLATFORM_MAX_PATH];
+            gReadyRoundStartSirenReplacements.GetString(i, sample, sizeof(sample));
+            StopSound(client, SNDCHAN_AUTO, sample);
+        }
+
         EmitSoundToClient(
             client,
             replacement,
