@@ -451,9 +451,6 @@ static void ReplaceRoundStartSiren()
     int index = GetRandomInt(0, gReadyRoundStartSirenReplacements.Length - 1);
     gReadyRoundStartSirenReplacements.GetString(index, replacement, sizeof(replacement));
     gReadyRoundStartSirenGroups.GetString(index, groupName, sizeof(groupName));
-    int allRecipients[MAXPLAYERS];
-    int replacementRecipients[MAXPLAYERS];
-    int allRecipientCount = 0;
     int replacementRecipientCount = 0;
     for (int client = 1; client <= MaxClients; client++)
     {
@@ -462,67 +459,36 @@ static void ReplaceRoundStartSiren()
             continue;
         }
 
-        allRecipients[allRecipientCount++] = client;
-
-        float clientVolume;
-        if (CanPlaySaySoundToClient(client, groupName, clientVolume))
+        float emitVolume;
+        if (!CanPlaySaySoundToClient(client, groupName, emitVolume))
         {
-            replacementRecipients[replacementRecipientCount++] = client;
+            continue;
         }
-    }
 
-    if (replacementRecipientCount == 0)
-    {
-        return;
-    }
+        // The stock siren is client-local. Stop it after it has started, then
+        // use that same client as the emitter for exactly one replacement.
+        StopSound(client, SNDCHAN_AUTO, STOCK_ROUND_START_SIREN);
+        for (int i = 0; i < gReadyRoundStartSirenReplacements.Length; i++)
+        {
+            char sample[PLATFORM_MAX_PATH];
+            gReadyRoundStartSirenReplacements.GetString(i, sample, sizeof(sample));
+            StopSound(client, ROUND_START_SIREN_CHANNEL, sample);
+        }
 
-    // Stop prior replacements with one recipient-filtered packet per sample.
-    // StopSound's first argument is an emitter entity, not a recipient.
-    for (int i = 0; i < gReadyRoundStartSirenReplacements.Length; i++)
-    {
-        char sample[PLATFORM_MAX_PATH];
-        gReadyRoundStartSirenReplacements.GetString(i, sample, sizeof(sample));
-        EmitSound(
-            allRecipients,
-            allRecipientCount,
-            sample,
-            SOUND_FROM_WORLD,
+        EmitSoundToClient(
+            client,
+            replacement,
+            client,
             ROUND_START_SIREN_CHANNEL,
             SNDLEVEL_NONE,
-            SND_STOP,
-            0.0
+            SND_NOFLAGS,
+            emitVolume
         );
+        replacementRecipientCount++;
     }
 
-    // Ambient.Siren is emitted client-side from SOUND_FROM_LOCAL_PLAYER. Send
-    // its stop only to clients receiving the replacement so group opt-outs keep it.
-    EmitSound(
-        replacementRecipients,
-        replacementRecipientCount,
-        STOCK_ROUND_START_SIREN,
-        SOUND_FROM_LOCAL_PLAYER,
-        SNDCHAN_AUTO,
-        SNDLEVEL_NONE,
-        SND_STOP,
-        0.0
-    );
-
-    float emitVolume = g_hForce != null && g_hForce.BoolValue
-        ? 1.0
-        : GetDefaultVolume();
-    EmitSound(
-        replacementRecipients,
-        replacementRecipientCount,
-        replacement,
-        SOUND_FROM_WORLD,
-        ROUND_START_SIREN_CHANNEL,
-        SNDLEVEL_NONE,
-        SND_NOFLAGS,
-        emitVolume
-    );
-
     LogMessage(
-        "[SaySounds:Siren] Played one replacement: %s (timer entref %d, recipients %d).",
+        "[SaySounds:Siren] Played one replacement: %s (timer entref %d, client emissions %d).",
         replacement,
         g_iPendingSetupSirenTimerRef,
         replacementRecipientCount
