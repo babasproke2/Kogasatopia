@@ -62,10 +62,21 @@
 				"library" "server"
 				"linux"   "@_ZN15CTFPlayerShared10StunPlayerEffiP9CTFPlayer"
 			}
+			"CTFPlayerShared::Burn"
+			{
+				"library" "server"
+				"linux"   "@_ZN15CTFPlayerShared4BurnEP9CTFPlayerP13CTFWeaponBasef"
+				"linux64" "@_ZN15CTFPlayerShared4BurnEP9CTFPlayerP13CTFWeaponBasef"
+			}
         }
 
 		"Offsets"
 		{
+			"CTFPlayerShared::m_flAfterburnDuration"
+			{
+				"linux"     "516"
+				"linux64"   "596"
+			}
 			"CTFWeaponBase::PrimaryAttack"
 			{
 				"windows"	"287"
@@ -321,6 +332,28 @@
 					"pAttacker"
 					{
 						"type"	"int"
+					}
+				}
+			}
+			"CTFPlayerShared::Burn"
+			{
+				"signature" "CTFPlayerShared::Burn"
+				"callconv"  "thiscall"
+				"this"      "address"
+				"return"    "void"
+				"arguments"
+				{
+					"pAttacker"
+					{
+						"type" "cbaseentity"
+					}
+					"pWeapon"
+					{
+						"type" "cbaseentity"
+					}
+					"flBurningTime"
+					{
+						"type" "float"
 					}
 				}
 			}

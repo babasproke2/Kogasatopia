@@ -10,6 +10,7 @@
 #define SANDMAN_PRE_JI_SLOWDOWN 0.5
 #define MAX_TRACKED_ENTITIES 2049
 #define MEATSHOT_MIN_PELLETS 4
+#define AFTERBURN_DURATION_MAX 5.0
 
 #define FLS_EXPLODE_DAMAGE	 50.0
 #define FLS_EXPLODE_RADIUS	 180.0
@@ -159,6 +160,7 @@ Handle g_SDKGetAfterburnRateOnHit = null;
 Handle g_SDKTeamFortressSetSpeed = null;
 Handle g_SDKSetFOV = null;
 int g_iMetalOffset = -1;
+int g_iAfterburnDurationOffset = -1;
 bool g_bWarnedMetalOffset = false;
 bool g_bAccuracyExploding[MAXPLAYERS + 1];
 int g_iAmbassadorCritParticle = INVALID_STRING_INDEX;
@@ -194,6 +196,7 @@ float g_flWranglerCustomShieldValue = 0.85;
 DynamicDetour dhook_CTFPlayer_CalculateMaxSpeed;
 DynamicDetour dhook_CTFLunchBox_ApplyBiteEffects;
 DynamicDetour dhook_CTFPlayerShared_StunPlayer;
+DynamicDetour dhook_CTFPlayerShared_Burn;
 DynamicDetour dhook_IsFixedWeaponSpreadEnabled;
 DynamicHook dhook_CObjectCartDispenser_DispenseMetal;
 DynamicHook dhook_CTFWeaponBase_CanFireCriticalShot;
@@ -208,6 +211,31 @@ bool g_bCalculatingRandomCritOverride = false;
 bool WeaponsGameplay_IsEnabled()
 {
 	return !g_bPluginEnding && g_hGameplayEnabled != null && GetConVarBool(g_hGameplayEnabled);
+}
+
+public MRESReturn CTFPlayerShared_Burn_Post(Address sharedAddress, DHookParam parameters)
+{
+	if (sharedAddress == Address_Null || g_iAfterburnDurationOffset < 0)
+	{
+		return MRES_Ignored;
+	}
+
+	Address durationAddress = sharedAddress
+		+ view_as<Address>(g_iAfterburnDurationOffset);
+	float duration = view_as<float>(
+		LoadFromAddress(durationAddress, NumberType_Int32)
+	);
+
+	if (duration > AFTERBURN_DURATION_MAX)
+	{
+		StoreToAddress(
+			durationAddress,
+			view_as<int>(AFTERBURN_DURATION_MAX),
+			NumberType_Int32
+		);
+	}
+
+	return MRES_Ignored;
 }
 
 static void WeaponsGameplay_SetPatchEnabled(MemoryPatch patch, bool enabled)
@@ -453,6 +481,11 @@ void WeaponsGameplay_OnPluginStart(GameData conf) {
 	RegAdminCmd("sm_weapons_reload", Command_ReloadWeaponsConfig, ADMFLAG_CONFIG, "Reload weapon definitions from configs/weapons.cfg.");
 	RegAdminCmd("sm_weapons_refresh", Command_ReloadWeaponsConfig, ADMFLAG_CONFIG, "Refresh weapon definitions from configs/weapons.cfg.");
 	g_iMetalOffset = FindSendPropInfo("CTFPlayer", "m_iAmmo");
+	g_iAfterburnDurationOffset = conf.GetOffset("CTFPlayerShared::m_flAfterburnDuration");
+	if (g_iAfterburnDurationOffset < 0)
+	{
+		SetFailState("Failed to find CTFPlayerShared::m_flAfterburnDuration offset");
+	}
 	// This is used to ignore clients without the m_iAmmo netprop
 
 		for (int i = 1; i <= MaxClients; i++)
@@ -546,6 +579,7 @@ void WeaponsGameplay_OnPluginStart(GameData conf) {
 		dhook_CTFPlayer_CalculateMaxSpeed = DynamicDetour.FromConf(conf, "CTFPlayer::TeamFortress_CalculateMaxSpeed");
 		dhook_CTFLunchBox_ApplyBiteEffects = DynamicDetour.FromConf(conf, "CTFLunchBox::ApplyBiteEffects");
 		dhook_CTFPlayerShared_StunPlayer = DynamicDetour.FromConf(conf, "CTFPlayerShared::StunPlayer");
+		dhook_CTFPlayerShared_Burn = DynamicDetour.FromConf(conf, "CTFPlayerShared::Burn");
 		dhook_IsFixedWeaponSpreadEnabled = DynamicDetour.FromConf(overrideConf, "IsFixedWeaponSpreadEnabled");
 		dhook_CObjectCartDispenser_DispenseMetal = DynamicHook.FromConf(conf, "CObjectCartDispenser::DispenseMetal");
 		dhook_CTFWeaponBase_CanFireCriticalShot = DynamicHook.FromConf(conf, "CTFWeaponBase::CanFireCriticalShot");
@@ -556,6 +590,7 @@ void WeaponsGameplay_OnPluginStart(GameData conf) {
 		if (dhook_CTFPlayer_CalculateMaxSpeed == null) SetFailState("Failed to create dhook_CTFPlayer_CalculateMaxSpeed");
 		if (dhook_CTFLunchBox_ApplyBiteEffects == null) SetFailState("Failed to create dhook_CTFLunchBox_ApplyBiteEffects");
 		if (dhook_CTFPlayerShared_StunPlayer == null) SetFailState("Failed to create dhook_CTFPlayerShared_StunPlayer");
+		if (dhook_CTFPlayerShared_Burn == null) SetFailState("Failed to create dhook_CTFPlayerShared_Burn");
 		if (dhook_IsFixedWeaponSpreadEnabled == null) SetFailState("Failed to create dhook_IsFixedWeaponSpreadEnabled");
 		if (dhook_CObjectCartDispenser_DispenseMetal == null) SetFailState("Failed to create dhook_CObjectCartDispenser_DispenseMetal");
 		if (dhook_CTFWeaponBase_CanFireCriticalShot == null) SetFailState("Failed to create dhook_CTFWeaponBase_CanFireCriticalShot");
@@ -568,6 +603,7 @@ void WeaponsGameplay_OnPluginStart(GameData conf) {
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Pre, ApplyBiteEffects_Pre);
 		dhook_CTFLunchBox_ApplyBiteEffects.Enable(Hook_Post, ApplyBiteEffects_Post);
 		dhook_CTFPlayerShared_StunPlayer.Enable(Hook_Pre, SandmanPreJI_StunPlayer_Pre);
+		dhook_CTFPlayerShared_Burn.Enable(Hook_Post, CTFPlayerShared_Burn_Post);
 		dhook_IsFixedWeaponSpreadEnabled.Enable(Hook_Pre, IsFixedWeaponSpreadEnabled_Pre);
 		WeaponsGameplay_HookExistingWeaponEntities();
 		AmmoPickups_Init();
