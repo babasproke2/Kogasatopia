@@ -39,6 +39,7 @@
 #define ATTR_RELOAD_ON_KILL "reload on kill"
 #define ATTR_REFILL_CLIP_ON_HIT "refill clip on hit"
 #define ATTR_REFILL_SECONDARY_CLIP_ON_HIT "refill secondary clip on hit"
+#define ATTR_WEARER_REFILL_SECONDARY_CLIP_ON_KILL "wearer refill secondary clip on kill"
 #define ATTR_AMBASSADOR_102 "ambassador 102"
 #define ATTR_RANDOM_SPREAD_OVERRIDE "random spread override"
 #define ATTR_RANDOM_CRITS_OVERRIDE "random crits override"
@@ -1544,6 +1545,14 @@ public Action Event_PlayerDeath(Event event, const char[] name, bool dontBroadca
 
 	if (attacker > 0 && attacker <= MaxClients && IsClientInGame(attacker))
 	{
+		if (attacker != client
+			&& GetClientTeam(attacker) > 1
+			&& GetClientTeam(client) > 1
+			&& GetClientTeam(attacker) != GetClientTeam(client))
+		{
+			WearerRefillSecondaryClipOnKill(attacker);
+		}
+
 		int activeWeapon = GetEntPropEnt(attacker, Prop_Send, "m_hActiveWeapon");
 		if (!(activeWeapon > MaxClients && IsValidEntity(activeWeapon)))
 			return Plugin_Continue;
@@ -2688,21 +2697,48 @@ static void RefillSecondaryClipOnHit_ApplyFrame(any data)
 		return;
 	}
 
+	RefillSecondaryClip(attacker, refillAmount);
+}
+
+static bool RefillSecondaryClip(int attacker, int refillAmount)
+{
+	if (!Weapons_IsClientInGame(attacker) || refillAmount <= 0)
+		return false;
+
 	int secondary = GetPlayerWeaponSlot(attacker, WEAPON_SLOT_SECONDARY);
-	if (!Weapons_IsClipWeaponEntity(secondary))
+	if (!Weapons_IsClipWeaponEntity(secondary)
+		|| !ReloadWeaponClip(secondary, refillAmount))
 	{
-		return;
+		return false;
 	}
 
-	if (ReloadWeaponClip(secondary, refillAmount))
+	EmitSoundToAll(
+		SOUND_CLIP_REFILL_CRIT,
+		attacker,
+		SNDCHAN_AUTO,
+		SNDLEVEL_NORMAL
+	);
+	return true;
+}
+
+static void WearerRefillSecondaryClipOnKill(int attacker)
+{
+	int refillAmount = 0;
+	for (int slot = 0; slot <= WEAPON_SLOT_LAST; slot++)
 	{
-		EmitSoundToAll(
-			SOUND_CLIP_REFILL_CRIT,
-			attacker,
-			SNDCHAN_AUTO,
-			SNDLEVEL_NORMAL
-		);
+		int weapon = GetPlayerWeaponSlot(attacker, slot);
+		if (!Weapons_IsValidWeaponEntity(weapon))
+			continue;
+
+		int amount = TF2CustAttr_GetInt(
+			weapon, ATTR_WEARER_REFILL_SECONDARY_CLIP_ON_KILL, 0);
+		if (amount > refillAmount)
+		{
+			refillAmount = amount;
+		}
 	}
+
+	RefillSecondaryClip(attacker, refillAmount);
 }
 
 static void RefillSecondaryClipOnHit_OnDamage(int attacker, int weapon)
