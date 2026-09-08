@@ -6,6 +6,7 @@
 #include <textparse>
 
 #include <sdktools_sound>
+#include <sdktools_stringtables>
 
 #undef REQUIRE_PLUGIN
 #include <tf_custom_attributes>
@@ -28,6 +29,9 @@
 #define API_ONLY_GROUPS_SECTION "apionlygroups"
 #define PAID_SAYSOUND_GROUPS_SECTION "paidsaysoundgroups"
 #define GROUP_ALIASES_SECTION "groupaliases"
+#define ROUND_START_SIRENS_SECTION "roundstartsirenreplacements"
+#define STOCK_ROUND_START_SIREN "ambient_mp3/siren.mp3"
+#define ROUND_START_SIREN_DELAY 0.05
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define SAYSOUND_ON_KILL_ATTR "saysound on kill"
 #define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
@@ -49,14 +53,18 @@ StringMap gPaidSaysoundGroups;
 StringMap gGroupAliases;
 ArrayList gCommandNames;
 ArrayList gGroupNames;
+ArrayList gRoundStartSirenReplacements;
+ArrayList gReadyRoundStartSirenReplacements;
 bool gConfigLoaded = false;
 bool gConfigInAPIOnlyGroups = false;
 bool gConfigInPaidSaysoundGroups = false;
 bool gConfigInGroupAliases = false;
+bool gConfigInRoundStartSirens = false;
 int gConfigSectionDepth = 0;
 int gConfigAPIOnlyGroupsDepth = -1;
 int gConfigPaidSaysoundGroupsDepth = -1;
 int gConfigGroupAliasesDepth = -1;
+int gConfigRoundStartSirensDepth = -1;
 float g_fClientVolume[MAXPLAYERS + 1];
 float g_fNextAllowedSound[MAXPLAYERS + 1];
 char g_szDeathSound[MAXPLAYERS + 1][MAX_COMMAND_NAME * 4];
@@ -107,6 +115,8 @@ public void OnPluginStart()
     gGroupAliases = new StringMap();
     gCommandNames = new ArrayList(ByteCountToCells(MAX_COMMAND_NAME));
     gGroupNames = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
+    gRoundStartSirenReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    gReadyRoundStartSirenReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
 
     g_hForce = CreateConVar("saysounds_force", "0", "Force everyone to hear saysounds");
     g_hDefaultDeathSound = CreateConVar("saysounds_default_death_sound", "doh", "Saysound command/group used when a victim has no death sound set and the attacker has no kill sound.");
@@ -137,6 +147,7 @@ public void OnPluginStart()
     AddCommandListener(ChatCommandListener, "say");
     AddCommandListener(ChatCommandListener, "say_team");
     HookEvent("player_death", Event_PlayerDeathPost, EventHookMode_Post);
+    HookEvent("teamplay_setup_finished", Event_SetupFinished, EventHookMode_PostNoCopy);
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -198,6 +209,18 @@ public void OnPluginEnd()
     {
         delete gGroupNames;
         gGroupNames = null;
+    }
+
+    if (gRoundStartSirenReplacements != null)
+    {
+        delete gRoundStartSirenReplacements;
+        gRoundStartSirenReplacements = null;
+    }
+
+    if (gReadyRoundStartSirenReplacements != null)
+    {
+        delete gReadyRoundStartSirenReplacements;
+        gReadyRoundStartSirenReplacements = null;
     }
 
     for (int i = 1; i <= MaxClients; i++)
@@ -264,6 +287,47 @@ public void OnConfigsExecuted()
 public void OnMapStart()
 {
     PrecacheConfiguredSounds();
+}
+
+public void Event_SetupFinished(Event event, const char[] name, bool dontBroadcast)
+{
+    CreateTimer(
+        ROUND_START_SIREN_DELAY,
+        Timer_ReplaceRoundStartSiren,
+        _,
+        TIMER_FLAG_NO_MAPCHANGE
+    );
+}
+
+public Action Timer_ReplaceRoundStartSiren(Handle timer)
+{
+    if (gReadyRoundStartSirenReplacements.Length == 0)
+    {
+        return Plugin_Stop;
+    }
+
+    char replacement[PLATFORM_MAX_PATH];
+    int index = GetRandomInt(0, gReadyRoundStartSirenReplacements.Length - 1);
+    gReadyRoundStartSirenReplacements.GetString(index, replacement, sizeof(replacement));
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client) || IsFakeClient(client))
+        {
+            continue;
+        }
+
+        StopSound(client, SNDCHAN_AUTO, STOCK_ROUND_START_SIREN);
+        EmitSoundToClient(
+            client,
+            replacement,
+            client,
+            SNDCHAN_AUTO,
+            SNDLEVEL_NONE
+        );
+    }
+
+    return Plugin_Stop;
 }
 
 Action ChatCommandListener(int client, const char[] command, int argc)
@@ -378,14 +442,18 @@ void LoadSaySoundConfig()
     gGroupAliases.Clear();
     gCommandNames.Clear();
     gGroupNames.Clear();
+    gRoundStartSirenReplacements.Clear();
+    gReadyRoundStartSirenReplacements.Clear();
     gConfigLoaded = false;
     gConfigInAPIOnlyGroups = false;
     gConfigInPaidSaysoundGroups = false;
     gConfigInGroupAliases = false;
+    gConfigInRoundStartSirens = false;
     gConfigSectionDepth = 0;
     gConfigAPIOnlyGroupsDepth = -1;
     gConfigPaidSaysoundGroupsDepth = -1;
     gConfigGroupAliasesDepth = -1;
+    gConfigRoundStartSirensDepth = -1;
     EnsureGroupRegistered(DEFAULT_GROUP);
 
     char filePath[PLATFORM_MAX_PATH];
@@ -457,6 +525,13 @@ public SMCResult Config_EnterSection(SMCParser parser, const char[] name, bool o
         gConfigInGroupAliases = true;
         gConfigGroupAliasesDepth = gConfigSectionDepth;
     }
+    else if (StrEqual(sectionName, ROUND_START_SIRENS_SECTION)
+        || StrEqual(sectionName, "round_start_siren_replacements")
+        || StrEqual(sectionName, "round-start-siren-replacements"))
+    {
+        gConfigInRoundStartSirens = true;
+        gConfigRoundStartSirensDepth = gConfigSectionDepth;
+    }
 
     return SMCParse_Continue;
 }
@@ -481,6 +556,12 @@ public SMCResult Config_LeaveSection(SMCParser parser)
         gConfigGroupAliasesDepth = -1;
     }
 
+    if (gConfigInRoundStartSirens && gConfigSectionDepth == gConfigRoundStartSirensDepth)
+    {
+        gConfigInRoundStartSirens = false;
+        gConfigRoundStartSirensDepth = -1;
+    }
+
     if (gConfigSectionDepth > 0)
     {
         gConfigSectionDepth--;
@@ -491,6 +572,13 @@ public SMCResult Config_LeaveSection(SMCParser parser)
 
 public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[] value, bool keyQuoted, bool valueQuoted)
 {
+    if (gConfigInRoundStartSirens)
+    {
+        Config_RoundStartSiren(key);
+        Config_RoundStartSiren(value);
+        return SMCParse_Continue;
+    }
+
     if (gConfigInAPIOnlyGroups)
     {
         Config_APIOnlyGroup(key);
@@ -621,6 +709,51 @@ static void Config_GroupAlias(const char[] key, const char[] value)
     gGroupAliases.SetString(aliasName, groupName);
 }
 
+static void Config_RoundStartSiren(const char[] configuredPath)
+{
+    char soundPath[PLATFORM_MAX_PATH];
+    strcopy(soundPath, sizeof(soundPath), configuredPath);
+    TrimString(soundPath);
+    NormalizeSoundPath(soundPath, sizeof(soundPath));
+
+    if (!soundPath[0]
+        || (StrContains(soundPath, ".mp3", false) == -1
+            && StrContains(soundPath, ".wav", false) == -1))
+    {
+        return;
+    }
+
+    if (gRoundStartSirenReplacements.FindString(soundPath) == -1)
+    {
+        gRoundStartSirenReplacements.PushString(soundPath);
+    }
+}
+
+static void PrecacheRoundStartSirens()
+{
+    gReadyRoundStartSirenReplacements.Clear();
+
+    char soundPath[PLATFORM_MAX_PATH];
+    char downloadPath[PLATFORM_MAX_PATH];
+    for (int i = 0; i < gRoundStartSirenReplacements.Length; i++)
+    {
+        gRoundStartSirenReplacements.GetString(i, soundPath, sizeof(soundPath));
+        FormatEx(downloadPath, sizeof(downloadPath), "sound/%s", soundPath);
+
+        if (!FileExists(downloadPath, true))
+        {
+            LogError("[SaySounds] Round-start siren replacement not found: %s", downloadPath);
+            continue;
+        }
+
+        AddFileToDownloadsTable(downloadPath);
+        if (PrecacheSound(soundPath, true))
+        {
+            gReadyRoundStartSirenReplacements.PushString(soundPath);
+        }
+    }
+}
+
 void PrecacheConfiguredSounds()
 {
     if (!gConfigLoaded)
@@ -641,6 +774,8 @@ void PrecacheConfiguredSounds()
 
         PrecacheSound(soundPath, true);
     }
+
+    PrecacheRoundStartSirens();
 }
 
 int FindCommandIndex(const char[] commandName)
