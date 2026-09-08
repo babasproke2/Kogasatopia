@@ -82,7 +82,7 @@ Only plugin-facing natives and forwards are listed here; internal stock helper f
 - `Autobalance_HasPendingTeamSwap` - Returns whether a client has an incoming team-swap request.
 
 ## team_balance_api.inc
-- Required coordination API provided by `whalebalance.smx` for WhaleScramble candidate validation, immunity, moves, respawns, cooldowns, and operation exclusion.
+- Compatibility API provided by `whalebalance.smx` for candidate validation, immunity, moves, respawns, cooldowns, and operation exclusion.
 
 ## amplifier.inc
 - `Amplifier_WouldReplaceBuilding` - Returns whether a build request would become an amplifier instead of the requested object.

@@ -8,7 +8,7 @@ These plugins are very specific and are shared for the sake of letting anyone lo
 - saysounds.sp as an implementation of the saysounds concept with many features
 - announcers.sp for gameplay announcers such as Unreal Tournament killstreak trackers
 - weapons.sp for unified custom weapons and the internally modular custom hats system
-- autobalance_4teams and whalescramble for autobalancing and scrambling inspired by gScramble
+- whalebalance.sp for unified autobalancing, team swaps, and scramble voting inspired by gScramble
 - hugs.sp to hug your friends (and more)
 - filters.sp, a large plugin that handles chat such as a tags feature, a web frontend connection and word filters
 - points_store.sp, a currency system and lottery with an API
