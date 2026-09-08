@@ -42,11 +42,11 @@
 #define STOCK_OVERTIME_SOUND "Game.Overtime"
 #define STOCK_CP_SUCCESS "Announcer.Success"
 #define STOCK_CP_FAILURE "Announcer.Failure"
-#define ROUND_START_SIREN_CHANNEL (SNDCHAN_USER_BASE + 1)
 #define CLIENT_ANNOUNCER_REPLACEMENT_DELAY 0.05
 #define COUNTDOWN_MONITOR_INTERVAL 0.01
 #define ROUND_TIMER_STATE_SETUP 0
 #define ROUND_TIMER_STATE_NORMAL 1
+#define ROUND_START_SIREN_CHANNEL (SNDCHAN_USER_BASE + 1)
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define SAYSOUND_ON_KILL_ATTR "saysound on kill"
 #define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
@@ -122,11 +122,10 @@ ConVar g_hDefaultDeathSound;
 ConVar g_hDefaultVolume;
 int g_iSaySoundStatsCounter = 0;
 int g_iTrackedCountdownTimerRef = INVALID_ENT_REFERENCE;
-int g_iTrackedCountdownTimerState = -1;
-bool g_bTrackedSirenTransitionHandled = false;
-int g_iRoundStartSirenSequence = 0;
 int g_iCountdownArmedMask = 0;
 float g_fLastCountdownRemaining = -1.0;
+int g_iTrackedSetupSirenTimerRef = INVALID_ENT_REFERENCE;
+bool g_bTrackedSetupSirenHandled = false;
 
 static const char gStockCountdownSounds[][] =
 {
@@ -411,24 +410,20 @@ public void OnConfigsExecuted()
 public void OnMapStart()
 {
     ResetCountdownTracking();
+    ResetRoundStartSirenTracking();
     PrecacheConfiguredSounds();
 }
 
 public void OnMapEnd()
 {
     ResetCountdownTracking();
+    ResetRoundStartSirenTracking();
 }
 
-static void ReplaceRoundStartSiren(int sequence, int timerEntity, const char[] detector)
+static void ReplaceRoundStartSiren()
 {
     if (gReadyRoundStartSirenReplacements.Length == 0)
     {
-        LogMessage(
-            "[SaySounds:Siren] sequence=%d detector=%s timer=%d skipped: no ready replacements",
-            sequence,
-            detector,
-            timerEntity
-        );
         return;
     }
 
@@ -437,17 +432,6 @@ static void ReplaceRoundStartSiren(int sequence, int timerEntity, const char[] d
     int index = GetRandomInt(0, gReadyRoundStartSirenReplacements.Length - 1);
     gReadyRoundStartSirenReplacements.GetString(index, replacement, sizeof(replacement));
     gReadyRoundStartSirenGroups.GetString(index, groupName, sizeof(groupName));
-
-    LogMessage(
-        "[SaySounds:Siren] sequence=%d detector=%s timer=%d entref=%d selected=%s group=%s ready=%d",
-        sequence,
-        detector,
-        timerEntity,
-        EntIndexToEntRef(timerEntity),
-        replacement,
-        groupName,
-        gReadyRoundStartSirenReplacements.Length
-    );
 
     for (int client = 1; client <= MaxClients; client++)
     {
@@ -460,9 +444,6 @@ static void ReplaceRoundStartSiren(int sequence, int timerEntity, const char[] d
         {
             char sample[PLATFORM_MAX_PATH];
             gReadyRoundStartSirenReplacements.GetString(i, sample, sizeof(sample));
-            // Clear a siren emitted by an older plugin build as well as the
-            // dedicated channel used by this build.
-            StopSound(client, SNDCHAN_AUTO, sample);
             StopSound(client, ROUND_START_SIREN_CHANNEL, sample);
         }
 
@@ -473,15 +454,7 @@ static void ReplaceRoundStartSiren(int sequence, int timerEntity, const char[] d
         }
 
         StopSound(client, SNDCHAN_AUTO, STOCK_ROUND_START_SIREN);
-        LogMessage(
-            "[SaySounds:Siren] sequence=%d emit client=%d userid=%d sample=%s channel=%d volume=%.3f",
-            sequence,
-            client,
-            GetClientUserId(client),
-            replacement,
-            ROUND_START_SIREN_CHANNEL,
-            emitVolume
-        );
+
         EmitSoundToClient(
             client,
             replacement,
@@ -492,77 +465,6 @@ static void ReplaceRoundStartSiren(int sequence, int timerEntity, const char[] d
             emitVolume
         );
     }
-}
-
-static void HandleRoundStartSirenTransition(int timerEntity, const char[] detector)
-{
-    if (g_bTrackedSirenTransitionHandled)
-    {
-        return;
-    }
-
-    g_iTrackedCountdownTimerState = ROUND_TIMER_STATE_NORMAL;
-    g_bTrackedSirenTransitionHandled = true;
-
-    int sequence = ++g_iRoundStartSirenSequence;
-    LogMessage(
-        "[SaySounds:Siren] sequence=%d detector=%s transition timer=%d entref=%d SETUP->NORMAL",
-        sequence,
-        detector,
-        timerEntity,
-        g_iTrackedCountdownTimerRef
-    );
-    ReplaceRoundStartSiren(sequence, timerEntity, detector);
-}
-
-static void CheckTrackedRoundStartSirenTransition()
-{
-    if (g_iTrackedCountdownTimerRef == INVALID_ENT_REFERENCE
-        || g_iTrackedCountdownTimerState != ROUND_TIMER_STATE_SETUP
-        || g_bTrackedSirenTransitionHandled)
-    {
-        return;
-    }
-
-    int timerEntity = EntRefToEntIndex(g_iTrackedCountdownTimerRef);
-    if (!IsRoundTimerEntity(timerEntity))
-    {
-        return;
-    }
-
-    int timerState = GetEntProp(timerEntity, Prop_Send, "m_nState");
-    if (timerState != ROUND_TIMER_STATE_NORMAL)
-    {
-        return;
-    }
-
-    HandleRoundStartSirenTransition(timerEntity, "tracked-entref");
-}
-
-static bool IsReadyRoundStartSirenSample(const char[] sample)
-{
-    char normalized[PLATFORM_MAX_PATH];
-    strcopy(normalized, sizeof(normalized), sample);
-    TrimString(normalized);
-    while (normalized[0] != '\0' && !IsAsciiAlphaNumeric(normalized[0]))
-    {
-        Strings_ShiftLeft(normalized, sizeof(normalized), 1);
-    }
-    NormalizeSoundPath(normalized, sizeof(normalized));
-    Strings_ToLower(normalized, sizeof(normalized));
-
-    for (int i = 0; i < gReadyRoundStartSirenReplacements.Length; i++)
-    {
-        char configured[PLATFORM_MAX_PATH];
-        gReadyRoundStartSirenReplacements.GetString(i, configured, sizeof(configured));
-        Strings_ToLower(configured, sizeof(configured));
-        if (StrEqual(normalized, configured))
-        {
-            return true;
-        }
-    }
-
-    return false;
 }
 
 public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroadcast)
@@ -652,19 +554,6 @@ public Action AnnouncementReplacement_NormalSoundHook(
     char soundEntry[PLATFORM_MAX_PATH],
     int &seed)
 {
-    if (IsReadyRoundStartSirenSample(sample))
-    {
-        LogMessage(
-            "[SaySounds:Siren] sound-hook sample=%s entity=%d channel=%d recipients=%d volume=%.3f flags=%d",
-            sample,
-            entity,
-            channel,
-            numClients,
-            volume,
-            flags
-        );
-    }
-
     ArrayList replacements;
     ArrayList groups;
     if (IsStockControlPointAnnouncerSample(sample)
@@ -916,89 +805,37 @@ public Action Timer_MonitorSetupCountdown(Handle timer)
         return Plugin_Stop;
     }
 
-    if (gReadyCountdownReplacements.Length == 0
-        && gReadyRoundStartSirenReplacements.Length == 0)
+    MonitorRoundStartSirenTransition();
+
+    if (gReadyCountdownReplacements.Length == 0)
     {
         ResetCountdownTracking();
         return Plugin_Continue;
     }
 
-    CheckTrackedRoundStartSirenTransition();
-
-    int timerEntity = FindActiveHudRoundTimer();
+    int timerEntity = FindActiveSetupCountdownTimer();
     if (timerEntity == -1)
     {
         ResetCountdownTracking();
         return Plugin_Continue;
     }
 
-    int timerRef = EntIndexToEntRef(timerEntity);
-    int timerState = GetEntProp(timerEntity, Prop_Send, "m_nState");
-    if (timerRef != g_iTrackedCountdownTimerRef)
-    {
-        LogMessage(
-            "[SaySounds:Siren] tracking active HUD timer=%d entref=%d state=%d previous-entref=%d",
-            timerEntity,
-            timerRef,
-            timerState,
-            g_iTrackedCountdownTimerRef
-        );
-        g_iTrackedCountdownTimerRef = timerRef;
-        g_iTrackedCountdownTimerState = timerState;
-        g_bTrackedSirenTransitionHandled = false;
-        g_iCountdownArmedMask = 0;
-        g_fLastCountdownRemaining = -1.0;
-    }
-    else
-    {
-        int previousState = g_iTrackedCountdownTimerState;
-        g_iTrackedCountdownTimerState = timerState;
-
-        if (previousState == ROUND_TIMER_STATE_SETUP
-            && timerState == ROUND_TIMER_STATE_NORMAL
-            && !g_bTrackedSirenTransitionHandled)
-        {
-            HandleRoundStartSirenTransition(timerEntity, "active-hud");
-        }
-        else if (previousState != ROUND_TIMER_STATE_SETUP
-            && timerState == ROUND_TIMER_STATE_SETUP)
-        {
-            // A timer entity can be reused for a later round. Re-arm only when
-            // that same authoritative timer actually enters setup again.
-            LogMessage(
-                "[SaySounds:Siren] re-armed timer=%d entref=%d state=%d->%d",
-                timerEntity,
-                timerRef,
-                previousState,
-                timerState
-            );
-            g_bTrackedSirenTransitionHandled = false;
-            g_iCountdownArmedMask = 0;
-            g_fLastCountdownRemaining = -1.0;
-        }
-    }
-
-    if (timerState != ROUND_TIMER_STATE_SETUP
-        || gReadyCountdownReplacements.Length == 0)
-    {
-        g_iCountdownArmedMask = 0;
-        g_fLastCountdownRemaining = -1.0;
-        return Plugin_Continue;
-    }
-
     float remaining = GetSetupCountdownRemaining(timerEntity);
     if (remaining < 0.0)
     {
-        g_iCountdownArmedMask = 0;
-        g_fLastCountdownRemaining = -1.0;
+        ResetCountdownTracking();
         return Plugin_Continue;
     }
 
-    if (g_fLastCountdownRemaining < 0.0)
+    int timerRef = EntIndexToEntRef(timerEntity);
+    if (timerRef != g_iTrackedCountdownTimerRef)
     {
+        g_iTrackedCountdownTimerRef = timerRef;
+        g_iCountdownArmedMask = 0;
         ArmCountdownWarnings(remaining);
     }
-    else if (remaining > g_fLastCountdownRemaining + 0.2)
+    else if (g_fLastCountdownRemaining >= 0.0
+        && remaining > g_fLastCountdownRemaining + 0.2)
     {
         // Mirror CTeamRoundTimer::CalculateOutputMessages() after time is added.
         ArmCountdownWarnings(remaining);
@@ -1036,6 +873,72 @@ public Action Timer_MonitorSetupCountdown(Handle timer)
     }
 
     return Plugin_Continue;
+}
+
+static void MonitorRoundStartSirenTransition()
+{
+    if (gReadyRoundStartSirenReplacements.Length == 0)
+    {
+        ResetRoundStartSirenTracking();
+        return;
+    }
+
+    int setupTimer = FindActiveSetupCountdownTimer();
+    int timerEntity = EntRefToEntIndex(g_iTrackedSetupSirenTimerRef);
+    if (setupTimer != -1 && setupTimer != timerEntity)
+    {
+        g_iTrackedSetupSirenTimerRef = EntIndexToEntRef(setupTimer);
+        g_bTrackedSetupSirenHandled = false;
+        return;
+    }
+
+    if (IsRoundTimerEntity(timerEntity))
+    {
+        int state = GetEntProp(timerEntity, Prop_Send, "m_nState");
+        if (state == ROUND_TIMER_STATE_SETUP)
+        {
+            g_bTrackedSetupSirenHandled = false;
+            return;
+        }
+
+        if (state == ROUND_TIMER_STATE_NORMAL)
+        {
+            if (!g_bTrackedSetupSirenHandled)
+            {
+                g_bTrackedSetupSirenHandled = true;
+                ReplaceRoundStartSiren();
+            }
+            return;
+        }
+
+    }
+
+    ResetRoundStartSirenTracking();
+    if (setupTimer != -1)
+    {
+        g_iTrackedSetupSirenTimerRef = EntIndexToEntRef(setupTimer);
+        g_bTrackedSetupSirenHandled = false;
+    }
+}
+
+static bool IsRoundTimerEntity(int entity)
+{
+    if (entity <= MaxClients
+        || !IsValidEntity(entity)
+        || !HasEntProp(entity, Prop_Send, "m_nState"))
+    {
+        return false;
+    }
+
+    char classname[32];
+    GetEntityClassname(entity, classname, sizeof(classname));
+    return StrEqual(classname, "team_round_timer");
+}
+
+static void ResetRoundStartSirenTracking()
+{
+    g_iTrackedSetupSirenTimerRef = INVALID_ENT_REFERENCE;
+    g_bTrackedSetupSirenHandled = false;
 }
 
 static void ReplaceSetupCountdownWarning(int warningIndex)
@@ -1085,7 +988,7 @@ static void ReplaceSetupCountdownWarning(int warningIndex)
 
 }
 
-static int FindActiveHudRoundTimer()
+static int FindActiveSetupCountdownTimer()
 {
     int objectiveResource = -1;
     while ((objectiveResource = FindEntityByClassname(objectiveResource, "tf_objective_resource")) != -1)
@@ -1096,17 +999,16 @@ static int FindActiveHudRoundTimer()
         }
 
         int timerEntity = GetEntProp(objectiveResource, Prop_Send, "m_iTimerToShowInHUD");
-        if (IsRoundTimerEntity(timerEntity)
-            && !GetCountdownTimerBool(timerEntity, "m_bIsDisabled"))
+        if (timerEntity > MaxClients && IsValidEntity(timerEntity))
         {
-            return timerEntity;
+            return IsSetupCountdownTimer(timerEntity) ? timerEntity : -1;
         }
     }
 
     int timerEntity = -1;
     while ((timerEntity = FindEntityByClassname(timerEntity, "team_round_timer")) != -1)
     {
-        if (!IsRoundTimerEntity(timerEntity)
+        if (!IsSetupCountdownTimer(timerEntity)
             || GetCountdownTimerBool(timerEntity, "m_bIsDisabled"))
         {
             continue;
@@ -1122,11 +1024,12 @@ static int FindActiveHudRoundTimer()
     return -1;
 }
 
-static bool IsRoundTimerEntity(int entity)
+static bool IsSetupCountdownTimer(int entity)
 {
     return entity > MaxClients
         && IsValidEntity(entity)
-        && HasEntProp(entity, Prop_Send, "m_nState");
+        && HasEntProp(entity, Prop_Send, "m_nState")
+        && GetEntProp(entity, Prop_Send, "m_nState") == ROUND_TIMER_STATE_SETUP;
 }
 
 static float GetSetupCountdownRemaining(int timerEntity)
@@ -1175,8 +1078,6 @@ static void ArmCountdownWarnings(float remaining)
 static void ResetCountdownTracking()
 {
     g_iTrackedCountdownTimerRef = INVALID_ENT_REFERENCE;
-    g_iTrackedCountdownTimerState = -1;
-    g_bTrackedSirenTransitionHandled = false;
     g_iCountdownArmedMask = 0;
     g_fLastCountdownRemaining = -1.0;
 }
