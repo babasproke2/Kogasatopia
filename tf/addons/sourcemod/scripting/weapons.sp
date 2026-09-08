@@ -62,7 +62,7 @@
 
 public Plugin myinfo = {
 	name = "Weapons",
-	author = "nosoop, Hombre, tsuza, Mir, Huutti, Utsuho, Sappykun, Nanochip, Leonardo, MikeJS",
+	author = "nosoop, Hombre, tsuza, Mir, Huutti, Utsuho, Sappykun, Nanochip, Leonardo, MikeJS, Jaro 'Monkeys' Vanderheijden",
 	description = "Unified custom weapons, weapon behavior, models, sounds, and loadouts.",
 	version = "7.1" ... VERSION_SUFFIX,
 	url = "https://kogasa.tf"
@@ -71,6 +71,7 @@ public Plugin myinfo = {
 // 29/08/2026: Combined ca_replace_sound and viewmodel_override into cwx to reduce number of plugins + less concern about order conflicts
 // 30/08/2026: Combined CWX and WeaponReverts so one plugin owns each weapon's complete runtime state.
 // 30/08/2026: Embedded SM-TFCustAttr so custom attributes share the same item lifecycle.
+// 08/09/2026: Combined Hat Removal so wearable visibility shares the unified entity lifecycle.
 
 // this is the maximum expected length of our UID; it is intentional that this is *not* shared
 // to dependent plugins, as we may change this at any time
@@ -133,6 +134,7 @@ Handle g_hOnItemRuntimeStateReady = null;
 #include "weapons/item_config.sp"
 #include "weapons/item_entity.sp"
 #include "weapons/hats.sp"
+#include "weapons/hat_visibility.sp"
 #include "weapons/item_export.sp"
 #include "weapons/loadout_entries.sp"
 #include "weapons/loadout_radio_menu.sp"
@@ -175,6 +177,7 @@ public void OnPluginStart() {
 	WeaponsWhitelist_OnPluginStart();
 	WeaponsMovement_OnPluginStart();
 	CustomHats_OnPluginStart();
+	WeaponsHatVisibility_OnPluginStart();
 	LoadTranslations("weapons.phrases");
 	LoadTranslations("common.phrases");
 	LoadTranslations("core.phrases");
@@ -442,10 +445,12 @@ public void OnClientPutInServer(int client) {
 	WeaponsModels_OnClientPutInServer(client);
 	WeaponsGameplay_OnClientPutInServer(client);
 	CustomHats_OnClientPutInServer(client);
+	WeaponsHatVisibility_OnClientPutInServer(client);
 }
 
 public void OnClientDisconnect(int client) {
 	CustomHats_OnClientDisconnect(client);
+	WeaponsHatVisibility_OnClientDisconnect(client);
 	WeaponsMovement_OnClientDisconnect(client);
 	WeaponsWhitelist_OnClientDisconnect(client);
 	WeaponsSound_ResetClient(client, true);
@@ -465,6 +470,7 @@ public void OnEntityCreated(int entity, const char[] className) {
 	WeaponsSound_OnEntityCreated(entity, className);
 	WeaponsModels_OnEntityCreated(entity, className);
 	WeaponsGameplay_OnEntityCreated(entity, className);
+	WeaponsHatVisibility_OnEntityCreated(entity, className);
 }
 
 public void TF2_OnConditionRemoved(int client, TFCond condition) {
@@ -503,6 +509,7 @@ void FetchLoadoutItems(int client) {
 
 public void OnClientCookiesCached(int client) {
 	CustomHats_OnClientCookiesCached(client);
+	WeaponsHatVisibility_OnClientCookiesCached(client);
 	bool wasRetrieved = g_bRetrievedLoadout[client];
 
 	for (int c; c < NUM_PLAYER_CLASSES; c++) {
