@@ -23,6 +23,7 @@ public Plugin myinfo =
 };
 
 #define ACTION_BUTTONS (IN_ATTACK | IN_JUMP | IN_DUCK | IN_FORWARD | IN_BACK | IN_MOVELEFT | IN_MOVERIGHT | IN_ATTACK2 | IN_RELOAD | IN_SCORE)
+#define DOUBLE_SPEC_TIMEOUT_STEAMID64 "76561198163255365"
 
 int g_iLastPressTime[MAXPLAYERS+1];
 bool g_bMovedToSpec[MAXPLAYERS+1];
@@ -153,6 +154,12 @@ bool Kick(int client) {
 	return false;
 }
 
+bool HasDoubleSpecTimeout(int client) {
+	char steamId64[32];
+	return GetClientAuthId(client, AuthId_SteamID64, steamId64, sizeof(steamId64), true)
+		&& StrEqual(steamId64, DOUBLE_SPEC_TIMEOUT_STEAMID64);
+}
+
 void AfkManage() {
 	int action = g_cvAfkAction.IntValue;
 	int aliveTime = g_cvAfkAliveTime.IntValue;
@@ -203,7 +210,12 @@ void AfkManage() {
 			continue;
 		}
 
-		if (elapsed <= aliveTime) {
+		int liveTimeout = aliveTime;
+		if (action != 0 && HasDoubleSpecTimeout(client)) {
+			liveTimeout *= 2;
+		}
+
+		if (elapsed <= liveTimeout) {
 			continue;
 		}
 
