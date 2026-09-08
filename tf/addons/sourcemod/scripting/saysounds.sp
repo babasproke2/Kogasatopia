@@ -30,7 +30,11 @@
 #define PAID_SAYSOUND_GROUPS_SECTION "paidsaysoundgroups"
 #define GROUP_ALIASES_SECTION "groupaliases"
 #define ROUND_START_SIRENS_SECTION "roundstartsirenreplacements"
+#define ROUND_WIN_REPLACEMENTS_SECTION "roundwinreplacements"
+#define ROUND_LOSE_REPLACEMENTS_SECTION "roundlosereplacements"
 #define STOCK_ROUND_START_SIREN "ambient_mp3/siren.mp3"
+#define STOCK_ROUND_WIN_SOUND "Game.YourTeamWon"
+#define STOCK_ROUND_LOSE_SOUND "Game.YourTeamLost"
 #define ROUND_START_SIREN_DELAY 0.05
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define SAYSOUND_ON_KILL_ATTR "saysound on kill"
@@ -57,16 +61,28 @@ ArrayList gRoundStartSirenReplacements;
 ArrayList gRoundStartSirenGroups;
 ArrayList gReadyRoundStartSirenReplacements;
 ArrayList gReadyRoundStartSirenGroups;
+ArrayList gRoundWinReplacements;
+ArrayList gRoundWinGroups;
+ArrayList gReadyRoundWinReplacements;
+ArrayList gReadyRoundWinGroups;
+ArrayList gRoundLoseReplacements;
+ArrayList gRoundLoseGroups;
+ArrayList gReadyRoundLoseReplacements;
+ArrayList gReadyRoundLoseGroups;
 bool gConfigLoaded = false;
 bool gConfigInAPIOnlyGroups = false;
 bool gConfigInPaidSaysoundGroups = false;
 bool gConfigInGroupAliases = false;
 bool gConfigInRoundStartSirens = false;
+bool gConfigInRoundWinReplacements = false;
+bool gConfigInRoundLoseReplacements = false;
 int gConfigSectionDepth = 0;
 int gConfigAPIOnlyGroupsDepth = -1;
 int gConfigPaidSaysoundGroupsDepth = -1;
 int gConfigGroupAliasesDepth = -1;
 int gConfigRoundStartSirensDepth = -1;
+int gConfigRoundWinReplacementsDepth = -1;
+int gConfigRoundLoseReplacementsDepth = -1;
 float g_fClientVolume[MAXPLAYERS + 1];
 float g_fNextAllowedSound[MAXPLAYERS + 1];
 char g_szDeathSound[MAXPLAYERS + 1][MAX_COMMAND_NAME * 4];
@@ -121,6 +137,14 @@ public void OnPluginStart()
     gRoundStartSirenGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
     gReadyRoundStartSirenReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
     gReadyRoundStartSirenGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
+    gRoundWinReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    gRoundWinGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
+    gReadyRoundWinReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    gReadyRoundWinGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
+    gRoundLoseReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    gRoundLoseGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
+    gReadyRoundLoseReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    gReadyRoundLoseGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
 
     g_hForce = CreateConVar("saysounds_force", "0", "Force everyone to hear saysounds");
     g_hDefaultDeathSound = CreateConVar("saysounds_default_death_sound", "doh", "Saysound command/group used when a victim has no death sound set and the attacker has no kill sound.");
@@ -152,6 +176,7 @@ public void OnPluginStart()
     AddCommandListener(ChatCommandListener, "say_team");
     HookEvent("player_death", Event_PlayerDeathPost, EventHookMode_Post);
     HookEvent("teamplay_setup_finished", Event_SetupFinished, EventHookMode_PostNoCopy);
+    HookEvent("teamplay_broadcast_audio", Event_BroadcastAudio, EventHookMode_Pre);
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -238,6 +263,15 @@ public void OnPluginEnd()
         delete gReadyRoundStartSirenGroups;
         gReadyRoundStartSirenGroups = null;
     }
+
+    delete gRoundWinReplacements;
+    delete gRoundWinGroups;
+    delete gReadyRoundWinReplacements;
+    delete gReadyRoundWinGroups;
+    delete gRoundLoseReplacements;
+    delete gRoundLoseGroups;
+    delete gReadyRoundLoseReplacements;
+    delete gReadyRoundLoseGroups;
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -356,6 +390,70 @@ public Action Timer_ReplaceRoundStartSiren(Handle timer)
     return Plugin_Stop;
 }
 
+public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroadcast)
+{
+    char stockSound[64];
+    event.GetString("sound", stockSound, sizeof(stockSound));
+
+    ArrayList replacements;
+    ArrayList groups;
+    if (StrEqual(stockSound, STOCK_ROUND_WIN_SOUND))
+    {
+        replacements = gReadyRoundWinReplacements;
+        groups = gReadyRoundWinGroups;
+    }
+    else if (StrEqual(stockSound, STOCK_ROUND_LOSE_SOUND))
+    {
+        replacements = gReadyRoundLoseReplacements;
+        groups = gReadyRoundLoseGroups;
+    }
+    else
+    {
+        return Plugin_Continue;
+    }
+
+    if (replacements == null || replacements.Length == 0)
+    {
+        return Plugin_Continue;
+    }
+
+    int team = event.GetInt("team");
+    int index = GetRandomInt(0, replacements.Length - 1);
+    char replacement[PLATFORM_MAX_PATH];
+    char groupName[MAX_GROUP_NAME];
+    replacements.GetString(index, replacement, sizeof(replacement));
+    groups.GetString(index, groupName, sizeof(groupName));
+
+    bool sentToClient = false;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client) || IsFakeClient(client) || GetClientTeam(client) != team)
+        {
+            continue;
+        }
+
+        sentToClient = true;
+        float emitVolume;
+        if (!CanPlaySaySoundToClient(client, groupName, emitVolume))
+        {
+            EmitGameSoundToClient(client, stockSound);
+            continue;
+        }
+
+        EmitSoundToClient(
+            client,
+            replacement,
+            client,
+            SNDCHAN_AUTO,
+            SNDLEVEL_NONE,
+            SND_NOFLAGS,
+            emitVolume
+        );
+    }
+
+    return sentToClient ? Plugin_Handled : Plugin_Continue;
+}
+
 Action ChatCommandListener(int client, const char[] command, int argc)
 {
     if (client <= 0 || !IsClientInGame(client))
@@ -472,16 +570,28 @@ void LoadSaySoundConfig()
     gRoundStartSirenGroups.Clear();
     gReadyRoundStartSirenReplacements.Clear();
     gReadyRoundStartSirenGroups.Clear();
+    gRoundWinReplacements.Clear();
+    gRoundWinGroups.Clear();
+    gReadyRoundWinReplacements.Clear();
+    gReadyRoundWinGroups.Clear();
+    gRoundLoseReplacements.Clear();
+    gRoundLoseGroups.Clear();
+    gReadyRoundLoseReplacements.Clear();
+    gReadyRoundLoseGroups.Clear();
     gConfigLoaded = false;
     gConfigInAPIOnlyGroups = false;
     gConfigInPaidSaysoundGroups = false;
     gConfigInGroupAliases = false;
     gConfigInRoundStartSirens = false;
+    gConfigInRoundWinReplacements = false;
+    gConfigInRoundLoseReplacements = false;
     gConfigSectionDepth = 0;
     gConfigAPIOnlyGroupsDepth = -1;
     gConfigPaidSaysoundGroupsDepth = -1;
     gConfigGroupAliasesDepth = -1;
     gConfigRoundStartSirensDepth = -1;
+    gConfigRoundWinReplacementsDepth = -1;
+    gConfigRoundLoseReplacementsDepth = -1;
     EnsureGroupRegistered(DEFAULT_GROUP);
 
     char filePath[PLATFORM_MAX_PATH];
@@ -560,6 +670,20 @@ public SMCResult Config_EnterSection(SMCParser parser, const char[] name, bool o
         gConfigInRoundStartSirens = true;
         gConfigRoundStartSirensDepth = gConfigSectionDepth;
     }
+    else if (StrEqual(sectionName, ROUND_WIN_REPLACEMENTS_SECTION)
+        || StrEqual(sectionName, "round_win_replacements")
+        || StrEqual(sectionName, "round-win-replacements"))
+    {
+        gConfigInRoundWinReplacements = true;
+        gConfigRoundWinReplacementsDepth = gConfigSectionDepth;
+    }
+    else if (StrEqual(sectionName, ROUND_LOSE_REPLACEMENTS_SECTION)
+        || StrEqual(sectionName, "round_lose_replacements")
+        || StrEqual(sectionName, "round-lose-replacements"))
+    {
+        gConfigInRoundLoseReplacements = true;
+        gConfigRoundLoseReplacementsDepth = gConfigSectionDepth;
+    }
 
     return SMCParse_Continue;
 }
@@ -590,6 +714,18 @@ public SMCResult Config_LeaveSection(SMCParser parser)
         gConfigRoundStartSirensDepth = -1;
     }
 
+    if (gConfigInRoundWinReplacements && gConfigSectionDepth == gConfigRoundWinReplacementsDepth)
+    {
+        gConfigInRoundWinReplacements = false;
+        gConfigRoundWinReplacementsDepth = -1;
+    }
+
+    if (gConfigInRoundLoseReplacements && gConfigSectionDepth == gConfigRoundLoseReplacementsDepth)
+    {
+        gConfigInRoundLoseReplacements = false;
+        gConfigRoundLoseReplacementsDepth = -1;
+    }
+
     if (gConfigSectionDepth > 0)
     {
         gConfigSectionDepth--;
@@ -602,7 +738,19 @@ public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[
 {
     if (gConfigInRoundStartSirens)
     {
-        Config_RoundStartSiren(value);
+        Config_ReplacementSound(value, gRoundStartSirenReplacements, gRoundStartSirenGroups);
+        return SMCParse_Continue;
+    }
+
+    if (gConfigInRoundWinReplacements)
+    {
+        Config_ReplacementSound(value, gRoundWinReplacements, gRoundWinGroups);
+        return SMCParse_Continue;
+    }
+
+    if (gConfigInRoundLoseReplacements)
+    {
+        Config_ReplacementSound(value, gRoundLoseReplacements, gRoundLoseGroups);
         return SMCParse_Continue;
     }
 
@@ -736,7 +884,7 @@ static void Config_GroupAlias(const char[] key, const char[] value)
     gGroupAliases.SetString(aliasName, groupName);
 }
 
-static void Config_RoundStartSiren(const char[] configuredPath)
+static void Config_ReplacementSound(const char[] configuredPath, ArrayList replacements, ArrayList groups)
 {
     char soundPath[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
@@ -756,43 +904,48 @@ static void Config_RoundStartSiren(const char[] configuredPath)
 
     EnsureGroupRegistered(groupName);
 
-    int index = gRoundStartSirenReplacements.FindString(soundPath);
+    int index = replacements.FindString(soundPath);
     if (index == -1)
     {
-        gRoundStartSirenReplacements.PushString(soundPath);
-        gRoundStartSirenGroups.PushString(groupName);
+        replacements.PushString(soundPath);
+        groups.PushString(groupName);
     }
     else
     {
-        gRoundStartSirenGroups.SetString(index, groupName);
+        groups.SetString(index, groupName);
     }
 }
 
-static void PrecacheRoundStartSirens()
+static void PrecacheReplacementSounds(
+    ArrayList replacements,
+    ArrayList groups,
+    ArrayList readyReplacements,
+    ArrayList readyGroups,
+    const char[] replacementType)
 {
-    gReadyRoundStartSirenReplacements.Clear();
-    gReadyRoundStartSirenGroups.Clear();
+    readyReplacements.Clear();
+    readyGroups.Clear();
 
     char soundPath[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
     char downloadPath[PLATFORM_MAX_PATH];
-    for (int i = 0; i < gRoundStartSirenReplacements.Length; i++)
+    for (int i = 0; i < replacements.Length; i++)
     {
-        gRoundStartSirenReplacements.GetString(i, soundPath, sizeof(soundPath));
-        gRoundStartSirenGroups.GetString(i, groupName, sizeof(groupName));
+        replacements.GetString(i, soundPath, sizeof(soundPath));
+        groups.GetString(i, groupName, sizeof(groupName));
         FormatEx(downloadPath, sizeof(downloadPath), "sound/%s", soundPath);
 
         if (!FileExists(downloadPath, true))
         {
-            LogError("[SaySounds] Round-start siren replacement not found: %s", downloadPath);
+            LogError("[SaySounds] %s replacement not found: %s", replacementType, downloadPath);
             continue;
         }
 
         AddFileToDownloadsTable(downloadPath);
         if (PrecacheSound(soundPath, true))
         {
-            gReadyRoundStartSirenReplacements.PushString(soundPath);
-            gReadyRoundStartSirenGroups.PushString(groupName);
+            readyReplacements.PushString(soundPath);
+            readyGroups.PushString(groupName);
         }
     }
 }
@@ -818,7 +971,27 @@ void PrecacheConfiguredSounds()
         PrecacheSound(soundPath, true);
     }
 
-    PrecacheRoundStartSirens();
+    PrecacheReplacementSounds(
+        gRoundStartSirenReplacements,
+        gRoundStartSirenGroups,
+        gReadyRoundStartSirenReplacements,
+        gReadyRoundStartSirenGroups,
+        "Round-start siren"
+    );
+    PrecacheReplacementSounds(
+        gRoundWinReplacements,
+        gRoundWinGroups,
+        gReadyRoundWinReplacements,
+        gReadyRoundWinGroups,
+        "Round-win"
+    );
+    PrecacheReplacementSounds(
+        gRoundLoseReplacements,
+        gRoundLoseGroups,
+        gReadyRoundLoseReplacements,
+        gReadyRoundLoseGroups,
+        "Round-loss"
+    );
 }
 
 int FindCommandIndex(const char[] commandName)
