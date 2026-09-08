@@ -2086,11 +2086,6 @@ public int Native_PlaySoundToOptedIn(Handle plugin, int numParams)
         strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
     }
 
-    if (IsGroupPaid(groupName))
-    {
-        return 0;
-    }
-
     PrecacheSound(soundPath, true);
     if (PlaySaySound(soundPath, groupName))
     {
@@ -2136,7 +2131,7 @@ public int Native_PlayCommand(Handle plugin, int numParams)
     bool fromGroup = false;
     bool restricted = false;
     bool paidRestricted = false;
-    if (!GetCommandSoundDataForClientEx(client, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly))
+    if (!GetCommandSoundDataForClientEx(client, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly, true))
     {
         return 0;
     }
@@ -2192,7 +2187,7 @@ public int Native_PlayCommandAs(Handle plugin, int numParams)
     bool fromGroup = false;
     bool restricted = false;
     bool paidRestricted = false;
-    if (!GetCommandSoundDataForClientEx(sourceClient, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly))
+    if (!GetCommandSoundDataForClientEx(sourceClient, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly, true))
     {
         return 0;
     }
@@ -2849,7 +2844,7 @@ static bool GetCommandSoundData(const char[] commandName, char[] soundPath, int 
     return true;
 }
 
-static bool GetRandomCommandInGroupForClient(int client, const char[] groupName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool bypassAdminOnly = false)
+static bool GetRandomCommandInGroupForClient(int client, const char[] groupName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool bypassAdminOnly = false, bool bypassPaid = false)
 {
     if (commandLen > 0)
     {
@@ -2868,7 +2863,7 @@ static bool GetRandomCommandInGroupForClient(int client, const char[] groupName,
         return false;
     }
 
-    if (!CanClientUsePaidSaysoundGroup(client, normalizedGroup))
+    if (!bypassPaid && !CanClientUsePaidSaysoundGroup(client, normalizedGroup))
     {
         paidRestricted = true;
         return false;
@@ -2908,7 +2903,7 @@ static bool GetCommandOptionForClient(int client, const char[] inputName, char[]
     return GetCommandOptionForClientEx(client, inputName, commandName, commandLen, restricted, paidRestricted, fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly);
 }
 
-static bool GetCommandOptionForClientEx(int client, const char[] inputName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool &fromGroup, char[] sourceGroup, int sourceGroupLen, bool bypassAdminOnly = false)
+static bool GetCommandOptionForClientEx(int client, const char[] inputName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool &fromGroup, char[] sourceGroup, int sourceGroupLen, bool bypassAdminOnly = false, bool bypassPaid = false)
 {
     if (commandLen > 0)
     {
@@ -2945,7 +2940,7 @@ static bool GetCommandOptionForClientEx(int client, const char[] inputName, char
             return false;
         }
 
-        if (!CanClientUsePaidSaysoundGroup(client, groupName))
+        if (!bypassPaid && !CanClientUsePaidSaysoundGroup(client, groupName))
         {
             paidRestricted = true;
             return false;
@@ -2961,7 +2956,7 @@ static bool GetCommandOptionForClientEx(int client, const char[] inputName, char
         return false;
     }
 
-    if (!GetRandomCommandInGroupForClient(client, normalizedGroup, commandName, commandLen, restricted, paidRestricted, bypassAdminOnly))
+    if (!GetRandomCommandInGroupForClient(client, normalizedGroup, commandName, commandLen, restricted, paidRestricted, bypassAdminOnly, bypassPaid))
     {
         return false;
     }
@@ -2979,7 +2974,7 @@ stock bool GetCommandSoundDataForClient(int client, const char[] commandNames, c
     return GetCommandSoundDataForClientEx(client, commandNames, soundPath, soundLen, groupName, groupLen, restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly);
 }
 
-static bool GetCommandSoundDataForClientEx(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted, bool &paidRestricted, char[] selectedCommand, int selectedCommandLen, bool &fromGroup, char[] sourceGroup, int sourceGroupLen, bool bypassAdminOnly = false)
+static bool GetCommandSoundDataForClientEx(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted, bool &paidRestricted, char[] selectedCommand, int selectedCommandLen, bool &fromGroup, char[] sourceGroup, int sourceGroupLen, bool bypassAdminOnly = false, bool bypassPaid = false)
 {
     restricted = false;
     paidRestricted = false;
@@ -3011,7 +3006,7 @@ static bool GetCommandSoundDataForClientEx(int client, const char[] commandNames
     if (StrContains(working, ",", false) == -1)
     {
         char chosen[MAX_COMMAND_NAME];
-        if (!GetCommandOptionForClientEx(client, working, chosen, sizeof(chosen), restricted, paidRestricted, fromGroup, sourceGroup, sourceGroupLen, bypassAdminOnly))
+        if (!GetCommandOptionForClientEx(client, working, chosen, sizeof(chosen), restricted, paidRestricted, fromGroup, sourceGroup, sourceGroupLen, bypassAdminOnly, bypassPaid))
         {
             return false;
         }
@@ -3064,7 +3059,7 @@ static bool GetCommandSoundDataForClientEx(int client, const char[] commandNames
                 char chosen[MAX_COMMAND_NAME];
                 bool currentFromGroup = false;
                 char currentSourceGroup[MAX_GROUP_NAME];
-                if (GetCommandOptionForClientEx(client, token, chosen, sizeof(chosen), restricted, paidRestricted, currentFromGroup, currentSourceGroup, sizeof(currentSourceGroup), bypassAdminOnly))
+                if (GetCommandOptionForClientEx(client, token, chosen, sizeof(chosen), restricted, paidRestricted, currentFromGroup, currentSourceGroup, sizeof(currentSourceGroup), bypassAdminOnly, bypassPaid))
                 {
                     strcopy(options[optionCount], sizeof(options[]), chosen);
                     optionFromGroup[optionCount] = currentFromGroup;

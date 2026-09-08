@@ -31,6 +31,7 @@ native void SaySounds_PlaySoundToOptedIn(const char[] soundPath, const char[] gr
  * @param force         If true, bypasses say sound opt-in checks.
  * @param bypassAdminOnly
  *                      If true, ignores AdminOnlyGroups for this API-triggered sound.
+ *                      API playback always bypasses paid-group ownership.
  * @return              True if the sound resolved and was emitted to at least one client.
  */
 native bool SaySounds_PlayCommand(int client, const char[] commandName, bool force = false, bool bypassAdminOnly = true);
@@ -45,12 +46,13 @@ stock bool SaySounds_TryPlayCommand(int client, const char[] commandName, bool f
 }
 
 /**
- * Plays a configured say sound command using sourceClient for admin/paid access
- * checks and targetClient for delivery.
+ * Plays a configured say sound command using sourceClient for logging and
+ * optional admin access checks, and targetClient for delivery. API playback
+ * always bypasses paid-group ownership.
  *
  * `targetClient == 0` broadcasts with normal say sound delivery rules.
  *
- * @param sourceClient  Client whose permissions/purchases authorize the sound.
+ * @param sourceClient  Client used for logging and optional admin authorization.
  * @param targetClient  Client index, or `0` for broadcast.
  * @param commandName   Configured say sound command or group.
  * @param force         If true, bypasses listener opt-in checks.
