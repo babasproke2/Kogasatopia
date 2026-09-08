@@ -29,7 +29,7 @@
 #define ATTR_RESTORE_PRIMARY_SHOT_KILL "restore primary shot kill"
 #define ATTR_REFILL_PRIMARY_CLIP_ON_KILL "refill primary clip on kill"
 #define ATTR_REFILL_PRIMARY_CLIP_ON_CRIT "refill primary clip on crit"
-#define ATTR_SECONDARY_REFILL_SOUND "ui/item_metal_tiny_pickup.wav"
+#define SOUND_SECONDARY_CLIP_REFILL "minecraft/bow_hit.mp3"
 #define ATTR_HARVESTER_HEALING 3
 #define ATTR_HARVESTER_HEALING_COUNT 6
 #define ATTR_HARVESTER_AFTERBURN_HEALING_COUNT 1
@@ -602,7 +602,7 @@ public void PreCacheWeaponSounds() {
 	PrecacheSound(FLS_NOTIFY_2, true);
 	PrecacheSound(BURP_SOUND, true);
 	PrecacheSound(SOUND_CLIP_REFILL_CRIT, true);
-	PrecacheSound(ATTR_SECONDARY_REFILL_SOUND, true);
+	PrecacheSound(SOUND_SECONDARY_CLIP_REFILL, true);
 }
 
 static int WeaponsGameplay_FindParticleIndex(const char[] name)
@@ -2714,8 +2714,9 @@ static bool RefillSecondaryClip(int attacker, int refillAmount)
 		return false;
 	}
 
-	EmitSoundToAll(
-		SOUND_CLIP_REFILL_CRIT,
+	EmitSoundToClient(
+		attacker,
+		SOUND_SECONDARY_CLIP_REFILL,
 		attacker,
 		SNDCHAN_AUTO,
 		SNDLEVEL_NORMAL
