@@ -25,7 +25,7 @@
 #define MAX_GROUP_NAME 32
 #define MAX_GROUP_PREF_VALUE 512
 #define DEFAULT_GROUP "all"
-#define ADMIN_ONLY_GROUPS_SECTION "adminonlygroups"
+#define API_ONLY_GROUPS_SECTION "apionlygroups"
 #define PAID_SAYSOUND_GROUPS_SECTION "paidsaysoundgroups"
 #define GROUP_ALIASES_SECTION "groupaliases"
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
@@ -44,17 +44,17 @@ public Plugin myinfo =
 
 StringMap gSoundMap;
 StringMap gSoundGroupMap;
-StringMap gAdminOnlyGroups;
+StringMap gAPIOnlyGroups;
 StringMap gPaidSaysoundGroups;
 StringMap gGroupAliases;
 ArrayList gCommandNames;
 ArrayList gGroupNames;
 bool gConfigLoaded = false;
-bool gConfigInAdminOnlyGroups = false;
+bool gConfigInAPIOnlyGroups = false;
 bool gConfigInPaidSaysoundGroups = false;
 bool gConfigInGroupAliases = false;
 int gConfigSectionDepth = 0;
-int gConfigAdminOnlyGroupsDepth = -1;
+int gConfigAPIOnlyGroupsDepth = -1;
 int gConfigPaidSaysoundGroupsDepth = -1;
 int gConfigGroupAliasesDepth = -1;
 float g_fClientVolume[MAXPLAYERS + 1];
@@ -102,7 +102,7 @@ public void OnPluginStart()
 {
     gSoundMap = new StringMap();
     gSoundGroupMap = new StringMap();
-    gAdminOnlyGroups = new StringMap();
+    gAPIOnlyGroups = new StringMap();
     gPaidSaysoundGroups = new StringMap();
     gGroupAliases = new StringMap();
     gCommandNames = new ArrayList(ByteCountToCells(MAX_COMMAND_NAME));
@@ -170,10 +170,10 @@ public void OnPluginEnd()
         gSoundGroupMap = null;
     }
 
-    if (gAdminOnlyGroups != null)
+    if (gAPIOnlyGroups != null)
     {
-        delete gAdminOnlyGroups;
-        gAdminOnlyGroups = null;
+        delete gAPIOnlyGroups;
+        gAPIOnlyGroups = null;
     }
 
     if (gPaidSaysoundGroups != null)
@@ -330,7 +330,7 @@ Action ChatCommandListener(int client, const char[] command, int argc)
     {
         if (restricted)
         {
-            PrintToChat(initiator, "[SaySounds] That sound group is admin-only.");
+            PrintToChat(initiator, "[SaySounds] That sound group is only available through the API.");
             return Plugin_Handled;
         }
 
@@ -373,17 +373,17 @@ void LoadSaySoundConfig()
 {
     gSoundMap.Clear();
     gSoundGroupMap.Clear();
-    gAdminOnlyGroups.Clear();
+    gAPIOnlyGroups.Clear();
     gPaidSaysoundGroups.Clear();
     gGroupAliases.Clear();
     gCommandNames.Clear();
     gGroupNames.Clear();
     gConfigLoaded = false;
-    gConfigInAdminOnlyGroups = false;
+    gConfigInAPIOnlyGroups = false;
     gConfigInPaidSaysoundGroups = false;
     gConfigInGroupAliases = false;
     gConfigSectionDepth = 0;
-    gConfigAdminOnlyGroupsDepth = -1;
+    gConfigAPIOnlyGroupsDepth = -1;
     gConfigPaidSaysoundGroupsDepth = -1;
     gConfigGroupAliasesDepth = -1;
     EnsureGroupRegistered(DEFAULT_GROUP);
@@ -436,12 +436,12 @@ public SMCResult Config_EnterSection(SMCParser parser, const char[] name, bool o
     TrimString(sectionName);
     Strings_ToLower(sectionName, sizeof(sectionName));
 
-    if (StrEqual(sectionName, ADMIN_ONLY_GROUPS_SECTION)
-        || StrEqual(sectionName, "admin_only_groups")
-        || StrEqual(sectionName, "admin-only-groups"))
+    if (StrEqual(sectionName, API_ONLY_GROUPS_SECTION)
+        || StrEqual(sectionName, "api_only_groups")
+        || StrEqual(sectionName, "api-only-groups"))
     {
-        gConfigInAdminOnlyGroups = true;
-        gConfigAdminOnlyGroupsDepth = gConfigSectionDepth;
+        gConfigInAPIOnlyGroups = true;
+        gConfigAPIOnlyGroupsDepth = gConfigSectionDepth;
     }
     else if (StrEqual(sectionName, PAID_SAYSOUND_GROUPS_SECTION)
         || StrEqual(sectionName, "paid_saysound_groups")
@@ -463,10 +463,10 @@ public SMCResult Config_EnterSection(SMCParser parser, const char[] name, bool o
 
 public SMCResult Config_LeaveSection(SMCParser parser)
 {
-    if (gConfigInAdminOnlyGroups && gConfigSectionDepth == gConfigAdminOnlyGroupsDepth)
+    if (gConfigInAPIOnlyGroups && gConfigSectionDepth == gConfigAPIOnlyGroupsDepth)
     {
-        gConfigInAdminOnlyGroups = false;
-        gConfigAdminOnlyGroupsDepth = -1;
+        gConfigInAPIOnlyGroups = false;
+        gConfigAPIOnlyGroupsDepth = -1;
     }
 
     if (gConfigInPaidSaysoundGroups && gConfigSectionDepth == gConfigPaidSaysoundGroupsDepth)
@@ -491,9 +491,9 @@ public SMCResult Config_LeaveSection(SMCParser parser)
 
 public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[] value, bool keyQuoted, bool valueQuoted)
 {
-    if (gConfigInAdminOnlyGroups)
+    if (gConfigInAPIOnlyGroups)
     {
-        Config_AdminOnlyGroup(key, value);
+        Config_APIOnlyGroup(key);
         return SMCParse_Continue;
     }
 
@@ -553,7 +553,7 @@ public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[
     return SMCParse_Continue;
 }
 
-static void Config_AdminOnlyGroup(const char[] key, const char[] value)
+static void Config_APIOnlyGroup(const char[] key)
 {
     char groupName[MAX_GROUP_NAME];
     strcopy(groupName, sizeof(groupName), key);
@@ -567,14 +567,8 @@ static void Config_AdminOnlyGroup(const char[] key, const char[] value)
 
     EnsureGroupRegistered(groupName);
 
-    if (ConfigValueIsEnabled(value))
-    {
-        gAdminOnlyGroups.SetValue(groupName, 1);
-    }
-    else
-    {
-        gAdminOnlyGroups.Remove(groupName);
-    }
+    // API-only membership is presence-based; the value is reserved for config compatibility.
+    gAPIOnlyGroups.SetValue(groupName, 1);
 }
 
 static void Config_PaidSaysoundGroup(const char[] key, const char[] value)
@@ -841,9 +835,9 @@ static bool ConfigValueIsEnabled(const char[] value)
         && !StrEqual(normalized, "no");
 }
 
-static bool IsGroupAdminOnly(const char[] groupName)
+static bool IsGroupAPIOnly(const char[] groupName)
 {
-    if (gAdminOnlyGroups == null || !groupName[0])
+    if (gAPIOnlyGroups == null || !groupName[0])
     {
         return false;
     }
@@ -854,8 +848,8 @@ static bool IsGroupAdminOnly(const char[] groupName)
         return false;
     }
 
-    int adminOnly = 0;
-    return gAdminOnlyGroups.GetValue(normalized, adminOnly) && adminOnly != 0;
+    int apiOnly = 0;
+    return gAPIOnlyGroups.GetValue(normalized, apiOnly) && apiOnly != 0;
 }
 
 static bool IsGroupPaid(const char[] groupName)
@@ -875,24 +869,9 @@ static bool IsGroupPaid(const char[] groupName)
     return gPaidSaysoundGroups.GetValue(normalized, paid) && paid != 0;
 }
 
-static bool CanClientUseAdminOnlySaySoundGroup(int client, const char[] groupName, bool bypassAdminOnly = false)
+static bool CanUseAPIOnlySaySoundGroup(const char[] groupName, bool bypassAPIOnly = false)
 {
-    if (bypassAdminOnly)
-    {
-        return true;
-    }
-
-    if (!IsGroupAdminOnly(groupName))
-    {
-        return true;
-    }
-
-    if (client <= 0)
-    {
-        return true;
-    }
-
-    return CheckCommandAccess(client, "sm_saysounds_admin_groups", ADMFLAG_GENERIC, true);
+    return bypassAPIOnly || !IsGroupAPIOnly(groupName);
 }
 
 static bool CanClientUsePaidSaysoundGroup(int client, const char[] groupName)
@@ -916,13 +895,13 @@ static bool CanClientUsePaidSaysoundGroup(int client, const char[] groupName)
     return PointsStore_HasPurchase(client, normalized);
 }
 
-static bool CanClientUseSaySoundGroup(int client, const char[] groupName, bool bypassAdminOnly = false)
+static bool CanClientUseSaySoundGroup(int client, const char[] groupName, bool bypassAPIOnly = false)
 {
-    return CanClientUseAdminOnlySaySoundGroup(client, groupName, bypassAdminOnly)
+    return CanUseAPIOnlySaySoundGroup(groupName, bypassAPIOnly)
         && CanClientUsePaidSaysoundGroup(client, groupName);
 }
 
-static bool CanClientUseSaySoundCommand(int client, const char[] commandName, bool bypassAdminOnly = false)
+static bool CanClientUseSaySoundCommand(int client, const char[] commandName, bool bypassAPIOnly = false)
 {
     char path[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
@@ -931,15 +910,15 @@ static bool CanClientUseSaySoundCommand(int client, const char[] commandName, bo
         return false;
     }
 
-    return CanClientUseSaySoundGroup(client, groupName, bypassAdminOnly);
+    return CanClientUseSaySoundGroup(client, groupName, bypassAPIOnly);
 }
 
-static bool CanClientUseSaySoundInput(int client, const char[] inputName, bool bypassAdminOnly = false)
+static bool CanClientUseSaySoundInput(int client, const char[] inputName, bool bypassAPIOnly = false)
 {
     bool restricted = false;
     bool paidRestricted = false;
     char chosen[MAX_COMMAND_NAME];
-    return GetCommandOptionForClient(client, inputName, chosen, sizeof(chosen), restricted, paidRestricted, bypassAdminOnly);
+    return GetCommandOptionForClient(client, inputName, chosen, sizeof(chosen), restricted, paidRestricted, bypassAPIOnly);
 }
 
 static bool IsSaySoundInputPaid(const char[] inputName)
@@ -1666,7 +1645,7 @@ static bool IsCommandInSoundGroup(const char[] commandName, const char[] groupNa
 
 static bool CanShowSoundPreferenceGroupInMenu(int client, const char[] groupName)
 {
-    return !IsGroupAdminOnly(groupName) && CanClientUseSaySoundGroup(client, groupName);
+    return !IsGroupAPIOnly(groupName) && CanClientUseSaySoundGroup(client, groupName);
 }
 
 static bool CanShowSoundPreferenceCommandInMenu(int client, const char[] commandName)
@@ -1990,6 +1969,8 @@ public Action Command_ListSounds(int client, int args)
             continue;
         if (!gSoundGroupMap.GetString(command, group, sizeof(group)))
             strcopy(group, sizeof(group), DEFAULT_GROUP);
+        if (IsGroupAPIOnly(group))
+            continue;
         PrintToChat(client, "%s!%s -> %s [%s]", IsGroupPaid(group) ? "[!shop] " : "", command, sound, group);
     }
 
@@ -2016,6 +1997,11 @@ void PrintSaySoundGroups(int client)
     {
         gGroupNames.GetString(i, groupName, sizeof(groupName));
         if (StrEqual(groupName, DEFAULT_GROUP))
+        {
+            continue;
+        }
+
+        if (client > 0 && IsGroupAPIOnly(groupName))
         {
             continue;
         }
@@ -2108,10 +2094,10 @@ public int Native_PlayCommand(Handle plugin, int numParams)
         forcePlayback = view_as<bool>(GetNativeCell(3));
     }
 
-    bool bypassAdminOnly = true;
+    bool bypassAPIOnly = true;
     if (numParams >= 4)
     {
-        bypassAdminOnly = view_as<bool>(GetNativeCell(4));
+        bypassAPIOnly = view_as<bool>(GetNativeCell(4));
     }
 
     char commandName[MAX_COMMAND_NAME * 4];
@@ -2131,7 +2117,7 @@ public int Native_PlayCommand(Handle plugin, int numParams)
     bool fromGroup = false;
     bool restricted = false;
     bool paidRestricted = false;
-    if (!GetCommandSoundDataForClientEx(client, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly, true))
+    if (!GetCommandSoundDataForClientEx(client, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAPIOnly, true))
     {
         return 0;
     }
@@ -2164,10 +2150,10 @@ public int Native_PlayCommandAs(Handle plugin, int numParams)
         forcePlayback = view_as<bool>(GetNativeCell(4));
     }
 
-    bool bypassAdminOnly = true;
+    bool bypassAPIOnly = true;
     if (numParams >= 5)
     {
-        bypassAdminOnly = view_as<bool>(GetNativeCell(5));
+        bypassAPIOnly = view_as<bool>(GetNativeCell(5));
     }
 
     char commandName[MAX_COMMAND_NAME * 4];
@@ -2187,7 +2173,7 @@ public int Native_PlayCommandAs(Handle plugin, int numParams)
     bool fromGroup = false;
     bool restricted = false;
     bool paidRestricted = false;
-    if (!GetCommandSoundDataForClientEx(sourceClient, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly, true))
+    if (!GetCommandSoundDataForClientEx(sourceClient, commandName, soundPath, sizeof(soundPath), groupName, sizeof(groupName), restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAPIOnly, true))
     {
         return 0;
     }
@@ -2214,13 +2200,13 @@ public int Native_CanClientUseCommand(Handle plugin, int numParams)
     TrimString(commandName);
     Strings_ToLower(commandName, sizeof(commandName));
 
-    bool bypassAdminOnly = true;
+    bool bypassAPIOnly = true;
     if (numParams >= 3)
     {
-        bypassAdminOnly = view_as<bool>(GetNativeCell(3));
+        bypassAPIOnly = view_as<bool>(GetNativeCell(3));
     }
 
-    return CanClientUseSaySoundInput(client, commandName, bypassAdminOnly);
+    return CanClientUseSaySoundInput(client, commandName, bypassAPIOnly);
 }
 
 public int Native_IsCommandPaid(Handle plugin, int numParams)
@@ -2570,7 +2556,7 @@ public Action Command_PlaySpecificSound(int client, int args)
     {
         if (restricted)
         {
-            PrintToChat(client, "[SaySounds] That sound group is admin-only.");
+            PrintToChat(client, "[SaySounds] That sound group is only available through the API.");
             return Plugin_Handled;
         }
 
@@ -2844,7 +2830,7 @@ static bool GetCommandSoundData(const char[] commandName, char[] soundPath, int 
     return true;
 }
 
-static bool GetRandomCommandInGroupForClient(int client, const char[] groupName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool bypassAdminOnly = false, bool bypassPaid = false)
+static bool GetRandomCommandInGroupForClient(int client, const char[] groupName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool bypassAPIOnly = false, bool bypassPaid = false)
 {
     if (commandLen > 0)
     {
@@ -2857,7 +2843,7 @@ static bool GetRandomCommandInGroupForClient(int client, const char[] groupName,
         return false;
     }
 
-    if (!CanClientUseAdminOnlySaySoundGroup(client, normalizedGroup, bypassAdminOnly))
+    if (!CanUseAPIOnlySaySoundGroup(normalizedGroup, bypassAPIOnly))
     {
         restricted = true;
         return false;
@@ -2896,14 +2882,14 @@ static bool GetRandomCommandInGroupForClient(int client, const char[] groupName,
     return matchCount > 0 && commandName[0] != '\0';
 }
 
-static bool GetCommandOptionForClient(int client, const char[] inputName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool bypassAdminOnly = false)
+static bool GetCommandOptionForClient(int client, const char[] inputName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool bypassAPIOnly = false)
 {
     bool fromGroup = false;
     char sourceGroup[MAX_GROUP_NAME];
-    return GetCommandOptionForClientEx(client, inputName, commandName, commandLen, restricted, paidRestricted, fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly);
+    return GetCommandOptionForClientEx(client, inputName, commandName, commandLen, restricted, paidRestricted, fromGroup, sourceGroup, sizeof(sourceGroup), bypassAPIOnly);
 }
 
-static bool GetCommandOptionForClientEx(int client, const char[] inputName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool &fromGroup, char[] sourceGroup, int sourceGroupLen, bool bypassAdminOnly = false, bool bypassPaid = false)
+static bool GetCommandOptionForClientEx(int client, const char[] inputName, char[] commandName, int commandLen, bool &restricted, bool &paidRestricted, bool &fromGroup, char[] sourceGroup, int sourceGroupLen, bool bypassAPIOnly = false, bool bypassPaid = false)
 {
     if (commandLen > 0)
     {
@@ -2934,7 +2920,7 @@ static bool GetCommandOptionForClientEx(int client, const char[] inputName, char
             strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
         }
 
-        if (!CanClientUseAdminOnlySaySoundGroup(client, groupName, bypassAdminOnly))
+        if (!CanUseAPIOnlySaySoundGroup(groupName, bypassAPIOnly))
         {
             restricted = true;
             return false;
@@ -2956,7 +2942,7 @@ static bool GetCommandOptionForClientEx(int client, const char[] inputName, char
         return false;
     }
 
-    if (!GetRandomCommandInGroupForClient(client, normalizedGroup, commandName, commandLen, restricted, paidRestricted, bypassAdminOnly, bypassPaid))
+    if (!GetRandomCommandInGroupForClient(client, normalizedGroup, commandName, commandLen, restricted, paidRestricted, bypassAPIOnly, bypassPaid))
     {
         return false;
     }
@@ -2966,15 +2952,15 @@ static bool GetCommandOptionForClientEx(int client, const char[] inputName, char
     return true;
 }
 
-stock bool GetCommandSoundDataForClient(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted, bool &paidRestricted, bool bypassAdminOnly = false)
+stock bool GetCommandSoundDataForClient(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted, bool &paidRestricted, bool bypassAPIOnly = false)
 {
     char selectedCommand[MAX_COMMAND_NAME];
     char sourceGroup[MAX_GROUP_NAME];
     bool fromGroup = false;
-    return GetCommandSoundDataForClientEx(client, commandNames, soundPath, soundLen, groupName, groupLen, restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAdminOnly);
+    return GetCommandSoundDataForClientEx(client, commandNames, soundPath, soundLen, groupName, groupLen, restricted, paidRestricted, selectedCommand, sizeof(selectedCommand), fromGroup, sourceGroup, sizeof(sourceGroup), bypassAPIOnly);
 }
 
-static bool GetCommandSoundDataForClientEx(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted, bool &paidRestricted, char[] selectedCommand, int selectedCommandLen, bool &fromGroup, char[] sourceGroup, int sourceGroupLen, bool bypassAdminOnly = false, bool bypassPaid = false)
+static bool GetCommandSoundDataForClientEx(int client, const char[] commandNames, char[] soundPath, int soundLen, char[] groupName, int groupLen, bool &restricted, bool &paidRestricted, char[] selectedCommand, int selectedCommandLen, bool &fromGroup, char[] sourceGroup, int sourceGroupLen, bool bypassAPIOnly = false, bool bypassPaid = false)
 {
     restricted = false;
     paidRestricted = false;
@@ -3006,7 +2992,7 @@ static bool GetCommandSoundDataForClientEx(int client, const char[] commandNames
     if (StrContains(working, ",", false) == -1)
     {
         char chosen[MAX_COMMAND_NAME];
-        if (!GetCommandOptionForClientEx(client, working, chosen, sizeof(chosen), restricted, paidRestricted, fromGroup, sourceGroup, sourceGroupLen, bypassAdminOnly, bypassPaid))
+        if (!GetCommandOptionForClientEx(client, working, chosen, sizeof(chosen), restricted, paidRestricted, fromGroup, sourceGroup, sourceGroupLen, bypassAPIOnly, bypassPaid))
         {
             return false;
         }
@@ -3059,7 +3045,7 @@ static bool GetCommandSoundDataForClientEx(int client, const char[] commandNames
                 char chosen[MAX_COMMAND_NAME];
                 bool currentFromGroup = false;
                 char currentSourceGroup[MAX_GROUP_NAME];
-                if (GetCommandOptionForClientEx(client, token, chosen, sizeof(chosen), restricted, paidRestricted, currentFromGroup, currentSourceGroup, sizeof(currentSourceGroup), bypassAdminOnly, bypassPaid))
+                if (GetCommandOptionForClientEx(client, token, chosen, sizeof(chosen), restricted, paidRestricted, currentFromGroup, currentSourceGroup, sizeof(currentSourceGroup), bypassAPIOnly, bypassPaid))
                 {
                     strcopy(options[optionCount], sizeof(options[]), chosen);
                     optionFromGroup[optionCount] = currentFromGroup;

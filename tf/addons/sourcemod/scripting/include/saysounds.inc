@@ -29,49 +29,49 @@ native void SaySounds_PlaySoundToOptedIn(const char[] soundPath, const char[] gr
  * @param client        Client index, or `0` for broadcast.
  * @param commandName   Configured say sound command, such as `xp_gain`.
  * @param force         If true, bypasses say sound opt-in checks.
- * @param bypassAdminOnly
- *                      If true, ignores AdminOnlyGroups for this API-triggered sound.
+ * @param bypassAPIOnly
+ *                      If true, ignores APIOnlyGroups for this API-triggered sound.
  *                      API playback always bypasses paid-group ownership.
  * @return              True if the sound resolved and was emitted to at least one client.
  */
-native bool SaySounds_PlayCommand(int client, const char[] commandName, bool force = false, bool bypassAdminOnly = true);
+native bool SaySounds_PlayCommand(int client, const char[] commandName, bool force = false, bool bypassAPIOnly = true);
 
 /**
  * Plays a configured command only when the optional SaySounds native is available.
  */
-stock bool SaySounds_TryPlayCommand(int client, const char[] commandName, bool force = false, bool bypassAdminOnly = true)
+stock bool SaySounds_TryPlayCommand(int client, const char[] commandName, bool force = false, bool bypassAPIOnly = true)
 {
     return GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommand") == FeatureStatus_Available
-        && SaySounds_PlayCommand(client, commandName, force, bypassAdminOnly);
+        && SaySounds_PlayCommand(client, commandName, force, bypassAPIOnly);
 }
 
 /**
  * Plays a configured say sound command using sourceClient for logging and
- * optional admin access checks, and targetClient for delivery. API playback
- * always bypasses paid-group ownership.
+ * targetClient for delivery. API playback bypasses API-only and paid-group
+ * ownership checks by default.
  *
  * `targetClient == 0` broadcasts with normal say sound delivery rules.
  *
- * @param sourceClient  Client used for logging and optional admin authorization.
+ * @param sourceClient  Client used for logging.
  * @param targetClient  Client index, or `0` for broadcast.
  * @param commandName   Configured say sound command or group.
  * @param force         If true, bypasses listener opt-in checks.
- * @param bypassAdminOnly
- *                      If true, ignores AdminOnlyGroups for this API-triggered sound.
+ * @param bypassAPIOnly
+ *                      If true, ignores APIOnlyGroups for this API-triggered sound.
  * @return              True if the sound resolved and was emitted to at least one client.
  */
-native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const char[] commandName, bool force = false, bool bypassAdminOnly = true);
+native bool SaySounds_PlayCommandAs(int sourceClient, int targetClient, const char[] commandName, bool force = false, bool bypassAPIOnly = true);
 
 /**
  * Returns whether a source client can use a configured say sound command or group.
  *
  * @param client        Source client index.
  * @param commandName   Configured say sound command or group.
- * @param bypassAdminOnly
- *                      If true, ignores AdminOnlyGroups while checking API-triggered eligibility.
+ * @param bypassAPIOnly
+ *                      If true, ignores APIOnlyGroups while checking API-triggered eligibility.
  * @return              True if configured and usable by this client.
  */
-native bool SaySounds_CanClientUseCommand(int client, const char[] commandName, bool bypassAdminOnly = true);
+native bool SaySounds_CanClientUseCommand(int client, const char[] commandName, bool bypassAPIOnly = true);
 
 /**
  * Returns whether a configured say sound command or group belongs to a paid group.
