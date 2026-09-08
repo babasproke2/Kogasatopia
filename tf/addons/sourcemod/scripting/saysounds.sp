@@ -45,8 +45,7 @@
 #define ROUND_START_SIREN_DELAY 0.05
 #define ROUND_START_SIREN_DEBOUNCE 1.0
 #define CLIENT_ANNOUNCER_REPLACEMENT_DELAY 0.05
-#define COUNTDOWN_MONITOR_INTERVAL 0.05
-#define CLIENT_COUNTDOWN_REPLACEMENT_DELAY 0.04
+#define COUNTDOWN_MONITOR_INTERVAL 0.01
 #define ROUND_TIMER_STATE_SETUP 0
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define SAYSOUND_ON_KILL_ATTR "saysound on kill"
@@ -935,12 +934,7 @@ public Action Timer_MonitorSetupCountdown(Handle timer)
         g_iCountdownArmedMask &= ~warningBit;
         if (shouldEmit)
         {
-            CreateTimer(
-                CLIENT_COUNTDOWN_REPLACEMENT_DELAY,
-                Timer_ReplaceSetupCountdownWarning,
-                i,
-                TIMER_FLAG_NO_MAPCHANGE
-            );
+            ReplaceSetupCountdownWarning(i);
         }
         break;
     }
@@ -948,11 +942,11 @@ public Action Timer_MonitorSetupCountdown(Handle timer)
     return Plugin_Continue;
 }
 
-public Action Timer_ReplaceSetupCountdownWarning(Handle timer, any warningIndex)
+static void ReplaceSetupCountdownWarning(int warningIndex)
 {
     if (warningIndex < 0 || warningIndex >= sizeof(gStockCountdownSounds))
     {
-        return Plugin_Stop;
+        return;
     }
 
     char replacement[PLATFORM_MAX_PATH];
@@ -965,7 +959,7 @@ public Action Timer_ReplaceSetupCountdownWarning(Handle timer, any warningIndex)
         groupName,
         sizeof(groupName)))
     {
-        return Plugin_Stop;
+        return;
     }
 
     for (int client = 1; client <= MaxClients; client++)
@@ -993,7 +987,6 @@ public Action Timer_ReplaceSetupCountdownWarning(Handle timer, any warningIndex)
         );
     }
 
-    return Plugin_Stop;
 }
 
 static int FindActiveSetupCountdownTimer()
