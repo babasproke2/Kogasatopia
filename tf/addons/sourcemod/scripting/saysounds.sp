@@ -32,10 +32,13 @@
 #define ROUND_START_SIRENS_SECTION "roundstartsirenreplacements"
 #define ROUND_WIN_REPLACEMENTS_SECTION "roundwinreplacements"
 #define ROUND_LOSE_REPLACEMENTS_SECTION "roundlosereplacements"
+#define ANNOUNCER_MISC_REPLACEMENTS_SECTION "replaceannouncermisc"
 #define STOCK_ROUND_START_SIREN "ambient_mp3/siren.mp3"
 #define STOCK_ROUND_WIN_SOUND "Game.YourTeamWon"
 #define STOCK_ROUND_LOSE_SOUND "Game.YourTeamLost"
+#define STOCK_OVERTIME_SOUND "Game.Overtime"
 #define ROUND_START_SIREN_DELAY 0.05
+#define CLIENT_ANNOUNCER_REPLACEMENT_DELAY 0.05
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define SAYSOUND_ON_KILL_ATTR "saysound on kill"
 #define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
@@ -69,6 +72,10 @@ ArrayList gRoundLoseReplacements;
 ArrayList gRoundLoseGroups;
 ArrayList gReadyRoundLoseReplacements;
 ArrayList gReadyRoundLoseGroups;
+ArrayList gAnnouncerMiscReplacements;
+ArrayList gAnnouncerMiscGroups;
+ArrayList gReadyAnnouncerMiscReplacements;
+ArrayList gReadyAnnouncerMiscGroups;
 bool gConfigLoaded = false;
 bool gConfigInAPIOnlyGroups = false;
 bool gConfigInPaidSaysoundGroups = false;
@@ -76,6 +83,7 @@ bool gConfigInGroupAliases = false;
 bool gConfigInRoundStartSirens = false;
 bool gConfigInRoundWinReplacements = false;
 bool gConfigInRoundLoseReplacements = false;
+bool gConfigInAnnouncerMiscReplacements = false;
 bool gRoundStartSirenPlayed = false;
 int gConfigSectionDepth = 0;
 int gConfigAPIOnlyGroupsDepth = -1;
@@ -84,6 +92,7 @@ int gConfigGroupAliasesDepth = -1;
 int gConfigRoundStartSirensDepth = -1;
 int gConfigRoundWinReplacementsDepth = -1;
 int gConfigRoundLoseReplacementsDepth = -1;
+int gConfigAnnouncerMiscReplacementsDepth = -1;
 float g_fClientVolume[MAXPLAYERS + 1];
 float g_fNextAllowedSound[MAXPLAYERS + 1];
 char g_szDeathSound[MAXPLAYERS + 1][MAX_COMMAND_NAME * 4];
@@ -94,6 +103,7 @@ Handle g_hDeathCookie = INVALID_HANDLE;
 Handle g_hKillCookie = INVALID_HANDLE;
 Handle g_hDisabledGroupsCookie = INVALID_HANDLE;
 Handle g_hRoundStartSirenTimer = INVALID_HANDLE;
+bool gNormalSoundHookAdded = false;
 ConVar g_hForce;
 ConVar g_hDefaultDeathSound;
 ConVar g_hDefaultVolume;
@@ -147,6 +157,10 @@ public void OnPluginStart()
     gRoundLoseGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
     gReadyRoundLoseReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
     gReadyRoundLoseGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
+    gAnnouncerMiscReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    gAnnouncerMiscGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
+    gReadyAnnouncerMiscReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    gReadyAnnouncerMiscGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
 
     g_hForce = CreateConVar("saysounds_force", "0", "Force everyone to hear saysounds");
     g_hDefaultDeathSound = CreateConVar("saysounds_default_death_sound", "doh", "Saysound command/group used when a victim has no death sound set and the attacker has no kill sound.");
@@ -180,6 +194,9 @@ public void OnPluginStart()
     HookEvent("teamplay_round_start", Event_RoundStart, EventHookMode_PostNoCopy);
     HookEvent("teamplay_setup_finished", Event_SetupFinished, EventHookMode_PostNoCopy);
     HookEvent("teamplay_broadcast_audio", Event_BroadcastAudio, EventHookMode_Pre);
+    HookEvent("teamplay_point_startcapture", Event_PointStartCapture, EventHookMode_Post);
+    AddNormalSoundHook(AnnouncerMisc_NormalSoundHook);
+    gNormalSoundHookAdded = true;
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -202,6 +219,12 @@ public void OnPluginStart()
 public void OnPluginEnd()
 {
     CancelRoundStartSirenTimer();
+
+    if (gNormalSoundHookAdded)
+    {
+        RemoveNormalSoundHook(AnnouncerMisc_NormalSoundHook);
+        gNormalSoundHookAdded = false;
+    }
 
     if (gSoundMap != null)
     {
@@ -277,6 +300,10 @@ public void OnPluginEnd()
     delete gRoundLoseGroups;
     delete gReadyRoundLoseReplacements;
     delete gReadyRoundLoseGroups;
+    delete gAnnouncerMiscReplacements;
+    delete gAnnouncerMiscGroups;
+    delete gReadyAnnouncerMiscReplacements;
+    delete gReadyAnnouncerMiscGroups;
 
     for (int i = 1; i <= MaxClients; i++)
     {
@@ -447,6 +474,11 @@ public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroa
         replacements = gReadyRoundLoseReplacements;
         groups = gReadyRoundLoseGroups;
     }
+    else if (StrEqual(stockSound, STOCK_OVERTIME_SOUND))
+    {
+        replacements = gReadyAnnouncerMiscReplacements;
+        groups = gReadyAnnouncerMiscGroups;
+    }
     else
     {
         return Plugin_Continue;
@@ -465,9 +497,12 @@ public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroa
     groups.GetString(index, groupName, sizeof(groupName));
 
     bool sentToClient = false;
+    bool broadcastToAllTeams = team <= 1 || team == 255;
     for (int client = 1; client <= MaxClients; client++)
     {
-        if (!IsClientInGame(client) || IsFakeClient(client) || GetClientTeam(client) != team)
+        if (!IsClientInGame(client)
+            || IsFakeClient(client)
+            || (!broadcastToAllTeams && GetClientTeam(client) != team))
         {
             continue;
         }
@@ -492,6 +527,227 @@ public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroa
     }
 
     return sentToClient ? Plugin_Handled : Plugin_Continue;
+}
+
+public Action AnnouncerMisc_NormalSoundHook(
+    int clients[MAXPLAYERS],
+    int &numClients,
+    char sample[PLATFORM_MAX_PATH],
+    int &entity,
+    int &channel,
+    float &volume,
+    int &level,
+    int &pitch,
+    int &flags,
+    char soundEntry[PLATFORM_MAX_PATH],
+    int &seed)
+{
+    if (!IsStockControlPointAnnouncerSample(sample)
+        || gReadyAnnouncerMiscReplacements.Length == 0)
+    {
+        return Plugin_Continue;
+    }
+
+    char replacement[PLATFORM_MAX_PATH];
+    char groupName[MAX_GROUP_NAME];
+    if (!GetRandomReadyReplacement(
+        gReadyAnnouncerMiscReplacements,
+        gReadyAnnouncerMiscGroups,
+        replacement,
+        sizeof(replacement),
+        groupName,
+        sizeof(groupName)))
+    {
+        return Plugin_Continue;
+    }
+
+    int stockRecipientCount = 0;
+    int customRecipientCount = 0;
+    for (int i = 0; i < numClients; i++)
+    {
+        int client = clients[i];
+        float clientVolume;
+        if (client > 0
+            && client <= MaxClients
+            && IsClientInGame(client)
+            && !IsFakeClient(client)
+            && CanPlaySaySoundToClient(client, groupName, clientVolume))
+        {
+            EmitSoundToClient(
+                client,
+                replacement,
+                entity,
+                channel,
+                level,
+                flags,
+                volume * clientVolume,
+                pitch
+            );
+            customRecipientCount++;
+            continue;
+        }
+
+        clients[stockRecipientCount++] = client;
+    }
+
+    if (customRecipientCount == 0)
+    {
+        return Plugin_Continue;
+    }
+
+    numClients = stockRecipientCount;
+    return stockRecipientCount == 0 ? Plugin_Stop : Plugin_Changed;
+}
+
+public void Event_PointStartCapture(Event event, const char[] name, bool dontBroadcast)
+{
+    if (gReadyAnnouncerMiscReplacements.Length == 0)
+    {
+        return;
+    }
+
+    int capturingTeam = event.GetInt("capteam");
+    if (capturingTeam <= 1)
+    {
+        capturingTeam = event.GetInt("team");
+    }
+
+    if (capturingTeam <= 1)
+    {
+        return;
+    }
+
+    CreateTimer(
+        CLIENT_ANNOUNCER_REPLACEMENT_DELAY,
+        Timer_ReplaceClientCaptureWarning,
+        capturingTeam,
+        TIMER_FLAG_NO_MAPCHANGE
+    );
+}
+
+public Action Timer_ReplaceClientCaptureWarning(Handle timer, any capturingTeam)
+{
+    char replacement[PLATFORM_MAX_PATH];
+    char groupName[MAX_GROUP_NAME];
+    if (!GetRandomReadyReplacement(
+        gReadyAnnouncerMiscReplacements,
+        gReadyAnnouncerMiscGroups,
+        replacement,
+        sizeof(replacement),
+        groupName,
+        sizeof(groupName)))
+    {
+        return Plugin_Stop;
+    }
+
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client)
+            || IsFakeClient(client)
+            || GetClientTeam(client) <= 1
+            || GetClientTeam(client) == capturingTeam)
+        {
+            continue;
+        }
+
+        float emitVolume;
+        if (!CanPlaySaySoundToClient(client, groupName, emitVolume))
+        {
+            continue;
+        }
+
+        StopClientCaptureWarningSounds(client);
+        EmitSoundToClient(
+            client,
+            replacement,
+            client,
+            SNDCHAN_VOICE_BASE,
+            SNDLEVEL_NONE,
+            SND_NOFLAGS,
+            emitVolume
+        );
+    }
+
+    return Plugin_Stop;
+}
+
+static bool GetRandomReadyReplacement(
+    ArrayList replacements,
+    ArrayList groups,
+    char[] replacement,
+    int replacementLen,
+    char[] groupName,
+    int groupNameLen)
+{
+    if (replacements == null || groups == null || replacements.Length == 0)
+    {
+        return false;
+    }
+
+    int index = GetRandomInt(0, replacements.Length - 1);
+    replacements.GetString(index, replacement, replacementLen);
+    groups.GetString(index, groupName, groupNameLen);
+    return replacement[0] != '\0';
+}
+
+static bool IsStockControlPointAnnouncerSample(const char[] sample)
+{
+    static const char stockSamples[][] =
+    {
+        "vo/announcer_we_secured_control.mp3",
+        "vo/announcer_we_captured_control.mp3",
+        "vo/announcer_we_lost_control.mp3",
+        "vo/announcer_we_captured_center_control.mp3",
+        "vo/announcer_we_lost_center_control.mp3",
+        "vo/announcer_success_captured_final_control.mp3",
+        "vo/announcer_success_captured_last_control.mp3",
+        "vo/announcer_success_secured_final_control.mp3",
+        "vo/announcer_success_secured_last_control.mp3"
+    };
+
+    char normalized[PLATFORM_MAX_PATH];
+    strcopy(normalized, sizeof(normalized), sample);
+    TrimString(normalized);
+    while (normalized[0] != '\0' && !IsAsciiAlphaNumeric(normalized[0]))
+    {
+        Strings_ShiftLeft(normalized, sizeof(normalized), 1);
+    }
+    NormalizeSoundPath(normalized, sizeof(normalized));
+    Strings_ToLower(normalized, sizeof(normalized));
+
+    for (int i = 0; i < sizeof(stockSamples); i++)
+    {
+        if (StrEqual(normalized, stockSamples[i]))
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static bool IsAsciiAlphaNumeric(int character)
+{
+    return (character >= 'a' && character <= 'z')
+        || (character >= 'A' && character <= 'Z')
+        || (character >= '0' && character <= '9');
+}
+
+static void StopClientCaptureWarningSounds(int client)
+{
+    static const char stockSamples[][] =
+    {
+        "vo/announcer_control_point_warning.mp3",
+        "vo/announcer_control_point_warning2.mp3",
+        "vo/announcer_control_point_warning3.mp3",
+        "vo/announcer_last_flag.mp3",
+        "vo/announcer_last_flag2.mp3"
+    };
+
+    for (int i = 0; i < sizeof(stockSamples); i++)
+    {
+        StopSound(client, SNDCHAN_VOICE_BASE, stockSamples[i]);
+    }
 }
 
 Action ChatCommandListener(int client, const char[] command, int argc)
@@ -618,6 +874,10 @@ void LoadSaySoundConfig()
     gRoundLoseGroups.Clear();
     gReadyRoundLoseReplacements.Clear();
     gReadyRoundLoseGroups.Clear();
+    gAnnouncerMiscReplacements.Clear();
+    gAnnouncerMiscGroups.Clear();
+    gReadyAnnouncerMiscReplacements.Clear();
+    gReadyAnnouncerMiscGroups.Clear();
     gConfigLoaded = false;
     gConfigInAPIOnlyGroups = false;
     gConfigInPaidSaysoundGroups = false;
@@ -625,6 +885,7 @@ void LoadSaySoundConfig()
     gConfigInRoundStartSirens = false;
     gConfigInRoundWinReplacements = false;
     gConfigInRoundLoseReplacements = false;
+    gConfigInAnnouncerMiscReplacements = false;
     gConfigSectionDepth = 0;
     gConfigAPIOnlyGroupsDepth = -1;
     gConfigPaidSaysoundGroupsDepth = -1;
@@ -632,6 +893,7 @@ void LoadSaySoundConfig()
     gConfigRoundStartSirensDepth = -1;
     gConfigRoundWinReplacementsDepth = -1;
     gConfigRoundLoseReplacementsDepth = -1;
+    gConfigAnnouncerMiscReplacementsDepth = -1;
     EnsureGroupRegistered(DEFAULT_GROUP);
 
     char filePath[PLATFORM_MAX_PATH];
@@ -724,6 +986,13 @@ public SMCResult Config_EnterSection(SMCParser parser, const char[] name, bool o
         gConfigInRoundLoseReplacements = true;
         gConfigRoundLoseReplacementsDepth = gConfigSectionDepth;
     }
+    else if (StrEqual(sectionName, ANNOUNCER_MISC_REPLACEMENTS_SECTION)
+        || StrEqual(sectionName, "replace_announcer_misc")
+        || StrEqual(sectionName, "replace-announcer-misc"))
+    {
+        gConfigInAnnouncerMiscReplacements = true;
+        gConfigAnnouncerMiscReplacementsDepth = gConfigSectionDepth;
+    }
 
     return SMCParse_Continue;
 }
@@ -766,6 +1035,13 @@ public SMCResult Config_LeaveSection(SMCParser parser)
         gConfigRoundLoseReplacementsDepth = -1;
     }
 
+    if (gConfigInAnnouncerMiscReplacements
+        && gConfigSectionDepth == gConfigAnnouncerMiscReplacementsDepth)
+    {
+        gConfigInAnnouncerMiscReplacements = false;
+        gConfigAnnouncerMiscReplacementsDepth = -1;
+    }
+
     if (gConfigSectionDepth > 0)
     {
         gConfigSectionDepth--;
@@ -791,6 +1067,12 @@ public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[
     if (gConfigInRoundLoseReplacements)
     {
         Config_ReplacementSound(value, gRoundLoseReplacements, gRoundLoseGroups);
+        return SMCParse_Continue;
+    }
+
+    if (gConfigInAnnouncerMiscReplacements)
+    {
+        Config_ReplacementSound(value, gAnnouncerMiscReplacements, gAnnouncerMiscGroups);
         return SMCParse_Continue;
     }
 
@@ -1031,6 +1313,13 @@ void PrecacheConfiguredSounds()
         gReadyRoundLoseReplacements,
         gReadyRoundLoseGroups,
         "Round-loss"
+    );
+    PrecacheReplacementSounds(
+        gAnnouncerMiscReplacements,
+        gAnnouncerMiscGroups,
+        gReadyAnnouncerMiscReplacements,
+        gReadyAnnouncerMiscGroups,
+        "Miscellaneous announcer"
     );
 }
 
