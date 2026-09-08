@@ -27,6 +27,7 @@
 #undef REQUIRE_PLUGIN
 #include <points_store_api>
 #include <filters_api>
+#include <saysounds>
 #tryinclude <updater>
 #tryinclude <friendly>
 #tryinclude <friendlysimple>
@@ -46,6 +47,8 @@
 #define FREEZECAM_DURATION	5.0
 #define FIREWORK_SELF_COST 25
 #define FIREWORK_TARGET_COST 50
+#define RTD_SUCCESS_SAYSOUNDS "power0,power1,se_option,tan01,se_kira01,kira00,se_kira00"
+#define RTD_DEATH_SAYSOUND "pichuun"
 
 #if defined _updater_included
 #define UPDATE_URL		"https://phil25.github.io/RTD/update.txt"
@@ -135,6 +138,7 @@ public APLRes AskPluginLoad2(Handle hMyself, bool bLate, char[] sError, int iErr
 	MarkNativeAsOptional("PointsStore_SpendBonusPoints");
 	MarkNativeAsOptional("PointsStore_ApplyBonusPoints");
 	MarkNativeAsOptional("Filters_GetChatName");
+	MarkNativeAsOptional("SaySounds_PlayCommandAs");
 
 	return APLRes_Success;
 }
@@ -1142,8 +1146,20 @@ public Action Event_PlayerDeath(Event hEvent, const char[] sEventName, bool dont
 	if (!g_hRollers.GetInRoll(client))
 		return Plugin_Continue;
 
+	PlayRtdSaySound(client, RTD_DEATH_SAYSOUND);
 	RemovePerk(client, RTDRemove_Death);
 	return Plugin_Continue;
+}
+
+void PlayRtdSaySound(int client, const char[] commandName)
+{
+	if (!IsValidClient(client)
+		|| GetFeatureStatus(FeatureType_Native, "SaySounds_PlayCommandAs") != FeatureStatus_Available)
+	{
+		return;
+	}
+
+	SaySounds_PlayCommandAs(client, 0, commandName);
 }
 
 public Action Event_ClassChange(Handle hEvent, const char[] sEventName, bool dontBroadcast)
@@ -1635,6 +1651,7 @@ bool RollPerkForClient(int client, int payer = 0, bool chargeCost = true)
 		return false;
 
 	ApplyPerk(client, perk);
+	PlayRtdSaySound(client, RTD_SUCCESS_SAYSOUNDS);
 
 	if (g_iCvarLogging & view_as<int>(LogFlag_PerkApply))
 	{
