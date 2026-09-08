@@ -2731,8 +2731,7 @@ static bool RefillSecondaryClip(int attacker, int refillAmount)
 		return false;
 	}
 
-	EmitSoundToClient(
-		attacker,
+	EmitSoundToAll(
 		SOUND_SECONDARY_CLIP_REFILL,
 		attacker,
 		SNDCHAN_AUTO,
