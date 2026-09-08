@@ -506,15 +506,7 @@ static void ReplaceRoundStartSiren(int index, int transitionSerial)
             continue;
         }
 
-        // Automatic client countdown audio is suppressed on the HUD timer, so
-        // this is the only round-start sound emitted to an opted-in client.
-        for (int i = 0; i < gReadyRoundStartSirenReplacements.Length; i++)
-        {
-            char sample[PLATFORM_MAX_PATH];
-            gReadyRoundStartSirenReplacements.GetString(i, sample, sizeof(sample));
-            StopSound(client, ROUND_START_SIREN_CHANNEL, sample);
-        }
-
+        // The fixed entity/channel pair replaces the prior round-start sound.
         g_bEmittingRoundStartSiren = true;
         g_iEmittingRoundStartSirenSerial = transitionSerial;
         g_iEmittingRoundStartSirenIndex = index;
