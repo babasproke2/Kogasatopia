@@ -54,7 +54,9 @@ StringMap gGroupAliases;
 ArrayList gCommandNames;
 ArrayList gGroupNames;
 ArrayList gRoundStartSirenReplacements;
+ArrayList gRoundStartSirenGroups;
 ArrayList gReadyRoundStartSirenReplacements;
+ArrayList gReadyRoundStartSirenGroups;
 bool gConfigLoaded = false;
 bool gConfigInAPIOnlyGroups = false;
 bool gConfigInPaidSaysoundGroups = false;
@@ -116,7 +118,9 @@ public void OnPluginStart()
     gCommandNames = new ArrayList(ByteCountToCells(MAX_COMMAND_NAME));
     gGroupNames = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
     gRoundStartSirenReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    gRoundStartSirenGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
     gReadyRoundStartSirenReplacements = new ArrayList(ByteCountToCells(PLATFORM_MAX_PATH));
+    gReadyRoundStartSirenGroups = new ArrayList(ByteCountToCells(MAX_GROUP_NAME));
 
     g_hForce = CreateConVar("saysounds_force", "0", "Force everyone to hear saysounds");
     g_hDefaultDeathSound = CreateConVar("saysounds_default_death_sound", "doh", "Saysound command/group used when a victim has no death sound set and the attacker has no kill sound.");
@@ -217,10 +221,22 @@ public void OnPluginEnd()
         gRoundStartSirenReplacements = null;
     }
 
+    if (gRoundStartSirenGroups != null)
+    {
+        delete gRoundStartSirenGroups;
+        gRoundStartSirenGroups = null;
+    }
+
     if (gReadyRoundStartSirenReplacements != null)
     {
         delete gReadyRoundStartSirenReplacements;
         gReadyRoundStartSirenReplacements = null;
+    }
+
+    if (gReadyRoundStartSirenGroups != null)
+    {
+        delete gReadyRoundStartSirenGroups;
+        gReadyRoundStartSirenGroups = null;
     }
 
     for (int i = 1; i <= MaxClients; i++)
@@ -307,12 +323,20 @@ public Action Timer_ReplaceRoundStartSiren(Handle timer)
     }
 
     char replacement[PLATFORM_MAX_PATH];
+    char groupName[MAX_GROUP_NAME];
     int index = GetRandomInt(0, gReadyRoundStartSirenReplacements.Length - 1);
     gReadyRoundStartSirenReplacements.GetString(index, replacement, sizeof(replacement));
+    gReadyRoundStartSirenGroups.GetString(index, groupName, sizeof(groupName));
 
     for (int client = 1; client <= MaxClients; client++)
     {
         if (!IsClientInGame(client) || IsFakeClient(client))
+        {
+            continue;
+        }
+
+        float emitVolume;
+        if (!CanPlaySaySoundToClient(client, groupName, emitVolume))
         {
             continue;
         }
@@ -323,7 +347,9 @@ public Action Timer_ReplaceRoundStartSiren(Handle timer)
             replacement,
             client,
             SNDCHAN_AUTO,
-            SNDLEVEL_NONE
+            SNDLEVEL_NONE,
+            SND_NOFLAGS,
+            emitVolume
         );
     }
 
@@ -443,7 +469,9 @@ void LoadSaySoundConfig()
     gCommandNames.Clear();
     gGroupNames.Clear();
     gRoundStartSirenReplacements.Clear();
+    gRoundStartSirenGroups.Clear();
     gReadyRoundStartSirenReplacements.Clear();
+    gReadyRoundStartSirenGroups.Clear();
     gConfigLoaded = false;
     gConfigInAPIOnlyGroups = false;
     gConfigInPaidSaysoundGroups = false;
@@ -574,7 +602,6 @@ public SMCResult Config_KeyValue(SMCParser parser, const char[] key, const char[
 {
     if (gConfigInRoundStartSirens)
     {
-        Config_RoundStartSiren(key);
         Config_RoundStartSiren(value);
         return SMCParse_Continue;
     }
@@ -712,9 +739,8 @@ static void Config_GroupAlias(const char[] key, const char[] value)
 static void Config_RoundStartSiren(const char[] configuredPath)
 {
     char soundPath[PLATFORM_MAX_PATH];
-    strcopy(soundPath, sizeof(soundPath), configuredPath);
-    TrimString(soundPath);
-    NormalizeSoundPath(soundPath, sizeof(soundPath));
+    char groupName[MAX_GROUP_NAME];
+    ParseSoundConfigEntry(configuredPath, soundPath, sizeof(soundPath), groupName, sizeof(groupName));
 
     if (!soundPath[0]
         || (StrContains(soundPath, ".mp3", false) == -1
@@ -723,21 +749,37 @@ static void Config_RoundStartSiren(const char[] configuredPath)
         return;
     }
 
-    if (gRoundStartSirenReplacements.FindString(soundPath) == -1)
+    if (!groupName[0])
+    {
+        strcopy(groupName, sizeof(groupName), DEFAULT_GROUP);
+    }
+
+    EnsureGroupRegistered(groupName);
+
+    int index = gRoundStartSirenReplacements.FindString(soundPath);
+    if (index == -1)
     {
         gRoundStartSirenReplacements.PushString(soundPath);
+        gRoundStartSirenGroups.PushString(groupName);
+    }
+    else
+    {
+        gRoundStartSirenGroups.SetString(index, groupName);
     }
 }
 
 static void PrecacheRoundStartSirens()
 {
     gReadyRoundStartSirenReplacements.Clear();
+    gReadyRoundStartSirenGroups.Clear();
 
     char soundPath[PLATFORM_MAX_PATH];
+    char groupName[MAX_GROUP_NAME];
     char downloadPath[PLATFORM_MAX_PATH];
     for (int i = 0; i < gRoundStartSirenReplacements.Length; i++)
     {
         gRoundStartSirenReplacements.GetString(i, soundPath, sizeof(soundPath));
+        gRoundStartSirenGroups.GetString(i, groupName, sizeof(groupName));
         FormatEx(downloadPath, sizeof(downloadPath), "sound/%s", soundPath);
 
         if (!FileExists(downloadPath, true))
@@ -750,6 +792,7 @@ static void PrecacheRoundStartSirens()
         if (PrecacheSound(soundPath, true))
         {
             gReadyRoundStartSirenReplacements.PushString(soundPath);
+            gReadyRoundStartSirenGroups.PushString(groupName);
         }
     }
 }
