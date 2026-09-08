@@ -47,6 +47,7 @@
 #define ROUND_TIMER_STATE_SETUP 0
 #define ROUND_TIMER_STATE_NORMAL 1
 #define ROUND_START_SIREN_CHANNEL (SNDCHAN_USER_BASE + 1)
+#define ROUND_START_SIREN_REPLACEMENT_DELAY 0.05
 #define ROUND_START_SIREN_DUPLICATE_GUARD 5.0
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define SAYSOUND_ON_KILL_ATTR "saysound on kill"
@@ -117,6 +118,7 @@ Handle g_hDeathCookie = INVALID_HANDLE;
 Handle g_hKillCookie = INVALID_HANDLE;
 Handle g_hDisabledGroupsCookie = INVALID_HANDLE;
 Handle g_hCountdownMonitorTimer = INVALID_HANDLE;
+Handle g_hRoundStartSirenTimer = INVALID_HANDLE;
 bool gNormalSoundHookAdded = false;
 ConVar g_hForce;
 ConVar g_hDefaultDeathSound;
@@ -128,8 +130,8 @@ float g_fLastCountdownRemaining = -1.0;
 int g_iTrackedSetupSirenTimerRef = INVALID_ENT_REFERENCE;
 bool g_bTrackedSetupSirenHandled = false;
 int g_iLastHandledSetupSirenTimerRef = INVALID_ENT_REFERENCE;
+int g_iPendingSetupSirenTimerRef = INVALID_ENT_REFERENCE;
 float g_fLastRoundStartSirenTime = -9999.0;
-bool g_bLegacyRoundStartSirensCleared = false;
 
 static const char gStockCountdownSounds[][] =
 {
@@ -260,6 +262,7 @@ public void OnPluginStart()
 public void OnPluginEnd()
 {
     CancelCountdownMonitorTimer();
+    CancelRoundStartSirenTimer();
 
     if (gNormalSoundHookAdded)
     {
@@ -413,6 +416,7 @@ public void OnConfigsExecuted()
 
 public void OnMapStart()
 {
+    CancelRoundStartSirenTimer();
     ResetCountdownTracking();
     ResetRoundStartSirenTracking();
     g_iLastHandledSetupSirenTimerRef = INVALID_ENT_REFERENCE;
@@ -422,6 +426,7 @@ public void OnMapStart()
 
 public void OnMapEnd()
 {
+    CancelRoundStartSirenTimer();
     ResetCountdownTracking();
     ResetRoundStartSirenTracking();
 }
@@ -446,35 +451,10 @@ static void ReplaceRoundStartSiren()
     int index = GetRandomInt(0, gReadyRoundStartSirenReplacements.Length - 1);
     gReadyRoundStartSirenReplacements.GetString(index, replacement, sizeof(replacement));
     gReadyRoundStartSirenGroups.GetString(index, groupName, sizeof(groupName));
-    LogMessage(
-        "[SaySounds:Siren] Playing one replacement: %s (timer entref %d).",
-        replacement,
-        g_iTrackedSetupSirenTimerRef
-    );
-
-    // A channel is scoped to its emitter. Use one emitter for every recipient
-    // so another siren replaces the current one instead of creating a new stream.
-    bool clearLegacyEmitters = !g_bLegacyRoundStartSirensCleared;
-    for (int i = 0; i < gReadyRoundStartSirenReplacements.Length; i++)
-    {
-        char sample[PLATFORM_MAX_PATH];
-        gReadyRoundStartSirenReplacements.GetString(i, sample, sizeof(sample));
-        StopSound(SOUND_FROM_WORLD, ROUND_START_SIREN_CHANNEL, sample);
-
-        // Clear sounds emitted by builds that used each recipient as the emitter.
-        if (clearLegacyEmitters)
-        {
-            for (int emitter = 1; emitter <= MaxClients; emitter++)
-            {
-                if (IsClientInGame(emitter))
-                {
-                    StopSound(emitter, ROUND_START_SIREN_CHANNEL, sample);
-                }
-            }
-        }
-    }
-    g_bLegacyRoundStartSirensCleared = true;
-
+    int allRecipients[MAXPLAYERS];
+    int replacementRecipients[MAXPLAYERS];
+    int allRecipientCount = 0;
+    int replacementRecipientCount = 0;
     for (int client = 1; client <= MaxClients; client++)
     {
         if (!IsClientInGame(client) || IsFakeClient(client))
@@ -482,24 +462,107 @@ static void ReplaceRoundStartSiren()
             continue;
         }
 
-        float emitVolume;
-        if (!CanPlaySaySoundToClient(client, groupName, emitVolume))
+        allRecipients[allRecipientCount++] = client;
+
+        float clientVolume;
+        if (CanPlaySaySoundToClient(client, groupName, clientVolume))
         {
-            continue;
+            replacementRecipients[replacementRecipientCount++] = client;
         }
+    }
 
-        StopSound(client, SNDCHAN_AUTO, STOCK_ROUND_START_SIREN);
+    if (replacementRecipientCount == 0)
+    {
+        return;
+    }
 
-        EmitSoundToClient(
-            client,
-            replacement,
+    // Stop prior replacements with one recipient-filtered packet per sample.
+    // StopSound's first argument is an emitter entity, not a recipient.
+    for (int i = 0; i < gReadyRoundStartSirenReplacements.Length; i++)
+    {
+        char sample[PLATFORM_MAX_PATH];
+        gReadyRoundStartSirenReplacements.GetString(i, sample, sizeof(sample));
+        EmitSound(
+            allRecipients,
+            allRecipientCount,
+            sample,
             SOUND_FROM_WORLD,
             ROUND_START_SIREN_CHANNEL,
             SNDLEVEL_NONE,
-            SND_NOFLAGS,
-            emitVolume
+            SND_STOP,
+            0.0
         );
     }
+
+    // Ambient.Siren is emitted client-side from SOUND_FROM_LOCAL_PLAYER. Send
+    // its stop only to clients receiving the replacement so group opt-outs keep it.
+    EmitSound(
+        replacementRecipients,
+        replacementRecipientCount,
+        STOCK_ROUND_START_SIREN,
+        SOUND_FROM_LOCAL_PLAYER,
+        SNDCHAN_AUTO,
+        SNDLEVEL_NONE,
+        SND_STOP,
+        0.0
+    );
+
+    float emitVolume = g_hForce != null && g_hForce.BoolValue
+        ? 1.0
+        : GetDefaultVolume();
+    EmitSound(
+        replacementRecipients,
+        replacementRecipientCount,
+        replacement,
+        SOUND_FROM_WORLD,
+        ROUND_START_SIREN_CHANNEL,
+        SNDLEVEL_NONE,
+        SND_NOFLAGS,
+        emitVolume
+    );
+
+    LogMessage(
+        "[SaySounds:Siren] Played one replacement: %s (timer entref %d, recipients %d).",
+        replacement,
+        g_iPendingSetupSirenTimerRef,
+        replacementRecipientCount
+    );
+}
+
+static void ScheduleRoundStartSirenReplacement()
+{
+    CancelRoundStartSirenTimer();
+    g_iPendingSetupSirenTimerRef = g_iTrackedSetupSirenTimerRef;
+    g_hRoundStartSirenTimer = CreateTimer(
+        ROUND_START_SIREN_REPLACEMENT_DELAY,
+        Timer_ReplaceRoundStartSiren,
+        _,
+        TIMER_FLAG_NO_MAPCHANGE
+    );
+}
+
+public Action Timer_ReplaceRoundStartSiren(Handle timer)
+{
+    if (timer != g_hRoundStartSirenTimer)
+    {
+        return Plugin_Stop;
+    }
+
+    g_hRoundStartSirenTimer = INVALID_HANDLE;
+    ReplaceRoundStartSiren();
+    g_iPendingSetupSirenTimerRef = INVALID_ENT_REFERENCE;
+    return Plugin_Stop;
+}
+
+static void CancelRoundStartSirenTimer()
+{
+    if (g_hRoundStartSirenTimer != INVALID_HANDLE)
+    {
+        delete g_hRoundStartSirenTimer;
+        g_hRoundStartSirenTimer = INVALID_HANDLE;
+    }
+
+    g_iPendingSetupSirenTimerRef = INVALID_ENT_REFERENCE;
 }
 
 public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroadcast)
@@ -943,7 +1006,7 @@ static void MonitorRoundStartSirenTransition()
                 if (g_iTrackedSetupSirenTimerRef != g_iLastHandledSetupSirenTimerRef)
                 {
                     g_iLastHandledSetupSirenTimerRef = g_iTrackedSetupSirenTimerRef;
-                    ReplaceRoundStartSiren();
+                    ScheduleRoundStartSirenReplacement();
                 }
             }
             return;
