@@ -43,6 +43,9 @@
 #define STOCK_CP_SUCCESS "Announcer.Success"
 #define STOCK_CP_FAILURE "Announcer.Failure"
 #define CLIENT_ANNOUNCER_REPLACEMENT_DELAY 0.05
+#define CONTROL_POINT_UNLOCK_REPLACEMENT_DELAY 0.05
+#define MAX_TRACKED_CONTROL_POINTS 8
+#define CONTROL_POINT_UNLOCK_EVENT_DEBOUNCE 0.50
 #define COUNTDOWN_MONITOR_INTERVAL 0.01
 #define LIVE_COUNTDOWN_SUPPRESS_AT 7.0
 #define ROUND_TIMER_STATE_SETUP 0
@@ -137,6 +140,9 @@ int g_iLiveCountdownArmedMask = 0;
 float g_fLastLiveCountdownRemaining = -1.0;
 bool g_bTrackedLiveAutoCountdownOriginal = false;
 bool g_bTrackedLiveAutoCountdownSuppressed = false;
+float g_fTrackedControlPointUnlockTime[MAX_TRACKED_CONTROL_POINTS];
+int g_iControlPointUnlockArmedMask[MAX_TRACKED_CONTROL_POINTS];
+float g_fLastControlPointUnlockEvent[MAX_TRACKED_CONTROL_POINTS];
 int g_iTrackedSetupSirenTimerRef = INVALID_ENT_REFERENCE;
 int g_iTrackedSetupSirenState = -1;
 bool g_bTrackedSetupAutoCountdownOriginal = false;
@@ -172,6 +178,14 @@ static const char gStockFinalCountdownSounds[][] =
     "vo/announcer_ends_3sec.mp3",
     "vo/announcer_ends_2sec.mp3",
     "vo/announcer_ends_1sec.mp3"
+};
+
+static const char gStockControlPointEnabledSounds[][] =
+{
+    "vo/announcer_am_capenabled01.mp3",
+    "vo/announcer_am_capenabled02.mp3",
+    "vo/announcer_am_capenabled03.mp3",
+    "vo/announcer_am_capenabled04.mp3"
 };
 
 static const int gCountdownSeconds[] = { 5, 4, 3, 2, 1 };
@@ -264,6 +278,7 @@ public void OnPluginStart()
     HookEvent("player_death", Event_PlayerDeathPost, EventHookMode_Post);
     HookEvent("teamplay_broadcast_audio", Event_BroadcastAudio, EventHookMode_Pre);
     HookEvent("teamplay_point_startcapture", Event_PointStartCapture, EventHookMode_Post);
+    HookEvent("teamplay_point_unlocked", Event_PointUnlocked, EventHookMode_Post);
     AddNormalSoundHook(AnnouncementReplacement_NormalSoundHook);
     gNormalSoundHookAdded = true;
     AddAmbientSoundHook(AnnouncementReplacement_AmbientSoundHook);
@@ -461,6 +476,7 @@ public void OnMapStart()
     CancelRoundStartSirenTimers();
     ResetSetupCountdownTracking();
     ResetLiveCountdownTracking();
+    ResetControlPointUnlockTracking();
     ResetRoundStartSirenTracking();
     ResetRoundResultPairing();
     g_fLastRoundStartSirenTime = -9999.0;
@@ -472,6 +488,7 @@ public void OnMapEnd()
     CancelRoundStartSirenTimers();
     ResetSetupCountdownTracking();
     ResetLiveCountdownTracking();
+    ResetControlPointUnlockTracking();
     ResetRoundStartSirenTracking();
     ResetRoundResultPairing();
 }
@@ -990,6 +1007,13 @@ public Action AnnouncementReplacement_NormalSoundHook(
         );
     }
 
+    // StopSound() also passes through the normal-sound hook. Never turn a
+    // suppression packet into a new replacement emission.
+    if ((flags & SND_STOP) != 0)
+    {
+        return Plugin_Continue;
+    }
+
     ArrayList replacements;
     ArrayList groups;
     if (IsStockControlPointAnnouncerSample(sample)
@@ -1082,6 +1106,38 @@ public void Event_PointStartCapture(Event event, const char[] name, bool dontBro
         CLIENT_ANNOUNCER_REPLACEMENT_DELAY,
         Timer_ReplaceClientCaptureWarning,
         capturingTeam,
+        TIMER_FLAG_NO_MAPCHANGE
+    );
+}
+
+public void Event_PointUnlocked(Event event, const char[] name, bool dontBroadcast)
+{
+    if (gReadyCountdownReplacements.Length == 0)
+    {
+        return;
+    }
+
+    int controlPoint = event.GetInt("cp");
+    if (controlPoint < 0 || controlPoint >= MAX_TRACKED_CONTROL_POINTS)
+    {
+        return;
+    }
+
+    float now = GetGameTime();
+    if (now - g_fLastControlPointUnlockEvent[controlPoint]
+        < CONTROL_POINT_UNLOCK_EVENT_DEBOUNCE)
+    {
+        return;
+    }
+
+    g_fLastControlPointUnlockEvent[controlPoint] = now;
+    g_fTrackedControlPointUnlockTime[controlPoint] = 0.0;
+    g_iControlPointUnlockArmedMask[controlPoint] = 0;
+
+    CreateTimer(
+        CONTROL_POINT_UNLOCK_REPLACEMENT_DELAY,
+        Timer_ReplaceControlPointUnlocked,
+        controlPoint,
         TIMER_FLAG_NO_MAPCHANGE
     );
 }
@@ -1252,7 +1308,112 @@ public Action Timer_MonitorCountdowns(Handle timer)
     MonitorRoundStartSirenTransition();
     MonitorSetupCountdown();
     MonitorLiveRoundCountdown();
+    MonitorControlPointUnlockCountdowns();
     return Plugin_Continue;
+}
+
+static void MonitorControlPointUnlockCountdowns()
+{
+    if (gReadyCountdownReplacements.Length == 0)
+    {
+        ClearControlPointUnlockCountdowns();
+        return;
+    }
+
+    int objectiveResource = FindEntityByClassname(-1, "tf_objective_resource");
+    if (objectiveResource == -1
+        || !HasEntProp(objectiveResource, Prop_Send, "m_flUnlockTimes"))
+    {
+        ClearControlPointUnlockCountdowns();
+        return;
+    }
+
+    int controlPointCount = GetEntPropArraySize(
+        objectiveResource,
+        Prop_Send,
+        "m_flUnlockTimes"
+    );
+    if (HasEntProp(objectiveResource, Prop_Send, "m_iNumControlPoints"))
+    {
+        int reportedCount = GetEntProp(
+            objectiveResource,
+            Prop_Send,
+            "m_iNumControlPoints"
+        );
+        if (reportedCount < controlPointCount)
+        {
+            controlPointCount = reportedCount;
+        }
+    }
+
+    if (controlPointCount > MAX_TRACKED_CONTROL_POINTS)
+    {
+        controlPointCount = MAX_TRACKED_CONTROL_POINTS;
+    }
+    if (controlPointCount < 0)
+    {
+        controlPointCount = 0;
+    }
+
+    float now = GetGameTime();
+    for (int controlPoint = 0; controlPoint < MAX_TRACKED_CONTROL_POINTS; controlPoint++)
+    {
+        if (controlPoint >= controlPointCount)
+        {
+            g_fTrackedControlPointUnlockTime[controlPoint] = 0.0;
+            g_iControlPointUnlockArmedMask[controlPoint] = 0;
+            continue;
+        }
+
+        float unlockTime = GetEntPropFloat(
+            objectiveResource,
+            Prop_Send,
+            "m_flUnlockTimes",
+            controlPoint
+        );
+        if (unlockTime <= 0.0)
+        {
+            g_fTrackedControlPointUnlockTime[controlPoint] = 0.0;
+            g_iControlPointUnlockArmedMask[controlPoint] = 0;
+            continue;
+        }
+
+        float remaining = unlockTime - now;
+        if (FloatAbs(unlockTime - g_fTrackedControlPointUnlockTime[controlPoint]) > 0.01)
+        {
+            g_fTrackedControlPointUnlockTime[controlPoint] = unlockTime;
+            g_iControlPointUnlockArmedMask[controlPoint] = 0;
+            if (remaining > 0.0)
+            {
+                ArmCountdownWarnings(
+                    remaining,
+                    g_iControlPointUnlockArmedMask[controlPoint]
+                );
+            }
+        }
+
+        if (remaining <= 0.0)
+        {
+            g_iControlPointUnlockArmedMask[controlPoint] = 0;
+            continue;
+        }
+
+        for (int warningIndex = 0;
+            warningIndex < sizeof(gCountdownSeconds);
+            warningIndex++)
+        {
+            int warningBit = 1 << warningIndex;
+            if ((g_iControlPointUnlockArmedMask[controlPoint] & warningBit) == 0
+                || remaining > float(gCountdownSeconds[warningIndex]))
+            {
+                continue;
+            }
+
+            g_iControlPointUnlockArmedMask[controlPoint] &= ~warningBit;
+            QueueControlPointUnlockWarning(controlPoint, warningIndex, unlockTime);
+            break;
+        }
+    }
 }
 
 static void MonitorSetupCountdown()
@@ -1619,6 +1780,163 @@ static void ResetRoundStartSirenTracking()
     g_bTrackedSetupAutoCountdownOriginal = false;
 }
 
+static void QueueControlPointUnlockWarning(
+    int controlPoint,
+    int warningIndex,
+    float unlockTime)
+{
+    DataPack data = new DataPack();
+    data.WriteCell(controlPoint);
+    data.WriteCell(warningIndex);
+    data.WriteFloat(unlockTime);
+    CreateDataTimer(
+        CONTROL_POINT_UNLOCK_REPLACEMENT_DELAY,
+        Timer_ReplaceControlPointUnlockWarning,
+        data,
+        TIMER_FLAG_NO_MAPCHANGE
+    );
+}
+
+public Action Timer_ReplaceControlPointUnlockWarning(Handle timer, DataPack data)
+{
+    data.Reset();
+    int controlPoint = data.ReadCell();
+    int warningIndex = data.ReadCell();
+    float unlockTime = data.ReadFloat();
+
+    if (controlPoint < 0
+        || controlPoint >= MAX_TRACKED_CONTROL_POINTS
+        || warningIndex < 0
+        || warningIndex >= sizeof(gStockCountdownSounds)
+        || FloatAbs(g_fTrackedControlPointUnlockTime[controlPoint] - unlockTime) > 0.01)
+    {
+        return Plugin_Stop;
+    }
+
+    ReplaceControlPointUnlockWarning(controlPoint, warningIndex);
+    return Plugin_Stop;
+}
+
+static void ReplaceControlPointUnlockWarning(int controlPoint, int warningIndex)
+{
+    char replacement[PLATFORM_MAX_PATH];
+    char groupName[MAX_GROUP_NAME];
+    if (!GetRandomReadyReplacement(
+        gReadyCountdownReplacements,
+        gReadyCountdownGroups,
+        replacement,
+        sizeof(replacement),
+        groupName,
+        sizeof(groupName)))
+    {
+        return;
+    }
+
+    int replacementRecipientCount = 0;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client) || IsFakeClient(client))
+        {
+            continue;
+        }
+
+        float emitVolume;
+        if (!CanPlaySaySoundToClient(client, groupName, emitVolume))
+        {
+            continue;
+        }
+
+        StopSound(client, SNDCHAN_VOICE_BASE, gStockCountdownSounds[warningIndex]);
+        EmitSoundToClient(
+            client,
+            replacement,
+            client,
+            SNDCHAN_VOICE_BASE,
+            SNDLEVEL_NONE,
+            SND_NOFLAGS,
+            emitVolume
+        );
+        replacementRecipientCount++;
+    }
+
+    char currentMap[PLATFORM_MAX_PATH];
+    GetCurrentMap(currentMap, sizeof(currentMap));
+    LogMessage(
+        "[SaySounds:CPUnlock] map %s, point %d, warning %d, replacement %s, custom %d.",
+        currentMap,
+        controlPoint,
+        gCountdownSeconds[warningIndex],
+        replacement,
+        replacementRecipientCount
+    );
+}
+
+public Action Timer_ReplaceControlPointUnlocked(Handle timer, any controlPoint)
+{
+    if (controlPoint < 0 || controlPoint >= MAX_TRACKED_CONTROL_POINTS)
+    {
+        return Plugin_Stop;
+    }
+
+    char replacement[PLATFORM_MAX_PATH];
+    char groupName[MAX_GROUP_NAME];
+    if (!GetRandomReadyReplacement(
+        gReadyCountdownReplacements,
+        gReadyCountdownGroups,
+        replacement,
+        sizeof(replacement),
+        groupName,
+        sizeof(groupName)))
+    {
+        return Plugin_Stop;
+    }
+
+    int replacementRecipientCount = 0;
+    for (int client = 1; client <= MaxClients; client++)
+    {
+        if (!IsClientInGame(client) || IsFakeClient(client))
+        {
+            continue;
+        }
+
+        float emitVolume;
+        if (!CanPlaySaySoundToClient(client, groupName, emitVolume))
+        {
+            continue;
+        }
+
+        for (int i = 0; i < sizeof(gStockControlPointEnabledSounds); i++)
+        {
+            StopSound(
+                client,
+                SNDCHAN_VOICE_BASE,
+                gStockControlPointEnabledSounds[i]
+            );
+        }
+        EmitSoundToClient(
+            client,
+            replacement,
+            client,
+            SNDCHAN_VOICE_BASE,
+            SNDLEVEL_NONE,
+            SND_NOFLAGS,
+            emitVolume
+        );
+        replacementRecipientCount++;
+    }
+
+    char currentMap[PLATFORM_MAX_PATH];
+    GetCurrentMap(currentMap, sizeof(currentMap));
+    LogMessage(
+        "[SaySounds:CPUnlock] map %s, point %d, unlocked, replacement %s, custom %d.",
+        currentMap,
+        controlPoint,
+        replacement,
+        replacementRecipientCount
+    );
+    return Plugin_Stop;
+}
+
 static void ReplaceCountdownWarning(int warningIndex, bool finalCountdown)
 {
     if (warningIndex < 0 || warningIndex >= sizeof(gStockCountdownSounds))
@@ -1825,6 +2143,28 @@ static void ResetLiveCountdownTracking()
     g_bTrackedLiveAutoCountdownOriginal = false;
 }
 
+static void ClearControlPointUnlockCountdowns()
+{
+    for (int controlPoint = 0;
+        controlPoint < MAX_TRACKED_CONTROL_POINTS;
+        controlPoint++)
+    {
+        g_fTrackedControlPointUnlockTime[controlPoint] = 0.0;
+        g_iControlPointUnlockArmedMask[controlPoint] = 0;
+    }
+}
+
+static void ResetControlPointUnlockTracking()
+{
+    ClearControlPointUnlockCountdowns();
+    for (int controlPoint = 0;
+        controlPoint < MAX_TRACKED_CONTROL_POINTS;
+        controlPoint++)
+    {
+        g_fLastControlPointUnlockEvent[controlPoint] = -9999.0;
+    }
+}
+
 static void CancelCountdownMonitorTimer()
 {
     if (g_hCountdownMonitorTimer != INVALID_HANDLE)
@@ -1834,6 +2174,7 @@ static void CancelCountdownMonitorTimer()
     }
     ResetSetupCountdownTracking();
     ResetLiveCountdownTracking();
+    ResetControlPointUnlockTracking();
 }
 
 Action ChatCommandListener(int client, const char[] command, int argc)
