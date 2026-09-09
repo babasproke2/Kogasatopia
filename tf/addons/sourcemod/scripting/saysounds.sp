@@ -50,6 +50,7 @@
 #define ROUND_START_SIREN_REPLACEMENT_DELAY 0.05
 #define ROUND_START_AUTO_COUNTDOWN_RESTORE_DELAY 0.50
 #define ROUND_START_SIREN_DUPLICATE_GUARD 5.0
+#define ROUND_RESULT_PAIR_WINDOW 5.0
 #define SOUND_PREF_GROUP_ITEM_PREFIX "group:"
 #define SAYSOUND_ON_KILL_ATTR "saysound on kill"
 #define POINTS_STORE_HAS_PURCHASE_NATIVE "PointsStore_HasPurchase"
@@ -144,6 +145,10 @@ bool g_bEmittingRoundStartSiren = false;
 int g_iEmittingRoundStartSirenSerial = 0;
 int g_iEmittingRoundStartSirenIndex = -1;
 int g_iEmittingRoundStartSirenClient = 0;
+int g_iNextRoundResultReplacementIndex = -1;
+int g_iActiveRoundResultReplacementIndex = -1;
+int g_iRoundResultSelectionSerial = 0;
+float g_fRoundResultSelectionTime = -9999.0;
 
 static const char gStockCountdownSounds[][] =
 {
@@ -440,6 +445,7 @@ public void OnMapStart()
     CancelRoundStartSirenTimers();
     ResetCountdownTracking();
     ResetRoundStartSirenTracking();
+    ResetRoundResultPairing();
     g_fLastRoundStartSirenTime = -9999.0;
     PrecacheConfiguredSounds();
 }
@@ -449,6 +455,7 @@ public void OnMapEnd()
     CancelRoundStartSirenTimers();
     ResetCountdownTracking();
     ResetRoundStartSirenTracking();
+    ResetRoundResultPairing();
 }
 
 static void ReplaceRoundStartSiren(int index, int transitionSerial)
@@ -700,6 +707,52 @@ static void CancelRoundStartSirenTimers()
     }
 }
 
+static void ResetRoundResultPairing()
+{
+    g_iActiveRoundResultReplacementIndex = -1;
+    g_fRoundResultSelectionTime = -9999.0;
+}
+
+static bool CanPairRoundResultReplacements()
+{
+    return gReadyRoundWinReplacements.Length > 0
+        && gReadyRoundWinReplacements.Length == gReadyRoundLoseReplacements.Length;
+}
+
+static int GetPairedRoundResultReplacementIndex()
+{
+    int replacementCount = gReadyRoundWinReplacements.Length;
+    float now = GetGameTime();
+    if (g_iActiveRoundResultReplacementIndex >= 0
+        && g_iActiveRoundResultReplacementIndex < replacementCount
+        && now >= g_fRoundResultSelectionTime
+        && now - g_fRoundResultSelectionTime <= ROUND_RESULT_PAIR_WINDOW)
+    {
+        return g_iActiveRoundResultReplacementIndex;
+    }
+
+    if (g_iNextRoundResultReplacementIndex < 0)
+    {
+        g_iNextRoundResultReplacementIndex = GetRandomInt(0, replacementCount - 1);
+    }
+    else if (g_iNextRoundResultReplacementIndex >= replacementCount)
+    {
+        g_iNextRoundResultReplacementIndex %= replacementCount;
+    }
+
+    g_iActiveRoundResultReplacementIndex = g_iNextRoundResultReplacementIndex;
+    g_iNextRoundResultReplacementIndex =
+        (g_iActiveRoundResultReplacementIndex + 1) % replacementCount;
+    g_fRoundResultSelectionTime = now;
+    g_iRoundResultSelectionSerial++;
+    if (g_iRoundResultSelectionSerial <= 0)
+    {
+        g_iRoundResultSelectionSerial = 1;
+    }
+
+    return g_iActiveRoundResultReplacementIndex;
+}
+
 public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroadcast)
 {
     char stockSound[64];
@@ -707,15 +760,18 @@ public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroa
 
     ArrayList replacements;
     ArrayList groups;
+    bool isRoundResult = false;
     if (StrEqual(stockSound, STOCK_ROUND_WIN_SOUND))
     {
         replacements = gReadyRoundWinReplacements;
         groups = gReadyRoundWinGroups;
+        isRoundResult = true;
     }
     else if (StrEqual(stockSound, STOCK_ROUND_LOSE_SOUND))
     {
         replacements = gReadyRoundLoseReplacements;
         groups = gReadyRoundLoseGroups;
+        isRoundResult = true;
     }
     else if (StrEqual(stockSound, STOCK_OVERTIME_SOUND)
         || StrEqual(stockSound, STOCK_CP_SUCCESS)
@@ -735,11 +791,31 @@ public Action Event_BroadcastAudio(Event event, const char[] name, bool dontBroa
     }
 
     int team = event.GetInt("team");
-    int index = GetRandomInt(0, replacements.Length - 1);
+    bool pairedSelection = isRoundResult && CanPairRoundResultReplacements();
+    int index = pairedSelection
+        ? GetPairedRoundResultReplacementIndex()
+        : GetRandomInt(0, replacements.Length - 1);
     char replacement[PLATFORM_MAX_PATH];
     char groupName[MAX_GROUP_NAME];
     replacements.GetString(index, replacement, sizeof(replacement));
     groups.GetString(index, groupName, sizeof(groupName));
+
+    if (isRoundResult)
+    {
+        char currentMap[PLATFORM_MAX_PATH];
+        GetCurrentMap(currentMap, sizeof(currentMap));
+        LogMessage(
+            "[SaySounds:RoundResult] map %s, stock %s, paired %d, serial %d, index %d, sample %s, win count %d, loss count %d.",
+            currentMap,
+            stockSound,
+            pairedSelection,
+            pairedSelection ? g_iRoundResultSelectionSerial : 0,
+            index,
+            replacement,
+            gReadyRoundWinReplacements.Length,
+            gReadyRoundLoseReplacements.Length
+        );
+    }
 
     bool sentToClient = false;
     bool broadcastToAllTeams = team <= 1 || team == 255;
