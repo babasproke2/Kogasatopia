@@ -44,6 +44,7 @@
 #define STOCK_CP_FAILURE "Announcer.Failure"
 #define CLIENT_ANNOUNCER_REPLACEMENT_DELAY 0.05
 #define COUNTDOWN_MONITOR_INTERVAL 0.01
+#define LIVE_COUNTDOWN_SUPPRESS_AT 7.0
 #define ROUND_TIMER_STATE_SETUP 0
 #define ROUND_TIMER_STATE_NORMAL 1
 #define ROUND_START_SIREN_CHANNEL (SNDCHAN_USER_BASE + 1)
@@ -128,9 +129,14 @@ ConVar g_hForce;
 ConVar g_hDefaultDeathSound;
 ConVar g_hDefaultVolume;
 int g_iSaySoundStatsCounter = 0;
-int g_iTrackedCountdownTimerRef = INVALID_ENT_REFERENCE;
-int g_iCountdownArmedMask = 0;
-float g_fLastCountdownRemaining = -1.0;
+int g_iTrackedSetupCountdownTimerRef = INVALID_ENT_REFERENCE;
+int g_iSetupCountdownArmedMask = 0;
+float g_fLastSetupCountdownRemaining = -1.0;
+int g_iTrackedLiveCountdownTimerRef = INVALID_ENT_REFERENCE;
+int g_iLiveCountdownArmedMask = 0;
+float g_fLastLiveCountdownRemaining = -1.0;
+bool g_bTrackedLiveAutoCountdownOriginal = false;
+bool g_bTrackedLiveAutoCountdownSuppressed = false;
 int g_iTrackedSetupSirenTimerRef = INVALID_ENT_REFERENCE;
 int g_iTrackedSetupSirenState = -1;
 bool g_bTrackedSetupAutoCountdownOriginal = false;
@@ -157,6 +163,15 @@ static const char gStockCountdownSounds[][] =
     "vo/announcer_begins_3sec.mp3",
     "vo/announcer_begins_2sec.mp3",
     "vo/announcer_begins_1sec.mp3"
+};
+
+static const char gStockFinalCountdownSounds[][] =
+{
+    "vo/announcer_ends_5sec.mp3",
+    "vo/announcer_ends_4sec.mp3",
+    "vo/announcer_ends_3sec.mp3",
+    "vo/announcer_ends_2sec.mp3",
+    "vo/announcer_ends_1sec.mp3"
 };
 
 static const int gCountdownSeconds[] = { 5, 4, 3, 2, 1 };
@@ -255,7 +270,7 @@ public void OnPluginStart()
     gAmbientSoundHookAdded = true;
     g_hCountdownMonitorTimer = CreateTimer(
         COUNTDOWN_MONITOR_INTERVAL,
-        Timer_MonitorSetupCountdown,
+        Timer_MonitorCountdowns,
         _,
         TIMER_REPEAT
     );
@@ -283,6 +298,7 @@ public void OnPluginEnd()
     CancelCountdownMonitorTimer();
     CancelRoundStartSirenTimers();
     RestoreTrackedSetupAutoCountdown();
+    RestoreTrackedLiveAutoCountdown();
 
     if (gNormalSoundHookAdded)
     {
@@ -443,7 +459,8 @@ public void OnConfigsExecuted()
 public void OnMapStart()
 {
     CancelRoundStartSirenTimers();
-    ResetCountdownTracking();
+    ResetSetupCountdownTracking();
+    ResetLiveCountdownTracking();
     ResetRoundStartSirenTracking();
     ResetRoundResultPairing();
     g_fLastRoundStartSirenTime = -9999.0;
@@ -453,7 +470,8 @@ public void OnMapStart()
 public void OnMapEnd()
 {
     CancelRoundStartSirenTimers();
-    ResetCountdownTracking();
+    ResetSetupCountdownTracking();
+    ResetLiveCountdownTracking();
     ResetRoundStartSirenTracking();
     ResetRoundResultPairing();
 }
@@ -1213,10 +1231,18 @@ static int GetStockCountdownSoundIndex(const char[] sample)
         }
     }
 
+    for (int i = 0; i < sizeof(gStockFinalCountdownSounds); i++)
+    {
+        if (StrEqual(normalized, gStockFinalCountdownSounds[i]))
+        {
+            return i;
+        }
+    }
+
     return -1;
 }
 
-public Action Timer_MonitorSetupCountdown(Handle timer)
+public Action Timer_MonitorCountdowns(Handle timer)
 {
     if (timer != g_hCountdownMonitorTimer)
     {
@@ -1224,50 +1250,56 @@ public Action Timer_MonitorSetupCountdown(Handle timer)
     }
 
     MonitorRoundStartSirenTransition();
+    MonitorSetupCountdown();
+    MonitorLiveRoundCountdown();
+    return Plugin_Continue;
+}
 
+static void MonitorSetupCountdown()
+{
     if (gReadyCountdownReplacements.Length == 0
         && !g_bTrackedSetupAutoCountdownSuppressed)
     {
-        ResetCountdownTracking();
-        return Plugin_Continue;
+        ResetSetupCountdownTracking();
+        return;
     }
 
     int timerEntity = FindActiveSetupCountdownTimer();
     if (timerEntity == -1)
     {
-        ResetCountdownTracking();
-        return Plugin_Continue;
+        ResetSetupCountdownTracking();
+        return;
     }
 
-    float remaining = GetSetupCountdownRemaining(timerEntity);
+    float remaining = GetRoundTimerRemaining(timerEntity);
     if (remaining < 0.0)
     {
-        ResetCountdownTracking();
-        return Plugin_Continue;
+        ResetSetupCountdownTracking();
+        return;
     }
 
     int timerRef = EntIndexToEntRef(timerEntity);
-    if (timerRef != g_iTrackedCountdownTimerRef)
+    if (timerRef != g_iTrackedSetupCountdownTimerRef)
     {
-        g_iTrackedCountdownTimerRef = timerRef;
-        g_iCountdownArmedMask = 0;
-        ArmCountdownWarnings(remaining);
+        g_iTrackedSetupCountdownTimerRef = timerRef;
+        g_iSetupCountdownArmedMask = 0;
+        ArmCountdownWarnings(remaining, g_iSetupCountdownArmedMask);
     }
-    else if (g_fLastCountdownRemaining >= 0.0
-        && remaining > g_fLastCountdownRemaining + 0.2)
+    else if (g_fLastSetupCountdownRemaining >= 0.0
+        && remaining > g_fLastSetupCountdownRemaining + 0.2)
     {
         // Mirror CTeamRoundTimer::CalculateOutputMessages() after time is added.
-        ArmCountdownWarnings(remaining);
+        ArmCountdownWarnings(remaining, g_iSetupCountdownArmedMask);
     }
 
-    g_fLastCountdownRemaining = remaining;
+    g_fLastSetupCountdownRemaining = remaining;
 
     if (GetCountdownTimerBool(timerEntity, "m_bIsDisabled")
         || GetCountdownTimerBool(timerEntity, "m_bTimerPaused")
         || (GetCountdownTimerBool(timerEntity, "m_bStopWatchTimer")
             && GetCountdownTimerBool(timerEntity, "m_bInCaptureWatchState")))
     {
-        return Plugin_Continue;
+        return;
     }
 
     bool shouldEmit = IsSetupAutoCountdownEnabled(timerEntity)
@@ -1276,22 +1308,101 @@ public Action Timer_MonitorSetupCountdown(Handle timer)
     for (int i = 0; i < sizeof(gCountdownSeconds); i++)
     {
         int warningBit = 1 << i;
-        if ((g_iCountdownArmedMask & warningBit) == 0
+        if ((g_iSetupCountdownArmedMask & warningBit) == 0
             || remaining > float(gCountdownSeconds[i] + 1))
         {
             continue;
         }
 
         // ClientThink clears only one warning per frame because its checks are else-if.
-        g_iCountdownArmedMask &= ~warningBit;
+        g_iSetupCountdownArmedMask &= ~warningBit;
         if (shouldEmit)
         {
-            ReplaceSetupCountdownWarning(i);
+            ReplaceCountdownWarning(i, false);
         }
         break;
     }
+}
 
-    return Plugin_Continue;
+static void MonitorLiveRoundCountdown()
+{
+    if (gReadyCountdownReplacements.Length == 0)
+    {
+        ResetLiveCountdownTracking();
+        return;
+    }
+
+    int timerEntity = FindActiveLiveCountdownTimer();
+    if (timerEntity == -1)
+    {
+        ResetLiveCountdownTracking();
+        return;
+    }
+
+    float remaining = GetRoundTimerRemaining(timerEntity);
+    if (remaining < 0.0)
+    {
+        ResetLiveCountdownTracking();
+        return;
+    }
+
+    int timerRef = EntIndexToEntRef(timerEntity);
+    if (timerRef != g_iTrackedLiveCountdownTimerRef)
+    {
+        ResetLiveCountdownTracking();
+        g_iTrackedLiveCountdownTimerRef = timerRef;
+        ArmCountdownWarnings(remaining, g_iLiveCountdownArmedMask);
+    }
+    else if (g_fLastLiveCountdownRemaining >= 0.0
+        && remaining > g_fLastLiveCountdownRemaining + 0.2)
+    {
+        ArmCountdownWarnings(remaining, g_iLiveCountdownArmedMask);
+    }
+
+    g_fLastLiveCountdownRemaining = remaining;
+
+    if (GetCountdownTimerBool(timerEntity, "m_bIsDisabled")
+        || IsWaitingForPlayers()
+        || (GetCountdownTimerBool(timerEntity, "m_bStopWatchTimer")
+            && GetCountdownTimerBool(timerEntity, "m_bInCaptureWatchState")))
+    {
+        RestoreTrackedLiveAutoCountdown();
+        return;
+    }
+
+    if (remaining > LIVE_COUNTDOWN_SUPPRESS_AT)
+    {
+        RestoreTrackedLiveAutoCountdown();
+        return;
+    }
+
+    bool shouldEmit = IsLiveAutoCountdownEnabled(timerEntity);
+    if (shouldEmit)
+    {
+        SuppressTrackedLiveAutoCountdown();
+    }
+
+    if (GetCountdownTimerBool(timerEntity, "m_bTimerPaused"))
+    {
+        return;
+    }
+
+    for (int i = 0; i < sizeof(gCountdownSeconds); i++)
+    {
+        int warningBit = 1 << i;
+        if ((g_iLiveCountdownArmedMask & warningBit) == 0
+            || remaining > float(gCountdownSeconds[i] + 1))
+        {
+            continue;
+        }
+
+        g_iLiveCountdownArmedMask &= ~warningBit;
+        if (shouldEmit)
+        {
+            ReplaceCountdownWarning(i, true);
+        }
+        break;
+    }
 }
 
 static void MonitorRoundStartSirenTransition()
@@ -1426,6 +1537,66 @@ static bool IsSetupAutoCountdownEnabled(int timerEntity)
     return GetCountdownTimerBool(timerEntity, "m_bAutoCountdown");
 }
 
+static void SuppressTrackedLiveAutoCountdown()
+{
+    int timerEntity = EntRefToEntIndex(g_iTrackedLiveCountdownTimerRef);
+    if (!IsRoundTimerEntity(timerEntity)
+        || !HasEntProp(timerEntity, Prop_Send, "m_bAutoCountdown"))
+    {
+        return;
+    }
+
+    if (!g_bTrackedLiveAutoCountdownSuppressed)
+    {
+        g_bTrackedLiveAutoCountdownOriginal =
+            GetCountdownTimerBool(timerEntity, "m_bAutoCountdown");
+        g_bTrackedLiveAutoCountdownSuppressed = true;
+        LogMessage(
+            "[SaySounds:Countdown] Suppressed final automatic countdown on HUD timer entref %d (original %d).",
+            g_iTrackedLiveCountdownTimerRef,
+            g_bTrackedLiveAutoCountdownOriginal
+        );
+    }
+
+    if (GetCountdownTimerBool(timerEntity, "m_bAutoCountdown"))
+    {
+        SetEntProp(timerEntity, Prop_Send, "m_bAutoCountdown", 0);
+    }
+}
+
+static void RestoreTrackedLiveAutoCountdown()
+{
+    if (!g_bTrackedLiveAutoCountdownSuppressed)
+    {
+        return;
+    }
+
+    int timerEntity = EntRefToEntIndex(g_iTrackedLiveCountdownTimerRef);
+    if (IsRoundTimerEntity(timerEntity)
+        && HasEntProp(timerEntity, Prop_Send, "m_bAutoCountdown"))
+    {
+        SetEntProp(
+            timerEntity,
+            Prop_Send,
+            "m_bAutoCountdown",
+            g_bTrackedLiveAutoCountdownOriginal ? 1 : 0
+        );
+    }
+
+    g_bTrackedLiveAutoCountdownSuppressed = false;
+}
+
+static bool IsLiveAutoCountdownEnabled(int timerEntity)
+{
+    if (EntIndexToEntRef(timerEntity) == g_iTrackedLiveCountdownTimerRef
+        && g_bTrackedLiveAutoCountdownSuppressed)
+    {
+        return g_bTrackedLiveAutoCountdownOriginal;
+    }
+
+    return GetCountdownTimerBool(timerEntity, "m_bAutoCountdown");
+}
+
 static bool IsRoundTimerEntity(int entity)
 {
     if (entity <= MaxClients
@@ -1448,7 +1619,7 @@ static void ResetRoundStartSirenTracking()
     g_bTrackedSetupAutoCountdownOriginal = false;
 }
 
-static void ReplaceSetupCountdownWarning(int warningIndex)
+static void ReplaceCountdownWarning(int warningIndex, bool finalCountdown)
 {
     if (warningIndex < 0 || warningIndex >= sizeof(gStockCountdownSounds))
     {
@@ -1464,7 +1635,22 @@ static void ReplaceSetupCountdownWarning(int warningIndex)
         sizeof(replacement),
         groupName,
         sizeof(groupName));
+    char stockSound[PLATFORM_MAX_PATH];
+    if (finalCountdown)
+    {
+        strcopy(
+            stockSound,
+            sizeof(stockSound),
+            gStockFinalCountdownSounds[warningIndex]
+        );
+    }
+    else
+    {
+        strcopy(stockSound, sizeof(stockSound), gStockCountdownSounds[warningIndex]);
+    }
 
+    int replacementRecipientCount = 0;
+    int stockRecipientCount = 0;
     for (int client = 1; client <= MaxClients; client++)
     {
         if (!IsClientInGame(client) || IsFakeClient(client))
@@ -1478,11 +1664,12 @@ static void ReplaceSetupCountdownWarning(int warningIndex)
         {
             EmitSoundToClient(
                 client,
-                gStockCountdownSounds[warningIndex],
+                stockSound,
                 client,
                 SNDCHAN_VOICE_BASE,
                 SNDLEVEL_NONE
             );
+            stockRecipientCount++;
             continue;
         }
 
@@ -1495,11 +1682,23 @@ static void ReplaceSetupCountdownWarning(int warningIndex)
             SND_NOFLAGS,
             emitVolume
         );
+        replacementRecipientCount++;
     }
 
+    char currentMap[PLATFORM_MAX_PATH];
+    GetCurrentMap(currentMap, sizeof(currentMap));
+    LogMessage(
+        "[SaySounds:Countdown] map %s, phase %s, warning %d, replacement %s, custom %d, stock %d.",
+        currentMap,
+        finalCountdown ? "live" : "setup",
+        gCountdownSeconds[warningIndex],
+        hasReplacement ? replacement : stockSound,
+        replacementRecipientCount,
+        stockRecipientCount
+    );
 }
 
-static int FindActiveSetupCountdownTimer()
+static int FindActiveHudRoundTimer()
 {
     int objectiveResource = -1;
     while ((objectiveResource = FindEntityByClassname(objectiveResource, "tf_objective_resource")) != -1)
@@ -1510,10 +1709,21 @@ static int FindActiveSetupCountdownTimer()
         }
 
         int timerEntity = GetEntProp(objectiveResource, Prop_Send, "m_iTimerToShowInHUD");
-        if (timerEntity > MaxClients && IsValidEntity(timerEntity))
+        if (IsRoundTimerEntity(timerEntity))
         {
-            return IsSetupCountdownTimer(timerEntity) ? timerEntity : -1;
+            return timerEntity;
         }
+    }
+
+    return -1;
+}
+
+static int FindActiveSetupCountdownTimer()
+{
+    int hudTimer = FindActiveHudRoundTimer();
+    if (hudTimer != -1)
+    {
+        return IsSetupCountdownTimer(hudTimer) ? hudTimer : -1;
     }
 
     int timerEntity = -1;
@@ -1535,6 +1745,19 @@ static int FindActiveSetupCountdownTimer()
     return -1;
 }
 
+static int FindActiveLiveCountdownTimer()
+{
+    int timerEntity = FindActiveHudRoundTimer();
+    if (!IsRoundTimerEntity(timerEntity)
+        || GetEntProp(timerEntity, Prop_Send, "m_nState") != ROUND_TIMER_STATE_NORMAL
+        || GetCountdownTimerBool(timerEntity, "m_bIsDisabled"))
+    {
+        return -1;
+    }
+
+    return timerEntity;
+}
+
 static bool IsSetupCountdownTimer(int entity)
 {
     return entity > MaxClients
@@ -1543,7 +1766,7 @@ static bool IsSetupCountdownTimer(int entity)
         && GetEntProp(entity, Prop_Send, "m_nState") == ROUND_TIMER_STATE_SETUP;
 }
 
-static float GetSetupCountdownRemaining(int timerEntity)
+static float GetRoundTimerRemaining(int timerEntity)
 {
     if (GetCountdownTimerBool(timerEntity, "m_bTimerPaused"))
     {
@@ -1575,22 +1798,31 @@ static bool IsWaitingForPlayers()
         && GameRules_GetProp("m_bInWaitingForPlayers", 1) != 0;
 }
 
-static void ArmCountdownWarnings(float remaining)
+static void ArmCountdownWarnings(float remaining, int &armedMask)
 {
     for (int i = 0; i < sizeof(gCountdownSeconds); i++)
     {
         if (remaining >= float(gCountdownSeconds[i]))
         {
-            g_iCountdownArmedMask |= 1 << i;
+            armedMask |= 1 << i;
         }
     }
 }
 
-static void ResetCountdownTracking()
+static void ResetSetupCountdownTracking()
 {
-    g_iTrackedCountdownTimerRef = INVALID_ENT_REFERENCE;
-    g_iCountdownArmedMask = 0;
-    g_fLastCountdownRemaining = -1.0;
+    g_iTrackedSetupCountdownTimerRef = INVALID_ENT_REFERENCE;
+    g_iSetupCountdownArmedMask = 0;
+    g_fLastSetupCountdownRemaining = -1.0;
+}
+
+static void ResetLiveCountdownTracking()
+{
+    RestoreTrackedLiveAutoCountdown();
+    g_iTrackedLiveCountdownTimerRef = INVALID_ENT_REFERENCE;
+    g_iLiveCountdownArmedMask = 0;
+    g_fLastLiveCountdownRemaining = -1.0;
+    g_bTrackedLiveAutoCountdownOriginal = false;
 }
 
 static void CancelCountdownMonitorTimer()
@@ -1600,7 +1832,8 @@ static void CancelCountdownMonitorTimer()
         delete g_hCountdownMonitorTimer;
         g_hCountdownMonitorTimer = INVALID_HANDLE;
     }
-    ResetCountdownTracking();
+    ResetSetupCountdownTracking();
+    ResetLiveCountdownTracking();
 }
 
 Action ChatCommandListener(int client, const char[] command, int argc)
