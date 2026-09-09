@@ -269,9 +269,7 @@ static bool WeaponsSound_EmitCustomMeleeAttribute(
 	if (!WeaponsSound_GetRandomMeleeSample(
 			soundEntry, sample, sizeof(sample)))
 	{
-		LogError("Unsupported %s game sound '%s' for weapon %d",
-			context, soundEntry, weapon);
-		return false;
+		strcopy(sample, sizeof(sample), soundEntry);
 	}
 
 	if (!PrecacheSound(sample, true))
@@ -449,7 +447,7 @@ static void WeaponsSound_ValidateCustomMeleeAttribute(
 	if (!WeaponsSound_PrecacheMeleeEntry(soundEntry))
 	{
 		LogError(
-			"Item uid '%s' could not precache game sound '%s' for attribute '%s'",
+			"Item uid '%s' could not precache melee sound '%s' for attribute '%s'",
 			itemUid, soundEntry, attribute);
 	}
 }
@@ -481,7 +479,7 @@ static bool WeaponsSound_PrecacheMeleeEntry(const char[] soundEntry)
 		return success;
 	}
 
-	return false;
+	return PrecacheSound(soundEntry, true);
 }
 
 void WeaponsSound_LoadGroups(KeyValues config)
